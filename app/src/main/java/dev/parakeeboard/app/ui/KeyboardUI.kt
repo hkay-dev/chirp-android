@@ -60,7 +60,7 @@ fun KeyboardUI(
 ) {
     val state by stateFlow.collectAsState()
 
-    ParakeetTheme(darkTheme = true) {
+    ParakeetTheme {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
