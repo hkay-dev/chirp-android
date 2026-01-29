@@ -5,3 +5,26 @@ AGENTS.md
 .rambles
 .tend-stack
 docs/plans/
+
+# Gradle
+.gradle/
+build/
+app/build/
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# Generated docs
+ANDROID_CONFIG_TEMPLATES.md
+DOCUMENTATION_INDEX.md
+FILE_STRUCTURE_REFERENCE.txt
+MINIMAL_VOICE_IME_TEMPLATE.kt
+README_VOICE_IME.md
+VOICE_IME_IMPLEMENTATION_GUIDE.md
+VOICE_IME_QUICK_REFERENCE.md
+VOICE_IME_RESEARCH_SUMMARY.md
+
+# OS
+.DS_Store
