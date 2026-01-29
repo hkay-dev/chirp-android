@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.util.Log
 import android.view.View
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
@@ -18,12 +19,14 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.parakeeboard.app.download.ModelDownloader
+import dev.parakeeboard.app.llm.TextProcessor
 import dev.parakeeboard.app.ui.KeyboardUI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -47,6 +50,10 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
     private val recorder = VoiceRecorder()
     private lateinit var recognizer: SherpaRecognizer
     private lateinit var downloader: ModelDownloader
+    private lateinit var textProcessor: TextProcessor
+    private lateinit var prefs: Preferences
+
+    private val _llmEnabled = MutableStateFlow(true)
 
     private var recordingJob: Job? = null
     
@@ -68,8 +75,17 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
 
         recognizer = SherpaRecognizer(this)
         downloader = ModelDownloader(this)
+        textProcessor = TextProcessor()
+        prefs = Preferences(this)
+        _llmEnabled.value = prefs.llmEnabled
 
         initializeModel()
+    }
+
+    private fun toggleLlm() {
+        val newValue = !_llmEnabled.value
+        _llmEnabled.value = newValue
+        prefs.llmEnabled = newValue
     }
 
     private fun initializeModel() {
@@ -103,9 +119,12 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
             setViewTreeLifecycleOwner(this@ParakeetKeyboardService)
             setViewTreeSavedStateRegistryOwner(this@ParakeetKeyboardService)
             setContent {
+                val llmEnabled = _llmEnabled.collectAsState()
                 KeyboardUI(
                     stateFlow = state,
-                    onTap = ::onTap
+                    llmEnabled = llmEnabled.value,
+                    onTap = ::onTap,
+                    onToggleLlm = ::toggleLlm
                 )
             }
         }
@@ -210,14 +229,40 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
 
         scope.launch {
             try {
-                val text = recognizer.transcribe(samples)
-                Log.d(TAG, "Transcribed: $text")
+                val rawText = recognizer.transcribe(samples)
+                Log.d(TAG, "Transcribed: $rawText")
 
-                if (text.isNotBlank()) {
-                    currentInputConnection?.commitText(text, 1)
+                if (rawText.isBlank()) {
+                    _state.value = KeyboardState.Idle
+                    return@launch
                 }
 
-                _state.value = KeyboardState.Idle
+                // LLM post-processing if enabled
+                if (_llmEnabled.value) {
+                    _state.value = KeyboardState.Polishing
+                    val result = textProcessor.process(rawText)
+                    
+                    result.fold(
+                        onSuccess = { polishedText ->
+                            Log.d(TAG, "Polished: $polishedText")
+                            currentInputConnection?.commitText(polishedText, 1)
+                            _state.value = KeyboardState.Idle
+                        },
+                        onFailure = { error ->
+                            Log.e(TAG, "LLM failed, using raw text", error)
+                            currentInputConnection?.commitText(rawText, 1)
+                            _state.value = KeyboardState.LlmError("LLM failed: ${error.message}")
+                            // Auto-clear error after 3 seconds
+                            delay(3000)
+                            if (_state.value is KeyboardState.LlmError) {
+                                _state.value = KeyboardState.Idle
+                            }
+                        }
+                    )
+                } else {
+                    currentInputConnection?.commitText(rawText, 1)
+                    _state.value = KeyboardState.Idle
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Transcription failed", e)
                 _state.value = KeyboardState.Error("Transcription failed: ${e.message}")
