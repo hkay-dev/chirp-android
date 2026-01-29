@@ -18,6 +18,8 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import dev.parakeeboard.app.db.AppDatabase
+import dev.parakeeboard.app.db.Transcription
 import dev.parakeeboard.app.download.ModelDownloader
 import dev.parakeeboard.app.llm.TextProcessor
 import dev.parakeeboard.app.ui.KeyboardUI
@@ -52,6 +54,7 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
     private lateinit var downloader: ModelDownloader
     private lateinit var textProcessor: TextProcessor
     private lateinit var prefs: Preferences
+    private lateinit var db: AppDatabase
 
     private val _llmEnabled = MutableStateFlow(true)
 
@@ -77,9 +80,16 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
         downloader = ModelDownloader(this)
         textProcessor = TextProcessor()
         prefs = Preferences(this)
+        db = AppDatabase.getInstance(this)
         _llmEnabled.value = prefs.llmEnabled
 
         initializeModel()
+    }
+
+    private fun saveTranscription(rawText: String, processedText: String?) {
+        scope.launch(Dispatchers.IO) {
+            db.transcriptionDao().insert(Transcription(rawText = rawText, processedText = processedText))
+        }
     }
 
     private fun toggleLlm() {
@@ -246,11 +256,13 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
                         onSuccess = { polishedText ->
                             Log.d(TAG, "Polished: $polishedText")
                             currentInputConnection?.commitText(polishedText, 1)
+                            saveTranscription(rawText, polishedText)
                             _state.value = KeyboardState.Idle
                         },
                         onFailure = { error ->
                             Log.e(TAG, "LLM failed, using raw text", error)
                             currentInputConnection?.commitText(rawText, 1)
+                            saveTranscription(rawText, null)
                             _state.value = KeyboardState.LlmError("LLM failed: ${error.message}")
                             // Auto-clear error after 3 seconds
                             delay(3000)
@@ -261,6 +273,7 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
                     )
                 } else {
                     currentInputConnection?.commitText(rawText, 1)
+                    saveTranscription(rawText, null)
                     _state.value = KeyboardState.Idle
                 }
             } catch (e: Exception) {
