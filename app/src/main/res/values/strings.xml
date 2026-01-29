@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Parakeet Keyboard</string>
+    <string name="keyboard_name">Parakeet Voice</string>
+    <string name="subtype_label">Voice Input</string>
+    <string name="tap_to_speak">Tap to speak</string>
+    <string name="tap_to_stop">Tap to stop</string>
+    <string name="processing">Processing…</string>
+    <string name="downloading_model">Downloading model…</string>
+    <string name="model_not_ready">Model not ready</string>
+    <string name="error_occurred">Error occurred</string>
+    <string name="enable_keyboard">Enable Keyboard</string>
+    <string name="select_keyboard">Select Keyboard</string>
+    <string name="grant_permission">Grant Microphone Permission</string>
+    <string name="setup_complete">Setup Complete</string>
+</resources>
