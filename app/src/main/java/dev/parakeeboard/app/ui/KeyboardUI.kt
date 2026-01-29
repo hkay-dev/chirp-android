@@ -1,31 +1,43 @@
 package dev.parakeeboard.app.ui
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,25 +45,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.parakeeboard.app.KeyboardState
+import dev.parakeeboard.app.ui.theme.ParakeetTheme
 import kotlinx.coroutines.flow.StateFlow
-
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF6750A4),
-    onPrimary = Color.White,
-    surface = Color(0xFF1C1B1F),
-    onSurface = Color.White,
-    error = Color(0xFFB3261E),
-    onError = Color.White
-)
-
-private val LlmActiveColor = Color(0xFF4CAF50)
-private val LlmInactiveColor = Color(0xFF666666)
 
 @Composable
 fun KeyboardUI(
@@ -62,12 +60,13 @@ fun KeyboardUI(
 ) {
     val state by stateFlow.collectAsState()
 
-    MaterialTheme(colorScheme = DarkColors) {
+    ParakeetTheme(darkTheme = true) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp),
-            color = MaterialTheme.colorScheme.surface
+                .heightIn(min = 200.dp, max = 280.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 2.dp
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // LLM Toggle in top-right corner
@@ -103,174 +102,121 @@ fun KeyboardUI(
 
 @Composable
 private fun LlmToggle(enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val bgColor = if (enabled) LlmActiveColor else LlmInactiveColor
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(bgColor.copy(alpha = 0.3f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-    ) {
-        Text(
-            text = if (enabled) "LLM ON" else "LLM OFF",
-            color = if (enabled) LlmActiveColor else Color.Gray,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
+    FilterChip(
+        selected = enabled,
+        onClick = onClick,
+        label = { Text("LLM", style = MaterialTheme.typography.labelMedium) },
+        leadingIcon = if (enabled) {
+            { Icon(Icons.Filled.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
+        } else null,
+        modifier = modifier,
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
         )
-    }
+    )
 }
 
 @Composable
 private fun IdleContent(onTap: () -> Unit) {
-    val color = MaterialTheme.colorScheme.primary
-    Box(
-        modifier = Modifier
-            .size(80.dp)
-            .background(color, CircleShape)
-            .clickable(onClick = onTap),
-        contentAlignment = Alignment.Center
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        MicIcon(color = Color.White)
+        LargeFloatingActionButton(
+            onClick = onTap,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) {
+            Icon(Icons.Filled.Mic, "Start recording", Modifier.size(36.dp))
+        }
+        Text("Tap to speak", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    Text(
-        text = "Tap to speak",
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(top = 16.dp)
-    )
 }
 
 @Composable
 private fun RecordingContent(onTap: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
     val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.2f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
+        initialValue = 1f, targetValue = 1.1f,
+        animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
         label = "pulse"
     )
-
-    val color by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.error,
-        label = "color"
-    )
-
-    Box(
-        modifier = Modifier
-            .size(80.dp)
-            .scale(scale)
-            .background(color, CircleShape)
-            .clickable(onClick = onTap),
-        contentAlignment = Alignment.Center
-    ) {
-        StopIcon(color = Color.White)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        LargeFloatingActionButton(
+            onClick = onTap,
+            modifier = Modifier.scale(scale),
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer
+        ) {
+            Icon(Icons.Filled.Stop, "Stop recording", Modifier.size(36.dp))
+        }
+        Text("Tap to stop", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
     }
-    Text(
-        text = "Tap to stop",
-        color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.padding(top = 16.dp)
-    )
 }
 
 @Composable
 private fun ProcessingContent(message: String) {
-    CircularProgressIndicator(
-        modifier = Modifier.size(80.dp),
-        color = MaterialTheme.colorScheme.primary,
-        strokeWidth = 4.dp
-    )
-    Text(
-        text = message,
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(top = 16.dp)
-    )
-}
-
-@Composable
-private fun LlmErrorContent(message: String) {
-    Text(
-        text = message,
-        color = MaterialTheme.colorScheme.error,
-        textAlign = TextAlign.Center,
-        fontSize = 12.sp,
-        modifier = Modifier.padding(horizontal = 16.dp)
-    )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(48.dp),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            strokeWidth = 4.dp
+        )
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
 private fun DownloadingContent(progress: Float) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(horizontal = 32.dp)
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 32.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         LinearProgressIndicator(
-            progress = progress,
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.primary
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
         )
-        Text(
-            text = "Downloading model... ${(progress * 100).toInt()}%",
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(top = 16.dp)
-        )
+        Text("Downloading model... ${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ErrorContent(message: String, onTap: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(horizontal = 24.dp)) {
+        Icon(Icons.Filled.ErrorOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+        FilledTonalButton(
+            onClick = onTap,
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
+        ) {
+            Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Retry")
+        }
+    }
+}
+
+@Composable
+private fun LlmErrorContent(message: String) {
+    Row(
+        modifier = Modifier.padding(horizontal = 24.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.errorContainer).padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.Warning, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
+        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
     }
 }
 
 @Composable
 private fun ModelNotReadyContent() {
-    Text(
-        text = "Model not ready\nOpen app to download",
-        color = MaterialTheme.colorScheme.onSurface,
-        textAlign = TextAlign.Center
-    )
-}
-
-@Composable
-private fun ErrorContent(message: String, onTap: () -> Unit) {
-    Text(
-        text = message,
-        color = MaterialTheme.colorScheme.error,
-        textAlign = TextAlign.Center,
-        modifier = Modifier
-            .padding(horizontal = 16.dp)
-            .clickable(onClick = onTap)
-    )
-    Text(
-        text = "Tap to retry",
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.padding(top = 8.dp)
-    )
-}
-
-@Composable
-private fun MicIcon(color: Color) {
-    // Simple mic representation using a circle and stem
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(20.dp, 28.dp)
-                .background(color, CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .size(4.dp, 8.dp)
-                .background(color)
-        )
-        Box(
-            modifier = Modifier
-                .size(24.dp, 4.dp)
-                .background(color)
-        )
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(Icons.Filled.ErrorOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Model not ready", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text("Open app to download", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
-
-@Composable
-private fun StopIcon(color: Color) {
-    Box(
-        modifier = Modifier
-            .size(28.dp)
-            .background(color)
-    )
 }

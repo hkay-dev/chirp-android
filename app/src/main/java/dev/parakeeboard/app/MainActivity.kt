@@ -10,32 +10,49 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -49,32 +66,22 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import dev.parakeeboard.app.db.AppDatabase
 import dev.parakeeboard.app.db.Transcription
 import dev.parakeeboard.app.download.ModelDownloader
 import dev.parakeeboard.app.llm.TextProcessor
+import dev.parakeeboard.app.ui.theme.ParakeetTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-private val DarkColors = darkColorScheme(
-    primary = Color(0xFF6750A4),
-    onPrimary = Color.White,
-    surface = Color(0xFF1C1B1F),
-    onSurface = Color.White,
-    surfaceVariant = Color(0xFF49454F),
-    onSurfaceVariant = Color(0xFFCAC4D0)
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,7 +94,7 @@ class MainActivity : ComponentActivity() {
         )
 
         setContent {
-            MaterialTheme(colorScheme = DarkColors) {
+            ParakeetTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.surface
@@ -102,27 +109,35 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Setup", "History")
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        TabRow(selectedTabIndex = selectedTab) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = selectedTab == index,
-                    onClick = { selectedTab = index },
-                    text = { Text(title) }
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    icon = { Icon(if (selectedTab == 0) Icons.Filled.Settings else Icons.Outlined.Settings, null) },
+                    label = { Text("Setup") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    icon = { Icon(if (selectedTab == 1) Icons.Filled.History else Icons.Outlined.History, null) },
+                    label = { Text("History") }
                 )
             }
         }
-
-        when (selectedTab) {
-            0 -> SetupScreen()
-            1 -> HistoryScreen()
+    ) { paddingValues ->
+        Box(modifier = Modifier.padding(paddingValues)) {
+            when (selectedTab) {
+                0 -> SetupScreen()
+                1 -> HistoryScreen()
+            }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun HistoryScreen() {
     val context = LocalContext.current
@@ -132,75 +147,86 @@ private fun HistoryScreen() {
     val textProcessor = remember { TextProcessor() }
     var reprocessingId by remember { mutableStateOf<Long?>(null) }
 
-    if (transcriptions.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "No transcriptions yet",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("History") }
             )
         }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(transcriptions, key = { it.id }) { transcription ->
-                val dismissState = rememberSwipeToDismissBoxState(
-                    confirmValueChange = { value ->
-                        if (value == SwipeToDismissBoxValue.EndToStart) {
-                            scope.launch(Dispatchers.IO) {
-                                db.transcriptionDao().delete(transcription)
-                            }
-                            true
-                        } else false
-                    }
+    ) { paddingValues ->
+        if (transcriptions.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "No transcriptions yet",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
-                SwipeToDismissBox(
-                    state = dismissState,
-                    backgroundContent = {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 16.dp),
-                            contentAlignment = Alignment.CenterEnd
-                        ) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    enableDismissFromStartToEnd = false
-                ) {
-                    TranscriptionCard(
-                        transcription = transcription,
-                        isReprocessing = reprocessingId == transcription.id,
-                        onCopy = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val text = transcription.processedText ?: transcription.rawText
-                            clipboard.setPrimaryClip(ClipData.newPlainText("transcription", text))
-                            Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                        },
-                        onReprocess = {
-                            if (reprocessingId == null) {
-                                reprocessingId = transcription.id
-                                scope.launch {
-                                    val result = textProcessor.process(transcription.rawText)
-                                    result.onSuccess { polished ->
-                                        withContext(Dispatchers.IO) {
-                                            db.transcriptionDao().update(
-                                                transcription.copy(processedText = polished)
-                                            )
-                                        }
-                                    }
-                                    reprocessingId = null
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(transcriptions, key = { it.id }) { transcription ->
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = { value ->
+                            if (value == SwipeToDismissBoxValue.EndToStart) {
+                                scope.launch(Dispatchers.IO) {
+                                    db.transcriptionDao().delete(transcription)
                                 }
-                            }
+                                true
+                            } else false
                         }
                     )
+
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        backgroundContent = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 16.dp),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                Text("Delete", color = MaterialTheme.colorScheme.error)
+                            }
+                        },
+                        enableDismissFromStartToEnd = false
+                    ) {
+                        TranscriptionCard(
+                            transcription = transcription,
+                            isReprocessing = reprocessingId == transcription.id,
+                            onCopy = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val text = transcription.processedText ?: transcription.rawText
+                                clipboard.setPrimaryClip(ClipData.newPlainText("transcription", text))
+                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                            },
+                            onReprocess = {
+                                if (reprocessingId == null) {
+                                    reprocessingId = transcription.id
+                                    scope.launch {
+                                        val result = textProcessor.process(transcription.rawText)
+                                        result.onSuccess { polished ->
+                                            withContext(Dispatchers.IO) {
+                                                db.transcriptionDao().update(
+                                                    transcription.copy(processedText = polished)
+                                                )
+                                            }
+                                        }
+                                        reprocessingId = null
+                                    }
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -217,19 +243,24 @@ private fun TranscriptionCard(
 ) {
     val dateFormat = remember { SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()) }
 
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onCopy,
                 onLongClick = onReprocess
             ),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = dateFormat.format(Date(transcription.timestamp)),
@@ -238,19 +269,21 @@ private fun TranscriptionCard(
                 )
                 if (isReprocessing) {
                     CircularProgressIndicator(
-                        modifier = Modifier.height(12.dp),
+                        modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp
                     )
                 } else if (transcription.processedText != null) {
-                    Text(
-                        text = "LLM",
-                        fontSize = 10.sp,
-                        color = Color(0xFF4CAF50)
+                    SuggestionChip(
+                        onClick = { },
+                        label = { Text("LLM", style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.height(24.dp),
+                        colors = SuggestionChipDefaults.suggestionChipColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = transcription.processedText ?: transcription.rawText,
@@ -261,20 +294,19 @@ private fun TranscriptionCard(
             )
 
             if (transcription.processedText != null && transcription.rawText != transcription.processedText) {
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Raw: ${transcription.rawText}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    fontSize = 10.sp
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SetupScreen() {
     val context = LocalContext.current
@@ -298,121 +330,116 @@ private fun SetupScreen() {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Parakeet Keyboard",
-            style = MaterialTheme.typography.headlineLarge,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "Offline voice-to-text input",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        Spacer(modifier = Modifier.height(48.dp))
-
-        SetupStep(
-            number = 1,
-            title = "Download Model",
-            description = if (!isModelDownloaded) "~660 MB Parakeet model" else "Model downloaded",
-            isComplete = isModelDownloaded,
-            isInProgress = isDownloading,
-            progress = downloadProgress,
-            error = downloadError,
-            buttonText = if (isDownloading) "Downloading..." else "Download",
-            onAction = {
-                if (!isDownloading && !isModelDownloaded) {
-                    isDownloading = true
-                    downloadError = null
-                }
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Parakeet Keyboard") }
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            item {
+                Text(
+                    text = "Offline voice-to-text input",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-        )
 
-        if (isDownloading) {
-            LaunchedEffect(Unit) {
-                downloader.downloadModel().collect { state ->
-                    when (state) {
-                        is ModelDownloader.DownloadState.Progress -> {
-                            downloadProgress = state.bytesDownloaded.toFloat() / state.totalBytes
+            item {
+                SetupStepCard(
+                    number = 1,
+                    title = "Download Model",
+                    description = if (!isModelDownloaded) "~660 MB Parakeet model" else "Model downloaded",
+                    isComplete = isModelDownloaded,
+                    isInProgress = isDownloading,
+                    progress = downloadProgress,
+                    error = downloadError,
+                    buttonText = if (isDownloading) "Downloading..." else "Download",
+                    onAction = {
+                        if (!isDownloading && !isModelDownloaded) {
+                            isDownloading = true
+                            downloadError = null
                         }
-                        is ModelDownloader.DownloadState.Complete -> {
-                            isDownloading = false
-                            isModelDownloaded = true
-                            isModelLoading = true
-                            withContext(Dispatchers.Default) {
-                                val recognizer = SherpaRecognizer(context)
-                                isModelReady = recognizer.initialize()
-                                recognizer.release()
+                    }
+                )
+            }
+
+            if (isDownloading) {
+                item {
+                    LaunchedEffect(Unit) {
+                        downloader.downloadModel().collect { state ->
+                            when (state) {
+                                is ModelDownloader.DownloadState.Progress -> {
+                                    downloadProgress = state.bytesDownloaded.toFloat() / state.totalBytes
+                                }
+                                is ModelDownloader.DownloadState.Complete -> {
+                                    isDownloading = false
+                                    isModelDownloaded = true
+                                    isModelLoading = true
+                                    withContext(Dispatchers.Default) {
+                                        val recognizer = SherpaRecognizer(context)
+                                        isModelReady = recognizer.initialize()
+                                        recognizer.release()
+                                    }
+                                    isModelLoading = false
+                                }
+                                is ModelDownloader.DownloadState.Error -> {
+                                    isDownloading = false
+                                    downloadError = state.message
+                                }
                             }
-                            isModelLoading = false
-                        }
-                        is ModelDownloader.DownloadState.Error -> {
-                            isDownloading = false
-                            downloadError = state.message
                         }
                     }
                 }
             }
-        }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        SetupStep(
-            number = 2,
-            title = "Enable Keyboard",
-            description = "Enable in system settings",
-            isComplete = isKeyboardEnabled(context),
-            buttonText = "Enable",
-            onAction = {
-                context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+            item {
+                SetupStepCard(
+                    number = 2,
+                    title = "Enable Keyboard",
+                    description = "Enable in system settings",
+                    isComplete = isKeyboardEnabled(context),
+                    buttonText = "Enable",
+                    onAction = {
+                        context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                    }
+                )
             }
-        )
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        SetupStep(
-            number = 3,
-            title = "Select Keyboard",
-            description = "Choose Parakeet as input",
-            isComplete = isKeyboardSelected(context),
-            buttonText = "Select",
-            onAction = {
-                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showInputMethodPicker()
+            item {
+                SetupStepCard(
+                    number = 3,
+                    title = "Select Keyboard",
+                    description = "Choose Parakeet as input",
+                    isComplete = isKeyboardSelected(context),
+                    buttonText = "Select",
+                    onAction = {
+                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showInputMethodPicker()
+                    }
+                )
             }
-        )
 
-        Spacer(modifier = Modifier.height(48.dp))
-
-        if (isModelLoading) {
-            CircularProgressIndicator()
-            Text(
-                text = "Loading model...",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        } else if (isModelReady) {
-            Text(
-                text = "Model ready!",
-                color = Color(0xFF4CAF50),
-                style = MaterialTheme.typography.titleMedium
-            )
+            item {
+                ModelStatusIndicator(
+                    isLoading = isModelLoading,
+                    isReady = isModelReady
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SetupStep(
+private fun SetupStepCard(
     number: Int,
     title: String,
     description: String,
@@ -423,57 +450,138 @@ private fun SetupStep(
     buttonText: String,
     onAction: () -> Unit
 ) {
-    Column(
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
-        Text(
-            text = "$number. $title",
-            style = MaterialTheme.typography.titleMedium,
-            color = if (isComplete) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface
-        )
-
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        if (isInProgress) {
-            LinearProgressIndicator(
-                progress = progress,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            )
-            Text(
-                text = "${(progress * 100).toInt()}%",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        } else if (error != null) {
-            Text(
-                text = error,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-        }
-
-        if (!isComplete && !isInProgress) {
-            Button(
-                onClick = onAction,
-                modifier = Modifier.padding(top = 8.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Step indicator circle
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = when {
+                    isComplete -> MaterialTheme.colorScheme.primaryContainer
+                    isInProgress -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceContainerHighest
+                }
             ) {
-                Text(buttonText)
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (isComplete) {
+                        Icon(
+                            Icons.Filled.Check,
+                            contentDescription = "Complete",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text(
+                            text = number.toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
-        } else if (isComplete) {
-            Text(
-                text = "Done",
-                color = Color(0xFF4CAF50),
-                modifier = Modifier.padding(top = 8.dp)
-            )
+
+            // Content column
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (isInProgress) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                    )
+                    Text(
+                        text = "${(progress * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                error?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            // Action button
+            if (!isComplete && !isInProgress) {
+                FilledTonalButton(onClick = onAction) {
+                    Text(buttonText)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelStatusIndicator(isLoading: Boolean, isReady: Boolean) {
+    AnimatedContent(
+        targetState = when {
+            isLoading -> "loading"
+            isReady -> "ready"
+            else -> "idle"
+        },
+        label = "status"
+    ) { state ->
+        when (state) {
+            "loading" -> Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = "Loading model...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            "ready" -> Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Model ready",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
