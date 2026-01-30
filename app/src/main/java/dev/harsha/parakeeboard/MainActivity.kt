@@ -31,8 +31,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CardDefaults
@@ -113,6 +115,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MainScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val db = remember { AppDatabase.getInstance(context) }
 
     Scaffold(
         bottomBar = {
@@ -120,22 +124,29 @@ private fun MainScreen() {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Icon(if (selectedTab == 0) Icons.Filled.Settings else Icons.Outlined.Settings, null) },
-                    label = { Text("Setup") }
+                    icon = { Icon(if (selectedTab == 0) Icons.Filled.History else Icons.Outlined.History, null) },
+                    label = { Text("History") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Icon(if (selectedTab == 1) Icons.Filled.History else Icons.Outlined.History, null) },
-                    label = { Text("History") }
+                    icon = { Icon(if (selectedTab == 1) Icons.Filled.Edit else Icons.Outlined.Edit, null) },
+                    label = { Text("Notes") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    icon = { Icon(if (selectedTab == 2) Icons.Filled.Settings else Icons.Outlined.Settings, null) },
+                    label = { Text("Settings") }
                 )
             }
         }
     ) { paddingValues ->
         Box(modifier = Modifier.padding(paddingValues)) {
             when (selectedTab) {
-                0 -> SetupScreen()
-                1 -> HistoryScreen()
+                0 -> HistoryScreen()
+                1 -> NotesScreen(db)
+                2 -> SettingsScreen()
             }
         }
     }
