@@ -54,11 +54,13 @@ import kotlinx.coroutines.flow.StateFlow
 @Composable
 fun KeyboardUI(
     stateFlow: StateFlow<KeyboardState>,
+    amplitudesFlow: StateFlow<List<Float>>,
     llmEnabled: Boolean,
     onTap: () -> Unit,
     onToggleLlm: () -> Unit
 ) {
     val state by stateFlow.collectAsState()
+    val amplitudes by amplitudesFlow.collectAsState()
 
     ParakeetTheme {
         Surface(
@@ -86,7 +88,7 @@ fun KeyboardUI(
                 ) {
                     when (val currentState = state) {
                         is KeyboardState.Idle -> IdleContent(onTap)
-                        is KeyboardState.Recording -> RecordingContent(onTap)
+                        is KeyboardState.Recording -> RecordingContent(amplitudes, onTap)
                         is KeyboardState.Transcribing -> ProcessingContent("Transcribing...")
                         is KeyboardState.Polishing -> ProcessingContent("Polishing...")
                         is KeyboardState.Downloading -> DownloadingContent(currentState.progress)
@@ -135,14 +137,21 @@ private fun IdleContent(onTap: () -> Unit) {
 }
 
 @Composable
-private fun RecordingContent(onTap: () -> Unit) {
+private fun RecordingContent(amplitudes: List<Float>, onTap: () -> Unit) {
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f, targetValue = 1.1f,
         animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
         label = "pulse"
     )
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Waveform visualization
+        WaveformVisualizer(
+            amplitudes = amplitudes,
+            modifier = Modifier.height(40.dp),
+            barColor = MaterialTheme.colorScheme.error
+        )
+
         LargeFloatingActionButton(
             onClick = onTap,
             modifier = Modifier.scale(scale),

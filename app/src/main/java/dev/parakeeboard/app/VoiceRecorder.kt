@@ -5,9 +5,13 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 class VoiceRecorder {
     companion object {
@@ -19,6 +23,11 @@ class VoiceRecorder {
     private var audioRecord: AudioRecord? = null
     private val isRecording = AtomicBoolean(false)
     private val samples = mutableListOf<Float>()
+
+    // Amplitude tracking for waveform visualization
+    private val _amplitudes = MutableStateFlow<List<Float>>(emptyList())
+    val amplitudes: StateFlow<List<Float>> = _amplitudes.asStateFlow()
+    private val amplitudeHistory = mutableListOf<Float>()
 
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
@@ -44,6 +53,8 @@ class VoiceRecorder {
         }
 
         samples.clear()
+        amplitudeHistory.clear()
+        _amplitudes.value = emptyList()
         audioRecord?.startRecording()
         isRecording.set(true)
         return true
@@ -60,6 +71,20 @@ class VoiceRecorder {
                     for (i in 0 until read) {
                         samples.add(buffer[i])
                     }
+                }
+                // Calculate amplitude for visualization (RMS of buffer)
+                var sum = 0f
+                for (i in 0 until read) {
+                    sum += abs(buffer[i])
+                }
+                val amplitude = (sum / read).coerceIn(0f, 1f)
+                synchronized(amplitudeHistory) {
+                    amplitudeHistory.add(amplitude)
+                    // Keep last 5 samples for waveform display
+                    while (amplitudeHistory.size > 5) {
+                        amplitudeHistory.removeAt(0)
+                    }
+                    _amplitudes.value = amplitudeHistory.toList()
                 }
             }
         }
