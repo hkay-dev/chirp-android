@@ -132,6 +132,7 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
                 val llmEnabled = _llmEnabled.collectAsState()
                 KeyboardUI(
                     stateFlow = state,
+                    amplitudesFlow = recorder.amplitudes,
                     llmEnabled = llmEnabled.value,
                     onTap = ::onTap,
                     onToggleLlm = ::toggleLlm
@@ -217,6 +218,7 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
             return
         }
 
+        HapticFeedback.onRecordStart(this)
         _state.value = KeyboardState.Recording
 
         recordingJob = scope.launch {
@@ -227,6 +229,7 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
     private fun stopAndTranscribe() {
         Log.d(TAG, "Stopping recording and transcribing")
 
+        HapticFeedback.onRecordStop(this)
         recordingJob?.cancel()
         val samples = recorder.stop()
 
