@@ -28,15 +28,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeTopAppBar
@@ -71,10 +76,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.launch
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.FilterChip
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.FilterChipDefaults
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -560,6 +561,8 @@ private fun ProcessingSection(
     val customPrompt by modeRepository.customPrompt.collectAsState(initial = "")
     var editingPrompt by remember { mutableStateOf("") }
     var isEditingCustom by remember { mutableStateOf(false) }
+    var isDropdownExpanded by remember { mutableStateOf(false) }
+    var isPromptExpanded by remember { mutableStateOf(false) }
 
     // Sync editing prompt when custom prompt changes
     LaunchedEffect(customPrompt) {
@@ -591,34 +594,108 @@ private fun ProcessingSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Mode chips
-            val currentModeId = currentMode?.id
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SettingsModeChip("proofread", "Proofread", currentModeId, scope, modeRepository)
-                SettingsModeChip("formal", "Formal", currentModeId, scope, modeRepository)
-                SettingsModeChip("casual", "Casual", currentModeId, scope, modeRepository)
-                SettingsModeChip("email", "Email", currentModeId, scope, modeRepository)
-                SettingsModeChip("code", "Code", currentModeId, scope, modeRepository)
-                SettingsModeChip("smart", "Smart", currentModeId, scope, modeRepository)
-                // Custom chip
-                FilterChip(
-                    selected = currentMode is ProcessingMode.Custom,
-                    onClick = {
-                        scope.launch {
-                            modeRepository.setCustomPrompt(editingPrompt.ifBlank { "Clean up this transcript." })
-                        }
-                    },
-                    label = { Text("Custom") },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+            // Mode selector dropdown
+            Box {
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isDropdownExpanded = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = currentMode?.displayName ?: "Loading...",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Icon(
+                            imageVector = Icons.Filled.ArrowDropDown,
+                            contentDescription = "Select mode"
+                        )
+                    }
+                }
+                
+                DropdownMenu(
+                    expanded = isDropdownExpanded,
+                    onDismissRequest = { isDropdownExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Proofread") },
+                        onClick = {
+                            scope.launch { modeRepository.setMode(ProcessingMode.Proofread) }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Proofread) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
                     )
-                )
+                    DropdownMenuItem(
+                        text = { Text("Formal") },
+                        onClick = {
+                            scope.launch { modeRepository.setMode(ProcessingMode.Formal) }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Formal) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Casual") },
+                        onClick = {
+                            scope.launch { modeRepository.setMode(ProcessingMode.Casual) }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Casual) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Email") },
+                        onClick = {
+                            scope.launch { modeRepository.setMode(ProcessingMode.Email) }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Email) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Code") },
+                        onClick = {
+                            scope.launch { modeRepository.setMode(ProcessingMode.Code) }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Code) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Smart") },
+                        onClick = {
+                            scope.launch { modeRepository.setMode(ProcessingMode.Smart) }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Smart) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Custom") },
+                        onClick = {
+                            scope.launch {
+                                modeRepository.setCustomPrompt(editingPrompt.ifBlank { "Clean up this transcript." })
+                            }
+                            isDropdownExpanded = false
+                        },
+                        trailingIcon = if (currentMode is ProcessingMode.Custom) {
+                            { Icon(Icons.Filled.Check, contentDescription = "Selected") }
+                        } else null
+                    )
+                }
             }
 
             // Mode description
@@ -637,6 +714,85 @@ private fun ProcessingSection(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Prompt preview section (for non-Smart modes)
+            if (currentMode != null && currentMode !is ProcessingMode.Smart) {
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isPromptExpanded = !isPromptExpanded }
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "System Prompt",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            val rotationAngle by animateFloatAsState(
+                                targetValue = if (isPromptExpanded) 180f else 0f,
+                                label = "arrow rotation"
+                            )
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = if (isPromptExpanded) "Collapse" else "Expand",
+                                modifier = Modifier.rotate(rotationAngle)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isPromptExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Duplicate button (only for built-in modes)
+                                if (currentMode !is ProcessingMode.Custom) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            currentMode?.prompt?.let { prompt ->
+                                                editingPrompt = prompt
+                                                scope.launch {
+                                                    modeRepository.setCustomPrompt(prompt)
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.align(Alignment.End)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.ContentCopy,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.size(8.dp))
+                                        Text("Duplicate & Edit")
+                                    }
+                                }
+
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = MaterialTheme.shapes.small
+                                ) {
+                                    Text(
+                                        text = currentMode?.prompt ?: "No prompt available",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(12.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Custom prompt editor (shown when Custom is selected or for editing)
             AnimatedVisibility(
@@ -693,37 +849,14 @@ private fun checkKeyboardSelected(context: Context): Boolean {
     return defaultIme?.contains(context.packageName) == true
 }
 
-@Composable
-private fun SettingsModeChip(
-    id: String,
-    label: String,
-    currentModeId: String?,
-    scope: kotlinx.coroutines.CoroutineScope,
-    modeRepository: ProcessingModeRepository
-) {
-     FilterChip(
-        selected = currentModeId == id,
-        onClick = {
-            scope.launch {
-                modeRepository.setMode(ProcessingMode.fromId(id))
-            }
-        },
-        label = { Text(label) },
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-        )
-    )
-}
+
 
 @Composable
 private fun MicrophoneSettingsSection(prefs: Preferences) {
     var gain by remember { mutableFloatStateOf(prefs.microphoneGain) }
     
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
