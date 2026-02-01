@@ -60,7 +60,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         
         prefs = Preferences(this)
         modeRepository = ProcessingModeRepository(this)
-        textProcessor = TextProcessor()
+        textProcessor = TextProcessor(prefs.geminiApiKey, prefs.geminiModel)
         
         // Get singleton recognizer (already initialized by keyboard service)
         lifecycleScope.launch {

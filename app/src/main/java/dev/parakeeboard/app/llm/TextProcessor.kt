@@ -8,13 +8,15 @@ import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
 import retrofit2.http.Query
+import retrofit2.http.Url
 
-class TextProcessor {
+class TextProcessor(
+    private val apiKey: String,
+    private val modelName: String
+) {
     companion object {
         private const val TAG = "TextProcessor"
-        private const val API_KEY = ""
         private const val BASE_URL = "https://generativelanguage.googleapis.com/"
-        private const val MODEL = "gemini-flash-lite-latest"
 
         // Code-like patterns for Smart mode detection
         private val CODE_PATTERNS = listOf(
@@ -43,7 +45,8 @@ class TextProcessor {
             val prompt = resolvePrompt(text, mode)
             val fullPrompt = prompt + text + "\n</transcript>"
             val request = GeminiRequest.of(fullPrompt)
-            val response = api.generate(API_KEY, request)
+            val url = "v1beta/models/$modelName:generateContent"
+            val response = api.generate(url, apiKey, request)
 
             if (response.error != null) {
                 Log.e(TAG, "API error: ${response.error.message}")
@@ -89,8 +92,9 @@ class TextProcessor {
     }
 
     private interface GeminiApi {
-        @POST("v1beta/models/$MODEL:generateContent")
+        @POST
         suspend fun generate(
+            @Url url: String,
             @Query("key") apiKey: String,
             @Body request: GeminiRequest
         ): GeminiResponse
