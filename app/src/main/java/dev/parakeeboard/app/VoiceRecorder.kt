@@ -23,6 +23,9 @@ class VoiceRecorder {
     private var audioRecord: AudioRecord? = null
     private val isRecording = AtomicBoolean(false)
     private val samples = mutableListOf<Float>()
+    
+    /** Microphone gain multiplier (1.0 = no boost, 2.0 = double volume, etc.) */
+    var gainMultiplier: Float = 1.0f
 
     // Amplitude tracking for waveform visualization
     private val _amplitudes = MutableStateFlow<List<Float>>(emptyList())
@@ -69,13 +72,15 @@ class VoiceRecorder {
             if (read > 0) {
                 synchronized(samples) {
                     for (i in 0 until read) {
-                        samples.add(buffer[i])
+                        // Apply gain boost and clamp to prevent distortion
+                        val boostedSample = (buffer[i] * gainMultiplier).coerceIn(-1f, 1f)
+                        samples.add(boostedSample)
                     }
                 }
                 // Calculate amplitude for visualization (RMS of buffer)
                 var sum = 0f
                 for (i in 0 until read) {
-                    sum += abs(buffer[i])
+                    sum += abs(buffer[i] * gainMultiplier)
                 }
                 val amplitude = (sum / read).coerceIn(0f, 1f)
                 synchronized(amplitudeHistory) {

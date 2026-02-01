@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,10 +24,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
@@ -35,6 +38,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -43,11 +47,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.parakeeboard.app.KeyboardState
@@ -63,7 +69,10 @@ fun KeyboardUI(
     currentMode: ProcessingMode?,
     onTap: () -> Unit,
     onToggleLlm: () -> Unit,
-    onModeChange: (ProcessingMode) -> Unit
+    onModeChange: (ProcessingMode) -> Unit,
+    onBackspace: () -> Unit = {},
+    onSpace: () -> Unit = {},
+    onMoveCursor: (Int) -> Unit = {}
 ) {
     val state by stateFlow.collectAsState()
     val amplitudes by amplitudesFlow.collectAsState()
@@ -97,7 +106,10 @@ fun KeyboardUI(
                             onTap = onTap,
                             llmEnabled = llmEnabled,
                             currentMode = currentMode,
-                            onModeChange = onModeChange
+                            onModeChange = onModeChange,
+                            onBackspace = onBackspace,
+                            onSpace = onSpace,
+                            onMoveCursor = onMoveCursor
                         )
                         is KeyboardState.Recording -> RecordingContent(amplitudes, onTap)
                         is KeyboardState.Transcribing -> ProcessingContent("Transcribing...")
@@ -135,7 +147,10 @@ private fun IdleContent(
     onTap: () -> Unit,
     llmEnabled: Boolean,
     currentMode: ProcessingMode?,
-    onModeChange: (ProcessingMode) -> Unit
+    onModeChange: (ProcessingMode) -> Unit,
+    onBackspace: () -> Unit,
+    onSpace: () -> Unit,
+    onMoveCursor: (Int) -> Unit
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -150,12 +165,92 @@ private fun IdleContent(
         }
         Text("Tap to speak", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
+        // Keyboard controls
+        KeyboardControls(
+            onBackspace = onBackspace,
+            onSpace = onSpace,
+            onMoveCursor = onMoveCursor
+        )
+
         // Mode selector - only show when LLM is enabled
         if (llmEnabled && currentMode != null) {
             ModeSelector(
                 currentMode = currentMode,
                 onModeChange = onModeChange
             )
+        }
+    }
+}
+
+@Composable
+private fun KeyboardControls(
+    onBackspace: () -> Unit,
+    onSpace: () -> Unit,
+    onMoveCursor: (Int) -> Unit
+) {
+    val dragOffset = remember { mutableFloatStateOf(0f) }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Backspace button
+        IconButton(
+            onClick = onBackspace,
+            modifier = Modifier
+                .background(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    RoundedCornerShape(8.dp)
+                )
+                .size(48.dp)
+        ) {
+            Icon(
+                Icons.Filled.Backspace,
+                contentDescription = "Delete",
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+        
+        // Space button with swipe gesture
+        FilledTonalButton(
+            onClick = onSpace,
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragOffset.floatValue = 0f },
+                        onDragEnd = {
+                            // Reset offset
+                            dragOffset.floatValue = 0f
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            dragOffset.floatValue += dragAmount
+                            // Move cursor when drag exceeds threshold
+                            val threshold = 30f
+                            if (kotlin.math.abs(dragOffset.floatValue) >= threshold) {
+                                val direction = if (dragOffset.floatValue > 0) 1 else -1
+                                onMoveCursor(direction)
+                                dragOffset.floatValue = 0f
+                            }
+                        }
+                    )
+                },
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        ) {
+            Icon(
+                Icons.Filled.SpaceBar,
+                contentDescription = "Space",
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Space", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -175,7 +270,7 @@ private fun ModeSelector(
             .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
     ) {
-        ModeChip("raw", "Raw", currentId, onModeChange)
+        ModeChip("proofread", "Proofread", currentId, onModeChange)
         ModeChip("formal", "Formal", currentId, onModeChange)
         ModeChip("casual", "Casual", currentId, onModeChange)
         ModeChip("email", "Email", currentId, onModeChange)

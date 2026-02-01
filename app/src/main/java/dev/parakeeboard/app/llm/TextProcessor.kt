@@ -39,11 +39,6 @@ class TextProcessor {
         .create(GeminiApi::class.java)
 
     suspend fun process(text: String, mode: ProcessingMode): Result<String> = withContext(Dispatchers.IO) {
-        // Raw mode returns text unchanged without API call
-        if (mode == ProcessingMode.Raw) {
-            return@withContext Result.success(text)
-        }
-
         try {
             val prompt = resolvePrompt(text, mode)
             val fullPrompt = prompt + text + "\n</transcript>"
