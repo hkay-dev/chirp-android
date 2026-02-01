@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -43,6 +44,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
@@ -80,6 +82,7 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val downloader = remember { ModelDownloader(context) }
     val modeRepository = remember { ProcessingModeRepository(context) }
+    val prefs = remember { Preferences(context) }
     val scope = rememberCoroutineScope()
 
     // Model state
@@ -204,6 +207,13 @@ fun SettingsScreen() {
                 ProcessingSection(
                     modeRepository = modeRepository,
                     scope = scope
+                )
+            }
+
+            // Microphone Settings Section
+            item {
+                MicrophoneSettingsSection(
+                    prefs = prefs
                 )
             }
         }
@@ -589,7 +599,7 @@ private fun ProcessingSection(
                     .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                SettingsModeChip("raw", "Raw", currentModeId, scope, modeRepository)
+                SettingsModeChip("proofread", "Proofread", currentModeId, scope, modeRepository)
                 SettingsModeChip("formal", "Formal", currentModeId, scope, modeRepository)
                 SettingsModeChip("casual", "Casual", currentModeId, scope, modeRepository)
                 SettingsModeChip("email", "Email", currentModeId, scope, modeRepository)
@@ -613,7 +623,7 @@ private fun ProcessingSection(
 
             // Mode description
             val modeDescription = when (currentMode) {
-                is ProcessingMode.Raw -> "No LLM processing. Raw transcription only."
+                is ProcessingMode.Proofread -> "Basic proofreading: fix typos, punctuation, grammar while preserving your natural voice."
                 is ProcessingMode.Formal -> "Professional tone with proper grammar and punctuation."
                 is ProcessingMode.Casual -> "Light cleanup while keeping natural conversational tone."
                 is ProcessingMode.Email -> "Formats as a professional email with greeting and closing."
@@ -691,7 +701,7 @@ private fun SettingsModeChip(
     scope: kotlinx.coroutines.CoroutineScope,
     modeRepository: ProcessingModeRepository
 ) {
-    FilterChip(
+     FilterChip(
         selected = currentModeId == id,
         onClick = {
             scope.launch {
@@ -704,4 +714,48 @@ private fun SettingsModeChip(
             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
         )
     )
+}
+
+@Composable
+private fun MicrophoneSettingsSection(prefs: Preferences) {
+    var gain by remember { mutableFloatStateOf(prefs.microphoneGain) }
+    
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Microphone Settings",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            
+            Spacer(Modifier.height(12.dp))
+            
+            Text(
+                "Microphone Gain: ${String.format("%.1f", gain)}x",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Slider(
+                value = gain,
+                onValueChange = { 
+                    gain = it
+                    prefs.microphoneGain = it
+                },
+                valueRange = 1.0f..5.0f,
+                steps = 39,  // 0.1 increments from 1.0 to 5.0
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+            
+            Text(
+                "Boost microphone volume for quieter environments. Values above 2.0x may introduce distortion.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }

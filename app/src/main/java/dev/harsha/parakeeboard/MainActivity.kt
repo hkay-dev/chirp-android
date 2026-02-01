@@ -232,8 +232,8 @@ private fun HistoryScreen() {
                                 if (reprocessingId == null) {
                                     reprocessingId = transcription.id
                                     scope.launch {
-                                        // Use current mode, default to Formal if Raw
-                                        val mode = if (currentMode is ProcessingMode.Raw) ProcessingMode.Formal else currentMode
+                                        // Use current mode
+                                        val mode = currentMode
                                         val result = textProcessor.process(transcription.rawText, mode)
                                         result.onSuccess { polished ->
                                             withContext(Dispatchers.IO) {

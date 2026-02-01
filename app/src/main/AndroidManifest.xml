@@ -25,6 +25,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Voice Recognition Activity for RECOGNIZE_SPEECH intents -->
+        <activity
+            android:name=".VoiceRecognitionActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="stateAlwaysHidden"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Input Method Service -->
         <service
             android:name=".ParakeetKeyboardService"
@@ -38,6 +53,21 @@
             <meta-data
                 android:name="android.view.im"
                 android:resource="@xml/input_method" />
+        </service>
+
+        <!-- Recognition Service for Voice Input in Other Apps -->
+        <service
+            android:name=".ParakeetRecognitionService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_RECOGNITION_SERVICE">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.speech.recognition"
+                android:resource="@xml/recognition_service" />
         </service>
 
     </application>
