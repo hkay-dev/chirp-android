@@ -5,6 +5,7 @@ import android.inputmethodservice.InputMethodService
 import android.util.Log
 import android.view.View
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
@@ -21,6 +22,8 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dev.parakeeboard.app.db.AppDatabase
 import dev.parakeeboard.app.db.Transcription
 import dev.parakeeboard.app.download.ModelDownloader
+import dev.parakeeboard.app.llm.ProcessingMode
+import dev.parakeeboard.app.llm.ProcessingModeRepository
 import dev.parakeeboard.app.llm.TextProcessor
 import dev.parakeeboard.app.ui.KeyboardUI
 import kotlinx.coroutines.CoroutineScope
@@ -55,8 +58,10 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
     private lateinit var textProcessor: TextProcessor
     private lateinit var prefs: Preferences
     private lateinit var db: AppDatabase
+    private lateinit var modeRepository: ProcessingModeRepository
 
     private val _llmEnabled = MutableStateFlow(true)
+    private val _currentMode = MutableStateFlow<ProcessingMode>(ProcessingMode.Raw)
 
     private var recordingJob: Job? = null
     
@@ -81,7 +86,15 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
         textProcessor = TextProcessor()
         prefs = Preferences(this)
         db = AppDatabase.getInstance(this)
+        modeRepository = ProcessingModeRepository(this)
         _llmEnabled.value = prefs.llmEnabled
+
+        // Observe processing mode changes
+        scope.launch {
+            modeRepository.currentMode.collect { mode ->
+                _currentMode.value = mode
+            }
+        }
 
         initializeModel()
     }
@@ -96,6 +109,12 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
         val newValue = !_llmEnabled.value
         _llmEnabled.value = newValue
         prefs.llmEnabled = newValue
+    }
+
+    private fun changeMode(mode: ProcessingMode) {
+        scope.launch {
+            modeRepository.setMode(mode)
+        }
     }
 
     private fun initializeModel() {
@@ -130,12 +149,15 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
             setViewTreeSavedStateRegistryOwner(this@ParakeetKeyboardService)
             setContent {
                 val llmEnabled = _llmEnabled.collectAsState()
+                val currentMode by _currentMode.collectAsState(initial = ProcessingMode.Raw)
                 KeyboardUI(
                     stateFlow = state,
                     amplitudesFlow = recorder.amplitudes,
                     llmEnabled = llmEnabled.value,
+                    currentMode = currentMode,
                     onTap = ::onTap,
-                    onToggleLlm = ::toggleLlm
+                    onToggleLlm = ::toggleLlm,
+                    onModeChange = ::changeMode
                 )
             }
         }
@@ -250,10 +272,11 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
                     return@launch
                 }
 
-                // LLM post-processing if enabled
-                if (_llmEnabled.value) {
+                // LLM post-processing if enabled and not Raw mode
+                val mode = _currentMode.value
+                if (_llmEnabled.value && mode !is ProcessingMode.Raw) {
                     _state.value = KeyboardState.Polishing
-                    val result = textProcessor.process(rawText)
+                    val result = textProcessor.process(rawText, mode)
                     
                     result.fold(
                         onSuccess = { polishedText ->

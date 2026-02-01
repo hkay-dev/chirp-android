@@ -80,6 +80,8 @@ import androidx.core.app.ActivityCompat
 import dev.parakeeboard.app.db.AppDatabase
 import dev.parakeeboard.app.db.Transcription
 import dev.parakeeboard.app.download.ModelDownloader
+import dev.parakeeboard.app.llm.ProcessingMode
+import dev.parakeeboard.app.llm.ProcessingModeRepository
 import dev.parakeeboard.app.llm.TextProcessor
 import dev.parakeeboard.app.ui.theme.ParakeetTheme
 import kotlinx.coroutines.Dispatchers
@@ -160,6 +162,8 @@ private fun HistoryScreen() {
     val transcriptions by db.transcriptionDao().getAll().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     val textProcessor = remember { TextProcessor() }
+    val modeRepository = remember { ProcessingModeRepository(context) }
+    val currentMode by modeRepository.currentMode.collectAsState(initial = ProcessingMode.Formal)
     var reprocessingId by remember { mutableStateOf<Long?>(null) }
 
     Scaffold(
@@ -228,7 +232,9 @@ private fun HistoryScreen() {
                                 if (reprocessingId == null) {
                                     reprocessingId = transcription.id
                                     scope.launch {
-                                        val result = textProcessor.process(transcription.rawText)
+                                        // Use current mode, default to Formal if Raw
+                                        val mode = if (currentMode is ProcessingMode.Raw) ProcessingMode.Formal else currentMode
+                                        val result = textProcessor.process(transcription.rawText, mode)
                                         result.onSuccess { polished ->
                                             withContext(Dispatchers.IO) {
                                                 db.transcriptionDao().update(

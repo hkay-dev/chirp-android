@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -41,6 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +51,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.parakeeboard.app.KeyboardState
+import dev.parakeeboard.app.llm.ProcessingMode
 import dev.parakeeboard.app.ui.theme.ParakeetTheme
 import kotlinx.coroutines.flow.StateFlow
 
@@ -56,8 +60,10 @@ fun KeyboardUI(
     stateFlow: StateFlow<KeyboardState>,
     amplitudesFlow: StateFlow<List<Float>>,
     llmEnabled: Boolean,
+    currentMode: ProcessingMode?,
     onTap: () -> Unit,
-    onToggleLlm: () -> Unit
+    onToggleLlm: () -> Unit,
+    onModeChange: (ProcessingMode) -> Unit
 ) {
     val state by stateFlow.collectAsState()
     val amplitudes by amplitudesFlow.collectAsState()
@@ -87,7 +93,12 @@ fun KeyboardUI(
                     verticalArrangement = Arrangement.Center
                 ) {
                     when (val currentState = state) {
-                        is KeyboardState.Idle -> IdleContent(onTap)
+                        is KeyboardState.Idle -> IdleContent(
+                            onTap = onTap,
+                            llmEnabled = llmEnabled,
+                            currentMode = currentMode,
+                            onModeChange = onModeChange
+                        )
                         is KeyboardState.Recording -> RecordingContent(amplitudes, onTap)
                         is KeyboardState.Transcribing -> ProcessingContent("Transcribing...")
                         is KeyboardState.Polishing -> ProcessingContent("Polishing...")
@@ -120,10 +131,15 @@ private fun LlmToggle(enabled: Boolean, onClick: () -> Unit, modifier: Modifier 
 }
 
 @Composable
-private fun IdleContent(onTap: () -> Unit) {
+private fun IdleContent(
+    onTap: () -> Unit,
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode?,
+    onModeChange: (ProcessingMode) -> Unit
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         LargeFloatingActionButton(
             onClick = onTap,
@@ -133,7 +149,59 @@ private fun IdleContent(onTap: () -> Unit) {
             Icon(Icons.Filled.Mic, "Start recording", Modifier.size(36.dp))
         }
         Text("Tap to speak", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        // Mode selector - only show when LLM is enabled
+        if (llmEnabled && currentMode != null) {
+            ModeSelector(
+                currentMode = currentMode,
+                onModeChange = onModeChange
+            )
+        }
     }
+}
+
+@Composable
+private fun ModeSelector(
+    currentMode: ProcessingMode?,
+    onModeChange: (ProcessingMode) -> Unit
+) {
+    val scrollState = rememberScrollState()
+    val currentId = currentMode?.id
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState)
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+    ) {
+        ModeChip("raw", "Raw", currentId, onModeChange)
+        ModeChip("formal", "Formal", currentId, onModeChange)
+        ModeChip("casual", "Casual", currentId, onModeChange)
+        ModeChip("email", "Email", currentId, onModeChange)
+        ModeChip("code", "Code", currentId, onModeChange)
+        ModeChip("smart", "Smart", currentId, onModeChange)
+    }
+}
+
+@Composable
+private fun ModeChip(
+    id: String,
+    label: String,
+    currentId: String?,
+    onModeChange: (ProcessingMode) -> Unit
+) {
+    val mode = remember(id) { ProcessingMode.fromId(id) }
+    FilterChip(
+        selected = currentId == id,
+        onClick = { onModeChange(mode) },
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        modifier = Modifier.height(28.dp),
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
+        )
+    )
 }
 
 @Composable

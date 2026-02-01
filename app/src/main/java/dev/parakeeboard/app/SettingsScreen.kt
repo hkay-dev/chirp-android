@@ -61,14 +61,26 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.parakeeboard.app.download.ModelDownloader
+import dev.parakeeboard.app.llm.ProcessingMode
+import dev.parakeeboard.app.llm.ProcessingModeRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.launch
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChipDefaults
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen() {
     val context = LocalContext.current
     val downloader = remember { ModelDownloader(context) }
+    val modeRepository = remember { ProcessingModeRepository(context) }
+    val scope = rememberCoroutineScope()
 
     // Model state
     var isModelDownloaded by remember { mutableStateOf(false) }
@@ -187,9 +199,12 @@ fun SettingsScreen() {
                 )
             }
 
-            // Processing Section (Placeholder)
+            // Processing Section
             item {
-                ProcessingSection()
+                ProcessingSection(
+                    modeRepository = modeRepository,
+                    scope = scope
+                )
             }
         }
     }
@@ -527,32 +542,132 @@ private fun ModelStatusSection(
 }
 
 @Composable
-private fun ProcessingSection() {
-    OutlinedCard(
+private fun ProcessingSection(
+    modeRepository: ProcessingModeRepository,
+    scope: kotlinx.coroutines.CoroutineScope
+) {
+    val currentMode by modeRepository.currentMode.collectAsState(initial = null)
+    val customPrompt by modeRepository.customPrompt.collectAsState(initial = "")
+    var editingPrompt by remember { mutableStateOf("") }
+    var isEditingCustom by remember { mutableStateOf(false) }
+
+    // Sync editing prompt when custom prompt changes
+    LaunchedEffect(customPrompt) {
+        if (!isEditingCustom) {
+            editingPrompt = customPrompt
+        }
+    }
+
+    ElevatedCard(
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large
+        shape = MaterialTheme.shapes.large,
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Processing",
+                text = "Processing Mode",
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
+
             Text(
-                text = "Processing modes coming soon",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "Configure LLM post-processing, punctuation, and formatting options.",
+                text = "Choose how transcriptions are processed by the LLM.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            // Mode chips
+            val currentModeId = currentMode?.id
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingsModeChip("raw", "Raw", currentModeId, scope, modeRepository)
+                SettingsModeChip("formal", "Formal", currentModeId, scope, modeRepository)
+                SettingsModeChip("casual", "Casual", currentModeId, scope, modeRepository)
+                SettingsModeChip("email", "Email", currentModeId, scope, modeRepository)
+                SettingsModeChip("code", "Code", currentModeId, scope, modeRepository)
+                SettingsModeChip("smart", "Smart", currentModeId, scope, modeRepository)
+                // Custom chip
+                FilterChip(
+                    selected = currentMode is ProcessingMode.Custom,
+                    onClick = {
+                        scope.launch {
+                            modeRepository.setCustomPrompt(editingPrompt.ifBlank { "Clean up this transcript." })
+                        }
+                    },
+                    label = { Text("Custom") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                )
+            }
+
+            // Mode description
+            val modeDescription = when (currentMode) {
+                is ProcessingMode.Raw -> "No LLM processing. Raw transcription only."
+                is ProcessingMode.Formal -> "Professional tone with proper grammar and punctuation."
+                is ProcessingMode.Casual -> "Light cleanup while keeping natural conversational tone."
+                is ProcessingMode.Email -> "Formats as a professional email with greeting and closing."
+                is ProcessingMode.Code -> "Preserves technical terms and syntax exactly."
+                is ProcessingMode.Smart -> "Auto-detects content type (email, code, or formal)."
+                is ProcessingMode.Custom -> "Uses your custom prompt below."
+                null -> "Loading..."
+            }
+            Text(
+                text = modeDescription,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            // Custom prompt editor (shown when Custom is selected or for editing)
+            AnimatedVisibility(
+                visible = currentMode is ProcessingMode.Custom,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Custom Prompt",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    OutlinedTextField(
+                        value = editingPrompt,
+                        onValueChange = { 
+                            editingPrompt = it
+                            isEditingCustom = true
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Enter your custom processing instructions...") },
+                        minLines = 3,
+                        maxLines = 5,
+                        shape = MaterialTheme.shapes.medium
+                    )
+                    FilledTonalButton(
+                        onClick = {
+                            scope.launch {
+                                modeRepository.setCustomPrompt(editingPrompt)
+                                isEditingCustom = false
+                            }
+                        },
+                        enabled = editingPrompt != customPrompt && editingPrompt.isNotBlank(),
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Save Prompt")
+                    }
+                }
+            }
         }
     }
 }
@@ -566,4 +681,27 @@ private fun checkKeyboardEnabled(context: Context): Boolean {
 private fun checkKeyboardSelected(context: Context): Boolean {
     val defaultIme = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
     return defaultIme?.contains(context.packageName) == true
+}
+
+@Composable
+private fun SettingsModeChip(
+    id: String,
+    label: String,
+    currentModeId: String?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    modeRepository: ProcessingModeRepository
+) {
+    FilterChip(
+        selected = currentModeId == id,
+        onClick = {
+            scope.launch {
+                modeRepository.setMode(ProcessingMode.fromId(id))
+            }
+        },
+        label = { Text(label) },
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+    )
 }
