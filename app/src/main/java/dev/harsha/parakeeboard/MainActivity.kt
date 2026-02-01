@@ -161,7 +161,8 @@ private fun HistoryScreen() {
     val db = remember { AppDatabase.getInstance(context) }
     val transcriptions by db.transcriptionDao().getAll().collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
-    val textProcessor = remember { TextProcessor() }
+    val prefs = remember { Preferences(context) }
+    val textProcessor = remember { TextProcessor(prefs.geminiApiKey, prefs.geminiModel) }
     val modeRepository = remember { ProcessingModeRepository(context) }
     val currentMode by modeRepository.currentMode.collectAsState(initial = ProcessingMode.Formal)
     var reprocessingId by remember { mutableStateOf<Long?>(null) }

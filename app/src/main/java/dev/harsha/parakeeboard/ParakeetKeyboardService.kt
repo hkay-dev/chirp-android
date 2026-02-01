@@ -95,8 +95,8 @@ class ParakeetKeyboardService : InputMethodService(), LifecycleOwner, SavedState
         }
 
         downloader = ModelDownloader(this)
-        textProcessor = TextProcessor()
         prefs = Preferences(this)
+        textProcessor = TextProcessor(prefs.geminiApiKey, prefs.geminiModel)
         db = AppDatabase.getInstance(this)
         modeRepository = ProcessingModeRepository(this)
         _llmEnabled.value = prefs.llmEnabled

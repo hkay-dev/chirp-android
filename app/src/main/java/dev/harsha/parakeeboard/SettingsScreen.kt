@@ -48,6 +48,7 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -200,6 +201,13 @@ fun SettingsScreen() {
                     isModelDownloaded = isModelDownloaded,
                     isModelLoading = isModelLoading,
                     isModelReady = isModelReady
+                )
+            }
+
+            // Gemini Configuration Section
+            item {
+                GeminiConfigSection(
+                    prefs = prefs
                 )
             }
 
@@ -889,6 +897,106 @@ private fun MicrophoneSettingsSection(prefs: Preferences) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun GeminiConfigSection(prefs: Preferences) {
+    var apiKey by remember { mutableStateOf(prefs.geminiApiKey) }
+    var modelName by remember { mutableStateOf(prefs.geminiModel) }
+    var useCustomModel by remember { mutableStateOf(prefs.geminiModel != "gemini-flash-lite-latest") }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                "Gemini Configuration",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            
+            // API Key input
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { 
+                    apiKey = it
+                    prefs.geminiApiKey = it
+                },
+                label = { Text("API Key") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                supportingText = {
+                    Text(
+                        "Your Gemini API key from Google AI Studio",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            )
+            
+            // Model selector
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Model",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = !useCustomModel,
+                        onClick = {
+                            useCustomModel = false
+                            modelName = "gemini-flash-lite-latest"
+                            prefs.geminiModel = modelName
+                        }
+                    )
+                    Text(
+                        "gemini-flash-lite-latest (Recommended)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = useCustomModel,
+                        onClick = { useCustomModel = true }
+                    )
+                    Text(
+                        "Custom model",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+                
+                // Custom model input
+                AnimatedVisibility(visible = useCustomModel) {
+                    OutlinedTextField(
+                        value = if (useCustomModel) modelName else "",
+                        onValueChange = { 
+                            modelName = it
+                            prefs.geminiModel = it
+                        },
+                        label = { Text("Model name") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 48.dp),
+                        singleLine = true,
+                        placeholder = { Text("e.g., gemini-2.0-flash-exp") }
+                    )
+                }
+            }
         }
     }
 }
