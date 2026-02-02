@@ -29,6 +29,7 @@ class TranscriptionWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
     private val wordReplacementRepository: WordReplacementRepository,
+    private val wordReplacer: WordReplacer,
     private val llmProcessor: LlmProcessor
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -88,13 +89,15 @@ class TranscriptionWorker @AssistedInject constructor(
         // For now, create a placeholder transcript
         val rawTranscriptionText = "Transcription placeholder - Sherpa integration pending"
 
-        // Apply word replacements
-        val processedText = wordReplacementRepository.applyReplacements(rawTranscriptionText)
+        // Apply word replacements to get processed text for LLM
+        val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
+        val processedText = wordReplacer.apply(rawTranscriptionText, enabledReplacements)
 
-        // Create and save transcript
+        // Create and save transcript with raw text (before replacements)
+        // The processed text (after replacements) is used for LLM processing
         val transcript = Transcript(
             recordingId = recordingId,
-            rawText = processedText
+            rawText = rawTranscriptionText
         )
         recordingRepository.saveTranscript(transcript)
 
