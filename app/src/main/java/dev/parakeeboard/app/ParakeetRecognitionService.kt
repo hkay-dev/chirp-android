@@ -11,38 +11,63 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import dev.parakeeboard.app.db.AppDatabase
+import dev.parakeeboard.app.db.Transcription
 
 class ParakeetRecognitionService : RecognitionService() {
     companion object {
         private const val TAG = "ParakeetRecognition"
-        
+
         // Error codes matching android.speech.SpeechRecognizer
         private const val ERROR_AUDIO = 3
+        private const val ERROR_SERVER = 4  // Model not ready
         private const val ERROR_RECOGNIZER_BUSY = 7
     }
 
     private val recorder = VoiceRecorder()
-    private lateinit var recognizer: SherpaRecognizer
+    private var recognizer: SherpaRecognizer? = null
+    private lateinit var db: AppDatabase
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    
+
     private var recordingJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
-        recognizer = SherpaRecognizer(this)
+        db = AppDatabase.getInstance(this)
+
+        // Eagerly initialize recognizer via singleton manager
+        scope.launch {
+            Log.d(TAG, "Loading recognizer singleton...")
+            recognizer = RecognizerManager.getRecognizer(applicationContext)
+            Log.d(TAG, "Recognizer loaded, ready: ${recognizer?.isReady}")
+        }
+    }
+
+    private fun saveTranscription(rawText: String) {
+        scope.launch(Dispatchers.IO) {
+            db.transcriptionDao().insert(Transcription(rawText = rawText, processedText = null))
+        }
     }
 
     override fun onStartListening(intent: Intent, listener: Callback) {
         Log.d(TAG, "onStartListening")
-        
+
+        // Check if model is ready before allowing recording
+        val rec = recognizer
+        if (rec == null || !rec.isReady) {
+            Log.w(TAG, "Recognizer not ready yet (model still loading)")
+            listener.error(ERROR_SERVER)
+            return
+        }
+
         // Check if already recording
         if (recorder.isRecording()) {
             Log.w(TAG, "Recorder already busy")
             listener.error(ERROR_RECOGNIZER_BUSY)
             return
         }
-        
+
         scope.launch {
             try {
                 // Notify ready
@@ -99,14 +124,15 @@ class ParakeetRecognitionService : RecognitionService() {
                 }
 
                 // Check if recognizer is ready
-                if (!recognizer.isReady) {
+                val rec = recognizer
+                if (rec == null || !rec.isReady) {
                     Log.w(TAG, "Recognizer not ready")
-                    listener.error(ERROR_RECOGNIZER_BUSY)
+                    listener.error(ERROR_SERVER)
                     return@launch
                 }
 
                 // Transcribe
-                val text = recognizer.transcribe(samples)
+                val text = rec.transcribe(samples)
                 Log.d(TAG, "Transcribed: $text")
 
                 if (text.isBlank()) {
@@ -114,6 +140,9 @@ class ParakeetRecognitionService : RecognitionService() {
                     listener.error(ERROR_AUDIO)
                     return@launch
                 }
+
+                // Save to history
+                saveTranscription(text)
 
                 // Send results
                 val results = Bundle().apply {
