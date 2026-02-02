@@ -32,6 +32,7 @@ dependencies {
     // Internal modules
     implementation(project(":core"))
     implementation(project(":data"))
+    implementation(project(":feature-llm"))
     
     // Compose
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))
