@@ -12,12 +12,13 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Standard error view with optional retry action.
+ * Displays an error icon with message and optional retry button.
  */
 @Composable
 fun ErrorView(
     message: String,
-    modifier: Modifier = Modifier,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier

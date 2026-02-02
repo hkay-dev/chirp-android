@@ -21,11 +21,16 @@ class Preferences(context: Context) {
         get() = prefs.getString(KEY_GEMINI_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
         set(value) = prefs.edit().putString(KEY_GEMINI_MODEL, value).apply()
 
+    var hapticEnabled: Boolean
+        get() = prefs.getBoolean(KEY_HAPTIC_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_HAPTIC_ENABLED, value).apply()
+
     companion object {
         private const val KEY_LLM_ENABLED = "llm_enabled"
         private const val KEY_MICROPHONE_GAIN = "microphone_gain"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_GEMINI_MODEL = "gemini_model"
+        private const val KEY_HAPTIC_ENABLED = "haptic_enabled"
         
         private const val DEFAULT_API_KEY = ""
         private const val DEFAULT_MODEL = "gemini-flash-lite-latest"

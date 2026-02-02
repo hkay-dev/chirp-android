@@ -89,7 +89,7 @@ fun ProfileListScreen(
             EmptyState(
                 icon = Icons.Default.Person,
                 title = "No profiles yet",
-                subtitle = "Create a profile to save your recording preferences",
+                description = "Create a profile to save your recording preferences",
                 actionLabel = "Create Profile",
                 onAction = onAddProfile,
                 modifier = Modifier.padding(paddingValues)

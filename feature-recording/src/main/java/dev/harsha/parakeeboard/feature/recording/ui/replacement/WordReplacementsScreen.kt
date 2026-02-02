@@ -94,7 +94,7 @@ fun WordReplacementsScreen(
             EmptyState(
                 icon = Icons.Default.SwapHoriz,
                 title = "No word replacements",
-                subtitle = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
+                description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
                 modifier = Modifier.padding(paddingValues)
             )
         } else {
