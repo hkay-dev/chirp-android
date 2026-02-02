@@ -11,6 +11,7 @@ import dev.parakeeboard.app.data.entity.Transcript
 import dev.parakeeboard.app.data.model.RecordingStatus
 import dev.parakeeboard.app.data.repository.RecordingRepository
 import dev.parakeeboard.app.data.repository.WordReplacementRepository
+import dev.parakeeboard.app.feature.llm.LlmProcessor
 import java.io.File
 import java.util.UUID
 
@@ -27,7 +28,8 @@ class TranscriptionWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val recordingRepository: RecordingRepository,
-    private val wordReplacementRepository: WordReplacementRepository
+    private val wordReplacementRepository: WordReplacementRepository,
+    private val llmProcessor: LlmProcessor
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -96,10 +98,28 @@ class TranscriptionWorker @AssistedInject constructor(
         )
         recordingRepository.saveTranscript(transcript)
 
-        // Update recording status to pending enhancement
-        // In a full implementation, check if LLM processing is configured
-        // For now, always go to PENDING_ENHANCEMENT
-        recordingRepository.updateStatus(recordingId, RecordingStatus.PENDING_ENHANCEMENT)
+        // LLM processing for title and summary
+        recordingRepository.updateStatus(recordingId, RecordingStatus.ENHANCING)
+        
+        try {
+            val llmResult = llmProcessor.process(processedText, recording.source)
+            
+            // Update title if generated (only for APP/WIDGET sources)
+            llmResult.title?.let { generatedTitle ->
+                recordingRepository.updateTitle(recordingId, generatedTitle)
+            }
+            
+            // Update summary if generated
+            llmResult.summary?.let { generatedSummary ->
+                recordingRepository.updateSummary(recordingId, generatedSummary)
+            }
+        } catch (e: Exception) {
+            // LLM processing failed - continue without title/summary
+            // Recording will keep its default title
+        }
+
+        // Mark as completed
+        recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
 
         return Result.success(
             Data.Builder()
