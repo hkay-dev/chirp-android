@@ -11,15 +11,16 @@ import androidx.compose.ui.unit.dp
 
 /**
  * Empty state view with customizable icon, message, and optional action.
+ * Use for screens/sections with no content to display.
  */
 @Composable
 fun EmptyState(
     icon: ImageVector,
     title: String,
-    subtitle: String? = null,
-    modifier: Modifier = Modifier,
+    description: String,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
@@ -44,16 +45,14 @@ fun EmptyState(
             color = MaterialTheme.colorScheme.onSurface
         )
         
-        if (subtitle != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Text(
+            text = description,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         
         if (actionLabel != null && onAction != null) {
             Spacer(modifier = Modifier.height(24.dp))

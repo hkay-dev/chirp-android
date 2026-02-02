@@ -92,7 +92,7 @@ fun TagManagementScreen(
             EmptyState(
                 icon = Icons.AutoMirrored.Filled.Label,
                 title = "No tags yet",
-                subtitle = "Create tags to organize your recordings",
+                description = "Create tags to organize your recordings",
                 modifier = Modifier.padding(paddingValues)
             )
         } else {

@@ -84,7 +84,7 @@ fun HomeScreen(
             EmptyState(
                 icon = Icons.Default.MicNone,
                 title = "No recordings yet",
-                subtitle = "Tap the microphone button to start recording",
+                description = "Tap the microphone button to start recording",
                 modifier = Modifier.padding(paddingValues)
             )
         } else {

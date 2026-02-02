@@ -1,0 +1,174 @@
+package dev.parakeeboard.app.navigation
+
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
+import dev.parakeeboard.app.AboutScreen
+import dev.parakeeboard.app.KeyboardSettingsScreen
+import dev.parakeeboard.app.NewSettingsScreen
+import dev.parakeeboard.app.feature.llm.settings.LlmSettingsScreen
+import dev.parakeeboard.app.feature.obsidian.settings.ObsidianSettingsScreen
+import dev.parakeeboard.app.feature.recording.ui.HomeScreen
+import dev.parakeeboard.app.feature.recording.ui.RecordingDetailScreen
+import dev.parakeeboard.app.feature.recording.ui.profile.ProfileEditorScreen
+import dev.parakeeboard.app.feature.recording.ui.profile.ProfileListScreen
+import dev.parakeeboard.app.feature.recording.ui.replacement.WordReplacementsScreen
+import dev.parakeeboard.app.feature.recording.ui.tag.TagManagementScreen
+import java.util.UUID
+
+/**
+ * Navigation routes for the app.
+ */
+sealed class Screen(val route: String) {
+    object Home : Screen("home")
+    
+    object RecordingDetail : Screen("recording/{recordingId}") {
+        fun createRoute(recordingId: String) = "recording/$recordingId"
+    }
+    
+    object Settings : Screen("settings")
+    object LlmSettings : Screen("settings/llm")
+    object ObsidianSettings : Screen("settings/obsidian")
+    object KeyboardSettings : Screen("settings/keyboard")
+    
+    object Profiles : Screen("profiles")
+    
+    object ProfileEditor : Screen("profiles/edit?profileId={profileId}") {
+        fun createRoute(profileId: String? = null) = 
+            if (profileId != null) "profiles/edit?profileId=$profileId" 
+            else "profiles/edit"
+    }
+    
+    object Tags : Screen("tags")
+    object WordReplacements : Screen("word-replacements")
+    object About : Screen("about")
+}
+
+/**
+ * Main navigation host for the app.
+ */
+@Composable
+fun AppNavHost(
+    navController: NavHostController,
+    modifier: Modifier = Modifier
+) {
+    NavHost(
+        navController = navController,
+        startDestination = Screen.Home.route,
+        modifier = modifier
+    ) {
+        // Home Screen
+        composable(Screen.Home.route) {
+            HomeScreen(
+                onRecordingClick = { recording ->
+                    navController.navigate(Screen.RecordingDetail.createRoute(recording.id.toString()))
+                },
+                onSettingsClick = {
+                    navController.navigate(Screen.Settings.route)
+                }
+            )
+        }
+        
+        // Recording Detail Screen
+        composable(
+            route = Screen.RecordingDetail.route,
+            arguments = listOf(
+                navArgument("recordingId") { type = NavType.StringType }
+            )
+        ) {
+            RecordingDetailScreen(
+                onBackClick = { navController.popBackStack() }
+            )
+        }
+        
+        // Settings Screen
+        composable(Screen.Settings.route) {
+            NewSettingsScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToLlmSettings = { navController.navigate(Screen.LlmSettings.route) },
+                onNavigateToObsidianSettings = { navController.navigate(Screen.ObsidianSettings.route) },
+                onNavigateToKeyboardSettings = { navController.navigate(Screen.KeyboardSettings.route) },
+                onNavigateToProfiles = { navController.navigate(Screen.Profiles.route) },
+                onNavigateToTags = { navController.navigate(Screen.Tags.route) },
+                onNavigateToWordReplacements = { navController.navigate(Screen.WordReplacements.route) },
+                onNavigateToAbout = { navController.navigate(Screen.About.route) }
+            )
+        }
+        
+        // LLM Settings Screen
+        composable(Screen.LlmSettings.route) {
+            LlmSettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Obsidian Settings Screen
+        composable(Screen.ObsidianSettings.route) {
+            ObsidianSettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Keyboard Settings Screen
+        composable(Screen.KeyboardSettings.route) {
+            KeyboardSettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Profiles List Screen
+        composable(Screen.Profiles.route) {
+            ProfileListScreen(
+                onProfileClick = { profileId ->
+                    navController.navigate(Screen.ProfileEditor.createRoute(profileId.toString()))
+                },
+                onAddProfile = {
+                    navController.navigate(Screen.ProfileEditor.createRoute())
+                },
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Profile Editor Screen
+        composable(
+            route = Screen.ProfileEditor.route,
+            arguments = listOf(
+                navArgument("profileId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) {
+            ProfileEditorScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() }
+            )
+        }
+        
+        // Tags Management Screen
+        composable(Screen.Tags.route) {
+            TagManagementScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Word Replacements Screen
+        composable(Screen.WordReplacements.route) {
+            WordReplacementsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // About Screen
+        composable(Screen.About.route) {
+            AboutScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+    }
+}
