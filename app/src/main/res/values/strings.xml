@@ -13,4 +13,6 @@
     <string name="select_keyboard">Select Keyboard</string>
     <string name="grant_permission">Grant Microphone Permission</string>
     <string name="setup_complete">Setup Complete</string>
+    <string name="widget_name">Parakeet Recording</string>
+    <string name="widget_description">Quick access to start and stop voice recordings</string>
 </resources>
