@@ -41,9 +41,9 @@
             </intent-filter>
         </activity>
 
-        <!-- Input Method Service -->
+        <!-- Input Method Service (from feature-keyboard) -->
         <service
-            android:name=".ParakeetKeyboardService"
+            android:name="dev.parakeeboard.app.feature.keyboard.service.ParakeetKeyboardService"
             android:exported="true"
             android:label="@string/keyboard_name"
             android:permission="android.permission.BIND_INPUT_METHOD"
@@ -70,6 +70,38 @@
                 android:name="android.speech.recognition"
                 android:resource="@xml/recognition_service" />
         </service>
+
+        <!-- Recording Service (from feature-recording) -->
+        <service
+            android:name="dev.parakeeboard.app.feature.recording.service.RecordingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- Home Screen Widget -->
+        <receiver
+            android:name="dev.parakeeboard.app.feature.widget.RecordingWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="dev.parakeeboard.app.UPDATE_WIDGET" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
+
+        <!-- Widget Toggle Receiver -->
+        <receiver
+            android:name="dev.parakeeboard.app.feature.widget.WidgetReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.parakeeboard.app.TOGGLE_RECORDING" />
+            </intent-filter>
+        </receiver>
 
     </application>
 
