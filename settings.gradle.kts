@@ -15,5 +15,13 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ParakeetKeyboard"
+rootProject.name = "Parakeeboard"
 include(":app")
+include(":core")
+include(":data")
+include(":feature-recording")
+include(":feature-transcription")
+include(":feature-llm")
+include(":feature-keyboard")
+include(":feature-obsidian")
+include(":feature-widget")
