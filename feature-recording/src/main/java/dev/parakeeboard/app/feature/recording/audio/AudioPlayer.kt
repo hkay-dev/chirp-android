@@ -51,6 +51,7 @@ class AudioPlayer @Inject constructor(
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
     
     private var currentFilePath: String? = null
+    private var isPrepared: Boolean = false
     
     /**
      * Load and optionally start playing an audio file.
@@ -78,6 +79,7 @@ class AudioPlayer @Inject constructor(
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(filePath)
                 setOnPreparedListener { mp ->
+                    isPrepared = true
                     val duration = mp.duration.toLong()
                     _state.value = PlaybackState.Paused(filePath, 0, duration)
                     if (autoPlay) {
@@ -85,12 +87,19 @@ class AudioPlayer @Inject constructor(
                     }
                 }
                 setOnCompletionListener {
-                    val duration = it.duration.toLong()
+                    val duration = if (isPrepared) it.duration.toLong() else 0
                     _state.value = PlaybackState.Paused(filePath, duration, duration)
                     progressJob?.cancel()
                 }
                 setOnErrorListener { _, what, extra ->
-                    _state.value = PlaybackState.Error("Playback error: $what/$extra")
+                    isPrepared = false
+                    // -38 is MEDIA_ERROR_UNKNOWN, often happens with state issues
+                    val errorMsg = when (what) {
+                        MediaPlayer.MEDIA_ERROR_UNKNOWN -> "Unable to play audio file"
+                        MediaPlayer.MEDIA_ERROR_SERVER_DIED -> "Media server error"
+                        else -> "Playback error ($what)"
+                    }
+                    _state.value = PlaybackState.Error(errorMsg)
                     true
                 }
                 prepareAsync()
@@ -107,6 +116,11 @@ class AudioPlayer @Inject constructor(
         val mp = mediaPlayer ?: return
         val path = currentFilePath ?: return
         
+        if (!isPrepared) {
+            _state.value = PlaybackState.Error("Audio not ready yet")
+            return
+        }
+        
         try {
             mp.start()
             startProgressUpdates(path, mp.duration.toLong())
@@ -121,6 +135,8 @@ class AudioPlayer @Inject constructor(
     fun pause() {
         val mp = mediaPlayer ?: return
         val path = currentFilePath ?: return
+        
+        if (!isPrepared) return
         
         try {
             mp.pause()
@@ -153,6 +169,8 @@ class AudioPlayer @Inject constructor(
     fun seekTo(positionMs: Long) {
         val mp = mediaPlayer ?: return
         val path = currentFilePath ?: return
+        
+        if (!isPrepared) return
         
         try {
             mp.seekTo(positionMs.toInt())
@@ -204,6 +222,7 @@ class AudioPlayer @Inject constructor(
     fun release() {
         progressJob?.cancel()
         progressJob = null
+        isPrepared = false
         
         mediaPlayer?.apply {
             try {
