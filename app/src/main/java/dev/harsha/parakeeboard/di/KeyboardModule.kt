@@ -9,8 +9,8 @@ import dagger.hilt.components.SingletonComponent
 import dev.harsha.parakeeboard.RecognizerManager
 import dev.harsha.parakeeboard.SherpaRecognizer
 import dev.harsha.parakeeboard.download.ModelDownloader
+import dev.harsha.parakeeboard.core.transcription.TranscriberProvider
 import dev.harsha.parakeeboard.feature.keyboard.service.RecognizerProvider
-import kotlinx.coroutines.runBlocking
 import javax.inject.Singleton
 
 /**
@@ -27,14 +27,22 @@ object KeyboardModule {
     ): RecognizerProvider {
         return SherpaRecognizerProvider(context)
     }
+    
+    @Provides
+    @Singleton
+    fun provideTranscriberProvider(
+        @ApplicationContext context: Context
+    ): TranscriberProvider {
+        return SherpaRecognizerProvider(context)
+    }
 }
 
 /**
- * Implementation of RecognizerProvider that wraps SherpaRecognizer.
+ * Implementation of RecognizerProvider and TranscriberProvider that wraps SherpaRecognizer.
  */
 class SherpaRecognizerProvider(
     private val context: Context
-) : RecognizerProvider {
+) : RecognizerProvider, TranscriberProvider {
     
     private var recognizer: SherpaRecognizer? = null
     private val downloader = ModelDownloader(context)
@@ -56,5 +64,9 @@ class SherpaRecognizerProvider(
     
     override suspend fun transcribe(samples: FloatArray): String {
         return recognizer?.transcribe(samples) ?: ""
+    }
+    
+    override suspend fun transcribe(samples: FloatArray, sampleRate: Int): String {
+        return recognizer?.transcribe(samples, sampleRate) ?: ""
     }
 }

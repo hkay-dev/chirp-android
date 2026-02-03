@@ -123,33 +123,24 @@ fun AboutScreen(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Legal links
+            // Legal links - Note: This app processes all data locally on-device
+            // No data is sent to external servers except when using LLM features (Gemini API)
             SettingsItem(
                 icon = Icons.Default.Policy,
-                title = "Privacy Policy",
-                subtitle = "How we handle your data",
+                title = "Privacy Notice",
+                subtitle = "All transcription happens on-device",
                 onClick = {
-                    // Placeholder URL - replace with actual privacy policy
-                    openUrl(context, "https://example.com/privacy")
-                }
-            )
-            
-            SettingsItem(
-                icon = Icons.Default.Description,
-                title = "Terms of Service",
-                subtitle = "Usage terms and conditions",
-                onClick = {
-                    // Placeholder URL - replace with actual terms
-                    openUrl(context, "https://example.com/terms")
+                    // Show in-app privacy notice
+                    // TODO: Navigate to privacy info screen
                 }
             )
             
             SettingsItem(
                 icon = Icons.Default.Code,
-                title = "Open Source Licenses",
-                subtitle = "Third-party libraries used",
+                title = "Open Source",
+                subtitle = "Built with Sherpa-ONNX, Jetpack Compose",
                 onClick = {
-                    // Placeholder - implement license viewer
+                    openUrl(context, "https://github.com/k2-fsa/sherpa-onnx")
                 }
             )
             
