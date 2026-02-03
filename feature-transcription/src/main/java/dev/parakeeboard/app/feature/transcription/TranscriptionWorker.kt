@@ -1,27 +1,31 @@
 package dev.parakeeboard.app.feature.transcription
 
 import android.content.Context
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.parakeeboard.app.core.transcription.TranscriberProvider
 import dev.parakeeboard.app.data.entity.Transcript
 import dev.parakeeboard.app.data.model.RecordingStatus
 import dev.parakeeboard.app.data.repository.RecordingRepository
 import dev.parakeeboard.app.data.repository.WordReplacementRepository
 import dev.parakeeboard.app.feature.llm.LlmProcessor
+import dev.parakeeboard.app.feature.transcription.audio.AudioDecoder
 import java.io.File
 import java.util.UUID
 
 /**
  * Worker that handles transcription of audio recordings.
  * 
- * Takes a recording ID as input, processes the audio file, creates a transcript,
- * and updates the recording status accordingly.
+ * Takes a recording ID as input, processes the audio file using Sherpa-ONNX,
+ * creates a transcript, and updates the recording status accordingly.
  * 
- * Currently uses a placeholder implementation - Sherpa-ONNX integration pending.
+ * Uses AudioDecoder to convert M4A audio to PCM samples at 16kHz,
+ * then TranscriberProvider (backed by Sherpa-ONNX) to transcribe to text.
  */
 @HiltWorker
 class TranscriptionWorker @AssistedInject constructor(
@@ -30,8 +34,19 @@ class TranscriptionWorker @AssistedInject constructor(
     private val recordingRepository: RecordingRepository,
     private val wordReplacementRepository: WordReplacementRepository,
     private val wordReplacer: WordReplacer,
-    private val llmProcessor: LlmProcessor
+    private val llmProcessor: LlmProcessor,
+    private val transcriberProvider: TranscriberProvider,
+    private val audioDecoder: AudioDecoder
 ) : CoroutineWorker(appContext, workerParams) {
+
+    companion object {
+        private const val TAG = "TranscriptionWorker"
+        const val INPUT_RECORDING_ID = "recording_id"
+        const val OUTPUT_TRANSCRIPT_ID = "transcript_id"
+        const val OUTPUT_ERROR = "error"
+
+        private const val MAX_RETRY_COUNT = 3
+    }
 
     override suspend fun doWork(): Result {
         val recordingIdString = inputData.getString(INPUT_RECORDING_ID)
@@ -85,9 +100,71 @@ class TranscriptionWorker @AssistedInject constructor(
             )
         }
 
-        // TODO: Integrate with Sherpa-ONNX for actual transcription
-        // For now, create a placeholder transcript
-        val rawTranscriptionText = "Transcription placeholder - Sherpa integration pending"
+        // Check if model is downloaded
+        if (!transcriberProvider.isModelDownloaded()) {
+            recordingRepository.updateStatusWithError(
+                recordingId,
+                RecordingStatus.FAILED,
+                "Model not downloaded. Please download the speech recognition model in Settings."
+            )
+            return Result.failure(
+                Data.Builder()
+                    .putString(OUTPUT_ERROR, "Model not downloaded")
+                    .build()
+            )
+        }
+
+        // Initialize the transcriber if needed
+        if (!transcriberProvider.isReady()) {
+            Log.d(TAG, "Initializing transcriber...")
+            val initialized = transcriberProvider.initialize()
+            if (!initialized) {
+                recordingRepository.updateStatusWithError(
+                    recordingId,
+                    RecordingStatus.FAILED,
+                    "Failed to initialize speech recognition model"
+                )
+                return Result.failure(
+                    Data.Builder()
+                        .putString(OUTPUT_ERROR, "Failed to initialize model")
+                        .build()
+                )
+            }
+        }
+
+        // Decode audio file and transcribe
+        Log.d(TAG, "Decoding audio file: ${recording.audioPath}")
+        val allSamples = mutableListOf<Float>()
+        try {
+            audioDecoder.decode(recording.audioPath) { chunk ->
+                allSamples.addAll(chunk.toList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decode audio file", e)
+            recordingRepository.updateStatusWithError(
+                recordingId,
+                RecordingStatus.FAILED,
+                "Failed to decode audio: ${e.message}"
+            )
+            return Result.failure(
+                Data.Builder()
+                    .putString(OUTPUT_ERROR, "Failed to decode audio: ${e.message}")
+                    .build()
+            )
+        }
+
+        // Transcribe the audio samples
+        Log.d(TAG, "Transcribing ${allSamples.size} samples...")
+        val rawTranscriptionText = transcriberProvider.transcribe(
+            allSamples.toFloatArray(),
+            AudioDecoder.TARGET_SAMPLE_RATE
+        )
+        
+        if (rawTranscriptionText.isBlank()) {
+            Log.w(TAG, "Transcription returned empty result")
+            // Continue with empty text - it might be a silent recording
+        }
+        Log.d(TAG, "Transcription result: ${rawTranscriptionText.take(100)}...")
 
         // Apply word replacements to get processed text for LLM
         val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
@@ -166,13 +243,5 @@ class TranscriptionWorker @AssistedInject constructor(
             is OutOfMemoryError -> false
             else -> false
         }
-    }
-
-    companion object {
-        const val INPUT_RECORDING_ID = "recording_id"
-        const val OUTPUT_TRANSCRIPT_ID = "transcript_id"
-        const val OUTPUT_ERROR = "error"
-
-        private const val MAX_RETRY_COUNT = 3
     }
 }
