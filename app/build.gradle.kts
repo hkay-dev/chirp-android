@@ -88,6 +88,9 @@ dependencies {
     
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.0")
+    
+    // Startup (needed to disable default WorkManager initialization for Hilt)
+    implementation("androidx.startup:startup-runtime:1.1.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
