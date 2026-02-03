@@ -54,28 +54,27 @@ class AudioPlayer @Inject constructor(
     private var isPrepared: Boolean = false
     
     /**
-     * Load and optionally start playing an audio file.
+     * Load an audio file for playback.
      */
     fun load(filePath: String, autoPlay: Boolean = false) {
-        // If same file, just toggle play/pause
-        if (filePath == currentFilePath && mediaPlayer != null) {
-            if (autoPlay) play() else pause()
+        // Release any existing player
+        release()
+        
+        // Check if file exists first
+        val file = java.io.File(filePath)
+        if (!file.exists()) {
+            _state.value = PlaybackState.Error("Audio file not found")
+            return
+        }
+        if (!file.canRead()) {
+            _state.value = PlaybackState.Error("Cannot read audio file")
             return
         }
         
-        // Stop current playback
-        release()
-        
-        _state.value = PlaybackState.Loading(filePath)
         currentFilePath = filePath
+        _state.value = PlaybackState.Loading(filePath)
         
         try {
-            val file = File(filePath)
-            if (!file.exists()) {
-                _state.value = PlaybackState.Error("Audio file not found")
-                return
-            }
-            
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(filePath)
                 setOnPreparedListener { mp ->
@@ -93,11 +92,19 @@ class AudioPlayer @Inject constructor(
                 }
                 setOnErrorListener { _, what, extra ->
                     isPrepared = false
-                    // -38 is MEDIA_ERROR_UNKNOWN, often happens with state issues
+                    android.util.Log.e("AudioPlayer", "MediaPlayer error: what=$what extra=$extra path=$filePath")
                     val errorMsg = when (what) {
-                        MediaPlayer.MEDIA_ERROR_UNKNOWN -> "Unable to play audio file"
+                        MediaPlayer.MEDIA_ERROR_UNKNOWN -> {
+                            // extra gives more detail for MEDIA_ERROR_UNKNOWN
+                            when (extra) {
+                                -2147483648 -> "Unsupported audio format"
+                                -1004 -> "File not found"
+                                -1007 -> "Connection timeout"
+                                else -> "Unable to play audio"
+                            }
+                        }
                         MediaPlayer.MEDIA_ERROR_SERVER_DIED -> "Media server error"
-                        else -> "Playback error ($what)"
+                        else -> "Playback error"
                     }
                     _state.value = PlaybackState.Error(errorMsg)
                     true
@@ -105,7 +112,8 @@ class AudioPlayer @Inject constructor(
                 prepareAsync()
             }
         } catch (e: Exception) {
-            _state.value = PlaybackState.Error("Failed to load audio: ${e.message}")
+            android.util.Log.e("AudioPlayer", "Failed to load audio", e)
+            _state.value = PlaybackState.Error("Failed to load audio")
         }
     }
     

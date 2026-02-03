@@ -31,9 +31,17 @@ fun RecordingDetailScreen(
     val isEditing by viewModel.isEditing.collectAsState()
     val editedTitle by viewModel.editedTitle.collectAsState()
     
-    // Load audio when recording becomes available
-    LaunchedEffect(recording) {
-        recording?.let { viewModel.loadAudio() }
+    // Load audio when recording becomes available and is ready for playback
+    // Wait for file to be stable (not still being written)
+    LaunchedEffect(recording?.id, recording?.status) {
+        recording?.let { rec ->
+            // Only load if not currently recording
+            if (rec.status != RecordingStatus.RECORDING) {
+                // Small delay to ensure file is fully written
+                kotlinx.coroutines.delay(200)
+                viewModel.loadAudio()
+            }
+        }
     }
     
     var showDeleteDialog by remember { mutableStateOf(false) }
