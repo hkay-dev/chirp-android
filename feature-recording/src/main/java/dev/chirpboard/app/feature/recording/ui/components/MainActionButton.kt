@@ -14,9 +14,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -53,7 +53,7 @@ sealed class RecordingUiState {
  * @param state Current recording UI state
  * @param recordingColor Color to use when recording/paused (typically error/red)
  * @param onStartRecording Called when user taps to start recording (from Idle state)
- * @param onStop Called when user taps to stop recording (from Recording state)
+ * @param onPause Called when user taps to pause recording (from Recording state)
  * @param onResume Called when user taps to resume from paused
  * @param modifier Optional modifier
  * @param buttonSize Size of the button (default 120.dp)
@@ -64,7 +64,7 @@ fun MainActionButton(
     state: RecordingUiState,
     recordingColor: Color,
     onStartRecording: () -> Unit,
-    onStop: () -> Unit,
+    onPause: () -> Unit,
     onResume: () -> Unit,
     modifier: Modifier = Modifier,
     buttonSize: Dp = MainButtonSize,
@@ -112,7 +112,7 @@ fun MainActionButton(
     val elevation = elevationFloat.dp
 
     val onClick = when {
-        isRecording -> onStop
+        isRecording -> onPause
         isPaused -> onResume
         else -> onStartRecording
     }
@@ -122,7 +122,7 @@ fun MainActionButton(
         onClick = onClick,
         modifier = modifier
             .size(buttonSize)
-            .scale(if (isRecording) pulseScale else 1f),
+            .scale(if (isRecording && !isPaused) pulseScale else 1f),
         shape = CircleShape,
         color = containerColor,
         shadowElevation = elevation,
@@ -139,8 +139,8 @@ fun MainActionButton(
                 label = "iconCrossfade",
             ) { stateClass ->
                 val (icon, description) = when (stateClass) {
-                    RecordingUiState.Recording::class -> Icons.Default.Stop to "Stop Recording"
-                    RecordingUiState.Paused::class -> Icons.Default.FiberManualRecord to "Resume Recording"
+                    RecordingUiState.Recording::class -> Icons.Default.Pause to "Pause Recording"
+                    RecordingUiState.Paused::class -> Icons.Default.PlayArrow to "Resume Recording"
                     else -> Icons.Default.Mic to "Start Recording"
                 }
 

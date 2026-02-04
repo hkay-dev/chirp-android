@@ -1,6 +1,11 @@
 package dev.chirpboard.app
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,11 +23,19 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        ActivityCompat.requestPermissions(
-            this,
-            arrayOf(android.Manifest.permission.RECORD_AUDIO),
-            100
-        )
+        val permissions = mutableListOf(android.Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
+        
+        // Request "All Files Access" for persistent model storage (survives Clear Data)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
+            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+        }
 
         setContent {
             ChirpTheme {

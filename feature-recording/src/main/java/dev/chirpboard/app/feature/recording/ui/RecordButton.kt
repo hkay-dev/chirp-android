@@ -84,10 +84,11 @@ fun RecordButton(
         
         // Status text
         Text(
-            text = when (recordingState) {
+             text = when (recordingState) {
                 is RecordingState.Idle -> "Tap to record"
                 is RecordingState.Starting -> "Starting..."
                 is RecordingState.Recording -> "Recording"
+                is RecordingState.Paused -> "Paused"
                 is RecordingState.Stopping -> "Stopping..."
                 is RecordingState.Error -> "Error"
             },

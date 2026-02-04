@@ -19,6 +19,16 @@ import dev.chirpboard.app.feature.recording.ui.profile.ProfileEditorScreen
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileListScreen
 import dev.chirpboard.app.feature.recording.ui.replacement.WordReplacementsScreen
 import dev.chirpboard.app.feature.recording.ui.tag.TagManagementScreen
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import dev.chirpboard.app.download.ModelDownloader
 import java.util.UUID
 
 /**
@@ -68,17 +78,47 @@ fun AppNavHost(
     ) {
         // Home Screen
         composable(Screen.Home.route) {
+            val context = LocalContext.current
+            var showModelRequiredDialog by remember { mutableStateOf(false) }
+            
             HomeScreen(
                 onRecordingClick = { recording ->
                     navController.navigate(Screen.RecordingDetail.createRoute(recording.id.toString()))
                 },
                 onRecordClick = {
-                    navController.navigate(Screen.Record.createRoute())
+                    if (ModelDownloader(context).isModelDownloaded()) {
+                        navController.navigate(Screen.Record.createRoute())
+                    } else {
+                        showModelRequiredDialog = true
+                    }
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
                 }
             )
+            
+            if (showModelRequiredDialog) {
+                AlertDialog(
+                    onDismissRequest = { showModelRequiredDialog = false },
+                    title = { Text("Model Required") },
+                    text = { Text("The transcription model must be downloaded before you can record. Go to Settings to download it.") },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showModelRequiredDialog = false
+                                navController.navigate(Screen.Settings.route)
+                            }
+                        ) {
+                            Text("Go to Settings")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showModelRequiredDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
         }
         
         // Record Screen (full-screen recording interface)
@@ -94,6 +134,11 @@ fun AppNavHost(
             val autoStart = backStackEntry.arguments?.getBoolean("autoStart") ?: true
             RecordScreen(
                 onNavigateBack = { navController.popBackStack() },
+                onRecordingComplete = { recordingId ->
+                    // Pop the Record screen and navigate to the recording's detail/transcribe screen
+                    navController.popBackStack()
+                    navController.navigate(Screen.RecordingDetail.createRoute(recordingId))
+                },
                 autoStart = autoStart
             )
         }
