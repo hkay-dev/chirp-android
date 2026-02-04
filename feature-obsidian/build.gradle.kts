@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.harsha.parakeeboard.feature.obsidian"
+    namespace = "dev.chirpboard.app.feature.obsidian"
     compileSdk = 35
 
     defaultConfig {

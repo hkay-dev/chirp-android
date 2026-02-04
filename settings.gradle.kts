@@ -15,7 +15,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Parakeeboard"
+rootProject.name = "Chirp"
 include(":app")
 include(":core")
 include(":data")

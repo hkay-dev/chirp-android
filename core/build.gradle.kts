@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.harsha.parakeeboard.core"
+    namespace = "dev.chirpboard.app.core"
     compileSdk = 35
 
     defaultConfig {

@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.harsha.parakeeboard.feature.widget"
+    namespace = "dev.chirpboard.app.feature.widget"
     compileSdk = 35
 
     defaultConfig {

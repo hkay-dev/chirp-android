@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_name">Parakeet Recording</string>
+    <string name="widget_name">Chirp Recording</string>
     <string name="widget_description">Quick access to start and stop voice recordings</string>
 </resources>

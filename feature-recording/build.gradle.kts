@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.harsha.parakeeboard.feature.recording"
+    namespace = "dev.chirpboard.app.feature.recording"
     compileSdk = 35
 
     defaultConfig {
