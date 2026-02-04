@@ -32,6 +32,9 @@ class RecordViewModel @Inject constructor(
     /** Current audio amplitude (0-1) */
     val currentAmplitude: StateFlow<Float> = recordingStateManager.amplitudeFlow
     
+    /** ID of the last recording that completed successfully */
+    val lastCompletedRecordingId: StateFlow<UUID?> = recordingStateManager.lastCompletedRecordingId
+    
     /**
      * Start a new recording.
      * 
@@ -46,6 +49,20 @@ class RecordViewModel @Inject constructor(
     }
     
     /**
+     * Pause the current recording.
+     */
+    fun pauseRecording() {
+        RecordingService.pauseRecording(context)
+    }
+    
+    /**
+     * Resume a paused recording.
+     */
+    fun resumeRecording() {
+        RecordingService.resumeRecording(context)
+    }
+    
+    /**
      * Stop the current recording and save it.
      */
     fun stopRecording() {
@@ -53,11 +70,29 @@ class RecordViewModel @Inject constructor(
     }
     
     /**
+     * Clear the last completed recording ID after navigation has been handled.
+     */
+    fun clearLastCompletedRecordingId() {
+        recordingStateManager.clearLastCompletedRecordingId()
+    }
+    
+    /**
      * Cancel the current recording without saving.
+     * Releases MediaRecorder, deletes the audio file, no database entry.
      */
     fun cancelRecording() {
-        // Force cancel clears state without creating a database entry
-        recordingStateManager.forceCancel()
-        RecordingService.stopRecording(context)
+        RecordingService.cancelRecording(context)
+    }
+    
+    /**
+     * Atomic restart: cancel current recording and immediately start a new one.
+     * Handles cleanup and re-start within a single service call to avoid race conditions.
+     */
+    fun restartRecording(profileId: UUID? = null) {
+        RecordingService.restartRecording(
+            context = context,
+            origin = RecordingOrigin.APP,
+            profileId = profileId
+        )
     }
 }

@@ -35,6 +35,15 @@ sealed class RecordingState {
         val audioFilePath: String? = null
     ) : RecordingState()
     
+    /** Recording is paused */
+    data class Paused(
+        val origin: RecordingOrigin,
+        val profileId: UUID? = null,
+        val audioFilePath: String? = null,
+        /** Total milliseconds recorded before this pause (sum of all active segments) */
+        val accumulatedMs: Long = 0L
+    ) : RecordingState()
+    
     /** Recording is stopping */
     data class Stopping(
         val origin: RecordingOrigin,
@@ -48,15 +57,16 @@ sealed class RecordingState {
         val cause: Throwable? = null
     ) : RecordingState()
     
-    /** Check if recording is active (starting, recording, or stopping) */
+    /** Check if recording is active (starting, recording, paused, or stopping) */
     val isActive: Boolean
-        get() = this is Starting || this is Recording || this is Stopping
+        get() = this is Starting || this is Recording || this is Paused || this is Stopping
     
     /** Get the current recording origin, or null if idle/error */
     val activeOrigin: RecordingOrigin?
         get() = when (this) {
             is Starting -> origin
             is Recording -> origin
+            is Paused -> origin
             is Stopping -> origin
             else -> null
         }

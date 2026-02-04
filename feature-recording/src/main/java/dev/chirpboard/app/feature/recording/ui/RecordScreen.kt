@@ -60,22 +60,26 @@ import kotlinx.coroutines.delay
  * - Cancel (X): Discard recording (with confirmation), navigate back
  * - Restart (refresh): Discard current recording and start fresh
  * 
- * @param onNavigateBack Called when user exits the screen
+ * @param onNavigateBack Called when user exits the screen (cancel/discard)
+ * @param onRecordingComplete Called with the recording ID when a recording is saved successfully
  * @param autoStart Whether to automatically start recording on screen entry
  * @param viewModel RecordViewModel instance
  */
 @Composable
 fun RecordScreen(
     onNavigateBack: () -> Unit,
+    onRecordingComplete: (recordingId: String) -> Unit = { onNavigateBack() },
     autoStart: Boolean = true,
     viewModel: RecordViewModel = hiltViewModel()
 ) {
     val recordingState by viewModel.recordingState.collectAsState()
     val amplitudeHistory by viewModel.amplitudeHistory.collectAsState()
+    val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsState()
     
     // Track elapsed time for timer display
     var elapsedMs by remember { mutableLongStateOf(0L) }
     var showCancelDialog by remember { mutableStateOf(false) }
+    var showRestartDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
     
     // Track if we had a recording session (to know when to navigate back)
@@ -87,12 +91,14 @@ fun RecordScreen(
     val uiState = when (recordingState) {
         is RecordingState.Recording -> RecordingUiState.Recording
         is RecordingState.Starting -> RecordingUiState.Recording // Treat starting as recording for UI
+        is RecordingState.Paused -> RecordingUiState.Paused
         is RecordingState.Stopping -> RecordingUiState.Recording // Keep showing recording UI while stopping
         else -> RecordingUiState.Idle
     }
     
     val isRecording = uiState is RecordingUiState.Recording
-    val isActive = isRecording // For now, no pause state - just recording or idle
+    val isPaused = uiState is RecordingUiState.Paused
+    val isActive = isRecording || isPaused
     
     // Mark that we've had a recording session when recording starts
     LaunchedEffect(recordingState) {
@@ -108,24 +114,43 @@ fun RecordScreen(
         }
     }
     
-    // Timer update loop
+    // Track accumulated time from previous recording segments (across pause/resume cycles)
+    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
+    
+    // Timer update loop — accounts for pause/resume
     LaunchedEffect(recordingState) {
-        if (recordingState is RecordingState.Recording) {
-            val startTime = (recordingState as RecordingState.Recording).startTimeMs
-            while (true) {
-                elapsedMs = System.currentTimeMillis() - startTime
-                delay(100) // Update more frequently for smooth display
+        when (val state = recordingState) {
+            is RecordingState.Recording -> {
+                val segmentStart = state.startTimeMs
+                while (true) {
+                    elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    delay(100)
+                }
+            }
+            is RecordingState.Paused -> {
+                // Freeze timer at accumulated time; store it for next resume
+                previousSegmentsMs = state.accumulatedMs
+                elapsedMs = state.accumulatedMs
+            }
+            is RecordingState.Idle -> {
+                // Reset for next recording session
+                previousSegmentsMs = 0L
+            }
+            else -> {
+                // Starting, Stopping, Error — keep showing current elapsed
             }
         }
-        // Note: We don't reset elapsedMs to 0 here - we want to keep showing the final time
     }
     
-    // Handle navigation back after recording completes
-    LaunchedEffect(recordingState, pendingNavigateBack) {
-        if (pendingNavigateBack && recordingState is RecordingState.Idle) {
-            // Recording has finished saving, now navigate back
+    // Navigate to recording detail after recording completes.
+    // lastCompletedRecordingId becoming non-null is the definitive signal that a recording
+    // was saved (via Done, back-gesture Save, or notification Stop action).
+    LaunchedEffect(lastCompletedRecordingId) {
+        val recordingId = lastCompletedRecordingId
+        if (recordingId != null) {
             delay(200) // Brief delay for state to settle
-            onNavigateBack()
+            viewModel.clearLastCompletedRecordingId()
+            onRecordingComplete(recordingId.toString())
         }
     }
     
@@ -153,6 +178,32 @@ fun RecordScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCancelDialog = false }) {
+                    Text("Keep Recording")
+                }
+            }
+        )
+    }
+    
+    // Restart confirmation dialog
+    if (showRestartDialog) {
+        AlertDialog(
+            onDismissRequest = { showRestartDialog = false },
+            title = { Text("Start Over?") },
+            text = { Text("Current recording will be discarded.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRestartDialog = false
+                        previousSegmentsMs = 0L
+                        elapsedMs = 0L
+                        viewModel.restartRecording()
+                    }
+                ) {
+                    Text("Start Over", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestartDialog = false }) {
                     Text("Keep Recording")
                 }
             }
@@ -198,7 +249,7 @@ fun RecordScreen(
             // Background glow layer
             RecordingGlowBackground(
                 isRecording = isRecording,
-                isPaused = false, // No pause state in current implementation
+                isPaused = isPaused,
                 modifier = Modifier.fillMaxSize()
             )
             
@@ -222,10 +273,10 @@ fun RecordScreen(
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 2.sp
                     ),
-                    color = if (isRecording) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
+                    color = when {
+                        isRecording -> MaterialTheme.colorScheme.error
+                        isPaused -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onSurface
                     }
                 )
                 
@@ -234,6 +285,7 @@ fun RecordScreen(
                     text = when {
                         recordingState is RecordingState.Recording -> "Recording"
                         recordingState is RecordingState.Starting -> "Starting..."
+                        recordingState is RecordingState.Paused -> "Paused"
                         recordingState is RecordingState.Stopping -> "Saving..."
                         hadRecordingSession -> "Saved"
                         else -> "Ready"
@@ -262,12 +314,8 @@ fun RecordScreen(
                     state = uiState,
                     recordingColor = MaterialTheme.colorScheme.error,
                     onStartRecording = { viewModel.startRecording() },
-                    onStop = { 
-                        // Main button during recording = STOP and SAVE
-                        pendingNavigateBack = true
-                        viewModel.stopRecording()
-                    },
-                    onResume = { viewModel.startRecording() }
+                    onPause = { viewModel.pauseRecording() },
+                    onResume = { viewModel.resumeRecording() }
                 )
                 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -280,7 +328,7 @@ fun RecordScreen(
                 ) {
                     SecondaryButtonsRow(
                         onDone = { 
-                            // Done = stop, save, and navigate back
+                            // Done = stop, save, and navigate to transcription
                             pendingNavigateBack = true
                             viewModel.stopRecording()
                         },
@@ -289,10 +337,8 @@ fun RecordScreen(
                             showCancelDialog = true 
                         },
                         onRestart = {
-                            // Restart = discard current and start fresh (no navigation)
-                            viewModel.cancelRecording()
-                            // Small delay to let state reset before starting new recording
-                            viewModel.startRecording()
+                            // Restart = show confirmation, then discard and start fresh
+                            showRestartDialog = true
                         }
                     )
                 }

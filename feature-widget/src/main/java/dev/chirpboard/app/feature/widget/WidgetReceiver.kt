@@ -48,6 +48,10 @@ class WidgetReceiver : BroadcastReceiver() {
                 // Stop current recording
                 RecordingService.stopRecording(context)
             }
+            is RecordingState.Paused -> {
+                // Stop paused recording (saves it)
+                RecordingService.stopRecording(context)
+            }
             is RecordingState.Stopping -> {
                 // Already stopping, do nothing
             }

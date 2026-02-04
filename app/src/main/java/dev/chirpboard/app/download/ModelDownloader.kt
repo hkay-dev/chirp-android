@@ -24,6 +24,28 @@ class ModelDownloader(private val context: Context) {
             ModelFile("joiner.int8.onnx", 1_700_000L),
             ModelFile("tokens.txt", 9_000L)
         )
+        
+        /**
+         * Get the persistent model directory that survives "Clear Data".
+         * Uses Documents/.chirpboard/ in shared storage which requires MANAGE_EXTERNAL_STORAGE
+         * on Android 11+, but is not touched by pm clear.
+         * Falls back to internal storage if the persistent path is not writable.
+         */
+        fun getModelDir(context: Context): File {
+            val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOCUMENTS
+            )
+            val persistentDir = File(docsDir, ".chirpboard/models/$MODEL_DIR")
+            
+            // Try to create and verify writable
+            if (persistentDir.exists() || persistentDir.mkdirs()) {
+                return persistentDir
+            }
+            
+            // If we can't write to Documents, fall back to internal storage
+            Log.w(TAG, "Cannot write to persistent path ${persistentDir.absolutePath}, falling back to internal")
+            return File(context.filesDir, "models/$MODEL_DIR")
+        }
     }
 
     data class ModelFile(val name: String, val expectedSize: Long)
@@ -41,15 +63,25 @@ class ModelDownloader(private val context: Context) {
         .build()
 
     fun isModelDownloaded(): Boolean {
-        val modelPath = File(context.filesDir, "models/$MODEL_DIR")
-        return MODEL_FILES.all { file ->
+        val modelPath = getModelDir(context)
+        // Also check legacy internal storage path for backward compatibility
+        val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
+        Log.d(TAG, "isModelDownloaded check — persistent: ${modelPath.absolutePath} (exists=${modelPath.exists()})")
+        Log.d(TAG, "isModelDownloaded check — legacy: ${legacyPath.absolutePath} (exists=${legacyPath.exists()})")
+        val result = MODEL_FILES.all { file ->
             val f = File(modelPath, file.name)
-            f.exists() && f.length() > file.expectedSize * 0.9
+            val legacy = File(legacyPath, file.name)
+            val persistentOk = f.exists() && f.length() > file.expectedSize * 0.9
+            val legacyOk = legacy.exists() && legacy.length() > file.expectedSize * 0.9
+            Log.d(TAG, "  ${file.name}: persistent=${f.exists()}(${f.length()}), legacy=${legacy.exists()}, ok=${persistentOk || legacyOk}")
+            persistentOk || legacyOk
         }
+        Log.d(TAG, "isModelDownloaded = $result")
+        return result
     }
 
     fun downloadModel(): Flow<DownloadState> = flow {
-        val modelPath = File(context.filesDir, "models/$MODEL_DIR")
+        val modelPath = getModelDir(context)
         modelPath.mkdirs()
 
         var totalDownloaded = 0L

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import dev.chirpboard.app.download.ModelDownloader
 import java.io.File
 
 class SherpaRecognizer(private val context: Context) {
@@ -29,11 +30,19 @@ class SherpaRecognizer(private val context: Context) {
         mutex.withLock {
             if (recognizer != null) return@withContext true
 
-            val modelPath = File(context.filesDir, "models/$MODEL_DIR")
-            if (!modelPath.exists()) {
-                Log.w(TAG, "Model directory not found: ${modelPath.absolutePath}")
-                return@withContext false
+            // Check persistent storage first, then fallback to legacy internal storage
+            val persistentPath = ModelDownloader.getModelDir(context)
+            val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
+            
+            val modelPath = when {
+                File(persistentPath, "encoder.int8.onnx").exists() -> persistentPath
+                File(legacyPath, "encoder.int8.onnx").exists() -> legacyPath
+                else -> {
+                    Log.w(TAG, "Model not found in persistent (${persistentPath.absolutePath}) or legacy (${legacyPath.absolutePath})")
+                    return@withContext false
+                }
             }
+            Log.i(TAG, "Using model from: ${modelPath.absolutePath}")
 
             val encoder = File(modelPath, "encoder.int8.onnx")
             val decoder = File(modelPath, "decoder.int8.onnx")
