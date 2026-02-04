@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.parakeeboard.app.data"
+    namespace = "dev.chirpboard.app.data"
     compileSdk = 35
 
     defaultConfig {

@@ -1,0 +1,113 @@
+package dev.chirpboard.app
+
+import android.content.Context
+import android.util.Log
+import com.k2fsa.sherpa.onnx.FeatureConfig
+import com.k2fsa.sherpa.onnx.OfflineModelConfig
+import com.k2fsa.sherpa.onnx.OfflineRecognizer
+import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+
+class SherpaRecognizer(private val context: Context) {
+    companion object {
+        private const val TAG = "SherpaRecognizer"
+        private const val MODEL_DIR = "parakeet-tdt-0.6b-v2"
+    }
+
+    private var recognizer: OfflineRecognizer? = null
+    private val mutex = Mutex()
+
+    val isReady: Boolean
+        get() = recognizer != null
+
+    suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (recognizer != null) return@withContext true
+
+            val modelPath = File(context.filesDir, "models/$MODEL_DIR")
+            if (!modelPath.exists()) {
+                Log.w(TAG, "Model directory not found: ${modelPath.absolutePath}")
+                return@withContext false
+            }
+
+            val encoder = File(modelPath, "encoder.int8.onnx")
+            val decoder = File(modelPath, "decoder.int8.onnx")
+            val joiner = File(modelPath, "joiner.int8.onnx")
+            val tokens = File(modelPath, "tokens.txt")
+
+            if (!encoder.exists() || !decoder.exists() || !joiner.exists() || !tokens.exists()) {
+                Log.w(TAG, "Model files missing in ${modelPath.absolutePath}")
+                return@withContext false
+            }
+
+            try {
+                Log.d(TAG, "Creating transducer config...")
+                val transducerConfig = OfflineTransducerModelConfig(
+                    encoder = encoder.absolutePath,
+                    decoder = decoder.absolutePath,
+                    joiner = joiner.absolutePath
+                )
+
+                Log.d(TAG, "Creating model config...")
+                val modelConfig = OfflineModelConfig(
+                    transducer = transducerConfig,
+                    tokens = tokens.absolutePath,
+                    numThreads = 8,
+                    debug = false,
+                    provider = "cpu",
+                    modelType = "nemo_transducer"
+                )
+
+                Log.d(TAG, "Creating feature config...")
+                val featConfig = FeatureConfig(
+                    sampleRate = VoiceRecorder.SAMPLE_RATE,
+                    featureDim = 80
+                )
+
+                Log.d(TAG, "Creating recognizer config...")
+                val config = OfflineRecognizerConfig(
+                    featConfig = featConfig,
+                    modelConfig = modelConfig,
+                    decodingMethod = "greedy_search"
+                )
+
+                Log.d(TAG, "Creating OfflineRecognizer (this may take 10-30 seconds)...")
+                recognizer = OfflineRecognizer(assetManager = null, config = config)
+                Log.i(TAG, "Recognizer initialized successfully")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to initialize recognizer", e)
+                false
+            }
+        }
+    }
+
+    suspend fun transcribe(samples: FloatArray, sampleRate: Int = VoiceRecorder.SAMPLE_RATE): String =
+        withContext(Dispatchers.Default) {
+            mutex.withLock {
+                val rec = recognizer ?: return@withContext ""
+
+                try {
+                    val stream = rec.createStream()
+                    stream.acceptWaveform(samples, sampleRate)
+                    rec.decode(stream)
+                    val result = rec.getResult(stream)
+                    stream.release()
+                    result.text.trim()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Transcription failed", e)
+                    ""
+                }
+            }
+        }
+
+    fun release() {
+        recognizer?.release()
+        recognizer = null
+    }
+}

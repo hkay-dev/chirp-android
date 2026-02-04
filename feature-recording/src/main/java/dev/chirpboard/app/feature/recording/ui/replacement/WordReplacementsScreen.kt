@@ -1,0 +1,315 @@
+package dev.chirpboard.app.feature.recording.ui.replacement
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.data.entity.WordReplacement
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WordReplacementsScreen(
+    viewModel: WordReplacementsViewModel = hiltViewModel(),
+    onNavigateBack: () -> Unit
+) {
+    val replacements by viewModel.replacements.collectAsState()
+
+    var showEditorDialog by remember { mutableStateOf(false) }
+    var editingReplacement by remember { mutableStateOf<WordReplacement?>(null) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Word Replacements") },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = {
+                    editingReplacement = null
+                    showEditorDialog = true
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add replacement"
+                )
+            }
+        }
+    ) { paddingValues ->
+        if (replacements.isEmpty()) {
+            EmptyState(
+                icon = Icons.Default.SwapHoriz,
+                title = "No word replacements",
+                description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
+                modifier = Modifier.padding(paddingValues)
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 8.dp,
+                    bottom = 88.dp // Extra padding for FAB
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(
+                    items = replacements,
+                    key = { it.id }
+                ) { replacement ->
+                    SwipeableReplacementItem(
+                        replacement = replacement,
+                        onToggleEnabled = { viewModel.toggleEnabled(replacement) },
+                        onEdit = {
+                            editingReplacement = replacement
+                            showEditorDialog = true
+                        },
+                        onDelete = { viewModel.delete(replacement) }
+                    )
+                }
+            }
+        }
+    }
+
+    // Editor dialog
+    if (showEditorDialog) {
+        WordReplacementEditorDialog(
+            replacement = editingReplacement,
+            onDismiss = {
+                showEditorDialog = false
+                editingReplacement = null
+            },
+            onSave = { original, replacement, caseSensitive ->
+                if (editingReplacement != null) {
+                    viewModel.update(
+                        editingReplacement!!.copy(
+                            original = original,
+                            replacement = replacement,
+                            caseSensitive = caseSensitive
+                        )
+                    )
+                } else {
+                    viewModel.create(original, replacement, caseSensitive)
+                }
+                showEditorDialog = false
+                editingReplacement = null
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableReplacementItem(
+    replacement: WordReplacement,
+    onToggleEnabled: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { dismissValue ->
+            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                onDelete()
+                true
+            } else {
+                false
+            }
+        }
+    )
+
+    // Reset state after deletion animation
+    LaunchedEffect(replacement.id) {
+        dismissState.reset()
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val backgroundColor by animateColorAsState(
+                targetValue = when (dismissState.targetValue) {
+                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                    else -> Color.Transparent
+                },
+                label = "background_color"
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(backgroundColor)
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        },
+        enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = true
+    ) {
+        ReplacementItemCard(
+            replacement = replacement,
+            onToggleEnabled = onToggleEnabled,
+            onEdit = onEdit
+        )
+    }
+}
+
+@Composable
+private fun ReplacementItemCard(
+    replacement: WordReplacement,
+    onToggleEnabled: () -> Unit,
+    onEdit: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (replacement.enabled) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            }
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Enable/disable switch
+            Switch(
+                checked = replacement.enabled,
+                onCheckedChange = { onToggleEnabled() }
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Replacement text
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = replacement.original,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textDecoration = if (!replacement.enabled) {
+                            TextDecoration.LineThrough
+                        } else {
+                            TextDecoration.None
+                        },
+                        color = if (replacement.enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        }
+                    )
+
+                    Text(
+                        text = " \u2192 ",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    Text(
+                        text = replacement.replacement.ifEmpty { "(remove)" },
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = if (replacement.enabled) {
+                            if (replacement.replacement.isEmpty()) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            }
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        }
+                    )
+                }
+
+                // Show case sensitivity badge if enabled
+                if (replacement.caseSensitive) {
+                    Text(
+                        text = "Case sensitive",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Edit button
+            IconButton(onClick = onEdit) {
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}

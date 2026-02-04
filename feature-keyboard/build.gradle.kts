@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.parakeeboard.app.feature.keyboard"
+    namespace = "dev.chirpboard.app.feature.keyboard"
     compileSdk = 35
 
     defaultConfig {

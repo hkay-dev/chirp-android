@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.parakeeboard.app.feature.obsidian"
+    namespace = "dev.chirpboard.app.feature.obsidian"
     compileSdk = 35
 
     defaultConfig {

@@ -9,18 +9,18 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:name=".ParakeetApplication"
+        android:name=".ChirpApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.ParakeetKeyboard">
+        android:theme="@style/Theme.Chirp">
 
         <!-- Main Activity for setup/permissions -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.ParakeetKeyboard">
+            android:theme="@style/Theme.Chirp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -44,7 +44,7 @@
 
         <!-- Input Method Service (from feature-keyboard) -->
         <service
-            android:name="dev.parakeeboard.app.feature.keyboard.service.ParakeetKeyboardService"
+            android:name="dev.chirpboard.app.feature.keyboard.service.ChirpKeyboardService"
             android:exported="true"
             android:label="@string/keyboard_name"
             android:permission="android.permission.BIND_INPUT_METHOD"
@@ -59,7 +59,7 @@
 
         <!-- Recognition Service for Voice Input in Other Apps -->
         <service
-            android:name=".ParakeetRecognitionService"
+            android:name=".ChirpRecognitionService"
             android:enabled="true"
             android:exported="true"
             android:permission="android.permission.BIND_RECOGNITION_SERVICE">
@@ -74,21 +74,21 @@
 
         <!-- Recording Service (from feature-recording) -->
         <service
-            android:name="dev.parakeeboard.app.feature.recording.service.RecordingService"
+            android:name="dev.chirpboard.app.feature.recording.service.RecordingService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
         <!-- Home Screen Widget -->
         <receiver
-            android:name="dev.parakeeboard.app.feature.widget.RecordingWidgetProvider"
+            android:name="dev.chirpboard.app.feature.widget.RecordingWidgetProvider"
             android:exported="true"
             android:label="@string/widget_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <intent-filter>
-                <action android:name="dev.parakeeboard.app.UPDATE_WIDGET" />
+                <action android:name="dev.chirpboard.app.UPDATE_WIDGET" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -97,10 +97,10 @@
 
         <!-- Widget Toggle Receiver -->
         <receiver
-            android:name="dev.parakeeboard.app.feature.widget.WidgetReceiver"
+            android:name="dev.chirpboard.app.feature.widget.WidgetReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="dev.parakeeboard.app.TOGGLE_RECORDING" />
+                <action android:name="dev.chirpboard.app.TOGGLE_RECORDING" />
             </intent-filter>
         </receiver>
 

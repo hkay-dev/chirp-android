@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.parakeeboard.app.feature.transcription"
+    namespace = "dev.chirpboard.app.feature.transcription"
     compileSdk = 35
 
     defaultConfig {

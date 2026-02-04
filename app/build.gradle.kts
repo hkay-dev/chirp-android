@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.parakeeboard.app"
+    namespace = "dev.chirpboard.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.parakeeboard.app"
+        applicationId = "dev.chirpboard.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 20
