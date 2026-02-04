@@ -21,7 +21,9 @@ class LlmSettingsViewModel @Inject constructor(
         val apiKey: String = "",
         val isKeyConfigured: Boolean = false,
         val isTestingConnection: Boolean = false,
-        val connectionTestResult: ConnectionTestResult? = null
+        val connectionTestResult: ConnectionTestResult? = null,
+        val autoTitle: Boolean = false,
+        val autoSummary: Boolean = false
     )
 
     sealed class ConnectionTestResult {
@@ -41,6 +43,16 @@ class LlmSettingsViewModel @Inject constructor(
                         isKeyConfigured = !key.isNullOrBlank()
                     )
                 }
+            }
+        }
+        viewModelScope.launch {
+            preferences.autoTitle.collect { enabled ->
+                _uiState.update { it.copy(autoTitle = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            preferences.autoSummary.collect { enabled ->
+                _uiState.update { it.copy(autoSummary = enabled) }
             }
         }
     }
@@ -88,5 +100,17 @@ class LlmSettingsViewModel @Inject constructor(
 
     fun dismissTestResult() {
         _uiState.update { it.copy(connectionTestResult = null) }
+    }
+    
+    fun setAutoTitle(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setAutoTitle(enabled)
+        }
+    }
+    
+    fun setAutoSummary(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setAutoSummary(enabled)
+        }
     }
 }

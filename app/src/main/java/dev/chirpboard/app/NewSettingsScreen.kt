@@ -5,8 +5,11 @@ import android.content.Intent
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -70,6 +73,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.download.ModelDownloader
+import androidx.compose.material.icons.filled.BugReport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -86,7 +90,8 @@ fun NewSettingsScreen(
     onNavigateToProfiles: () -> Unit,
     onNavigateToTags: () -> Unit,
     onNavigateToWordReplacements: () -> Unit,
-    onNavigateToAbout: () -> Unit
+    onNavigateToAbout: () -> Unit,
+    onNavigateToDevMenu: () -> Unit
 ) {
     val context = LocalContext.current
     val downloader = remember { ModelDownloader(context) }
@@ -306,6 +311,25 @@ fun NewSettingsScreen(
                     onClick = onNavigateToAbout
                 )
             }
+            
+            // Dev Menu (always visible in debug builds, route is always registered)
+            item {
+                Text(
+                    text = "Developer",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp)
+                )
+            }
+            
+            item {
+                SettingsNavigationItem(
+                    icon = Icons.Default.BugReport,
+                    title = "Developer Menu",
+                    subtitle = "Debug tools and test data",
+                    onClick = onNavigateToDevMenu
+                )
+            }
 
             // Bottom spacing
             item {
@@ -387,6 +411,12 @@ private fun SetupSection(
     val totalSteps = 3
     val allComplete = completedSteps == totalSteps
 
+    val completionColor by animateColorAsState(
+        targetValue = if (allComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "completion_color"
+    )
+
     val rotationAngle by animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
         label = "arrow_rotation"
@@ -418,7 +448,7 @@ private fun SetupSection(
                     Text(
                         text = if (allComplete) "All steps complete" else "$completedSteps/$totalSteps complete",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (allComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = completionColor
                     )
                 }
 

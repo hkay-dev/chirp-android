@@ -1,5 +1,8 @@
 package dev.chirpboard.app.feature.recording.ui.tag
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -7,7 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
@@ -21,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.data.entity.Tag
 
 /**
@@ -40,14 +44,22 @@ fun TagChip(
     modifier: Modifier = Modifier
 ) {
     val tagColor = tag.color?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
-    val backgroundColor = if (selected) tagColor else Color.Transparent
-    val contentColor = if (selected) {
-        if (tagColor.luminance() > 0.5f) Color.Black else Color.White
-    } else {
-        tagColor
-    }
+    val backgroundColor by animateColorAsState(
+        targetValue = if (selected) tagColor else Color.Transparent,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "tag_background"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) {
+            if (tagColor.luminance() > 0.5f) Color.Black else Color.White
+        } else {
+            tagColor
+        },
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "tag_content"
+    )
 
-    val shape = RoundedCornerShape(16.dp)
+    val shape = ChirpShapes.Large
 
     Box(
         modifier = modifier

@@ -121,4 +121,7 @@ class RecordingRepository @Inject constructor(
     /** Update summary */
     suspend fun updateSummary(recordingId: UUID, summary: String) =
         transcriptDao.updateSummary(recordingId, summary)
+    
+    /** Delete all recordings (for dev/testing) */
+    suspend fun deleteAll() = recordingDao.deleteAll()
 }

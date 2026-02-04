@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -261,6 +264,17 @@ private fun ProcessingModeCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
+            val textColor by animateColorAsState(
+                targetValue = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                label = "keyboard_text_color"
+            )
+            val iconTint by animateColorAsState(
+                targetValue = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                label = "keyboard_icon_tint"
+            )
+
             Box {
                 OutlinedCard(
                     modifier = Modifier
@@ -277,20 +291,12 @@ private fun ProcessingModeCard(
                         Text(
                             text = currentModeName,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (enabled) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            }
+                            color = textColor
                         )
                         Icon(
                             imageVector = Icons.Default.ArrowDropDown,
                             contentDescription = "Select mode",
-                            tint = if (enabled) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                            }
+                            tint = iconTint
                         )
                     }
                 }

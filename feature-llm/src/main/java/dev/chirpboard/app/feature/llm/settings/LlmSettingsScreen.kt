@@ -25,8 +25,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -72,6 +77,15 @@ fun LlmSettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    val keyStatusTint by animateColorAsState(
+                        targetValue = if (uiState.isKeyConfigured) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.error
+                        },
+                        animationSpec = tween(300, easing = FastOutSlowInEasing),
+                        label = "key_status_tint"
+                    )
                     Icon(
                         imageVector = if (uiState.isKeyConfigured) {
                             Icons.Default.CheckCircle
@@ -79,11 +93,7 @@ fun LlmSettingsScreen(
                             Icons.Default.Warning
                         },
                         contentDescription = null,
-                        tint = if (uiState.isKeyConfigured) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
+                        tint = keyStatusTint
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
@@ -201,6 +211,72 @@ fun LlmSettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            
+            // Auto-processing section
+            if (uiState.isKeyConfigured) {
+                Spacer(Modifier.padding(vertical = 8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.padding(vertical = 8.dp))
+                
+                Text(
+                    text = "Automatic Processing",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                
+                // Auto-title toggle
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-generate titles",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Automatically create descriptive titles after transcription",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = uiState.autoTitle,
+                            onCheckedChange = viewModel::setAutoTitle
+                        )
+                    }
+                }
+                
+                // Auto-summary toggle
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Auto-generate summaries",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "Automatically create brief summaries for the home screen",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = uiState.autoSummary,
+                            onCheckedChange = viewModel::setAutoSummary
+                        )
+                    }
+                }
+            }
         }
     }
 }

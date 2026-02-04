@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
@@ -79,7 +79,7 @@ private fun AddTagChip(
 ) {
     Surface(
         modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
+        shape = ChirpShapes.Large,
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Box(

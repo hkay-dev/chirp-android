@@ -6,8 +6,11 @@ import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -275,10 +278,15 @@ private fun SetupSection(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    val completionColor by animateColorAsState(
+                        targetValue = if (allComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        animationSpec = tween(300, easing = FastOutSlowInEasing),
+                        label = "completion_color"
+                    )
                     Text(
                         text = if (allComplete) "All steps complete" else "$completedSteps/$totalSteps complete",
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (allComplete) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = completionColor
                     )
                 }
 

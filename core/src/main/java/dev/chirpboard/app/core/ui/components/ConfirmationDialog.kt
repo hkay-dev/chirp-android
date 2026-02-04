@@ -25,7 +25,7 @@ fun ConfirmationDialog(
     onDismiss: () -> Unit,
     isDestructive: Boolean = false
 ) {
-    AlertDialog(
+    AnimatedAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

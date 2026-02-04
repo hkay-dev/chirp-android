@@ -1,6 +1,12 @@
 package dev.chirpboard.app.feature.recording.ui.tag
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -88,30 +94,40 @@ fun TagManagementScreen(
             }
         }
     ) { paddingValues ->
-        if (tags.isEmpty()) {
-            EmptyState(
-                icon = Icons.AutoMirrored.Filled.Label,
-                title = "No tags yet",
-                description = "Create tags to organize your recordings",
-                modifier = Modifier.padding(paddingValues)
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-            ) {
-                items(
-                    items = tags,
-                    key = { it.id }
-                ) { tag ->
-                    SwipeableTagItem(
-                        tag = tag,
-                        onEdit = { editingTag = tag },
-                        onDelete = { viewModel.deleteTag(tag) }
-                    )
+        AnimatedContent(
+            targetState = tags.isEmpty(),
+            transitionSpec = {
+                fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
+                    fadeOut(tween(200, easing = FastOutSlowInEasing))
+            },
+            label = "tags_content"
+        ) { isEmpty ->
+            if (isEmpty) {
+                EmptyState(
+                    icon = Icons.AutoMirrored.Filled.Label,
+                    title = "No tags yet",
+                    description = "Create tags to organize your recordings",
+                    modifier = Modifier.padding(paddingValues)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+                ) {
+                    items(
+                        items = tags,
+                        key = { it.id }
+                    ) { tag ->
+                        SwipeableTagItem(
+                            tag = tag,
+                            onEdit = { editingTag = tag },
+                            onDelete = { viewModel.deleteTag(tag) },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
                 }
             }
         }
@@ -147,7 +163,8 @@ fun TagManagementScreen(
 private fun SwipeableTagItem(
     tag: Tag,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
@@ -161,6 +178,7 @@ private fun SwipeableTagItem(
     )
 
     SwipeToDismissBox(
+        modifier = modifier,
         state = dismissState,
         backgroundContent = {
             val backgroundColor by animateColorAsState(
