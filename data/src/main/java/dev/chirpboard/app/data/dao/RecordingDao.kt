@@ -66,4 +66,7 @@ interface RecordingDao {
     
     @Query("SELECT COUNT(*) FROM recordings WHERE status = :status")
     suspend fun getCountByStatus(status: RecordingStatus): Int
+    
+    @Query("DELETE FROM recordings")
+    suspend fun deleteAll()
 }

@@ -2,6 +2,8 @@ package dev.chirpboard.app.feature.recording.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -14,8 +16,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -161,7 +170,7 @@ fun RecordScreen(
     
     // Cancel confirmation dialog
     if (showCancelDialog) {
-        AlertDialog(
+        AnimatedAlertDialog(
             onDismissRequest = { showCancelDialog = false },
             title = { Text("Discard Recording?") },
             text = { Text("This recording will be permanently deleted.") },
@@ -186,7 +195,7 @@ fun RecordScreen(
     
     // Restart confirmation dialog
     if (showRestartDialog) {
-        AlertDialog(
+        AnimatedAlertDialog(
             onDismissRequest = { showRestartDialog = false },
             title = { Text("Start Over?") },
             text = { Text("Current recording will be discarded.") },
@@ -212,7 +221,7 @@ fun RecordScreen(
     
     // Back gesture dialog (during recording)
     if (showBackDialog) {
-        AlertDialog(
+        AnimatedAlertDialog(
             onDismissRequest = { showBackDialog = false },
             title = { Text("Recording in Progress") },
             text = { Text("Would you like to save or discard this recording?") },
@@ -241,6 +250,17 @@ fun RecordScreen(
         )
     }
     
+    // Animate timer color between recording states
+    val timerColor by animateColorAsState(
+        targetValue = when {
+            isRecording -> MaterialTheme.colorScheme.error
+            isPaused -> MaterialTheme.colorScheme.onSurfaceVariant
+            else -> MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = tween(400, easing = FastOutSlowInEasing),
+        label = "timer_color"
+    )
+    
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.surface
@@ -252,6 +272,31 @@ fun RecordScreen(
                 isPaused = isPaused,
                 modifier = Modifier.fillMaxSize()
             )
+            
+            // Close button — subtle, top-start, semi-transparent
+            IconButton(
+                onClick = {
+                    if (isActive) {
+                        showBackDialog = true
+                    } else {
+                        onNavigateBack()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .systemBarsPadding()
+                    .padding(8.dp)
+                    .size(48.dp),
+                colors = IconButtonDefaults.iconButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
             
             // Main content
             Column(
@@ -273,11 +318,7 @@ fun RecordScreen(
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 2.sp
                     ),
-                    color = when {
-                        isRecording -> MaterialTheme.colorScheme.error
-                        isPaused -> MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.onSurface
-                    }
+                    color = timerColor
                 )
                 
                 // Status text

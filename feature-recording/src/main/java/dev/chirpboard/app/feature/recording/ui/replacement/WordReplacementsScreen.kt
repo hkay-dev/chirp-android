@@ -1,6 +1,12 @@
 package dev.chirpboard.app.feature.recording.ui.replacement
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -90,39 +96,49 @@ fun WordReplacementsScreen(
             }
         }
     ) { paddingValues ->
-        if (replacements.isEmpty()) {
-            EmptyState(
-                icon = Icons.Default.SwapHoriz,
-                title = "No word replacements",
-                description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
-                modifier = Modifier.padding(paddingValues)
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = 8.dp,
-                    bottom = 88.dp // Extra padding for FAB
-                ),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(
-                    items = replacements,
-                    key = { it.id }
-                ) { replacement ->
-                    SwipeableReplacementItem(
-                        replacement = replacement,
-                        onToggleEnabled = { viewModel.toggleEnabled(replacement) },
-                        onEdit = {
-                            editingReplacement = replacement
-                            showEditorDialog = true
-                        },
-                        onDelete = { viewModel.delete(replacement) }
-                    )
+        AnimatedContent(
+            targetState = replacements.isEmpty(),
+            transitionSpec = {
+                fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
+                    fadeOut(tween(200, easing = FastOutSlowInEasing))
+            },
+            label = "replacements_content"
+        ) { isEmpty ->
+            if (isEmpty) {
+                EmptyState(
+                    icon = Icons.Default.SwapHoriz,
+                    title = "No word replacements",
+                    description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
+                    modifier = Modifier.padding(paddingValues)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = 8.dp,
+                        bottom = 88.dp // Extra padding for FAB
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(
+                        items = replacements,
+                        key = { it.id }
+                    ) { replacement ->
+                        SwipeableReplacementItem(
+                            replacement = replacement,
+                            onToggleEnabled = { viewModel.toggleEnabled(replacement) },
+                            onEdit = {
+                                editingReplacement = replacement
+                                showEditorDialog = true
+                            },
+                            onDelete = { viewModel.delete(replacement) },
+                            modifier = Modifier.animateItem()
+                        )
+                    }
                 }
             }
         }
@@ -161,7 +177,8 @@ private fun SwipeableReplacementItem(
     replacement: WordReplacement,
     onToggleEnabled: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
@@ -180,6 +197,7 @@ private fun SwipeableReplacementItem(
     }
 
     SwipeToDismissBox(
+        modifier = modifier,
         state = dismissState,
         backgroundContent = {
             val backgroundColor by animateColorAsState(
@@ -221,6 +239,29 @@ private fun ReplacementItemCard(
     onToggleEnabled: () -> Unit,
     onEdit: () -> Unit
 ) {
+    val fromTextColor by animateColorAsState(
+        targetValue = if (replacement.enabled) {
+            MaterialTheme.colorScheme.onSurface
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        },
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "from_text_color"
+    )
+    val toTextColor by animateColorAsState(
+        targetValue = if (replacement.enabled) {
+            if (replacement.replacement.isEmpty()) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        },
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "to_text_color"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -262,11 +303,7 @@ private fun ReplacementItemCard(
                         } else {
                             TextDecoration.None
                         },
-                        color = if (replacement.enabled) {
-                            MaterialTheme.colorScheme.onSurface
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        }
+                        color = fromTextColor
                     )
 
                     Text(
@@ -280,15 +317,7 @@ private fun ReplacementItemCard(
                         style = MaterialTheme.typography.bodyLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        color = if (replacement.enabled) {
-                            if (replacement.replacement.isEmpty()) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            }
-                        } else {
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        }
+                        color = toTextColor
                     )
                 }
 

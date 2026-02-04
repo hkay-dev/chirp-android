@@ -32,6 +32,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -137,17 +140,32 @@ private fun VaultConfigurationCard(
                 style = MaterialTheme.typography.titleMedium
             )
 
+            val accessIconTint by animateColorAsState(
+                targetValue = if (hasAccess) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                label = "access_icon_tint"
+            )
+            val accessTextColor by animateColorAsState(
+                targetValue = if (hasAccess) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                label = "access_text_color"
+            )
+
             if (isConfigured) {
                 // Show configured vault status
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         imageVector = if (hasAccess) Icons.Default.CheckCircle else Icons.Default.Warning,
                         contentDescription = null,
-                        tint = if (hasAccess) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        }
+                        tint = accessIconTint
                     )
                     Spacer(Modifier.width(12.dp))
                     Column {
@@ -158,11 +176,7 @@ private fun VaultConfigurationCard(
                         Text(
                             text = if (hasAccess) "Access granted" else "Access lost - please re-select",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (hasAccess) {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            } else {
-                                MaterialTheme.colorScheme.error
-                            }
+                            color = accessTextColor
                         )
                     }
                 }

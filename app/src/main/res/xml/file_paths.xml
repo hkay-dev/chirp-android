@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Internal app storage for recordings -->
+    <files-path
+        name="recordings"
+        path="recordings/" />
+    
+    <!-- Cache directory if needed -->
+    <cache-path
+        name="cache"
+        path="/" />
+    
+    <!-- External files if recordings are stored there -->
+    <external-files-path
+        name="external_recordings"
+        path="recordings/" />
+</paths>

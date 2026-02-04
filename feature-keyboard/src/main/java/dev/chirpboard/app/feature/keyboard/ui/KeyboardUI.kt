@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
@@ -203,7 +204,7 @@ private fun KeyboardControls(
             modifier = Modifier
                 .background(
                     MaterialTheme.colorScheme.secondaryContainer,
-                    RoundedCornerShape(8.dp)
+                    ChirpShapes.Small
                 )
                 .size(48.dp)
         ) {

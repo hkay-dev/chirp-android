@@ -21,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.data.entity.WordReplacement
 
 @Composable
@@ -37,7 +38,7 @@ fun WordReplacementEditorDialog(
     val title = if (isEditing) "Edit Replacement" else "Add Replacement"
     val canSave = original.isNotBlank()
 
-    AlertDialog(
+    AnimatedAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
