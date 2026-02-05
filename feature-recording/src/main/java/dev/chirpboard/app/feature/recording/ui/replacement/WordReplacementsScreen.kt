@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -278,56 +279,61 @@ private fun ReplacementItemCard(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Enable/disable switch
-            Switch(
-                checked = replacement.enabled,
-                onCheckedChange = { onToggleEnabled() }
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Replacement text
-            Column(
-                modifier = Modifier.weight(1f)
+            // Enable/disable switch + text - clickable area
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onToggleEnabled() },
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = replacement.original,
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textDecoration = if (!replacement.enabled) {
-                            TextDecoration.LineThrough
-                        } else {
-                            TextDecoration.None
-                        },
-                        color = fromTextColor
-                    )
+                Switch(
+                    checked = replacement.enabled,
+                    onCheckedChange = null // Handled by row click
+                )
 
-                    Text(
-                        text = " \u2192 ",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                Spacer(modifier = Modifier.width(12.dp))
 
-                    Text(
-                        text = replacement.replacement.ifEmpty { "(remove)" },
-                        style = MaterialTheme.typography.bodyLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = toTextColor
-                    )
-                }
+                // Replacement text
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = replacement.original,
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textDecoration = if (!replacement.enabled) {
+                                TextDecoration.LineThrough
+                            } else {
+                                TextDecoration.None
+                            },
+                            color = fromTextColor
+                        )
 
-                // Show case sensitivity badge if enabled
-                if (replacement.caseSensitive) {
-                    Text(
-                        text = "Case sensitive",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        Text(
+                            text = " \u2192 ",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        Text(
+                            text = replacement.replacement.ifEmpty { "(remove)" },
+                            style = MaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = toTextColor
+                        )
+                    }
+
+                    // Show case sensitivity badge if enabled
+                    if (replacement.caseSensitive) {
+                        Text(
+                            text = "Case sensitive",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 

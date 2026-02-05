@@ -14,7 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.chirpboard.app.AboutScreen
 import dev.chirpboard.app.KeyboardSettingsScreen
-import dev.chirpboard.app.NewSettingsScreen
+import dev.chirpboard.app.ui.settings.SettingsScreen
 import dev.chirpboard.app.feature.llm.settings.LlmSettingsScreen
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianSettingsScreen
 import dev.chirpboard.app.feature.recording.ui.HomeScreen
@@ -24,6 +24,8 @@ import dev.chirpboard.app.feature.recording.ui.profile.ProfileEditorScreen
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileListScreen
 import dev.chirpboard.app.feature.recording.ui.replacement.WordReplacementsScreen
 import dev.chirpboard.app.feature.recording.ui.tag.TagManagementScreen
+import dev.chirpboard.app.feature.transcription.settings.TranscriptionSettingsScreen
+import dev.chirpboard.app.ui.settings.AudioSettingsScreen
 
 import dev.chirpboard.app.debug.DevMenuScreen
 import androidx.compose.material3.MaterialTheme
@@ -60,7 +62,9 @@ sealed class Screen(val route: String) {
     }
     
     object Settings : Screen("settings")
+    object TranscriptionSettings : Screen("settings/transcription")
     object LlmSettings : Screen("settings/llm")
+    object AudioSettings : Screen("settings/audio")
     object ObsidianSettings : Screen("settings/obsidian")
     object KeyboardSettings : Screen("settings/keyboard")
     
@@ -233,23 +237,38 @@ fun AppNavHost(
         
         // Settings Screen
         composable(Screen.Settings.route) {
-            NewSettingsScreen(
+            SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
+                onNavigateToTranscriptionSettings = { navController.navigate(Screen.TranscriptionSettings.route) },
                 onNavigateToLlmSettings = { navController.navigate(Screen.LlmSettings.route) },
+                onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
                 onNavigateToObsidianSettings = { navController.navigate(Screen.ObsidianSettings.route) },
                 onNavigateToKeyboardSettings = { navController.navigate(Screen.KeyboardSettings.route) },
                 onNavigateToProfiles = { navController.navigate(Screen.Profiles.route) },
                 onNavigateToTags = { navController.navigate(Screen.Tags.route) },
                 onNavigateToWordReplacements = { navController.navigate(Screen.WordReplacements.route) },
                 onNavigateToAbout = { navController.navigate(Screen.About.route) },
-                // Debug check using application info flag - always show in debuggable builds
                 onNavigateToDevMenu = { navController.navigate(Screen.DevMenu.route) }
+            )
+        }
+        
+        // Transcription Settings Screen
+        composable(Screen.TranscriptionSettings.route) {
+            TranscriptionSettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
         
         // LLM Settings Screen
         composable(Screen.LlmSettings.route) {
             LlmSettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        
+        // Audio Settings Screen
+        composable(Screen.AudioSettings.route) {
+            AudioSettingsScreen(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

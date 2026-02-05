@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -224,7 +225,11 @@ private fun AutoExportCard(
     hasAccess: Boolean,
     onToggle: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = hasAccess) { onToggle() }
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -247,7 +252,7 @@ private fun AutoExportCard(
             Spacer(Modifier.width(16.dp))
             Switch(
                 checked = enabled,
-                onCheckedChange = { onToggle() },
+                onCheckedChange = null, // Handled by card click
                 enabled = hasAccess
             )
         }

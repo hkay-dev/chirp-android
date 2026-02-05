@@ -21,6 +21,7 @@ class LlmPreferences @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private object Keys {
+        val LLM_ENABLED = booleanPreferencesKey("llm_enabled")
         val API_KEY = stringPreferencesKey("gemini_api_key")
         val AUTO_TITLE = booleanPreferencesKey("auto_title")
         val AUTO_SUMMARY = booleanPreferencesKey("auto_summary")
@@ -29,6 +30,10 @@ class LlmPreferences @Inject constructor(
     companion object {
         // DEV MODE ONLY - hardcoded API key for development convenience
         private const val DEV_API_KEY = "[removed-google-api-key]"
+    }
+
+    val llmEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[Keys.LLM_ENABLED] ?: true // On by default for dev
     }
 
     val apiKey: Flow<String?> = context.dataStore.data.map { preferences ->
@@ -41,6 +46,12 @@ class LlmPreferences @Inject constructor(
     
     val autoSummary: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[Keys.AUTO_SUMMARY] ?: false
+    }
+
+    suspend fun setLlmEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[Keys.LLM_ENABLED] = enabled
+        }
     }
 
     suspend fun setApiKey(key: String) {
@@ -72,4 +83,7 @@ class LlmPreferences @Inject constructor(
     
     /** Get current autoSummary value synchronously (for workers) */
     suspend fun getAutoSummary(): Boolean = autoSummary.first()
+    
+    /** Get current llmEnabled value synchronously (for workers) */
+    suspend fun getLlmEnabled(): Boolean = llmEnabled.first()
 }

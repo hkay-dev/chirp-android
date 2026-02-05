@@ -20,7 +20,10 @@ import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -30,6 +33,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -71,6 +75,9 @@ class HomeViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    /** Cached profiles for fast lookup */
+    private val profileCache = mutableMapOf<UUID, Profile?>()
+    
     /** All recordings based on search, enriched with tags/summary/profile */
     val displayItems: StateFlow<List<RecordingDisplayItem>> = _searchQuery
         .flatMapLatest { query ->
@@ -81,18 +88,31 @@ class HomeViewModel @Inject constructor(
             }
         }
         .map { recordings ->
-            recordings.map { recording ->
-                val tags = tagRepository.getTagsForRecordingList(recording.id)
-                val transcript = recordingRepository.getTranscript(recording.id)
-                val profile = recording.profileId?.let { profileRepository.getProfile(it) }
-                RecordingDisplayItem(
-                    recording = recording,
-                    tags = tags,
-                    summary = transcript?.summary ?: transcript?.processedText?.take(120)
-                        ?: transcript?.rawText?.take(120),
-                    profileName = profile?.name,
-                    profileIcon = profile?.icon
-                )
+            withContext(Dispatchers.IO) {
+                // Pre-fetch all profiles that we'll need (cache miss only)
+                val profileIds = recordings.mapNotNull { it.profileId }.distinct()
+                profileIds.forEach { id ->
+                    if (!profileCache.containsKey(id)) {
+                        profileCache[id] = profileRepository.getProfile(id)
+                    }
+                }
+                
+                // Load all recordings in parallel for faster enrichment
+                recordings.map { recording ->
+                    async {
+                        val tags = tagRepository.getTagsForRecordingList(recording.id)
+                        val transcript = recordingRepository.getTranscript(recording.id)
+                        val profile = recording.profileId?.let { profileCache[it] }
+                        RecordingDisplayItem(
+                            recording = recording,
+                            tags = tags,
+                            summary = transcript?.summary ?: transcript?.processedText?.take(120)
+                                ?: transcript?.rawText?.take(120),
+                            profileName = profile?.name,
+                            profileIcon = profile?.icon
+                        )
+                    }
+                }.awaitAll()
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

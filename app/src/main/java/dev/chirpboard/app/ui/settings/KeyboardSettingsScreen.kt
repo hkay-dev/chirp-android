@@ -34,7 +34,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -85,8 +84,12 @@ fun KeyboardSettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Save recordings toggle
-            Card(modifier = Modifier.fillMaxWidth()) {
+            // Save recordings toggle - entire card is clickable
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.toggleSaveRecordings() }
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -108,13 +111,17 @@ fun KeyboardSettingsScreen(
                     }
                     Switch(
                         checked = uiState.saveKeyboardRecordings,
-                        onCheckedChange = { viewModel.toggleSaveRecordings() }
+                        onCheckedChange = null // Handled by card click
                     )
                 }
             }
 
-            // LLM processing toggle
-            Card(modifier = Modifier.fillMaxWidth()) {
+            // LLM processing toggle - entire card is clickable
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.toggleLlmEnabled() }
+            ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -136,7 +143,7 @@ fun KeyboardSettingsScreen(
                     }
                     Switch(
                         checked = uiState.llmEnabled,
-                        onCheckedChange = { viewModel.toggleLlmEnabled() }
+                        onCheckedChange = null // Handled by card click
                     )
                 }
             }
@@ -147,36 +154,6 @@ fun KeyboardSettingsScreen(
                 enabled = uiState.llmEnabled,
                 onModeSelected = viewModel::setProcessingMode
             )
-
-            // Microphone gain slider
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Microphone Gain",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "Boost: ${String.format("%.1f", uiState.microphoneGain)}x",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Slider(
-                        value = uiState.microphoneGain,
-                        onValueChange = viewModel::setMicrophoneGain,
-                        valueRange = 1.0f..5.0f,
-                        steps = 39,
-                        enabled = true
-                    )
-                    Text(
-                        text = "Increase for quieter environments. Values above 2.0x may introduce distortion.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
 
             // System keyboard settings link
             Card(modifier = Modifier.fillMaxWidth()) {
