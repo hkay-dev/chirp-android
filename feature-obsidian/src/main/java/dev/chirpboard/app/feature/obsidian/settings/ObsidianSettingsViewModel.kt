@@ -5,12 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -47,6 +50,8 @@ class ObsidianSettingsViewModel @Inject constructor(
                 preferences.globalVaultUri,
                 preferences.autoExportEnabled
             ) { vaultUri, autoExport ->
+                // SAF operations (DocumentFile.fromTreeUri, canRead, canWrite) are I/O
+                // and handled via flowOn(Dispatchers.IO) below
                 val uri = vaultUri?.let { Uri.parse(it) }
                 val hasAccess = uri?.let { obsidianManager.hasVaultAccess(it) } ?: false
                 val vaultName = uri?.let { obsidianManager.getVaultDisplayName(it) }
@@ -58,7 +63,9 @@ class ObsidianSettingsViewModel @Inject constructor(
                     hasAccess = hasAccess,
                     isLoading = false
                 )
-            }.collect { state ->
+            }
+            .flowOn(Dispatchers.IO)
+            .collect { state ->
                 _uiState.value = state
             }
         }
@@ -102,7 +109,11 @@ class ObsidianSettingsViewModel @Inject constructor(
      */
     fun refreshAccessStatus() {
         val currentUri = _uiState.value.vaultUri?.let { Uri.parse(it) } ?: return
-        val hasAccess = obsidianManager.hasVaultAccess(currentUri)
-        _uiState.update { it.copy(hasAccess = hasAccess) }
+        viewModelScope.launch {
+            val hasAccess = withContext(Dispatchers.IO) {
+                obsidianManager.hasVaultAccess(currentUri)
+            }
+            _uiState.update { it.copy(hasAccess = hasAccess) }
+        }
     }
 }

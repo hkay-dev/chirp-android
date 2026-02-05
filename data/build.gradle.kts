@@ -44,4 +44,9 @@ dependencies {
     
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
+    
+    // Android Test
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    androidTestImplementation("androidx.test:runner:1.5.2")
 }

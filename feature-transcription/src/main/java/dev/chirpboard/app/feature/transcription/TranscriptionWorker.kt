@@ -15,6 +15,7 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.llm.LlmProcessor
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
+import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import java.io.File
 import java.util.UUID
 
@@ -132,33 +133,54 @@ class TranscriptionWorker @AssistedInject constructor(
             }
         }
 
-        // Decode audio file and transcribe
-        Log.d(TAG, "Decoding audio file: ${recording.audioPath}")
-        val allSamples = mutableListOf<Float>()
+        // Decode and transcribe using chunked processing for memory efficiency
+        // This uses 30-second chunks with 2-second overlap to prevent word truncation
+        // Peak memory: ~4MB instead of ~76MB for a 10-minute recording
+        Log.d(TAG, "Decoding and transcribing audio file: ${recording.audioPath}")
+        
+        val rawTranscriptionText: String
         try {
-            audioDecoder.decode(recording.audioPath) { chunk ->
-                allSamples.addAll(chunk.toList())
+            // Check memory pressure before starting
+            checkMemoryPressure()
+            
+            val processor = ChunkedAudioProcessor(
+                chunkDurationMs = 30_000,
+                overlapDurationMs = 2_000,
+                sampleRate = AudioDecoder.TARGET_SAMPLE_RATE
+            )
+            
+            val audioFlow = audioDecoder.decodeAsFlow(recording.audioPath)
+            
+            rawTranscriptionText = processor.processAndJoin(audioFlow) { samples ->
+                transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to decode audio file", e)
+            
+            Log.d(TAG, "Chunked transcription completed")
+        } catch (e: OutOfMemoryError) {
+            Log.e(TAG, "Out of memory during transcription", e)
             recordingRepository.updateStatusWithError(
                 recordingId,
                 RecordingStatus.FAILED,
-                "Failed to decode audio: ${e.message}"
+                "Out of memory during transcription. Recording may be too long."
             )
             return Result.failure(
                 Data.Builder()
-                    .putString(OUTPUT_ERROR, "Failed to decode audio: ${e.message}")
+                    .putString(OUTPUT_ERROR, "Out of memory during transcription")
+                    .build()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to decode/transcribe audio file", e)
+            recordingRepository.updateStatusWithError(
+                recordingId,
+                RecordingStatus.FAILED,
+                "Failed to transcribe audio: ${e.message}"
+            )
+            return Result.failure(
+                Data.Builder()
+                    .putString(OUTPUT_ERROR, "Failed to transcribe audio: ${e.message}")
                     .build()
             )
         }
-
-        // Transcribe the audio samples
-        Log.d(TAG, "Transcribing ${allSamples.size} samples...")
-        val rawTranscriptionText = transcriberProvider.transcribe(
-            allSamples.toFloatArray(),
-            AudioDecoder.TARGET_SAMPLE_RATE
-        )
         
         if (rawTranscriptionText.isBlank()) {
             Log.w(TAG, "Transcription returned empty result")
@@ -242,6 +264,29 @@ class TranscriptionWorker @AssistedInject constructor(
             is java.io.IOException -> true
             is OutOfMemoryError -> false
             else -> false
+        }
+    }
+
+    /**
+     * Check memory pressure and log a warning if usage is high.
+     * This is informational only - the chunked processor handles memory efficiency.
+     * 
+     * @return true if memory pressure is high (>85% usage)
+     */
+    private fun checkMemoryPressure(): Boolean {
+        val runtime = Runtime.getRuntime()
+        val usedMemory = runtime.totalMemory() - runtime.freeMemory()
+        val maxMemory = runtime.maxMemory()
+        val memoryUsagePercent = usedMemory.toFloat() / maxMemory.toFloat()
+        
+        return if (memoryUsagePercent > 0.85f) {
+            Log.w(TAG, "High memory pressure before transcription: ${(memoryUsagePercent * 100).toInt()}% " +
+                "(${usedMemory / 1024 / 1024}MB / ${maxMemory / 1024 / 1024}MB)")
+            true
+        } else {
+            Log.d(TAG, "Memory usage: ${(memoryUsagePercent * 100).toInt()}% " +
+                "(${usedMemory / 1024 / 1024}MB / ${maxMemory / 1024 / 1024}MB)")
+            false
         }
     }
 }

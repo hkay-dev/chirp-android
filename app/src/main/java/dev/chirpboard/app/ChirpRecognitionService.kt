@@ -5,15 +5,21 @@ import android.os.Bundle
 import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
+import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.repository.RecordingRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import dev.chirpboard.app.db.AppDatabase
-import dev.chirpboard.app.db.Transcription
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class ChirpRecognitionService : RecognitionService() {
     companion object {
         private const val TAG = "ChirpRecognition"
@@ -26,7 +32,10 @@ class ChirpRecognitionService : RecognitionService() {
 
     private val recorder = VoiceRecorder()
     private var recognizer: SherpaRecognizer? = null
-    private lateinit var db: AppDatabase
+    
+    @Inject
+    lateinit var recordingRepository: RecordingRepository
+    
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var recordingJob: Job? = null
@@ -34,7 +43,6 @@ class ChirpRecognitionService : RecognitionService() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
-        db = AppDatabase.getInstance(this)
 
         // Eagerly initialize recognizer via singleton manager
         scope.launch {
@@ -46,7 +54,27 @@ class ChirpRecognitionService : RecognitionService() {
 
     private fun saveTranscription(rawText: String) {
         scope.launch(Dispatchers.IO) {
-            db.transcriptionDao().insert(Transcription(rawText = rawText, processedText = null))
+            try {
+                // Create a Recording entity with KEYBOARD source (recognition service is used by keyboard)
+                val recording = Recording(
+                    title = rawText.take(50).ifBlank { "Voice transcription" },
+                    audioPath = "", // No audio file saved for recognition service
+                    source = RecordingSource.KEYBOARD,
+                    status = RecordingStatus.COMPLETED
+                )
+                recordingRepository.insert(recording)
+                
+                // Create the linked Transcript
+                val transcript = Transcript(
+                    recordingId = recording.id,
+                    rawText = rawText
+                )
+                recordingRepository.saveTranscript(transcript)
+                
+                Log.d(TAG, "Saved transcription: recording=${recording.id}, text='$rawText'")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save transcription", e)
+            }
         }
     }
 
@@ -141,7 +169,7 @@ class ChirpRecognitionService : RecognitionService() {
                     return@launch
                 }
 
-                // Save to history
+                // Save to history using data module
                 saveTranscription(text)
 
                 // Send results

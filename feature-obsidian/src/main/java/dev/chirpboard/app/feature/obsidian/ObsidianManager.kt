@@ -2,13 +2,18 @@ package dev.chirpboard.app.feature.obsidian
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.data.entity.Recording
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.SyncFailedException
 import java.time.LocalDateTime
 import java.time.ZoneId
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,6 +24,9 @@ import javax.inject.Singleton
 class ObsidianManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    companion object {
+        private const val TAG = "ObsidianManager"
+    }
 
     /**
      * Export recording transcript to Obsidian vault as Markdown.
@@ -49,13 +57,6 @@ class ObsidianManager @Inject constructor(
             val sanitizedTitle = sanitizeFilename(recording.title)
             val filename = "$sanitizedTitle.md"
 
-            // Check if file already exists and delete it (overwrite behavior)
-            vaultDir.findFile(filename)?.delete()
-
-            // Create new file
-            val newFile = vaultDir.createFile("text/markdown", sanitizedTitle)
-                ?: throw IllegalStateException("Failed to create file in vault")
-
             // Format the content
             val date = LocalDateTime.ofInstant(
                 recording.createdAt.toInstant(),
@@ -73,12 +74,8 @@ class ObsidianManager @Inject constructor(
                 source = recording.source.name.lowercase()
             )
 
-            // Write content to file
-            context.contentResolver.openOutputStream(newFile.uri)?.use { outputStream ->
-                outputStream.write(content.toByteArray(Charsets.UTF_8))
-            } ?: throw IllegalStateException("Failed to open output stream")
-
-            newFile.uri
+            // Write atomically to prevent data loss on crash
+            writeAtomically(vaultDir, filename, content)
         }
     }
 
@@ -108,6 +105,78 @@ class ObsidianManager @Inject constructor(
             DocumentFile.fromTreeUri(context, vaultUri)?.name
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /**
+     * Write content atomically using temp file pattern.
+     *
+     * Flow:
+     * 1. Create temp file with UUID suffix
+     * 2. Write content with flush and sync
+     * 3. Delete existing file (if any)
+     * 4. Rename temp to final name
+     * 5. Clean up temp on any failure
+     *
+     * @return URI of the created file
+     * @throws IOException if write fails
+     */
+    private fun writeAtomically(
+        vaultDir: DocumentFile,
+        filename: String,
+        content: String
+    ): Uri {
+        val tempFilename = "${filename}.tmp.${UUID.randomUUID().toString().take(8)}"
+        var tempFile: DocumentFile? = null
+
+        try {
+            // Step 1: Create temp file
+            tempFile = vaultDir.createFile("text/markdown", tempFilename)
+                ?: throw IOException("Failed to create temp file: $tempFilename")
+
+            // Step 2: Write with sync
+            context.contentResolver.openFileDescriptor(tempFile.uri, "w")?.use { pfd ->
+                FileOutputStream(pfd.fileDescriptor).use { fos ->
+                    fos.write(content.toByteArray(Charsets.UTF_8))
+                    fos.flush()
+                    try {
+                        pfd.fileDescriptor.sync()
+                    } catch (e: SyncFailedException) {
+                        // Some SAF providers don't support sync - log but continue
+                        Log.w(TAG, "Sync not supported by provider", e)
+                    }
+                }
+            } ?: throw IOException("Failed to open temp file for writing")
+
+            // Step 3: Delete existing file if present
+            vaultDir.findFile(filename)?.delete()
+
+            // Step 4: Rename temp to final
+            // Note: SAF renameTo() can be unreliable, handle fallback
+            if (!tempFile.renameTo(filename)) {
+                // Fallback: create final file, copy content, delete temp
+                val finalFile = vaultDir.createFile("text/markdown", filename)
+                    ?: throw IOException("Failed to create final file: $filename")
+
+                context.contentResolver.openOutputStream(finalFile.uri)?.use { out ->
+                    context.contentResolver.openInputStream(tempFile.uri)?.use { inp ->
+                        inp.copyTo(out)
+                    }
+                }
+                tempFile.delete()
+                return finalFile.uri
+            }
+
+            return tempFile.uri
+
+        } catch (e: Exception) {
+            // Clean up temp file on any failure
+            try {
+                tempFile?.delete()
+            } catch (cleanupError: Exception) {
+                Log.w(TAG, "Failed to clean up temp file", cleanupError)
+            }
+            throw e
         }
     }
 

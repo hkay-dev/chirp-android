@@ -3,10 +3,13 @@ package dev.chirpboard.app.feature.keyboard.service
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
+import android.media.AudioManager
 import android.os.Build
+import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -30,10 +33,22 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
+import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
+import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
+import dev.chirpboard.app.feature.keyboard.recorder.RecordingError
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import java.io.File
+import java.util.UUID
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
+import dev.chirpboard.app.feature.keyboard.state.toKeyboardState
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
@@ -70,6 +85,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     @Inject lateinit var keyboardPreferences: KeyboardPreferences
     @Inject lateinit var modeRepository: ProcessingModeRepository
     @Inject lateinit var recognizerProvider: RecognizerProvider
+    @Inject lateinit var recordingRepository: RecordingRepository
 
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -83,6 +99,12 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     private val state = _state.asStateFlow()
 
     private val recorder = VoiceRecorder()
+    private val audioEncoder = AudioEncoder()
+    private lateinit var audioFocusManager: AudioFocusManager
+    private var phoneCallHandler: PhoneCallHandler? = null
+    
+    /** Stores samples from last recording for potential persistence */
+    private var lastRecordingSamples: FloatArray? = null
 
     private val _llmEnabled = MutableStateFlow(true)
     private val _currentMode = MutableStateFlow<ProcessingMode>(ProcessingMode.Proofread)
@@ -106,6 +128,30 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         // Start foreground service to prevent Android from killing us
         startForegroundService()
 
+        // Initialize audio focus manager
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioFocusManager = AudioFocusManager(audioManager)
+        audioFocusManager.onFocusLost = {
+            Log.w(TAG, "Audio focus lost during recording")
+            if (_state.value is KeyboardState.Recording) {
+                // Stop recording gracefully
+                stopAndTranscribe()
+            }
+        }
+
+        // Initialize phone call handler to stop recording during calls
+        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        telephonyManager?.let { tm ->
+            phoneCallHandler = PhoneCallHandler(tm, mainExecutor)
+            phoneCallHandler?.onCallStateChanged = { isInCall ->
+                if (isInCall && _state.value is KeyboardState.Recording) {
+                    Log.w(TAG, "Phone call detected, stopping recording")
+                    stopAndTranscribe()
+                }
+            }
+            phoneCallHandler?.register()
+        }
+
         // Start the recomposer
         recomposerScope.launch {
             recomposer.runRecomposeAndApplyChanges()
@@ -128,6 +174,34 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         scope.launch {
             modeRepository.currentMode.collect { mode ->
                 _currentMode.value = mode
+            }
+        }
+
+        // Sync keyboard state from RecordingStateManager for recording-related states.
+        // This ensures keyboard state reflects the global recording state (e.g., if another
+        // source stops recording, or if an error occurs in RecordingStateManager).
+        // Keyboard-specific states (Transcribing, Polishing, ModelNotReady, LlmError, Downloading)
+        // are still managed directly by this service.
+        scope.launch {
+            recordingStateManager.state.collect { recordingState ->
+                val currentKeyboardState = _state.value
+                
+                // Only sync if we're in a recording-related state or the recording state changed
+                // Don't override keyboard-specific states like Transcribing, Polishing, etc.
+                val isKeyboardSpecificState = currentKeyboardState is KeyboardState.Transcribing ||
+                    currentKeyboardState is KeyboardState.Polishing ||
+                    currentKeyboardState is KeyboardState.Downloading ||
+                    currentKeyboardState is KeyboardState.ModelNotReady ||
+                    currentKeyboardState is KeyboardState.LlmError
+                
+                if (!isKeyboardSpecificState) {
+                    val derivedState = recordingState.toKeyboardState()
+                    // Only update if different to avoid unnecessary recompositions
+                    if (derivedState != currentKeyboardState) {
+                        Log.d(TAG, "Syncing state from RecordingStateManager: $recordingState -> $derivedState")
+                        _state.value = derivedState
+                    }
+                }
             }
         }
 
@@ -299,6 +373,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
 
         // Stop recording if active
         if (_state.value is KeyboardState.Recording) {
+            audioFocusManager.abandonFocus()
             recordingJob?.cancel()
             recorder.stop()
             recordingStateManager.onRecordingCompleted()
@@ -309,6 +384,10 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     override fun onDestroy() {
         Log.d(TAG, "onDestroy - Stopping foreground service")
         stopForeground(STOP_FOREGROUND_REMOVE)
+        
+        // Unregister phone call handler
+        phoneCallHandler?.unregister()
+        phoneCallHandler = null
         
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
@@ -336,6 +415,19 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     private fun startRecording() {
         Log.d(TAG, "Starting recording")
 
+        // Request audio focus first
+        when (audioFocusManager.requestFocus()) {
+            is AudioFocusManager.FocusResult.Denied -> {
+                Log.e(TAG, "Audio focus denied - another app is using audio")
+                _state.value = KeyboardState.Error("Another app is using audio")
+                return
+            }
+            is AudioFocusManager.FocusResult.Granted -> {
+                Log.d(TAG, "Audio focus granted, starting recording")
+            }
+            else -> { /* shouldn't happen */ }
+        }
+
         // Check if another source is recording
         val result = recordingStateManager.tryStartRecording(RecordingOrigin.KEYBOARD)
         when (result) {
@@ -349,16 +441,26 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                     RecordingOrigin.KEYBOARD -> "keyboard"
                 }
                 Toast.makeText(this, "Microphone in use by $sourceMessage", Toast.LENGTH_SHORT).show()
+                audioFocusManager.abandonFocus()
                 return
             }
         }
 
         // Set microphone gain before recording
         recorder.gainMultiplier = _microphoneGain.value
+        
+        // Set error callback to handle recording errors
+        recorder.onRecordingError = { error ->
+            Log.e(TAG, "Recording error: ${error.userMessage}")
+            audioFocusManager.abandonFocus()
+            recordingStateManager.onRecordingError(error.userMessage)
+            _state.value = KeyboardState.Error(error.userMessage)
+        }
 
         if (!recorder.start()) {
             _state.value = KeyboardState.Error("Failed to start recording")
             recordingStateManager.onRecordingError("Failed to start recording")
+            audioFocusManager.abandonFocus()
             return
         }
 
@@ -374,11 +476,18 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     private fun stopAndTranscribe() {
         Log.d(TAG, "Stopping recording and transcribing")
 
+        // Abandon audio focus since we're done recording
+        audioFocusManager.abandonFocus()
+
         HapticFeedback.onRecordStop(this)
         recordingJob?.cancel()
         val samples = recorder.stop()
+        
+        // Store samples for potential persistence
+        lastRecordingSamples = samples
 
         if (samples.isEmpty()) {
+            lastRecordingSamples = null
             recordingStateManager.onRecordingCompleted()
             _state.value = KeyboardState.Idle
             return
@@ -450,18 +559,68 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     
     /**
      * Handle transcription completion.
-     * When saveKeyboardRecordings is ON, this would save the recording.
-     * Currently just logs - full implementation would save M4A and create Recording entity.
+     * When saveKeyboardRecordings is ON, saves the recording to database.
      */
     private suspend fun handleTranscriptionComplete(rawText: String, processedText: String?) {
         val shouldSave = keyboardPreferences.saveKeyboardRecordings.first()
-        if (shouldSave) {
-            // TODO: Implement saving M4A file and creating Recording entity with SOURCE = KEYBOARD
-            // This would involve:
-            // 1. Convert PCM samples to M4A file
-            // 2. Create Recording entity in database
-            // 3. Use RecordingSource.KEYBOARD as the source
-            Log.d(TAG, "Would save keyboard recording: raw='$rawText', processed='$processedText'")
+        val samples = lastRecordingSamples
+        
+        if (shouldSave && samples != null && samples.isNotEmpty()) {
+            saveKeyboardRecording(rawText, processedText, samples)
+        } else {
+            lastRecordingSamples = null  // Free memory
+        }
+    }
+    
+    /**
+     * Saves a keyboard recording to persistent storage.
+     * Encodes audio to M4A and creates Recording + Transcript entities.
+     */
+    private fun saveKeyboardRecording(rawText: String, processedText: String?, samples: FloatArray) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val filename = "keyboard_${System.currentTimeMillis()}.m4a"
+                val recordingsDir = File(filesDir, "recordings")
+                recordingsDir.mkdirs()
+                val outputPath = File(recordingsDir, filename).absolutePath
+                
+                val success = audioEncoder.encodeToM4a(samples, VoiceRecorder.SAMPLE_RATE, outputPath)
+                if (!success) {
+                    Log.e(TAG, "Failed to encode keyboard recording")
+                    return@launch
+                }
+                
+                val durationMs = (samples.size * 1000L) / VoiceRecorder.SAMPLE_RATE
+                
+                // Create recording
+                val recording = Recording(
+                    id = UUID.randomUUID(),
+                    title = rawText.take(50).ifEmpty { "Keyboard recording" },
+                    audioPath = outputPath,
+                    status = RecordingStatus.COMPLETED,
+                    source = RecordingSource.KEYBOARD,
+                    profileId = null,
+                    durationMs = durationMs
+                )
+                
+                // Create transcript
+                val transcript = Transcript(
+                    id = UUID.randomUUID(),
+                    recordingId = recording.id,
+                    rawText = rawText,
+                    processedText = processedText
+                )
+                
+                // Save atomically
+                recordingRepository.createRecordingWithTranscript(recording, transcript)
+                
+                Log.i(TAG, "Saved keyboard recording: ${recording.id}")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save keyboard recording", e)
+            } finally {
+                lastRecordingSamples = null  // Free memory
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.data.dao.*
 import dev.chirpboard.app.data.db.AppDatabase
+import dev.chirpboard.app.data.db.Migrations
 import javax.inject.Singleton
 
 @Module
@@ -25,7 +26,9 @@ object DataModule {
             AppDatabase::class.java,
             AppDatabase.DATABASE_NAME
         )
-            .fallbackToDestructiveMigration()
+            .addMigrations(*Migrations.ALL)
+            // NOTE: No fallbackToDestructiveMigration() - we want migrations to fail loudly
+            // so we can write proper migrations instead of silently losing user data
             .build()
     }
     
