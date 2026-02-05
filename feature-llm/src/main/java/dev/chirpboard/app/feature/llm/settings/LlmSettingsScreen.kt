@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.llm.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,9 +30,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -71,8 +77,71 @@ fun LlmSettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Status card
-            Card(modifier = Modifier.fillMaxWidth()) {
+            // Master LLM Enable Switch
+            val masterSwitchColor by animateColorAsState(
+                targetValue = if (uiState.llmEnabled) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
+                label = "master_switch_color"
+            )
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.setLlmEnabled(!uiState.llmEnabled) },
+                colors = CardDefaults.cardColors(containerColor = masterSwitchColor)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Enable LLM Processing",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (uiState.llmEnabled) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                        Text(
+                            text = if (uiState.llmEnabled) {
+                                "AI features are active"
+                            } else {
+                                "LLM features are disabled"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (uiState.llmEnabled) {
+                                MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            }
+                        )
+                    }
+                    Switch(
+                        checked = uiState.llmEnabled,
+                        onCheckedChange = null // Handled by card click
+                    )
+                }
+            }
+            
+            // Rest of settings - only shown when LLM is enabled
+            AnimatedVisibility(
+                visible = uiState.llmEnabled,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Status card
+                    Card(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -223,8 +292,12 @@ fun LlmSettingsScreen(
                     style = MaterialTheme.typography.titleMedium
                 )
                 
-                // Auto-title toggle
-                Card(modifier = Modifier.fillMaxWidth()) {
+                // Auto-title toggle - entire card clickable
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.setAutoTitle(!uiState.autoTitle) }
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -245,13 +318,17 @@ fun LlmSettingsScreen(
                         }
                         Switch(
                             checked = uiState.autoTitle,
-                            onCheckedChange = viewModel::setAutoTitle
+                            onCheckedChange = null // Handled by card click
                         )
                     }
                 }
                 
-                // Auto-summary toggle
-                Card(modifier = Modifier.fillMaxWidth()) {
+                // Auto-summary toggle - entire card clickable
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.setAutoSummary(!uiState.autoSummary) }
+                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -272,11 +349,13 @@ fun LlmSettingsScreen(
                         }
                         Switch(
                             checked = uiState.autoSummary,
-                            onCheckedChange = viewModel::setAutoSummary
+                            onCheckedChange = null // Handled by card click
                         )
                     }
                 }
             }
+                } // End inner Column for AnimatedVisibility
+            } // End AnimatedVisibility
         }
     }
 }

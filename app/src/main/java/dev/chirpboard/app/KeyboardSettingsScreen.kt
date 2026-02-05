@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -109,44 +110,39 @@ fun KeyboardSettingsScreen(
                 }
             }
             
-            // Haptic Feedback Section
+            // Haptic Feedback Section - entire card is clickable
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            hapticEnabled = !hapticEnabled
+                            prefs.hapticEnabled = hapticEnabled
+                        }
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            "Haptic Feedback",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        
-                        Spacer(Modifier.height(12.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Enable Haptics",
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    "Vibrate on key press and recording events",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = hapticEnabled,
-                                onCheckedChange = {
-                                    hapticEnabled = it
-                                    prefs.hapticEnabled = it
-                                }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Enable Haptics",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Vibrate on key press and recording events",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        Switch(
+                            checked = hapticEnabled,
+                            onCheckedChange = null // Handled by card click
+                        )
                     }
                 }
             }

@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.components.SettingsItem
 
 /**
  * About screen showing app information and legal links.

@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui.profile
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -213,6 +214,7 @@ private fun SettingToggle(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
             .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
@@ -230,7 +232,7 @@ private fun SettingToggle(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = null // Handled by row click
         )
     }
 }

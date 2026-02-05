@@ -8,14 +8,11 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,9 +26,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.components.BreathingPulse
+import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.llm.ProcessingMode
 import dev.chirpboard.app.llm.ProcessingModeRepository
 import dev.chirpboard.app.llm.TextProcessor
@@ -53,6 +51,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private lateinit var textProcessor: TextProcessor
     private val _isProcessing = MutableStateFlow(false)
     private val _shouldDismiss = MutableStateFlow(false)
+    private val _partialTranscript = MutableStateFlow("")
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,6 +76,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     amplitudesFlow = recorder.amplitudes,
                     isProcessingFlow = _isProcessing,
                     shouldDismissFlow = _shouldDismiss,
+                    partialTranscriptFlow = _partialTranscript,
                     llmEnabled = llmEnabled.value,
                     currentMode = currentMode,
                     onStart = ::startRecording,
@@ -151,6 +151,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 var text = rec.transcribe(samples)
                 Log.d(TAG, "Raw transcription: '$text' (length: ${text.length})")
                 
+                // Update partial transcript for UI preview
+                _partialTranscript.value = text
+                
                 if (text.isBlank()) {
                     Log.w(TAG, "Empty transcription result")
                     returnError(SpeechRecognizer.ERROR_NO_MATCH)
@@ -217,11 +220,19 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 }
 
+/** Recognition state for the dialog */
+private enum class RecognitionState {
+    Idle,
+    Listening,
+    Processing
+}
+
 @Composable
 private fun VoiceRecognitionDialog(
     amplitudesFlow: StateFlow<List<Float>>,
     isProcessingFlow: StateFlow<Boolean>,
     shouldDismissFlow: StateFlow<Boolean>,
+    partialTranscriptFlow: StateFlow<String>,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
     onStart: () -> Unit,
@@ -234,7 +245,15 @@ private fun VoiceRecognitionDialog(
     val amplitudes by amplitudesFlow.collectAsState()
     val isProcessing by isProcessingFlow.collectAsState()
     val shouldDismiss by shouldDismissFlow.collectAsState()
+    val partialTranscript by partialTranscriptFlow.collectAsState()
     var isVisible by remember { mutableStateOf(false) }
+    
+    // Derive recognition state
+    val recognitionState = when {
+        isProcessing -> RecognitionState.Processing
+        isRecording -> RecognitionState.Listening
+        else -> RecognitionState.Idle
+    }
     
     LaunchedEffect(Unit) {
         // Delay slightly to trigger enter animation
@@ -255,28 +274,42 @@ private fun VoiceRecognitionDialog(
         }
     }
     
+    // Custom enter/exit transitions
+    val enterTransition = fadeIn(
+        animationSpec = tween(300, easing = FastOutSlowInEasing)
+    ) + scaleIn(
+        initialScale = 0.9f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing)
+    ) + slideIn(
+        initialOffset = { IntOffset(0, 20) },
+        animationSpec = tween(300, easing = FastOutSlowInEasing)
+    )
+    
+    val exitTransition = fadeOut(
+        animationSpec = tween(250, easing = FastOutSlowInEasing)
+    ) + scaleOut(
+        targetScale = 0.95f,
+        animationSpec = tween(250, easing = FastOutSlowInEasing)
+    ) + slideOut(
+        targetOffset = { IntOffset(0, 10) },
+        animationSpec = tween(250, easing = FastOutSlowInEasing)
+    )
+    
     // Animated entry/exit wrapper
     AnimatedVisibility(
         visible = isVisible,
-        enter = fadeIn(
-            animationSpec = tween(300, easing = FastOutSlowInEasing)
-        ) + scaleIn(
-            initialScale = 0.8f,
-            animationSpec = tween(300, easing = FastOutSlowInEasing)
-        ),
-        exit = fadeOut(
-            animationSpec = tween(200, easing = FastOutSlowInEasing)
-        ) + scaleOut(
-            targetScale = 0.9f,
-            animationSpec = tween(200, easing = FastOutSlowInEasing)
-        )
+        enter = enterTransition,
+        exit = exitTransition
     ) {
         DialogContent(
-            isRecording = isRecording,
-            isProcessing = isProcessing,
-            amplitudes = amplitudes,
+            recognitionState = recognitionState,
+            partialTranscript = partialTranscript,
             llmEnabled = llmEnabled,
             currentMode = currentMode,
+            onStart = {
+                isRecording = true
+                onStart()
+            },
             onStop = {
                 isRecording = false
                 onStop()
@@ -296,162 +329,242 @@ private fun VoiceRecognitionDialog(
 
 @Composable
 private fun DialogContent(
-    isRecording: Boolean,
-    isProcessing: Boolean,
-    amplitudes: List<Float>,
+    recognitionState: RecognitionState,
+    partialTranscript: String,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
+    onStart: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit,
     onToggleLlm: (Boolean) -> Unit
 ) {
-    // Minimal centered card (no full-screen background)
+    // Animated mic container size
+    val containerSize by animateDpAsState(
+        targetValue = if (recognitionState == RecognitionState.Listening) 80.dp else 72.dp,
+        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        label = "mic_container_size"
+    )
+    
+    // Minimal centered card
     Surface(
         modifier = Modifier
             .fillMaxSize()
             .wrapContentSize(Alignment.Center)
-            .widthIn(max = 320.dp),
-        shape = RoundedCornerShape(24.dp),
-        tonalElevation = 6.dp,
+            .widthIn(max = 280.dp),
+        shape = RoundedCornerShape(32.dp),
+        tonalElevation = 3.dp,
         shadowElevation = 8.dp
     ) {
-        Column(
-            modifier = Modifier.padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Microphone icon with animation
-            Box(
-                modifier = Modifier.size(80.dp),
-                contentAlignment = Alignment.Center
+        Box {
+            // X button in top-right corner
+            IconButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(40.dp)
             ) {
-                // Show circular progress indicator when processing
-                if (isProcessing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(80.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 3.dp
-                    )
-                }
-                // Show radial pulse animation when recording
-                else if (isRecording) {
-                    RadialPulse(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                        amplitude = amplitudes.maxOrNull() ?: 0f
-                    )
-                }
-                
-                // Microphone icon
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Cancel",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Column(
+                modifier = Modifier.padding(
+                    top = 32.dp,
+                    bottom = 24.dp,
+                    start = 24.dp,
+                    end = 24.dp
+                ),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Microphone with pulse/dots
                 Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    modifier = Modifier.size(containerSize),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Filled.Mic,
-                        contentDescription = "Recording",
-                        modifier = Modifier.size(32.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    // Show breathing pulse when listening
+                    BreathingPulse(
+                        isActive = recognitionState == RecognitionState.Listening,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                        baseSize = 72.dp,
+                        expandedSize = containerSize + 16.dp
                     )
-                }
-            }
-            
-            // Status text
-            Text(
-                when {
-                    isProcessing -> "Processing..."
-                    isRecording -> "Listening..."
-                    else -> "Ready"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            
-            // LLM Toggle
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "LLM Post-processing",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Switch(
-                    checked = llmEnabled,
-                    onCheckedChange = onToggleLlm,
-                    enabled = isRecording
-                )
-            }
-            
-            // Show current mode when LLM is enabled
-            if (llmEnabled) {
-                Text(
-                    "Mode: ${currentMode.displayName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            
-            // Stop button (prominent) and Cancel (secondary)
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.padding(top = 8.dp)
-            ) {
-                TextButton(onClick = onCancel) {
-                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Cancel")
+                    
+                    // Show thinking dots when processing
+                    if (recognitionState == RecognitionState.Processing) {
+                        ThinkingDots(
+                            color = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .offset(y = 24.dp)
+                        )
+                    }
+                    
+                    // Microphone icon container
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Mic,
+                            contentDescription = "Recording",
+                            modifier = Modifier.size(32.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                 }
                 
-                Button(
-                    onClick = onStop,
-                    enabled = isRecording && !isProcessing
-                ) {
-                    Text("Stop")
+                // Status text - only show when Listening or Processing
+                when (recognitionState) {
+                    RecognitionState.Listening -> {
+                        Text(
+                            "Listening",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    RecognitionState.Processing -> {
+                        Text(
+                            "Processing",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    RecognitionState.Idle -> {
+                        // No status text for Idle
+                    }
                 }
+                
+                // Live transcription preview
+                if (partialTranscript.isNotBlank()) {
+                    Text(
+                        text = partialTranscript,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+                
+                // Contextual LLM Controls
+                LlmControlSection(
+                    llmEnabled = llmEnabled,
+                    currentMode = currentMode,
+                    isRecording = recognitionState == RecognitionState.Listening,
+                    onToggleLlm = onToggleLlm
+                )
+                
+                // Single transforming action button
+                ActionButton(
+                    recognitionState = recognitionState,
+                    onStart = onStart,
+                    onStop = onStop
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RadialPulse(
-    color: Color,
-    amplitude: Float,
-    modifier: Modifier = Modifier
+private fun LlmControlSection(
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode,
+    isRecording: Boolean,
+    onToggleLlm: (Boolean) -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.3f + (amplitude * 0.3f), // Scale based on amplitude
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
-    )
-    
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0.1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-    
-    Canvas(modifier = modifier.size(80.dp)) {
-        drawCircle(
-            color = color.copy(alpha = alpha),
-            radius = size.minDimension / 2 * scale,
-            style = Stroke(width = 2.dp.toPx())
+    if (!llmEnabled) {
+        // Small text to enable LLM
+        Text(
+            text = "Enhance with AI",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable(
+                enabled = isRecording,
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) {
+                onToggleLlm(true)
+            }
         )
+    } else {
+        // Compact pill showing mode
+        Surface(
+            modifier = Modifier
+                .height(16.dp)
+                .clickable(
+                    enabled = isRecording,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() }
+                ) {
+                    onToggleLlm(false)
+                },
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "AI: ${currentMode.displayName}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionButton(
+    recognitionState: RecognitionState,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    when (recognitionState) {
+        RecognitionState.Idle -> {
+            FilledTonalButton(
+                onClick = onStart,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Start Listening")
+            }
+        }
+        RecognitionState.Listening -> {
+            Button(
+                onClick = onStop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text("Stop")
+            }
+        }
+        RecognitionState.Processing -> {
+            Button(
+                onClick = { },
+                enabled = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text("Processing...")
+            }
+        }
     }
 }

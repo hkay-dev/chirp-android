@@ -18,6 +18,7 @@ class LlmSettingsViewModel @Inject constructor(
 ) : ViewModel() {
 
     data class UiState(
+        val llmEnabled: Boolean = true,
         val apiKey: String = "",
         val isKeyConfigured: Boolean = false,
         val isTestingConnection: Boolean = false,
@@ -35,6 +36,11 @@ class LlmSettingsViewModel @Inject constructor(
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            preferences.llmEnabled.collect { enabled ->
+                _uiState.update { it.copy(llmEnabled = enabled) }
+            }
+        }
         viewModelScope.launch {
             preferences.apiKey.collect { key ->
                 _uiState.update {
@@ -111,6 +117,12 @@ class LlmSettingsViewModel @Inject constructor(
     fun setAutoSummary(enabled: Boolean) {
         viewModelScope.launch {
             preferences.setAutoSummary(enabled)
+        }
+    }
+    
+    fun setLlmEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferences.setLlmEnabled(enabled)
         }
     }
 }

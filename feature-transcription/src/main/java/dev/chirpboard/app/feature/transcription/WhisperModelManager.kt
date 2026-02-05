@@ -1,0 +1,172 @@
+package dev.chirpboard.app.feature.transcription
+
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Manages the Whisper/Parakeet speech recognition model.
+ * 
+ * Provides model status information, download/delete operations,
+ * and progress tracking for the settings UI.
+ */
+@Singleton
+class WhisperModelManager @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
+    companion object {
+        private const val MODEL_DIR = "parakeet-tdt-0.6b-v2"
+        const val MODEL_DISPLAY_NAME = "Parakeet TDT 0.6B"
+        
+        // Model files with expected sizes
+        private val MODEL_FILES = listOf(
+            ModelFile("encoder.int8.onnx", 650_000_000L),
+            ModelFile("decoder.int8.onnx", 7_000_000L),
+            ModelFile("joiner.int8.onnx", 1_700_000L),
+            ModelFile("tokens.txt", 9_000L)
+        )
+        
+        val TOTAL_MODEL_SIZE: Long = MODEL_FILES.sumOf { it.expectedSize }
+        const val MODEL_SIZE_MB = 659 // Approximate total in MB
+    }
+    
+    private data class ModelFile(val name: String, val expectedSize: Long)
+    
+    sealed interface ModelStatus {
+        data object NotDownloaded : ModelStatus
+        data object Ready : ModelStatus
+        data class Downloading(val progress: Float) : ModelStatus
+        data class Error(val message: String) : ModelStatus
+    }
+    
+    sealed interface DownloadState {
+        data class Progress(val file: String, val bytesDownloaded: Long, val totalBytes: Long) : DownloadState
+        data object Complete : DownloadState
+        data class Error(val message: String) : DownloadState
+    }
+    
+    private val _modelStatus = MutableStateFlow<ModelStatus>(ModelStatus.NotDownloaded)
+    val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
+    
+    private val _downloadProgress = MutableStateFlow(0f)
+    val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
+    
+    init {
+        refreshStatus()
+    }
+    
+    /**
+     * Check and update current model status.
+     */
+    fun refreshStatus() {
+        _modelStatus.value = if (isModelDownloaded()) {
+            ModelStatus.Ready
+        } else {
+            ModelStatus.NotDownloaded
+        }
+    }
+    
+    /**
+     * Whether all model files are downloaded.
+     */
+    fun isModelDownloaded(): Boolean {
+        val modelPath = getModelDir()
+        val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
+        
+        return MODEL_FILES.all { file ->
+            val persistent = File(modelPath, file.name)
+            val legacy = File(legacyPath, file.name)
+            val persistentOk = persistent.exists() && persistent.length() > file.expectedSize * 0.9
+            val legacyOk = legacy.exists() && legacy.length() > file.expectedSize * 0.9
+            persistentOk || legacyOk
+        }
+    }
+    
+    /**
+     * Get the actual downloaded model size in bytes.
+     */
+    fun getDownloadedSize(): Long {
+        val modelPath = getModelDir()
+        val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
+        
+        return MODEL_FILES.sumOf { file ->
+            val persistent = File(modelPath, file.name)
+            val legacy = File(legacyPath, file.name)
+            when {
+                persistent.exists() -> persistent.length()
+                legacy.exists() -> legacy.length()
+                else -> 0L
+            }
+        }
+    }
+    
+    /**
+     * Delete the downloaded model files.
+     * @return true if deletion was successful
+     */
+    fun deleteModel(): Boolean {
+        var success = true
+        
+        // Delete from persistent storage
+        val modelPath = getModelDir()
+        if (modelPath.exists()) {
+            success = modelPath.deleteRecursively() && success
+        }
+        
+        // Delete from legacy internal storage
+        val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
+        if (legacyPath.exists()) {
+            success = legacyPath.deleteRecursively() && success
+        }
+        
+        refreshStatus()
+        return success
+    }
+    
+    /**
+     * Update download progress (called by external downloader).
+     */
+    fun updateDownloadProgress(progress: Float) {
+        _downloadProgress.value = progress
+        _modelStatus.value = ModelStatus.Downloading(progress)
+    }
+    
+    /**
+     * Mark download as complete.
+     */
+    fun markDownloadComplete() {
+        _downloadProgress.value = 1f
+        _modelStatus.value = ModelStatus.Ready
+    }
+    
+    /**
+     * Mark download as failed.
+     */
+    fun markDownloadError(message: String) {
+        _downloadProgress.value = 0f
+        _modelStatus.value = ModelStatus.Error(message)
+    }
+    
+    /**
+     * Get the persistent model directory.
+     */
+    private fun getModelDir(): File {
+        val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
+            android.os.Environment.DIRECTORY_DOCUMENTS
+        )
+        val persistentDir = File(docsDir, ".chirpboard/models/$MODEL_DIR")
+        
+        if (persistentDir.exists() || persistentDir.mkdirs()) {
+            return persistentDir
+        }
+        
+        return File(context.filesDir, "models/$MODEL_DIR")
+    }
+}
