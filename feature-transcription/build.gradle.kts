@@ -13,6 +13,12 @@ android {
     defaultConfig {
         minSdk = 26
     }
+    
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -65,4 +71,8 @@ dependencies {
     
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
+    
+    // Testing
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }

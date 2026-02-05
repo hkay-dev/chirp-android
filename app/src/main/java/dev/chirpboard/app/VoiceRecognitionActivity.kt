@@ -47,6 +47,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private var recognizer: SherpaRecognizer? = null
     private var recordingJob: Job? = null
     private lateinit var prefs: Preferences
+    private lateinit var securePrefs: SecurePreferences
     private lateinit var modeRepository: ProcessingModeRepository
     private lateinit var textProcessor: TextProcessor
     private val _isProcessing = MutableStateFlow(false)
@@ -58,8 +59,12 @@ class VoiceRecognitionActivity : ComponentActivity() {
         Log.d(TAG, "VoiceRecognitionActivity created")
         
         prefs = Preferences(this)
+        securePrefs = SecurePreferences(this)
         modeRepository = ProcessingModeRepository(this)
-        textProcessor = TextProcessor(prefs.geminiApiKey, prefs.geminiModel)
+        
+        // Get API key from secure storage, fallback to empty string if unavailable
+        val apiKey = securePrefs.geminiApiKey ?: ""
+        textProcessor = TextProcessor(apiKey, prefs.geminiModel)
         
         // Get singleton recognizer (already initialized by keyboard service)
         lifecycleScope.launch {

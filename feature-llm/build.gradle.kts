@@ -66,4 +66,7 @@ dependencies {
     
     // Lifecycle compose integration
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
+    
+    // Encrypted SharedPreferences for secure API key storage
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

@@ -1,7 +1,9 @@
 package dev.chirpboard.app.data.repository
 
+import androidx.room.withTransaction
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.TranscriptDao
+import dev.chirpboard.app.data.db.AppDatabase
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -14,9 +16,14 @@ import javax.inject.Singleton
 
 /**
  * Repository for managing recordings and their transcripts.
+ *
+ * Note on deletion: Transcript has @ForeignKey with onDelete = CASCADE,
+ * so deleting a Recording automatically deletes its associated Transcript.
+ * No explicit transaction needed for single recording deletes.
  */
 @Singleton
 class RecordingRepository @Inject constructor(
+    private val database: AppDatabase,
     private val recordingDao: RecordingDao,
     private val transcriptDao: TranscriptDao
 ) {
@@ -124,4 +131,37 @@ class RecordingRepository @Inject constructor(
     
     /** Delete all recordings (for dev/testing) */
     suspend fun deleteAll() = recordingDao.deleteAll()
+    
+    // Transactional operations
+    
+    /**
+     * Create a recording with its transcript atomically.
+     * Both succeed or both fail - prevents orphaned records.
+     */
+    suspend fun createRecordingWithTranscript(
+        recording: Recording,
+        transcript: Transcript
+    ): Recording {
+        return database.withTransaction {
+            recordingDao.insert(recording)
+            transcriptDao.insert(transcript)
+            recording
+        }
+    }
+    
+    /**
+     * Delete multiple recordings in a transaction.
+     * Processes in batches of 100 to respect SQLite variable limits.
+     *
+     * Note: Associated transcripts are automatically deleted via CASCADE.
+     */
+    suspend fun deleteRecordings(ids: List<UUID>) {
+        ids.chunked(100).forEach { batch ->
+            database.withTransaction {
+                batch.forEach { id ->
+                    recordingDao.deleteById(id)
+                }
+            }
+        }
+    }
 }

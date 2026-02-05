@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import android.util.Log
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -168,14 +169,41 @@ class HomeViewModel @Inject constructor(
     
     /**
      * Delete a recording.
+     * 
+     * Order matters: Delete from database FIRST (critical), then audio file (best effort).
+     * If DB delete fails, we keep the file. If file delete fails, that's acceptable
+     * since the DB record is already gone. Transcript is cascade-deleted by Room.
      */
     fun deleteRecording(recording: Recording) {
         viewModelScope.launch {
-            recording.audioPath.let { path ->
-                java.io.File(path).delete()
+            try {
+                // Step 1: Delete from database FIRST (the critical operation)
+                // Transcript is cascade-deleted via ForeignKey constraint
+                recordingRepository.delete(recording)
+                
+                // Step 2: Delete audio file (non-critical, best effort)
+                // Run on IO dispatcher to avoid blocking main thread
+                withContext(Dispatchers.IO) {
+                    try {
+                        val file = File(recording.audioPath)
+                        if (file.exists() && !file.delete()) {
+                            Log.w(TAG, "Failed to delete audio file: ${recording.audioPath}")
+                        }
+                    } catch (e: Exception) {
+                        // File deletion is non-fatal - log and continue
+                        Log.w(TAG, "Error deleting audio file: ${recording.audioPath}", e)
+                    }
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete recording: ${recording.id}", e)
+                _errorMessage.value = "Failed to delete recording"
             }
-            recordingRepository.delete(recording)
         }
+    }
+    
+    companion object {
+        private const val TAG = "HomeViewModel"
     }
     
     /**
@@ -193,7 +221,9 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             val file = File(recording.audioPath)
             
-            if (!file.exists()) {
+            // Check file existence on IO dispatcher
+            val exists = withContext(Dispatchers.IO) { file.exists() }
+            if (!exists) {
                 _errorMessage.value = "Audio file not found"
                 return@launch
             }

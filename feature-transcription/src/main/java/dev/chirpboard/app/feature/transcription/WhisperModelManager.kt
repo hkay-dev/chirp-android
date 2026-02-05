@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -132,26 +133,36 @@ class WhisperModelManager @Inject constructor(
     
     /**
      * Update download progress (called by external downloader).
+     * Thread-safe: only updates status if currently downloading.
      */
     fun updateDownloadProgress(progress: Float) {
         _downloadProgress.value = progress
-        _modelStatus.value = ModelStatus.Downloading(progress)
+        _modelStatus.update { current ->
+            if (current is ModelStatus.Downloading) {
+                ModelStatus.Downloading(progress)
+            } else {
+                // Start downloading if not already
+                ModelStatus.Downloading(progress)
+            }
+        }
     }
-    
+
     /**
      * Mark download as complete.
+     * Thread-safe via StateFlow.update{}.
      */
     fun markDownloadComplete() {
-        _downloadProgress.value = 1f
-        _modelStatus.value = ModelStatus.Ready
+        _modelStatus.update { ModelStatus.Ready }
+        _downloadProgress.value = 0f
     }
-    
+
     /**
      * Mark download as failed.
+     * Thread-safe via StateFlow.update{}.
      */
     fun markDownloadError(message: String) {
+        _modelStatus.update { ModelStatus.Error(message) }
         _downloadProgress.value = 0f
-        _modelStatus.value = ModelStatus.Error(message)
     }
     
     /**

@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.transcription
 
 import android.content.Context
+import android.util.Log
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -25,12 +26,26 @@ import javax.inject.Singleton
 @Singleton
 class TranscriptionQueueManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recordingRepository: RecordingRepository
+    private val recordingRepository: RecordingRepository,
+    private val constraintChecker: WorkConstraintChecker
 ) {
     
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
     
+    companion object {
+        private const val TAG = "TranscriptionQueueMgr"
+    }
+    
     private val _activeCount = MutableStateFlow(0)
+    
+    private val _constraintWarning = MutableStateFlow<String?>(null)
+    
+    /**
+     * Warning message when device constraints may delay transcription.
+     * Null when all constraints are satisfied.
+     * UI can observe this to show snackbar/banner feedback to users.
+     */
+    val constraintWarning: StateFlow<String?> = _constraintWarning.asStateFlow()
     
     /**
      * Flow of recordings pending transcription.
@@ -48,9 +63,17 @@ class TranscriptionQueueManager @Inject constructor(
      * Enqueue a recording for transcription.
      * Sets status to PENDING_TRANSCRIPTION and schedules WorkManager job.
      * 
+     * Checks device constraints and emits a warning via [constraintWarning] if
+     * battery is low or storage is insufficient. The work is still enqueued
+     * (WorkManager will wait for constraints), but the user gets feedback.
+     * 
      * @param recordingId The UUID of the recording to transcribe
      */
     suspend fun enqueue(recordingId: UUID) {
+        // Check constraints and warn user (but still enqueue - WorkManager will wait)
+        val status = constraintChecker.checkConstraints()
+        _constraintWarning.value = constraintChecker.getConstraintMessage(status)
+        
         // Update status to pending
         recordingRepository.updateStatus(recordingId, RecordingStatus.PENDING_TRANSCRIPTION)
         
@@ -62,12 +85,19 @@ class TranscriptionQueueManager @Inject constructor(
      * Retry a failed transcription.
      * Resets status from FAILED to PENDING_TRANSCRIPTION and re-enqueues.
      * 
+     * Checks device constraints and emits a warning via [constraintWarning] if
+     * battery is low or storage is insufficient.
+     * 
      * @param recordingId The UUID of the recording to retry
      */
     suspend fun retry(recordingId: UUID) {
         val recording = recordingRepository.getRecording(recordingId)
         
         if (recording?.status == RecordingStatus.FAILED) {
+            // Check constraints and warn user
+            val status = constraintChecker.checkConstraints()
+            _constraintWarning.value = constraintChecker.getConstraintMessage(status)
+            
             // Clear error and reset status
             recordingRepository.updateStatusWithError(
                 id = recordingId,
@@ -110,14 +140,48 @@ class TranscriptionQueueManager @Inject constructor(
     }
     
     /**
+     * Clear the constraint warning.
+     * Call this after the UI has displayed the warning to the user.
+     */
+    fun clearConstraintWarning() {
+        _constraintWarning.value = null
+    }
+    
+    /**
      * Process all pending recordings on app startup.
      * Call this from Application.onCreate or a startup initializer.
      * 
-     * Queries all PENDING_TRANSCRIPTION recordings and ensures each
+     * First recovers any recordings stuck in TRANSCRIBING status (from app kill),
+     * then queries all PENDING_TRANSCRIPTION recordings and ensures each
      * has a WorkManager job scheduled.
+     * 
+     * Also checks device constraints and emits a warning if there are pending
+     * recordings but constraints are not met.
      */
     suspend fun processPendingOnStartup() {
+        Log.i(TAG, "Starting transcription recovery on app startup")
+        
+        // Step 1: Recover stuck TRANSCRIBING recordings
+        // These are recordings where the app was killed during transcription
+        val stuckRecordings = recordingRepository
+            .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
+            .first()
+        
+        if (stuckRecordings.isNotEmpty()) {
+            Log.w(TAG, "Recovering ${stuckRecordings.size} stuck recording(s) from previous session")
+            stuckRecordings.forEach { recording ->
+                Log.d(TAG, "Recovering stuck recording: ${recording.id}")
+                recordingRepository.updateStatus(
+                    recording.id,
+                    RecordingStatus.PENDING_TRANSCRIPTION
+                )
+            }
+            Log.i(TAG, "Recovery complete: ${stuckRecordings.size} recording(s) reset to pending")
+        }
+        
+        // Step 2: Process all pending recordings
         val pending = pendingRecordings.first()
+        Log.d(TAG, "Found ${pending.size} pending recording(s) to process")
         
         pending.forEach { recording ->
             // Check if work is already scheduled/running for this recording
@@ -131,12 +195,21 @@ class TranscriptionQueueManager @Inject constructor(
             }
             
             if (needsScheduling) {
+                Log.d(TAG, "Scheduling transcription work for recording: ${recording.id}")
                 TranscriptionWorkRequest.enqueue(context, recording.id)
             }
         }
         
         // Update active count based on currently running work
         updateActiveCount()
+        
+        // Check constraints and warn if there are pending items but constraints aren't met
+        if (pending.isNotEmpty()) {
+            val status = constraintChecker.checkConstraints()
+            _constraintWarning.value = constraintChecker.getConstraintMessage(status)
+        }
+        
+        Log.i(TAG, "Startup processing complete")
     }
     
     /**

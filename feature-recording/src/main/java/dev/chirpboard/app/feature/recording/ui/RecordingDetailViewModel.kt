@@ -15,8 +15,11 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.audio.AudioPlayer
 import dev.chirpboard.app.feature.recording.audio.PlaybackState
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -80,15 +83,49 @@ class RecordingDetailViewModel @Inject constructor(
         }
     }
     
+    /**
+     * Delete a recording.
+     * 
+     * Order matters: Delete from database FIRST (critical), then audio file (best effort).
+     * If DB delete fails, we keep the file. If file delete fails, that's acceptable
+     * since the DB record is already gone. Transcript is cascade-deleted by Room.
+     */
     fun deleteRecording(onDeleted: () -> Unit) {
         viewModelScope.launch {
             recording.value?.let { rec ->
                 audioPlayer.release()
-                File(rec.audioPath).delete()
-                recordingRepository.delete(rec)
-                onDeleted()
+                
+                try {
+                    // Step 1: Delete from database FIRST (the critical operation)
+                    // Transcript is cascade-deleted via ForeignKey constraint
+                    recordingRepository.delete(rec)
+                    
+                    // Step 2: Delete audio file (non-critical, best effort)
+                    // Run on IO dispatcher to avoid blocking main thread
+                    withContext(Dispatchers.IO) {
+                        try {
+                            val file = File(rec.audioPath)
+                            if (file.exists() && !file.delete()) {
+                                Log.w(TAG, "Failed to delete audio file: ${rec.audioPath}")
+                            }
+                        } catch (e: Exception) {
+                            // File deletion is non-fatal - log and continue
+                            Log.w(TAG, "Error deleting audio file: ${rec.audioPath}", e)
+                        }
+                    }
+                    
+                    onDeleted()
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to delete recording: ${rec.id}", e)
+                    _message.value = "Failed to delete recording"
+                }
             }
         }
+    }
+    
+    companion object {
+        private const val TAG = "RecordingDetailViewModel"
     }
     
     // ===== Sharing =====
@@ -98,35 +135,40 @@ class RecordingDetailViewModel @Inject constructor(
      */
     fun shareAudio() {
         val rec = recording.value ?: return
-        val file = File(rec.audioPath)
         
-        if (!file.exists()) {
-            _message.value = "Audio file not found"
-            return
-        }
-        
-        try {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider",
-                file
-            )
+        viewModelScope.launch {
+            val file = File(rec.audioPath)
             
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "audio/m4a"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, rec.title)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            // Check file existence on IO dispatcher
+            val exists = withContext(Dispatchers.IO) { file.exists() }
+            if (!exists) {
+                _message.value = "Audio file not found"
+                return@launch
             }
             
-            context.startActivity(
-                Intent.createChooser(intent, "Share audio").apply {
+            try {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.provider",
+                    file
+                )
+                
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "audio/m4a"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, rec.title)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-            )
-        } catch (e: Exception) {
-            _message.value = "Failed to share: ${e.message}"
+                
+                context.startActivity(
+                    Intent.createChooser(intent, "Share audio").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
+            } catch (e: Exception) {
+                _message.value = "Failed to share: ${e.message}"
+            }
         }
     }
     
@@ -181,52 +223,57 @@ class RecordingDetailViewModel @Inject constructor(
     fun shareBoth() {
         val rec = recording.value ?: return
         val trans = transcript.value
-        val file = File(rec.audioPath)
         
-        if (!file.exists()) {
-            _message.value = "Audio file not found"
-            return
-        }
-        
-        try {
-            val uri = FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.provider",
-                file
-            )
+        viewModelScope.launch {
+            val file = File(rec.audioPath)
             
-            val text = if (trans != null) {
-                buildString {
-                    appendLine("# ${rec.title}")
-                    appendLine()
-                    trans.summary?.let { summary ->
-                        appendLine("## Summary")
-                        appendLine(summary)
+            // Check file existence on IO dispatcher
+            val exists = withContext(Dispatchers.IO) { file.exists() }
+            if (!exists) {
+                _message.value = "Audio file not found"
+                return@launch
+            }
+            
+            try {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.provider",
+                    file
+                )
+                
+                val text = if (trans != null) {
+                    buildString {
+                        appendLine("# ${rec.title}")
                         appendLine()
+                        trans.summary?.let { summary ->
+                            appendLine("## Summary")
+                            appendLine(summary)
+                            appendLine()
+                        }
+                        appendLine("## Transcript")
+                        appendLine(trans.processedText ?: trans.rawText)
                     }
-                    appendLine("## Transcript")
-                    appendLine(trans.processedText ?: trans.rawText)
+                } else {
+                    rec.title
                 }
-            } else {
-                rec.title
-            }
-            
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "audio/m4a"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_SUBJECT, rec.title)
-                putExtra(Intent.EXTRA_TEXT, text)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            
-            context.startActivity(
-                Intent.createChooser(intent, "Share recording").apply {
+                
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "audio/m4a"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, rec.title)
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-            )
-        } catch (e: Exception) {
-            _message.value = "Failed to share: ${e.message}"
+                
+                context.startActivity(
+                    Intent.createChooser(intent, "Share recording").apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
+            } catch (e: Exception) {
+                _message.value = "Failed to share: ${e.message}"
+            }
         }
     }
     

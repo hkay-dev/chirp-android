@@ -5,6 +5,9 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -14,6 +17,91 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
+
+// =============================================================================
+// Safe MediaFormat Extension Functions
+// =============================================================================
+
+private const val MEDIA_FORMAT_TAG = "MediaFormat"
+
+/**
+ * Safe accessor for MediaFormat integer values.
+ * Returns default if key is missing or value is invalid.
+ */
+private fun MediaFormat.getIntegerOrDefault(key: String, default: Int): Int {
+    return try {
+        if (containsKey(key)) getInteger(key) else default
+    } catch (e: Exception) {
+        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
+        default
+    }
+}
+
+/**
+ * Safe accessor for MediaFormat long values.
+ */
+private fun MediaFormat.getLongOrDefault(key: String, default: Long): Long {
+    return try {
+        if (containsKey(key)) getLong(key) else default
+    } catch (e: Exception) {
+        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
+        default
+    }
+}
+
+/**
+ * Safe accessor for MediaFormat string values.
+ */
+private fun MediaFormat.getStringOrNull(key: String): String? {
+    return try {
+        if (containsKey(key)) getString(key) else null
+    } catch (e: Exception) {
+        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key", e)
+        null
+    }
+}
+
+// =============================================================================
+// Format Validation
+// =============================================================================
+
+/**
+ * Audio format validation result.
+ */
+sealed class FormatValidationResult {
+    data object Valid : FormatValidationResult()
+    data class Invalid(val reason: String) : FormatValidationResult()
+    data class Unsupported(val format: String) : FormatValidationResult()
+}
+
+/**
+ * Validate audio format before decoding.
+ */
+private fun validateFormat(format: MediaFormat): FormatValidationResult {
+    val mime = format.getStringOrNull(MediaFormat.KEY_MIME)
+
+    // Check MIME type
+    if (mime == null) {
+        return FormatValidationResult.Invalid("Unknown audio format")
+    }
+
+    if (!mime.startsWith("audio/")) {
+        return FormatValidationResult.Unsupported(mime)
+    }
+
+    // Validate essential parameters
+    val sampleRate = format.getIntegerOrDefault(MediaFormat.KEY_SAMPLE_RATE, -1)
+    if (sampleRate <= 0) {
+        return FormatValidationResult.Invalid("Invalid sample rate: $sampleRate")
+    }
+
+    val channelCount = format.getIntegerOrDefault(MediaFormat.KEY_CHANNEL_COUNT, -1)
+    if (channelCount <= 0) {
+        return FormatValidationResult.Invalid("Invalid channel count: $channelCount")
+    }
+
+    return FormatValidationResult.Valid
+}
 
 /**
  * Decodes audio files (M4A, etc.) to PCM float samples for Sherpa-ONNX transcription.
@@ -81,10 +169,22 @@ class AudioDecoder @Inject constructor() {
             extractor.selectTrack(audioTrackIndex)
             val format = extractor.getTrackFormat(audioTrackIndex)
 
-            val mimeType = format.getString(MediaFormat.KEY_MIME)
+            // Validate format before processing
+            when (val validation = validateFormat(format)) {
+                is FormatValidationResult.Invalid -> {
+                    throw AudioDecoderException("Invalid audio file: ${validation.reason}")
+                }
+                is FormatValidationResult.Unsupported -> {
+                    throw AudioDecoderException("Unsupported format: ${validation.format}")
+                }
+                FormatValidationResult.Valid -> { /* continue */ }
+            }
+
+            // Use safe accessors for all MediaFormat values
+            val mimeType = format.getStringOrNull(MediaFormat.KEY_MIME)
                 ?: throw AudioDecoderException("Unknown MIME type")
-            val sourceSampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            val sourceSampleRate = format.getIntegerOrDefault(MediaFormat.KEY_SAMPLE_RATE, TARGET_SAMPLE_RATE)
+            val channelCount = format.getIntegerOrDefault(MediaFormat.KEY_CHANNEL_COUNT, 1)
 
             Log.d(TAG, "Audio format: $mimeType, ${sourceSampleRate}Hz, $channelCount channels")
 
@@ -198,6 +298,32 @@ class AudioDecoder @Inject constructor() {
     }
 
     /**
+     * Decode audio file and emit samples as a Flow.
+     * This allows for memory-efficient streaming processing with chunked transcription.
+     * 
+     * @param filePath Path to M4A audio file
+     * @return Flow of audio sample arrays (normalized to [-1.0, 1.0] at 16kHz mono)
+     * @throws AudioDecoderException if decoding fails
+     */
+    fun decodeAsFlow(filePath: String): Flow<FloatArray> = callbackFlow {
+        var totalSamples = 0L
+        try {
+            totalSamples = decode(filePath) { samples ->
+                trySend(samples)
+            }
+            Log.d(TAG, "Flow completed: emitted $totalSamples samples")
+        } catch (e: Exception) {
+            Log.e(TAG, "Flow error during decode", e)
+            throw e
+        } finally {
+            close()
+        }
+        awaitClose { 
+            Log.d(TAG, "Flow closed")
+        }
+    }
+
+    /**
      * Get audio duration in milliseconds without decoding.
      *
      * @param filePath Path to audio file
@@ -221,8 +347,8 @@ class AudioDecoder @Inject constructor() {
             }
 
             val format = extractor.getTrackFormat(audioTrackIndex)
-            val durationUs = format.getLong(MediaFormat.KEY_DURATION)
-            durationUs / 1000 // Convert to milliseconds
+            val durationUs = format.getLongOrDefault(MediaFormat.KEY_DURATION, -1000L)
+            if (durationUs < 0) -1 else durationUs / 1000 // Convert to milliseconds
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get duration: ${e.message}", e)
@@ -242,7 +368,7 @@ class AudioDecoder @Inject constructor() {
     private fun findAudioTrack(extractor: MediaExtractor): Int {
         for (i in 0 until extractor.trackCount) {
             val format = extractor.getTrackFormat(i)
-            val mime = format.getString(MediaFormat.KEY_MIME)
+            val mime = format.getStringOrNull(MediaFormat.KEY_MIME)
             if (mime?.startsWith("audio/") == true) {
                 return i
             }
@@ -345,9 +471,10 @@ class AudioDecoder @Inject constructor() {
 
     /**
      * Accumulates samples and emits fixed-size chunks.
+     * Uses ArrayDeque for O(1) removeFirst() instead of ArrayList's O(n) removeAt(0).
      */
     private class ChunkBuffer(private val chunkSize: Int) {
-        private val buffer = ArrayList<Float>(chunkSize * 2)
+        private val buffer = ArrayDeque<Float>(chunkSize * 2)
 
         /**
          * Add samples to buffer and emit full chunks via callback.
@@ -357,10 +484,9 @@ class AudioDecoder @Inject constructor() {
             emit: suspend (FloatArray) -> Unit
         ) {
             for (sample in samples) {
-                buffer.add(sample)
+                buffer.addLast(sample)
                 if (buffer.size >= chunkSize) {
-                    emit(buffer.take(chunkSize).toFloatArray())
-                    repeat(chunkSize) { buffer.removeAt(0) }
+                    emit(FloatArray(chunkSize) { buffer.removeFirst() })
                 }
             }
         }
@@ -370,8 +496,7 @@ class AudioDecoder @Inject constructor() {
          */
         suspend inline fun flush(emit: suspend (FloatArray) -> Unit) {
             if (buffer.isNotEmpty()) {
-                emit(buffer.toFloatArray())
-                buffer.clear()
+                emit(FloatArray(buffer.size) { buffer.removeFirst() })
             }
         }
     }

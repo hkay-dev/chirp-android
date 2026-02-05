@@ -88,6 +88,7 @@ fun SettingsScreen() {
     val downloader = remember { ModelDownloader(context) }
     val modeRepository = remember { ProcessingModeRepository(context) }
     val prefs = remember { Preferences(context) }
+    val securePrefs = remember { SecurePreferences(context) }
     val scope = rememberCoroutineScope()
 
     // Model state
@@ -210,7 +211,8 @@ fun SettingsScreen() {
             // Gemini Configuration Section
             item {
                 GeminiConfigSection(
-                    prefs = prefs
+                    prefs = prefs,
+                    securePrefs = securePrefs
                 )
             }
 
@@ -910,8 +912,8 @@ private fun MicrophoneSettingsSection(prefs: Preferences) {
 }
 
 @Composable
-private fun GeminiConfigSection(prefs: Preferences) {
-    var apiKey by remember { mutableStateOf(prefs.geminiApiKey) }
+private fun GeminiConfigSection(prefs: Preferences, securePrefs: SecurePreferences) {
+    var apiKey by remember { mutableStateOf(securePrefs.geminiApiKey ?: "") }
     var modelName by remember { mutableStateOf(prefs.geminiModel) }
     var useCustomModel by remember { mutableStateOf(prefs.geminiModel != "gemini-flash-lite-latest") }
     
@@ -928,19 +930,19 @@ private fun GeminiConfigSection(prefs: Preferences) {
                 color = MaterialTheme.colorScheme.onSurface
             )
             
-            // API Key input
+            // API Key input (stored in encrypted storage)
             OutlinedTextField(
                 value = apiKey,
                 onValueChange = { 
                     apiKey = it
-                    prefs.geminiApiKey = it
+                    securePrefs.geminiApiKey = it
                 },
                 label = { Text("API Key") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 supportingText = {
                     Text(
-                        "Your Gemini API key from Google AI Studio",
+                        "Your Gemini API key (stored securely)",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
