@@ -8,6 +8,9 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.ReliabilityOutcome
+import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
@@ -68,14 +71,17 @@ class TranscriptionWorker @AssistedInject constructor(
             )
         }
 
+        val correlationId = inputData.getString(TranscriptionWorkRequest.INPUT_CORRELATION_ID)
+            ?: ReliabilityEventLogger.newCorrelationId("transcription")
+
         return try {
-            transcribeRecording(recordingId)
+            transcribeRecording(recordingId, correlationId)
         } catch (e: Exception) {
-            handleError(recordingId, e)
+            handleError(recordingId, correlationId, e)
         }
     }
 
-    private suspend fun transcribeRecording(recordingId: UUID): Result {
+    private suspend fun transcribeRecording(recordingId: UUID, correlationId: String): Result {
         // Fetch the recording
         val recording = recordingRepository.getRecording(recordingId)
             ?: return Result.failure(
@@ -86,6 +92,13 @@ class TranscriptionWorker @AssistedInject constructor(
 
         // Update status to TRANSCRIBING
         recordingRepository.updateStatus(recordingId, RecordingStatus.TRANSCRIBING)
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.TRANSCRIPTION,
+            outcome = ReliabilityOutcome.STARTED,
+            correlationId = correlationId,
+            recordingId = recordingId,
+            reasonCode = "worker_started"
+        )
 
         // Verify audio file exists
         val audioFile = File(recording.audioPath)
@@ -94,6 +107,13 @@ class TranscriptionWorker @AssistedInject constructor(
                 recordingId,
                 RecordingStatus.FAILED,
                 "Audio file not found: ${recording.audioPath}"
+            )
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.TRANSCRIPTION,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "audio_missing"
             )
             return Result.failure(
                 Data.Builder()
@@ -108,6 +128,13 @@ class TranscriptionWorker @AssistedInject constructor(
                 recordingId,
                 RecordingStatus.FAILED,
                 "Model not downloaded. Please download the speech recognition model in Settings."
+            )
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.TRANSCRIPTION,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "model_not_downloaded"
             )
             return Result.failure(
                 Data.Builder()
@@ -125,6 +152,13 @@ class TranscriptionWorker @AssistedInject constructor(
                     recordingId,
                     RecordingStatus.FAILED,
                     "Failed to initialize speech recognition model"
+                )
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "model_init_failed"
                 )
                 return Result.failure(
                     Data.Builder()
@@ -208,6 +242,13 @@ class TranscriptionWorker @AssistedInject constructor(
 
         // LLM processing for title and summary
         recordingRepository.updateStatus(recordingId, RecordingStatus.ENHANCING)
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.ENHANCEMENT,
+            outcome = ReliabilityOutcome.STARTED,
+            correlationId = correlationId,
+            recordingId = recordingId,
+            reasonCode = "enhancement_started"
+        )
         
         try {
             val llmResult = llmProcessor.process(processedText, recording.source)
@@ -221,13 +262,36 @@ class TranscriptionWorker @AssistedInject constructor(
             llmResult.summary?.let { generatedSummary ->
                 recordingRepository.updateSummary(recordingId, generatedSummary)
             }
+
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.ENHANCEMENT,
+                outcome = ReliabilityOutcome.SUCCESS,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "enhancement_applied"
+            )
         } catch (e: Exception) {
             // LLM processing failed - continue without title/summary
             // Recording will keep its default title
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.ENHANCEMENT,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "enhancement_failed",
+                message = e.message
+            )
         }
 
         // Mark as completed
         recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.TRANSCRIPTION,
+            outcome = ReliabilityOutcome.SUCCESS,
+            correlationId = correlationId,
+            recordingId = recordingId,
+            reasonCode = "worker_completed"
+        )
 
         return Result.success(
             Data.Builder()
@@ -236,8 +300,21 @@ class TranscriptionWorker @AssistedInject constructor(
         )
     }
 
-    private suspend fun handleError(recordingId: UUID, exception: Exception): Result {
+    private suspend fun handleError(
+        recordingId: UUID,
+        correlationId: String,
+        exception: Exception
+    ): Result {
         val errorMessage = exception.message ?: "Unknown transcription error"
+
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.TRANSCRIPTION,
+            outcome = ReliabilityOutcome.FAILURE,
+            correlationId = correlationId,
+            recordingId = recordingId,
+            reasonCode = "worker_exception",
+            message = errorMessage
+        )
 
         // Try to update the recording status to FAILED
         try {

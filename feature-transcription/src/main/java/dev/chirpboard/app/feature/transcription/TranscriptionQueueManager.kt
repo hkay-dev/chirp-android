@@ -5,6 +5,9 @@ import android.util.Log
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.ReliabilityOutcome
+import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -116,7 +119,17 @@ class TranscriptionQueueManager @Inject constructor(
      * 
      * @param recordingId The UUID of the recording to transcribe
      */
-    suspend fun enqueue(recordingId: UUID) {
+    suspend fun enqueue(recordingId: UUID, correlationId: String? = null) {
+        val corrId = correlationId ?: ReliabilityEventLogger.newCorrelationId("queue")
+
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.QUEUE_ENQUEUE,
+            outcome = ReliabilityOutcome.STARTED,
+            correlationId = corrId,
+            recordingId = recordingId,
+            reasonCode = "enqueue_requested"
+        )
+
         // Check constraints and warn user (but still enqueue - WorkManager will wait)
         val status = constraintChecker.checkConstraints()
         _constraintWarning.value = constraintChecker.getConstraintMessage(status)
@@ -128,8 +141,27 @@ class TranscriptionQueueManager @Inject constructor(
             errorMessage = null
         )
         
-        // Schedule the work
-        TranscriptionWorkRequest.enqueue(context, recordingId)
+        try {
+            // Schedule the work
+            TranscriptionWorkRequest.enqueue(context, recordingId, corrId)
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.QUEUE_ENQUEUE,
+                outcome = ReliabilityOutcome.SUCCESS,
+                correlationId = corrId,
+                recordingId = recordingId,
+                reasonCode = "enqueue_scheduled"
+            )
+        } catch (e: Exception) {
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.QUEUE_ENQUEUE,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = corrId,
+                recordingId = recordingId,
+                reasonCode = "enqueue_exception",
+                message = e.message
+            )
+            throw e
+        }
     }
 
     /**
@@ -152,6 +184,15 @@ class TranscriptionQueueManager @Inject constructor(
             id = recordingId,
             status = RecordingStatus.PENDING_TRANSCRIPTION,
             errorMessage = errorMessage
+        )
+
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.QUEUE_ENQUEUE,
+            outcome = ReliabilityOutcome.RECOVERED,
+            correlationId = ReliabilityEventLogger.newCorrelationId("queue-recovery"),
+            recordingId = recordingId,
+            reasonCode = "pending_for_recovery",
+            message = reason
         )
     }
     
@@ -180,7 +221,11 @@ class TranscriptionQueueManager @Inject constructor(
             )
             
             // Re-enqueue for processing
-            TranscriptionWorkRequest.enqueue(context, recordingId)
+            TranscriptionWorkRequest.enqueue(
+                context,
+                recordingId,
+                ReliabilityEventLogger.newCorrelationId("queue-retry")
+            )
         }
     }
     
@@ -319,12 +364,31 @@ class TranscriptionQueueManager @Inject constructor(
             when {
                 shouldRequeuePending(ownership) -> {
                     try {
-                        TranscriptionWorkRequest.enqueue(context, recording.id)
+                        TranscriptionWorkRequest.enqueue(
+                            context,
+                            recording.id,
+                            ReliabilityEventLogger.newCorrelationId("queue-reconcile")
+                        )
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.QUEUE_ENQUEUE,
+                            outcome = ReliabilityOutcome.RECOVERED,
+                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
+                            recordingId = recording.id,
+                            reasonCode = "reconciled_pending"
+                        )
                         if (recording.hasRecoverablePendingError()) {
                             clearPendingError(recording.id)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.QUEUE_ENQUEUE,
+                            outcome = ReliabilityOutcome.FAILURE,
+                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
+                            recordingId = recording.id,
+                            reasonCode = "reconcile_enqueue_failed",
+                            message = e.message
+                        )
                     }
                 }
 
