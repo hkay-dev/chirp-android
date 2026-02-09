@@ -7,11 +7,8 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
-import dev.chirpboard.app.data.entity.Recording
-import dev.chirpboard.app.data.entity.Transcript
-import dev.chirpboard.app.data.model.RecordingSource
-import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,26 +52,16 @@ class ChirpRecognitionService : RecognitionService() {
 
     private fun saveTranscription(rawText: String) {
         scope.launch(Dispatchers.IO) {
-            try {
-                // Create a Recording entity with KEYBOARD source (recognition service is used by keyboard)
-                val recording = Recording(
-                    title = rawText.take(50).ifBlank { "Voice transcription" },
-                    audioPath = "", // No audio file saved for recognition service
-                    source = RecordingSource.KEYBOARD,
-                    status = RecordingStatus.COMPLETED
-                )
-                recordingRepository.insert(recording)
-                
-                // Create the linked Transcript
-                val transcript = Transcript(
-                    recordingId = recording.id,
-                    rawText = rawText
-                )
-                recordingRepository.saveTranscript(transcript)
-                
-                Log.d(TAG, "Saved transcription: recording=${recording.id}, text='$rawText'")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to save transcription", e)
+            val persistenceResult = persistRecognitionHistoryAtomically(rawText) { recording, transcript ->
+                recordingRepository.createRecordingWithTranscript(recording, transcript)
+            }
+
+            if (persistenceResult.isSuccess) {
+                val recordingId = persistenceResult.getOrNull()
+                Log.d(TAG, "Saved transcription atomically: recording=$recordingId")
+            } else {
+                val error = persistenceResult.exceptionOrNull()
+                Log.e(TAG, "Failed to save transcription atomically", error)
             }
         }
     }
