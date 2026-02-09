@@ -33,6 +33,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -58,11 +59,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 /**
@@ -496,63 +498,96 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         _state.value = KeyboardState.Transcribing
         recordingStateManager.beginStopRecording()
 
-        scope.launch {
+        // Launch on Default dispatcher for CPU-intensive work (transcription, LLM)
+        // This prevents UI freezing on 120Hz displays where each frame is 8.3ms
+        scope.launch(Dispatchers.Default) {
             try {
                 if (!recognizerProvider.isReady()) {
                     Log.e(TAG, "Recognizer not ready for transcription")
-                    _state.value = KeyboardState.Error("Recognizer not ready")
-                    recordingStateManager.onRecordingError("Recognizer not ready")
+                    withContext(Dispatchers.Main) {
+                        _state.value = KeyboardState.Error("Recognizer not ready")
+                        recordingStateManager.onRecordingError("Recognizer not ready")
+                    }
                     return@launch
                 }
                 
-                val rawText = recognizerProvider.transcribe(samples)
-                Log.d(TAG, "Transcribed: $rawText")
-                
-                // Mark recording as complete since transcription succeeded
-                recordingStateManager.onRecordingCompleted()
+                // CPU-intensive transcription runs on Default thread pool
+                val transcriptionOutcome = recognizerProvider.transcribe(samples)
+                val mappedOutcome = mapKeyboardTranscriptionOutcome(transcriptionOutcome)
+                val rawText = when (mappedOutcome) {
+                    is KeyboardTranscriptionResolution.Success -> mappedOutcome.text
+                    KeyboardTranscriptionResolution.NoSpeech -> {
+                        withContext(Dispatchers.Main) {
+                            recordingStateManager.onRecordingCompleted()
+                            _state.value = KeyboardState.Idle
+                        }
+                        return@launch
+                    }
+                    is KeyboardTranscriptionResolution.Failure -> {
+                        withContext(Dispatchers.Main) {
+                            _state.value = KeyboardState.Error(mappedOutcome.message)
+                            recordingStateManager.onRecordingError(mappedOutcome.message)
+                        }
+                        return@launch
+                    }
+                }
 
-                if (rawText.isBlank()) {
-                    _state.value = KeyboardState.Idle
-                    return@launch
+                Log.d(TAG, "Transcribed: $rawText")
+
+                // State updates on Main thread
+                withContext(Dispatchers.Main) {
+                    recordingStateManager.onRecordingCompleted()
                 }
 
                 // LLM post-processing if enabled
                 val mode = _currentMode.value
                 if (_llmEnabled.value) {
-                    _state.value = KeyboardState.Polishing
-                    val result = textProcessor.process(rawText, mode)
+                    withContext(Dispatchers.Main) {
+                        _state.value = KeyboardState.Polishing
+                    }
                     
-                    result.fold(
-                        onSuccess = { polishedText ->
-                            Log.d(TAG, "Polished: $polishedText")
-                            // Always add space after transcript
-                            currentInputConnection?.commitText("$polishedText ", 1)
-                            handleTranscriptionComplete(rawText, polishedText)
-                            _state.value = KeyboardState.Idle
-                        },
-                        onFailure = { error ->
-                            Log.e(TAG, "LLM failed, using raw text", error)
-                            // Always add space after transcript
+                    // LLM processing with 10-second timeout fallback
+                    val result = withTimeoutOrNull(10_000L) {
+                        textProcessor.process(rawText, mode)
+                    }
+                    
+                    withContext(Dispatchers.Main) {
+                        if (result != null) {
+                            result.fold(
+                                onSuccess = { polishedText ->
+                                    Log.d(TAG, "Polished: $polishedText")
+                                    currentInputConnection?.commitText("$polishedText ", 1)
+                                    handleTranscriptionComplete(rawText, polishedText)
+                                    _state.value = KeyboardState.Idle
+                                },
+                                onFailure = { error ->
+                                    Log.e(TAG, "LLM failed, using raw text", error)
+                                    currentInputConnection?.commitText("$rawText ", 1)
+                                    handleTranscriptionComplete(rawText, null)
+                                    _state.value = KeyboardState.LlmError("LLM failed: ${error.message}")
+                                }
+                            )
+                        } else {
+                            // Timeout - use raw text as fallback
+                            Log.w(TAG, "LLM timed out after 10s, using raw text")
                             currentInputConnection?.commitText("$rawText ", 1)
                             handleTranscriptionComplete(rawText, null)
-                            _state.value = KeyboardState.LlmError("LLM failed: ${error.message}")
-                            // Auto-clear error after 3 seconds
-                            delay(3000)
-                            if (_state.value is KeyboardState.LlmError) {
-                                _state.value = KeyboardState.Idle
-                            }
+                            _state.value = KeyboardState.Idle
                         }
-                    )
+                    }
                 } else {
-                    // Always add space after transcript
-                    currentInputConnection?.commitText("$rawText ", 1)
-                    handleTranscriptionComplete(rawText, null)
-                    _state.value = KeyboardState.Idle
+                    withContext(Dispatchers.Main) {
+                        currentInputConnection?.commitText("$rawText ", 1)
+                        handleTranscriptionComplete(rawText, null)
+                        _state.value = KeyboardState.Idle
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Transcription failed", e)
-                _state.value = KeyboardState.Error("Transcription failed: ${e.message}")
-                recordingStateManager.onRecordingError("Transcription failed: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    _state.value = KeyboardState.Error("Transcription failed: ${e.message}")
+                    recordingStateManager.onRecordingError("Transcription failed: ${e.message}")
+                }
             }
         }
     }
@@ -625,6 +660,35 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     }
 }
 
+internal sealed interface KeyboardTranscriptionResolution {
+    data class Success(val text: String) : KeyboardTranscriptionResolution
+    object NoSpeech : KeyboardTranscriptionResolution
+    data class Failure(val message: String) : KeyboardTranscriptionResolution
+}
+
+internal fun mapKeyboardTranscriptionOutcome(
+    outcome: TranscriptionOutcome
+): KeyboardTranscriptionResolution {
+    return when (outcome) {
+        is TranscriptionOutcome.Success -> {
+            if (outcome.text.isBlank()) {
+                KeyboardTranscriptionResolution.NoSpeech
+            } else {
+                KeyboardTranscriptionResolution.Success(outcome.text)
+            }
+        }
+        TranscriptionOutcome.NoSpeech -> KeyboardTranscriptionResolution.NoSpeech
+        is TranscriptionOutcome.ModelUnavailable -> {
+            KeyboardTranscriptionResolution.Failure("Recognizer unavailable: ${outcome.reason}")
+        }
+        is TranscriptionOutcome.EngineError -> {
+            KeyboardTranscriptionResolution.Failure(
+                "Transcription engine failed: ${outcome.reason}"
+            )
+        }
+    }
+}
+
 /**
  * Interface for the speech recognizer.
  * This allows the keyboard module to be decoupled from the specific recognizer implementation.
@@ -633,5 +697,5 @@ interface RecognizerProvider {
     fun isReady(): Boolean
     fun isModelDownloaded(): Boolean
     suspend fun initialize(): Boolean
-    suspend fun transcribe(samples: FloatArray): String
+    suspend fun transcribe(samples: FloatArray): TranscriptionOutcome
 }

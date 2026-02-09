@@ -24,10 +24,12 @@ interface TranscriberProvider {
     suspend fun initialize(): Boolean
     
     /**
-     * Transcribe audio samples to text.
+     * Transcribe audio samples to a typed outcome.
      * @param samples PCM audio samples as FloatArray, normalized to [-1.0, 1.0]
      * @param sampleRate Sample rate of the audio (typically 16000 Hz)
-     * @return Transcribed text, or empty string if transcription failed
      */
-    suspend fun transcribe(samples: FloatArray, sampleRate: Int = 16000): String
+    suspend fun transcribe(
+        samples: FloatArray,
+        sampleRate: Int = 16000
+    ): TranscriptionOutcome
 }

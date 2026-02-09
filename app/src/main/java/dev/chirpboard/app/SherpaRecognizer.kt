@@ -7,6 +7,7 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -96,24 +97,50 @@ class SherpaRecognizer(private val context: Context) {
         }
     }
 
-    suspend fun transcribe(samples: FloatArray, sampleRate: Int = VoiceRecorder.SAMPLE_RATE): String =
+    suspend fun transcribeOutcome(
+        samples: FloatArray,
+        sampleRate: Int = VoiceRecorder.SAMPLE_RATE
+    ): TranscriptionOutcome =
         withContext(Dispatchers.Default) {
             mutex.withLock {
-                val rec = recognizer ?: return@withContext ""
+                val rec = recognizer
+                    ?: return@withContext TranscriptionOutcome.ModelUnavailable(
+                        "Recognizer is not initialized"
+                    )
 
                 try {
                     val stream = rec.createStream()
-                    stream.acceptWaveform(samples, sampleRate)
-                    rec.decode(stream)
-                    val result = rec.getResult(stream)
-                    stream.release()
-                    result.text.trim()
+                    try {
+                        stream.acceptWaveform(samples, sampleRate)
+                        rec.decode(stream)
+                        val text = rec.getResult(stream).text.trim()
+                        if (text.isBlank()) {
+                            TranscriptionOutcome.NoSpeech
+                        } else {
+                            TranscriptionOutcome.Success(text)
+                        }
+                    } finally {
+                        stream.release()
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Transcription failed", e)
-                    ""
+                    TranscriptionOutcome.EngineError(
+                        reason = e.message ?: "Transcription failed",
+                        retryable = false
+                    )
                 }
             }
         }
+
+    suspend fun transcribe(
+        samples: FloatArray,
+        sampleRate: Int = VoiceRecorder.SAMPLE_RATE
+    ): String {
+        return when (val outcome = transcribeOutcome(samples, sampleRate)) {
+            is TranscriptionOutcome.Success -> outcome.text
+            else -> ""
+        }
+    }
 
     fun release() {
         recognizer?.release()

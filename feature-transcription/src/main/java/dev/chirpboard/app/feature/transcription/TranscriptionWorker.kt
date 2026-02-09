@@ -8,6 +8,7 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -152,7 +153,12 @@ class TranscriptionWorker @AssistedInject constructor(
             val audioFlow = audioDecoder.decodeAsFlow(recording.audioPath)
             
             rawTranscriptionText = processor.processAndJoin(audioFlow) { samples ->
-                transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE)
+                mapOutcomeForChunkTranscription(
+                    transcriberProvider.transcribe(
+                        samples,
+                        AudioDecoder.TARGET_SAMPLE_RATE
+                    )
+                )
             }
             
             Log.d(TAG, "Chunked transcription completed")
@@ -260,11 +266,7 @@ class TranscriptionWorker @AssistedInject constructor(
     private fun shouldRetry(exception: Exception): Boolean {
         // Retry on transient errors (e.g., file system busy)
         // Don't retry on permanent errors (e.g., file not found, invalid format)
-        return when (exception) {
-            is java.io.IOException -> true
-            is OutOfMemoryError -> false
-            else -> false
-        }
+        return exception is java.io.IOException
     }
 
     /**
@@ -290,3 +292,26 @@ class TranscriptionWorker @AssistedInject constructor(
         }
     }
 }
+
+internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): String {
+    return when (outcome) {
+        is TranscriptionOutcome.Success -> outcome.text
+        TranscriptionOutcome.NoSpeech -> ""
+        is TranscriptionOutcome.ModelUnavailable -> {
+            throw NonRetryableTranscriptionException(
+                "Speech model unavailable: ${outcome.reason}"
+            )
+        }
+        is TranscriptionOutcome.EngineError -> {
+            val message = "Speech engine failed: ${outcome.reason}"
+            if (outcome.retryable) {
+                throw RetryableTranscriptionException(message)
+            } else {
+                throw NonRetryableTranscriptionException(message)
+            }
+        }
+    }
+}
+
+internal class RetryableTranscriptionException(message: String) : java.io.IOException(message)
+internal class NonRetryableTranscriptionException(message: String) : Exception(message)

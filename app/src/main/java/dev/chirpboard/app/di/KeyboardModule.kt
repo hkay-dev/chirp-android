@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.RecognizerManager
 import dev.chirpboard.app.SherpaRecognizer
 import dev.chirpboard.app.download.ModelDownloader
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.keyboard.service.RecognizerProvider
 import javax.inject.Singleton
@@ -62,11 +63,18 @@ class SherpaRecognizerProvider(
         return recognizer?.isReady == true
     }
     
-    override suspend fun transcribe(samples: FloatArray): String {
-        return recognizer?.transcribe(samples) ?: ""
+    override suspend fun transcribe(samples: FloatArray): TranscriptionOutcome {
+        val activeRecognizer = recognizer
+        return activeRecognizer?.transcribeOutcome(samples)
+            ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
     }
     
-    override suspend fun transcribe(samples: FloatArray, sampleRate: Int): String {
-        return recognizer?.transcribe(samples, sampleRate) ?: ""
+    override suspend fun transcribe(
+        samples: FloatArray,
+        sampleRate: Int
+    ): TranscriptionOutcome {
+        val activeRecognizer = recognizer
+        return activeRecognizer?.transcribeOutcome(samples, sampleRate)
+            ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
     }
 }
