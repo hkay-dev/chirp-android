@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.BreathingPulse
 import dev.chirpboard.app.core.ui.components.ThinkingDots
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.llm.ProcessingMode
 import dev.chirpboard.app.llm.ProcessingModeRepository
 import dev.chirpboard.app.llm.TextProcessor
@@ -153,7 +154,24 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 
                 // Transcribe
                 Log.d(TAG, "Starting transcription...")
-                var text = rec.transcribe(samples)
+                var text = when (val outcome = rec.transcribeOutcome(samples)) {
+                    is TranscriptionOutcome.Success -> outcome.text
+                    TranscriptionOutcome.NoSpeech -> {
+                        Log.w(TAG, "No speech detected")
+                        returnError(SpeechRecognizer.ERROR_NO_MATCH)
+                        return@launch
+                    }
+                    is TranscriptionOutcome.ModelUnavailable -> {
+                        Log.w(TAG, "Model unavailable: ${outcome.reason}")
+                        returnError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                        return@launch
+                    }
+                    is TranscriptionOutcome.EngineError -> {
+                        Log.e(TAG, "Engine error: ${outcome.reason}")
+                        returnError(SpeechRecognizer.ERROR_CLIENT)
+                        return@launch
+                    }
+                }
                 Log.d(TAG, "Raw transcription: '$text' (length: ${text.length})")
                 
                 // Update partial transcript for UI preview

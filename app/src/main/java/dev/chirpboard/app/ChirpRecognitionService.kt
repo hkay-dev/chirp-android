@@ -6,6 +6,7 @@ import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -159,15 +160,28 @@ class ChirpRecognitionService : RecognitionService() {
                     return@launch
                 }
 
-                // Transcribe
-                val text = rec.transcribe(samples)
-                Log.d(TAG, "Transcribed: $text")
-
-                if (text.isBlank()) {
-                    Log.w(TAG, "Empty transcription")
-                    listener.error(ERROR_AUDIO)
-                    return@launch
+                // Transcribe with typed outcome
+                val outcome = rec.transcribeOutcome(samples)
+                val text = when (outcome) {
+                    is TranscriptionOutcome.Success -> outcome.text
+                    TranscriptionOutcome.NoSpeech -> {
+                        Log.w(TAG, "No speech detected")
+                        listener.error(ERROR_AUDIO)
+                        return@launch
+                    }
+                    is TranscriptionOutcome.ModelUnavailable -> {
+                        Log.w(TAG, "Model unavailable: ${outcome.reason}")
+                        listener.error(ERROR_SERVER)
+                        return@launch
+                    }
+                    is TranscriptionOutcome.EngineError -> {
+                        Log.e(TAG, "Engine error: ${outcome.reason}")
+                        listener.error(ERROR_AUDIO)
+                        return@launch
+                    }
                 }
+
+                Log.d(TAG, "Transcribed: $text")
 
                 // Save to history using data module
                 saveTranscription(text)
