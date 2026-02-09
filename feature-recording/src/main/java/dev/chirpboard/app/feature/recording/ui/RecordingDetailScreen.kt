@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -339,32 +340,11 @@ fun RecordingDetailScreen(
                                         }
 
                                         if (status == RecordingStatus.ENHANCING) {
-                                            TextButton(
-                                                onClick = { viewModel.recoverEnhancing() },
-                                                enabled = recoveryActions.actionsEnabled,
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Build,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Recover", style = MaterialTheme.typography.labelMedium)
-                                            }
-                                            TextButton(
-                                                onClick = { viewModel.retranscribeFromEnhancing() },
-                                                enabled = recoveryActions.actionsEnabled,
-                                                contentPadding = PaddingValues(horizontal = 8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Refresh,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Re-transcribe", style = MaterialTheme.typography.labelMedium)
-                                            }
+                                            EnhancingRecoveryActions(
+                                                actionsEnabled = recoveryActions.actionsEnabled,
+                                                onRecoverEnhancing = { viewModel.recoverEnhancing() },
+                                                onRetranscribe = { viewModel.retranscribeFromEnhancing() }
+                                            )
                                         }
                                     }
                                 }
@@ -426,24 +406,10 @@ fun RecordingDetailScreen(
                             }
 
                             if (status == RecordingStatus.PENDING_TRANSCRIPTION) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                FilledTonalButton(
-                                    onClick = { viewModel.recoverPendingTranscription() },
-                                    enabled = recoveryActions.actionsEnabled
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Recover Queue")
-                                }
-
-                                Spacer(modifier = Modifier.height(12.dp))
-                                RecoveryDiagnosticsSection(
+                                PendingRecoveryAffordance(
                                     diagnostics = recoveryDiagnostics,
-                                    actionsEnabled = recoveryActions.actionsEnabled
+                                    actionsEnabled = recoveryActions.actionsEnabled,
+                                    onRecoverPending = { viewModel.recoverPendingTranscription() }
                                 )
                             }
                         }
@@ -550,6 +516,76 @@ fun RecordingDetailScreen(
             }
         )
     }
+}
+
+internal object RecordingDetailRecoveryTestTags {
+    const val PendingRecoverButton = "pending_recover_button"
+    const val EnhancingRecoverButton = "enhancing_recover_button"
+    const val EnhancingRetranscribeButton = "enhancing_retranscribe_button"
+}
+
+@Composable
+internal fun EnhancingRecoveryActions(
+    actionsEnabled: Boolean,
+    onRecoverEnhancing: () -> Unit,
+    onRetranscribe: () -> Unit
+) {
+    TextButton(
+        onClick = onRecoverEnhancing,
+        enabled = actionsEnabled,
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        modifier = Modifier.testTag(RecordingDetailRecoveryTestTags.EnhancingRecoverButton)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Build,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Recover", style = MaterialTheme.typography.labelMedium)
+    }
+    TextButton(
+        onClick = onRetranscribe,
+        enabled = actionsEnabled,
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        modifier = Modifier.testTag(RecordingDetailRecoveryTestTags.EnhancingRetranscribeButton)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Re-transcribe", style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+internal fun PendingRecoveryAffordance(
+    diagnostics: RecoveryDiagnosticsUi,
+    actionsEnabled: Boolean,
+    onRecoverPending: () -> Unit
+) {
+    Spacer(modifier = Modifier.height(16.dp))
+    FilledTonalButton(
+        onClick = onRecoverPending,
+        enabled = actionsEnabled,
+        modifier = Modifier.testTag(RecordingDetailRecoveryTestTags.PendingRecoverButton)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text("Recover Queue")
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+    RecoveryDiagnosticsSection(
+        diagnostics = diagnostics,
+        actionsEnabled = actionsEnabled
+    )
 }
 
 @Composable
