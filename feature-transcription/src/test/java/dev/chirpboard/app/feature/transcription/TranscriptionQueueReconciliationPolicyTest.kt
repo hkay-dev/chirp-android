@@ -1,6 +1,8 @@
 package dev.chirpboard.app.feature.transcription
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -105,5 +107,26 @@ class TranscriptionQueueReconciliationPolicyTest {
         assertTrue(shouldRequeuePending(QueueOwnership.MISSING_OR_TERMINAL))
         assertFalse(shouldRequeuePending(QueueOwnership.ACTIVE))
         assertFalse(shouldRequeuePending(QueueOwnership.INSPECTION_TIMEOUT))
+    }
+
+    @Test
+    fun `manual recovery is blocked while active work exists`() {
+        assertEquals(
+            ManualRecoveryResult.BLOCKED_ACTIVE_WORK,
+            blockedManualRecoveryResult(QueueOwnership.ACTIVE)
+        )
+    }
+
+    @Test
+    fun `manual recovery is blocked when ownership check times out`() {
+        assertEquals(
+            ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT,
+            blockedManualRecoveryResult(QueueOwnership.INSPECTION_TIMEOUT)
+        )
+    }
+
+    @Test
+    fun `manual recovery is allowed when ownership is missing or terminal`() {
+        assertNull(blockedManualRecoveryResult(QueueOwnership.MISSING_OR_TERMINAL))
     }
 }

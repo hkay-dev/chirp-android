@@ -90,6 +90,10 @@ class TranscriptionWorker @AssistedInject constructor(
                     .build()
             )
 
+        if (recording.status == RecordingStatus.PENDING_ENHANCEMENT) {
+            return runEnhancementOnly(recordingId, recording, correlationId)
+        }
+
         // Update status to TRANSCRIBING
         recordingRepository.updateStatus(recordingId, RecordingStatus.TRANSCRIBING)
         ReliabilityEventLogger.log(
@@ -240,48 +244,7 @@ class TranscriptionWorker @AssistedInject constructor(
         )
         recordingRepository.saveTranscript(transcript)
 
-        // LLM processing for title and summary
-        recordingRepository.updateStatus(recordingId, RecordingStatus.ENHANCING)
-        ReliabilityEventLogger.log(
-            stage = ReliabilityStage.ENHANCEMENT,
-            outcome = ReliabilityOutcome.STARTED,
-            correlationId = correlationId,
-            recordingId = recordingId,
-            reasonCode = "enhancement_started"
-        )
-        
-        try {
-            val llmResult = llmProcessor.process(processedText, recording.source)
-            
-            // Update title if generated (only for APP/WIDGET sources)
-            llmResult.title?.let { generatedTitle ->
-                recordingRepository.updateTitle(recordingId, generatedTitle)
-            }
-            
-            // Update summary if generated
-            llmResult.summary?.let { generatedSummary ->
-                recordingRepository.updateSummary(recordingId, generatedSummary)
-            }
-
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "enhancement_applied"
-            )
-        } catch (e: Exception) {
-            // LLM processing failed - continue without title/summary
-            // Recording will keep its default title
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = ReliabilityOutcome.FAILURE,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "enhancement_failed",
-                message = e.message
-            )
-        }
+        applyEnhancement(recordingId, recording.source, processedText, correlationId)
 
         // Mark as completed
         recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
@@ -298,6 +261,77 @@ class TranscriptionWorker @AssistedInject constructor(
                 .putString(OUTPUT_TRANSCRIPT_ID, transcript.id.toString())
                 .build()
         )
+    }
+
+    private suspend fun runEnhancementOnly(
+        recordingId: UUID,
+        recording: dev.chirpboard.app.data.entity.Recording,
+        correlationId: String
+    ): Result {
+        val transcript = recordingRepository.getTranscript(recordingId)
+            ?: return Result.failure(
+                Data.Builder()
+                    .putString(OUTPUT_ERROR, "No transcript found for enhancement")
+                    .build()
+            )
+
+        val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
+        val processedText = transcript.processedText
+            ?: wordReplacer.apply(transcript.rawText, enabledReplacements)
+
+        applyEnhancement(recordingId, recording.source, processedText, correlationId)
+
+        recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
+        return Result.success(
+            Data.Builder()
+                .putString(OUTPUT_TRANSCRIPT_ID, transcript.id.toString())
+                .build()
+        )
+    }
+
+    private suspend fun applyEnhancement(
+        recordingId: UUID,
+        source: dev.chirpboard.app.data.model.RecordingSource,
+        processedText: String,
+        correlationId: String
+    ) {
+        recordingRepository.updateStatus(recordingId, RecordingStatus.ENHANCING)
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.ENHANCEMENT,
+            outcome = ReliabilityOutcome.STARTED,
+            correlationId = correlationId,
+            recordingId = recordingId,
+            reasonCode = "enhancement_started"
+        )
+
+        try {
+            val llmResult = llmProcessor.process(processedText, source)
+
+            llmResult.title?.let { generatedTitle ->
+                recordingRepository.updateTitle(recordingId, generatedTitle)
+            }
+
+            llmResult.summary?.let { generatedSummary ->
+                recordingRepository.updateSummary(recordingId, generatedSummary)
+            }
+
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.ENHANCEMENT,
+                outcome = ReliabilityOutcome.SUCCESS,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "enhancement_applied"
+            )
+        } catch (e: Exception) {
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.ENHANCEMENT,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "enhancement_failed",
+                message = e.message
+            )
+        }
     }
 
     private suspend fun handleError(

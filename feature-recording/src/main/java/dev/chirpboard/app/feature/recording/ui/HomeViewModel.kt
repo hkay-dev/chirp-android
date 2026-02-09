@@ -19,6 +19,7 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.feature.transcription.ManualRecoveryResult
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,6 +61,11 @@ data class HomeStats(
     val processingCount: Int = 0
 )
 
+enum class ListFilterMode {
+    ALL,
+    PROCESSING
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -76,11 +82,14 @@ class HomeViewModel @Inject constructor(
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
+    private val _listFilter = MutableStateFlow(ListFilterMode.ALL)
+    val listFilter: StateFlow<ListFilterMode> = _listFilter.asStateFlow()
+
     /** Cached profiles for fast lookup */
     private val profileCache = mutableMapOf<UUID, Profile?>()
     
     /** All recordings based on search, enriched with tags/summary/profile */
-    val displayItems: StateFlow<List<RecordingDisplayItem>> = _searchQuery
+    private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> = _searchQuery
         .flatMapLatest { query ->
             if (query.isBlank()) {
                 recordingRepository.getAllRecordings()
@@ -121,6 +130,26 @@ class HomeViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val displayItems: StateFlow<List<RecordingDisplayItem>> = combine(
+        allDisplayItems,
+        _listFilter
+    ) { items, filter ->
+        if (filter == ListFilterMode.ALL) {
+            items
+        } else {
+            items.filter { isProcessingOrStuckStatus(it.recording.status) }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val stuckCount: StateFlow<Int> = allDisplayItems
+        .map { items ->
+            items.count { item ->
+                item.recording.status == RecordingStatus.PENDING_TRANSCRIPTION ||
+                    item.recording.status == RecordingStatus.ENHANCING
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     /** Quick stats derived from recordings */
     val stats: StateFlow<HomeStats> = recordingRepository
         .getAllRecordings()
@@ -152,6 +181,14 @@ class HomeViewModel @Inject constructor(
     /** Update search query */
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
+    }
+
+    fun onProcessingClick() {
+        _listFilter.value = if (_listFilter.value == ListFilterMode.PROCESSING) {
+            ListFilterMode.ALL
+        } else {
+            ListFilterMode.PROCESSING
+        }
     }
     
     /**
@@ -287,6 +324,40 @@ class HomeViewModel @Inject constructor(
             }
         }
     }
+
+    fun recoverStuckItem(recording: Recording) {
+        viewModelScope.launch {
+            val result = when (recording.status) {
+                RecordingStatus.PENDING_TRANSCRIPTION -> {
+                    transcriptionQueueManager.recoverPendingTranscription(recording.id)
+                }
+
+                RecordingStatus.ENHANCING -> {
+                    transcriptionQueueManager.recoverEnhancing(recording.id)
+                }
+
+                else -> ManualRecoveryResult.NOT_RECOVERABLE_STATE
+            }
+
+            _errorMessage.value = when (result) {
+                ManualRecoveryResult.ENQUEUED -> "Recovery queued"
+                ManualRecoveryResult.BLOCKED_ACTIVE_WORK -> "Already processing. Recovery skipped"
+                ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT -> "Ownership check timed out. Try again"
+                ManualRecoveryResult.NOT_RECOVERABLE_STATE -> "Recovery unavailable for this item"
+            }
+        }
+    }
+
+    fun recoverAllStuck() {
+        viewModelScope.launch {
+            val recoveredCount = transcriptionQueueManager.recoverStuckRecordings()
+            _errorMessage.value = if (recoveredCount > 0) {
+                "Queued recovery for $recoveredCount recording${if (recoveredCount == 1) "" else "s"}"
+            } else {
+                "No recoverable recordings were queued"
+            }
+        }
+    }
     
     /**
      * Generate an AI title for a recording.
@@ -343,4 +414,13 @@ class HomeViewModel @Inject constructor(
             )
         }
     }
+}
+
+internal fun isProcessingOrStuckStatus(status: RecordingStatus): Boolean {
+    return status in setOf(
+        RecordingStatus.TRANSCRIBING,
+        RecordingStatus.ENHANCING,
+        RecordingStatus.PENDING_TRANSCRIPTION,
+        RecordingStatus.PENDING_ENHANCEMENT
+    )
 }

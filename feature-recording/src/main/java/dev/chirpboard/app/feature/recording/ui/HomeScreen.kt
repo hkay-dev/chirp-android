@@ -104,6 +104,8 @@ fun HomeScreen(
     val displayItems by viewModel.displayItems.collectAsState()
     val stats by viewModel.stats.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val listFilter by viewModel.listFilter.collectAsState()
+    val stuckCount by viewModel.stuckCount.collectAsState()
     val recordingState by viewModel.recordingState.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
@@ -269,14 +271,33 @@ fun HomeScreen(
                                 recordingCount = stats.totalRecordings,
                                 totalDurationMs = stats.totalDurationMs,
                                 processingCount = stats.processingCount,
-                                onProcessingClick = {
-                                    // TODO: Filter to show only processing items
-                                },
+                                onProcessingClick = { viewModel.onProcessingClick() },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(vertical = 8.dp)
                                     .animateItem()
                             )
+                        }
+
+                        if (searchQuery.isBlank() && listFilter == ListFilterMode.PROCESSING && stuckCount > 0) {
+                            item(key = "recover_stuck") {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    FilledTonalButton(onClick = { viewModel.recoverAllStuck() }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Recover stuck ($stuckCount)")
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -358,6 +379,15 @@ fun HomeScreen(
                     onGenerateSummary = if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
                         {
                             viewModel.generateSummary(selectedItem!!.recording)
+                            scope.launch {
+                                sheetState.hide()
+                                selectedItem = null
+                            }
+                        }
+                    } else null,
+                    onRecoverStuck = if (shouldShowStuckRecoveryAction(selectedItem!!.recording.status)) {
+                        {
+                            viewModel.recoverStuckItem(selectedItem!!.recording)
                             scope.launch {
                                 sheetState.hide()
                                 selectedItem = null
@@ -449,6 +479,17 @@ private fun RecordingListItem(
                 )
             }
 
+            if (shouldShowStuckRecoveryAction(recording.status)) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = recording.errorMessage ?: "Stuck in ${recording.status.name.lowercase().replace('_', ' ')}. Long-press for recovery.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
             // Tags (max 3 + overflow)
             if (item.tags.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -525,7 +566,8 @@ private fun RecordingActionsSheet(
     onDelete: () -> Unit,
     onRetryTranscription: (() -> Unit)?,
     onGenerateTitle: (() -> Unit)?,
-    onGenerateSummary: (() -> Unit)?
+    onGenerateSummary: (() -> Unit)?,
+    onRecoverStuck: (() -> Unit)?
 ) {
     Column(
         modifier = Modifier
@@ -581,6 +623,15 @@ private fun RecordingActionsSheet(
                 icon = Icons.Default.Refresh,
                 text = "Retry transcription",
                 onClick = onRetryTranscription
+            )
+        }
+
+        if (onRecoverStuck != null) {
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
+            SheetActionItem(
+                icon = Icons.Default.Refresh,
+                text = "Recover stuck processing",
+                onClick = onRecoverStuck
             )
         }
 
@@ -743,4 +794,8 @@ private fun StaggeredAnimatedItem(
     ) {
         content()
     }
+}
+
+internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean {
+    return status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.ENHANCING
 }

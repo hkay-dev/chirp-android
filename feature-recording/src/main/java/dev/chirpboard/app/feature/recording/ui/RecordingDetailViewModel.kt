@@ -14,6 +14,9 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.audio.AudioPlayer
 import dev.chirpboard.app.feature.recording.audio.PlaybackState
+import dev.chirpboard.app.feature.transcription.ManualRecoveryResult
+import dev.chirpboard.app.feature.transcription.RecoveryDiagnostics
+import dev.chirpboard.app.feature.transcription.RecoveryOwnershipState
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +49,17 @@ class RecordingDetailViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
     
     val playbackState: StateFlow<PlaybackState> = audioPlayer.state
+
+    private val _recoveryDiagnostics = MutableStateFlow(RecoveryDiagnosticsUi())
+    internal val recoveryDiagnostics: StateFlow<RecoveryDiagnosticsUi> = _recoveryDiagnostics.asStateFlow()
+
+    internal val recoveryActions: StateFlow<DetailRecoveryActions> = combine(recording, _recoveryDiagnostics) { rec, diagnostics ->
+        computeDetailRecoveryActions(rec?.status, diagnostics.ownership)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        computeDetailRecoveryActions(null, RecoveryOwnershipState.MISSING_OR_TERMINAL)
+    )
     
     private val _isEditing = MutableStateFlow(false)
     val isEditing: StateFlow<Boolean> = _isEditing.asStateFlow()
@@ -58,6 +72,20 @@ class RecordingDetailViewModel @Inject constructor(
     
     fun clearMessage() {
         _message.value = null
+    }
+
+    init {
+        viewModelScope.launch {
+            recording.collect { rec ->
+                if (rec == null) {
+                    _recoveryDiagnostics.value = RecoveryDiagnosticsUi()
+                } else {
+                    _recoveryDiagnostics.value = transcriptionQueueManager
+                        .getRecoveryDiagnostics(rec.id)
+                        .toUiModel()
+                }
+            }
+        }
     }
     
     fun startEditing() {
@@ -294,7 +322,45 @@ class RecordingDetailViewModel @Inject constructor(
                 transcriptionQueueManager.enqueue(recordingId)
                 _message.value = "Re-queued for transcription"
             }
+            refreshRecoveryDiagnostics()
         }
+    }
+
+    fun recoverPendingTranscription() {
+        viewModelScope.launch {
+            val result = transcriptionQueueManager.recoverPendingTranscription(recordingId)
+            _message.value = result.toUserMessage(
+                success = "Pending transcription recovered"
+            )
+            refreshRecoveryDiagnostics()
+        }
+    }
+
+    fun recoverEnhancing() {
+        viewModelScope.launch {
+            val result = transcriptionQueueManager.recoverEnhancing(recordingId)
+            _message.value = result.toUserMessage(
+                success = "Enhancement recovery queued"
+            )
+            refreshRecoveryDiagnostics()
+        }
+    }
+
+    fun retranscribeFromEnhancing() {
+        viewModelScope.launch {
+            val result = transcriptionQueueManager.retranscribeFromEnhancing(recordingId)
+            _message.value = result.toUserMessage(
+                success = "Full retranscription queued"
+            )
+            refreshRecoveryDiagnostics()
+        }
+    }
+
+    private suspend fun refreshRecoveryDiagnostics() {
+        val rec = recording.value ?: return
+        _recoveryDiagnostics.value = transcriptionQueueManager
+            .getRecoveryDiagnostics(rec.id)
+            .toUiModel()
     }
     
     // Audio playback controls
@@ -331,5 +397,54 @@ class RecordingDetailViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         audioPlayer.release()
+    }
+}
+
+internal data class RecoveryDiagnosticsUi(
+    val latestReason: String? = null,
+    val lastAttemptEpochMs: Long? = null,
+    val ownership: RecoveryOwnershipState = RecoveryOwnershipState.MISSING_OR_TERMINAL
+)
+
+internal data class DetailRecoveryActions(
+    val showPendingRecovery: Boolean,
+    val showEnhancementRecovery: Boolean,
+    val showRetranscribeFromEnhancing: Boolean,
+    val showFailedRetry: Boolean,
+    val actionsEnabled: Boolean
+)
+
+internal fun computeDetailRecoveryActions(
+    status: RecordingStatus?,
+    ownership: RecoveryOwnershipState
+): DetailRecoveryActions {
+    val isRecoverableStatus = status == RecordingStatus.PENDING_TRANSCRIPTION ||
+        status == RecordingStatus.ENHANCING
+    val disabledByOwnership = ownership == RecoveryOwnershipState.ACTIVE ||
+        ownership == RecoveryOwnershipState.INSPECTION_TIMEOUT
+
+    return DetailRecoveryActions(
+        showPendingRecovery = status == RecordingStatus.PENDING_TRANSCRIPTION,
+        showEnhancementRecovery = status == RecordingStatus.ENHANCING,
+        showRetranscribeFromEnhancing = status == RecordingStatus.ENHANCING,
+        showFailedRetry = status == RecordingStatus.FAILED,
+        actionsEnabled = !isRecoverableStatus || !disabledByOwnership
+    )
+}
+
+private fun RecoveryDiagnostics.toUiModel(): RecoveryDiagnosticsUi {
+    return RecoveryDiagnosticsUi(
+        latestReason = latestReason,
+        lastAttemptEpochMs = lastAttemptEpochMs,
+        ownership = ownership
+    )
+}
+
+private fun ManualRecoveryResult.toUserMessage(success: String): String {
+    return when (this) {
+        ManualRecoveryResult.ENQUEUED -> success
+        ManualRecoveryResult.BLOCKED_ACTIVE_WORK -> "Already processing. Recovery disabled while active work runs"
+        ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT -> "Could not verify processing ownership. Try again shortly"
+        ManualRecoveryResult.NOT_RECOVERABLE_STATE -> "Recovery is unavailable for this state"
     }
 }
