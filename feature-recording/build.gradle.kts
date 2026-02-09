@@ -57,4 +57,7 @@ dependencies {
     
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
+
+    // Tests
+    testImplementation("junit:junit:4.13.2")
 }
