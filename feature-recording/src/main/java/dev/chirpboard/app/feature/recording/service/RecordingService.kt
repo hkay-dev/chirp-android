@@ -10,6 +10,7 @@ import android.content.Intent
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
@@ -17,7 +18,6 @@ import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.model.RecordingSource
-import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
@@ -29,6 +29,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -58,13 +59,15 @@ class RecordingService : Service() {
     
     private var mediaRecorder: MediaRecorder? = null
     private var currentRecordingFile: File? = null
-    private var currentRecordingId: UUID? = null
     private var currentProfileId: UUID? = null
     private var recordingStartTime: Long = 0
     /** Accumulated recording time from previous segments (before current pause/resume) */
     private var accumulatedDurationMs: Long = 0
     private var durationUpdateJob: Job? = null
     private var amplitudeJob: Job? = null
+    private val stopLock = Any()
+    @Volatile
+    private var isStopInProgress: Boolean = false
     
     override fun onBind(intent: Intent?): IBinder? = null
     
@@ -105,18 +108,17 @@ class RecordingService : Service() {
     
     override fun onDestroy() {
         super.onDestroy()
-        // Only save if we're actually recording or paused — don't fire spurious saves
-        // after a cancel or when the service is being recycled
         val state = recordingStateManager.state.value
-        if (state is RecordingState.Recording || state is RecordingState.Paused || state is RecordingState.Starting) {
+        if (!isStopInProgress &&
+            (state is RecordingState.Recording || state is RecordingState.Paused || state is RecordingState.Starting)
+        ) {
             stopRecording()
-        } else {
-            // Just clean up resources
-            durationUpdateJob?.cancel()
-            amplitudeJob?.cancel()
-            mediaRecorder?.release()
-            mediaRecorder = null
         }
+
+        durationUpdateJob?.cancel()
+        amplitudeJob?.cancel()
+        mediaRecorder?.release()
+        mediaRecorder = null
         serviceScope.cancel()
     }
     
@@ -271,70 +273,138 @@ class RecordingService : Service() {
         
         // Reset state manager lock so startRecording can acquire it
         recordingStateManager.forceCancel()
-        
+        synchronized(stopLock) {
+            isStopInProgress = false
+        }
+
         // Start fresh recording in the same service instance
         startRecording(origin, profileId)
     }
-    
+
     private fun stopRecording() {
-        // If paused, the current segment time is already in accumulatedDurationMs.
-        // If recording, add the current segment time.
-        val isPaused = recordingStateManager.state.value is RecordingState.Paused
+        synchronized(stopLock) {
+            if (isStopInProgress) {
+                Log.d(TAG, "Ignoring duplicate stop request while stop is in progress")
+                return
+            }
+            isStopInProgress = true
+        }
+
+        val snapshot = captureStopSnapshot()
+
+        val timeoutJob = recordingStateManager.beginStopRecording()
+        durationUpdateJob?.cancel()
+        amplitudeJob?.cancel()
+
+        val result = try {
+            releaseRecorderForStop(snapshot?.wasPaused == true)
+            if (snapshot == null) {
+                StopPersistenceResult.NoAudioFile
+            } else {
+                persistAndQueueRecording(snapshot)
+            }
+        } catch (e: Exception) {
+            StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
+        } finally {
+            timeoutJob?.cancel()
+            mediaRecorder = null
+        }
+
+        when (result) {
+            is StopPersistenceResult.SavedAndQueued -> {
+                recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
+            }
+            is StopPersistenceResult.SavedPendingRecovery -> {
+                Log.w(
+                    TAG,
+                    "Saved recording ${result.recordingId} but queue handoff failed. " +
+                        "Marked for startup recovery."
+                )
+                recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
+            }
+            is StopPersistenceResult.PersistenceFailed -> {
+                recordingStateManager.onRecordingError(result.message, result.cause)
+            }
+            StopPersistenceResult.NoAudioFile -> {
+                recordingStateManager.onRecordingCompleted()
+            }
+        }
+
+        finishStopLifecycle()
+    }
+
+    private fun captureStopSnapshot(): StopSnapshot? {
+        val state = recordingStateManager.state.value
+        val isPaused = state is RecordingState.Paused
         val totalDuration = if (isPaused) {
             accumulatedDurationMs
         } else {
             accumulatedDurationMs + (System.currentTimeMillis() - recordingStartTime)
         }
-        
-        recordingStateManager.beginStopRecording()
-        durationUpdateJob?.cancel()
-        amplitudeJob?.cancel()
-        
-        try {
-            mediaRecorder?.apply {
-                // If paused, must resume before stopping (MediaRecorder requirement)
-                if (isPaused) resume()
-                stop()
-                release()
+        val filePath = currentRecordingFile?.absolutePath
+
+        return StopSnapshot(
+            origin = state.activeOrigin ?: RecordingOrigin.APP,
+            profileId = currentProfileId,
+            audioFilePath = filePath,
+            durationMs = totalDuration.coerceAtLeast(0L),
+            stoppedAtEpochMs = System.currentTimeMillis(),
+            wasPaused = isPaused
+        )
+    }
+
+    private fun releaseRecorderForStop(wasPaused: Boolean) {
+        mediaRecorder?.apply {
+            if (wasPaused) {
+                resume()
             }
-            mediaRecorder = null
-            
-            val file = currentRecordingFile
-            val duration = totalDuration
-            
-            if (file != null && file.exists()) {
-                // Create recording in database
-                serviceScope.launch(Dispatchers.IO) {
-                    val source = when (recordingStateManager.state.value.activeOrigin) {
-                        RecordingOrigin.APP -> RecordingSource.APP
-                        RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
-                        RecordingOrigin.WIDGET -> RecordingSource.WIDGET
-                        null -> RecordingSource.APP
-                    }
-                    
-                    val title = SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date())
-                    
-                    val recording = recordingRepository.createRecording(
-                        title = title,
-                        audioPath = file.absolutePath,
-                        source = source,
-                        profileId = currentProfileId,
-                        durationMs = duration
-                    )
-                    
-                    // Enqueue for transcription
-                    transcriptionQueueManager.enqueue(recording.id)
-                    
-                    recordingStateManager.onRecordingCompleted(recordingId = recording.id)
-                }
-            } else {
-                recordingStateManager.onRecordingCompleted()
-            }
-            
-        } catch (e: Exception) {
-            recordingStateManager.onRecordingError("Failed to stop recording: ${e.message}", e)
+            stop()
+            release()
         }
-        
+    }
+
+    private fun persistAndQueueRecording(snapshot: StopSnapshot): StopPersistenceResult {
+        val audioPath = snapshot.audioFilePath ?: return StopPersistenceResult.NoAudioFile
+        val file = File(audioPath)
+        if (!file.exists()) {
+            return StopPersistenceResult.NoAudioFile
+        }
+
+        return runBlocking(Dispatchers.IO) {
+            val title = SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(snapshot.stoppedAtEpochMs))
+            val source = when (snapshot.origin) {
+                RecordingOrigin.APP -> RecordingSource.APP
+                RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
+                RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+            }
+
+            val recording = recordingRepository.createRecording(
+                title = title,
+                audioPath = audioPath,
+                source = source,
+                profileId = snapshot.profileId,
+                durationMs = snapshot.durationMs
+            )
+
+            try {
+                transcriptionQueueManager.enqueue(recording.id)
+                StopPersistenceResult.SavedAndQueued(recording.id)
+            } catch (enqueueError: Exception) {
+                val reason = "Queue handoff failed during stop. Will retry automatically on startup."
+                transcriptionQueueManager.markPendingForQueueRecovery(recording.id, reason, enqueueError)
+                StopPersistenceResult.SavedPendingRecovery(recording.id, reason, enqueueError)
+            }
+        }
+    }
+
+    private fun finishStopLifecycle() {
+        currentRecordingFile = null
+        currentProfileId = null
+        accumulatedDurationMs = 0
+        synchronized(stopLock) {
+            isStopInProgress = false
+        }
+
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -479,6 +549,7 @@ class RecordingService : Service() {
     }
     
     companion object {
+        private const val TAG = "RecordingService"
         private const val CHANNEL_ID = "recording_channel"
         private const val NOTIFICATION_ID = 1001
         
@@ -544,5 +615,25 @@ class RecordingService : Service() {
             }
             context.startService(intent)
         }
+    }
+
+    private data class StopSnapshot(
+        val origin: RecordingOrigin,
+        val profileId: UUID?,
+        val audioFilePath: String?,
+        val durationMs: Long,
+        val stoppedAtEpochMs: Long,
+        val wasPaused: Boolean
+    )
+
+    private sealed class StopPersistenceResult {
+        data class SavedAndQueued(val recordingId: UUID) : StopPersistenceResult()
+        data class SavedPendingRecovery(
+            val recordingId: UUID,
+            val message: String,
+            val cause: Throwable?
+        ) : StopPersistenceResult()
+        data class PersistenceFailed(val message: String, val cause: Throwable?) : StopPersistenceResult()
+        object NoAudioFile : StopPersistenceResult()
     }
 }

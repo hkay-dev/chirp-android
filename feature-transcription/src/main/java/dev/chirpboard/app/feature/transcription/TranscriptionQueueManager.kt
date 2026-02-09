@@ -34,6 +34,7 @@ class TranscriptionQueueManager @Inject constructor(
     
     companion object {
         private const val TAG = "TranscriptionQueueMgr"
+        private const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = "recoverable_queue_handoff:"
     }
     
     private val _activeCount = MutableStateFlow(0)
@@ -74,11 +75,38 @@ class TranscriptionQueueManager @Inject constructor(
         val status = constraintChecker.checkConstraints()
         _constraintWarning.value = constraintChecker.getConstraintMessage(status)
         
-        // Update status to pending
-        recordingRepository.updateStatus(recordingId, RecordingStatus.PENDING_TRANSCRIPTION)
+        // Update status to pending and clear stale error metadata
+        recordingRepository.updateStatusWithError(
+            id = recordingId,
+            status = RecordingStatus.PENDING_TRANSCRIPTION,
+            errorMessage = null
+        )
         
         // Schedule the work
         TranscriptionWorkRequest.enqueue(context, recordingId)
+    }
+
+    /**
+     * Mark a recording as recoverable pending when save succeeded but enqueue failed.
+     * Startup recovery can use this marker to prioritize queue reattachment.
+     */
+    suspend fun markPendingForQueueRecovery(
+        recordingId: UUID,
+        reason: String,
+        cause: Throwable? = null
+    ) {
+        val causeMessage = cause?.message?.takeIf { it.isNotBlank() }
+        val errorMessage = if (causeMessage != null) {
+            "$RECOVERABLE_QUEUE_HANDOFF_PREFIX$reason Cause: $causeMessage"
+        } else {
+            "$RECOVERABLE_QUEUE_HANDOFF_PREFIX$reason"
+        }
+
+        recordingRepository.updateStatusWithError(
+            id = recordingId,
+            status = RecordingStatus.PENDING_TRANSCRIPTION,
+            errorMessage = errorMessage
+        )
     }
     
     /**
@@ -196,7 +224,25 @@ class TranscriptionQueueManager @Inject constructor(
             
             if (needsScheduling) {
                 Log.d(TAG, "Scheduling transcription work for recording: ${recording.id}")
-                TranscriptionWorkRequest.enqueue(context, recording.id)
+                try {
+                    TranscriptionWorkRequest.enqueue(context, recording.id)
+                    if (recording.hasRecoverableQueueHandoffError()) {
+                        recordingRepository.updateStatusWithError(
+                            id = recording.id,
+                            status = RecordingStatus.PENDING_TRANSCRIPTION,
+                            errorMessage = null
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
+                }
+            } else if (recording.hasRecoverableQueueHandoffError()) {
+                // Recovery marker can be cleared once ownership is confirmed
+                recordingRepository.updateStatusWithError(
+                    id = recording.id,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    errorMessage = null
+                )
             }
         }
         
@@ -220,5 +266,9 @@ class TranscriptionQueueManager @Inject constructor(
             .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
             .first()
         _activeCount.value = transcribing.size
+    }
+
+    private fun Recording.hasRecoverableQueueHandoffError(): Boolean {
+        return errorMessage?.startsWith(RECOVERABLE_QUEUE_HANDOFF_PREFIX) == true
     }
 }
