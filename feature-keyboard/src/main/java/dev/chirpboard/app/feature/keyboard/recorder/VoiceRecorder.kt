@@ -8,10 +8,15 @@ import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlin.time.Duration.Companion.milliseconds
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
@@ -37,6 +42,9 @@ class VoiceRecorder {
         const val MINIMUM_RECORDING_MS = 300L
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_FLOAT
+        
+        /** Amplitude debounce interval - ~60fps is sufficient for visual smoothness on 120Hz displays */
+        private const val AMPLITUDE_DEBOUNCE_MS = 16L
     }
 
     private var audioRecord: AudioRecord? = null
@@ -55,10 +63,20 @@ class VoiceRecorder {
     
     /** Whether an error occurred during the current recording session */
     private var hasError = false
+    
+    // Coroutine scope for debounced flow
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     // Amplitude tracking for waveform visualization
-    private val _amplitudes = MutableStateFlow<List<Float>>(emptyList())
-    val amplitudes: StateFlow<List<Float>> = _amplitudes.asStateFlow()
+    // Raw amplitude updates flow (internal)
+    private val _amplitudesRaw = MutableStateFlow<List<Float>>(emptyList())
+    
+    // Debounced amplitudes for UI consumption (~60fps to prevent recomposition storms)
+    // This prevents 44.1kHz sample updates from overwhelming UI on 120Hz displays
+    val amplitudes: StateFlow<List<Float>> = _amplitudesRaw
+        .sample(AMPLITUDE_DEBOUNCE_MS.milliseconds)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
+    
     private val amplitudeHistory = mutableListOf<Float>()
 
     @SuppressLint("MissingPermission")
@@ -95,7 +113,7 @@ class VoiceRecorder {
                 samples.clear()
             }
             amplitudeHistory.clear()
-            _amplitudes.value = emptyList()
+            _amplitudesRaw.value = emptyList()
             audioRecord?.startRecording()
             isRecording.set(true)
             recordingStartTimeMs = System.currentTimeMillis()
@@ -174,7 +192,7 @@ class VoiceRecorder {
                         while (amplitudeHistory.size > 5) {
                             amplitudeHistory.removeAt(0)
                         }
-                        _amplitudes.value = amplitudeHistory.toList()
+                        _amplitudesRaw.value = amplitudeHistory.toList()
                     }
                 }
             }

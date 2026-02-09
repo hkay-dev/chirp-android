@@ -2,8 +2,15 @@ package dev.chirpboard.app.feature.recording.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -175,13 +182,25 @@ fun RecordingDetailScreen(
             )
         },
         bottomBar = {
-            StickyAudioPlayer(
-                playbackState = playbackState,
-                onPlayPause = { viewModel.togglePlayPause() },
-                onSeek = { viewModel.seekTo(it) },
-                onSkipBackward = { viewModel.skipBackward() },
-                onSkipForward = { viewModel.skipForward() }
-            )
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = tween(300, easing = FastOutSlowInEasing)
+                ) + fadeIn(tween(300)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(200)
+                ) + fadeOut(tween(200))
+            ) {
+                StickyAudioPlayer(
+                    playbackState = playbackState,
+                    onPlayPause = { viewModel.togglePlayPause() },
+                    onSeek = { viewModel.seekTo(it) },
+                    onSkipBackward = { viewModel.skipBackward() },
+                    onSkipForward = { viewModel.skipForward() }
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
@@ -204,10 +223,10 @@ fun RecordingDetailScreen(
             // Summary section (first, if available)
             AnimatedVisibility(
                 visible = hasSummary,
-                enter = fadeIn(),
-                exit = fadeOut()
+                enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + expandVertically(tween(300)),
+                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
             ) {
-                Column {
+                Column(modifier = Modifier.animateContentSize()) {
                     // Summary with subtle background
                     Surface(
                         modifier = Modifier
@@ -239,10 +258,10 @@ fun RecordingDetailScreen(
             
             // Transcript section
             AnimatedContent(
-                targetState = Triple(hasTranscript, rec.status, transcript?.rawText),
+                targetState = Pair(hasTranscript, rec.status),
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "transcript-content"
-            ) { (hasText, status, _) ->
+            ) { (hasText, status) ->
                 when {
                     hasText -> {
                         ContentSection(
@@ -332,7 +351,8 @@ fun RecordingDetailScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(32.dp),
+                                .padding(32.dp)
+                                .animateContentSize(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Row(

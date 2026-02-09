@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.recording.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -133,7 +134,7 @@ fun RecordScreen(
                 val segmentStart = state.startTimeMs
                 while (true) {
                     elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
-                    delay(100)
+                    delay(500)
                 }
             }
             is RecordingState.Paused -> {
@@ -321,9 +322,19 @@ fun RecordScreen(
                     color = timerColor
                 )
                 
-                // Status text
-                Text(
-                    text = when {
+                // Status text with animated color
+                val statusTextColor by animateColorAsState(
+                    targetValue = when {
+                        recordingState is RecordingState.Recording -> MaterialTheme.colorScheme.error
+                        recordingState is RecordingState.Paused -> MaterialTheme.colorScheme.tertiary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    animationSpec = tween(400, easing = FastOutSlowInEasing),
+                    label = "statusTextColor"
+                )
+                
+                Crossfade(
+                    targetState = when {
                         recordingState is RecordingState.Recording -> "Recording"
                         recordingState is RecordingState.Starting -> "Starting..."
                         recordingState is RecordingState.Paused -> "Paused"
@@ -331,10 +342,16 @@ fun RecordScreen(
                         hadRecordingSession -> "Saved"
                         else -> "Ready"
                     },
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
+                    animationSpec = tween(250, easing = FastOutSlowInEasing),
+                    label = "statusText"
+                ) { text ->
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = statusTextColor,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
                 
                 Spacer(modifier = Modifier.height(48.dp))
                 

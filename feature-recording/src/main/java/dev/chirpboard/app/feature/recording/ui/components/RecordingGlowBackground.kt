@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui.components
 
-import androidx.compose.animation.core.EaseInOut
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -9,9 +10,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * Background glow effect for the recording screen.
@@ -20,6 +23,9 @@ import androidx.compose.ui.graphics.Color
  * - Recording: Red glow (error color)
  * - Paused: Amber glow (tertiary color)
  * - Idle: No glow
+ * 
+ * Uses a single animated glow to prevent dual-glow artifacts during transitions.
+ * Brush and colors are cached to avoid per-frame allocations on 120Hz displays.
  * 
  * @param isRecording Whether actively recording
  * @param isPaused Whether recording is paused
@@ -31,57 +37,57 @@ fun RecordingGlowBackground(
     isPaused: Boolean,
     modifier: Modifier = Modifier
 ) {
-    // Animated glow alpha for recording state (red)
-    val recordingGlowAlpha by animateFloatAsState(
-        targetValue = if (isRecording) 1f else 0f,
-        animationSpec = tween(600, easing = EaseInOut),
-        label = "recordingGlowAlpha",
-    )
-
-    // Animated glow alpha for paused state (amber)
-    val pausedGlowAlpha by animateFloatAsState(
-        targetValue = if (isPaused) 1f else 0f,
-        animationSpec = tween(600, easing = EaseInOut),
-        label = "pausedGlowAlpha",
-    )
-
     val errorColor = MaterialTheme.colorScheme.error
     val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    
+    // Single animated color that transitions between states (no dual-glow conflict)
+    val targetGlowColor = when {
+        isRecording -> errorColor
+        isPaused -> tertiaryColor
+        else -> Color.Transparent
+    }
+    
+    val glowColor by animateColorAsState(
+        targetValue = targetGlowColor,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "glowColor"
+    )
+    
+    // Single animated alpha for fade in/out
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isRecording || isPaused) 1f else 0f,
+        animationSpec = tween(500, easing = FastOutSlowInEasing),
+        label = "glowAlpha"
+    )
+    
+    // Cache gradient colors to avoid per-frame allocations
+    val primaryGlowColor = remember(glowColor) {
+        glowColor.copy(alpha = 0.15f)
+    }
+    val secondaryGlowColor = remember(glowColor) {
+        glowColor.copy(alpha = 0.05f)
+    }
+    
+    // Cache the brush - only recreates when glowColor changes
+    val glowBrush = remember(primaryGlowColor, secondaryGlowColor) {
+        Brush.radialGradient(
+            colors = listOf(
+                primaryGlowColor,
+                secondaryGlowColor,
+                Color.Transparent,
+            ),
+            radius = 800f,
+        )
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Recording glow (red)
-        if (recordingGlowAlpha > 0f) {
+        // Single glow box with GPU-accelerated alpha animation
+        if (glowAlpha > 0f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                errorColor.copy(alpha = 0.15f * recordingGlowAlpha),
-                                errorColor.copy(alpha = 0.05f * recordingGlowAlpha),
-                                Color.Transparent,
-                            ),
-                            radius = 800f,
-                        ),
-                    ),
-            )
-        }
-
-        // Paused glow (tertiary/amber)
-        if (pausedGlowAlpha > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                tertiaryColor.copy(alpha = 0.12f * pausedGlowAlpha),
-                                tertiaryColor.copy(alpha = 0.04f * pausedGlowAlpha),
-                                Color.Transparent,
-                            ),
-                            radius = 800f,
-                        ),
-                    ),
+                    .graphicsLayer(alpha = glowAlpha)  // GPU-accelerated alpha
+                    .background(glowBrush)
             )
         }
     }

@@ -477,13 +477,18 @@ private fun RecordingListItem(
  */
 @Composable
 private fun CompactTagChip(tag: Tag) {
-    val tagColor = tag.color?.let {
-        try {
-            Color(android.graphics.Color.parseColor(it))
-        } catch (_: Exception) {
-            MaterialTheme.colorScheme.tertiary
-        }
-    } ?: MaterialTheme.colorScheme.tertiary
+    // Memoize color parsing to avoid redundant computation during list scrolling
+    // Color.parseColor is expensive and list items recompose frequently during scroll
+    val defaultColor = MaterialTheme.colorScheme.tertiary
+    val tagColor = remember(tag.color, defaultColor) {
+        tag.color?.let {
+            try {
+                Color(android.graphics.Color.parseColor(it))
+            } catch (_: Exception) {
+                defaultColor
+            }
+        } ?: defaultColor
+    }
 
     Row(
         modifier = Modifier

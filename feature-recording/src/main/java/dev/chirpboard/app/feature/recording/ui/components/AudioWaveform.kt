@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui.components
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -10,9 +11,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -72,24 +76,33 @@ fun AudioWaveform(
         }
     }
     
-    // Animated bar heights - each bar smoothly animates to its target
-    // Using spring for natural, responsive feel
-    val animatedHeights = targetAmplitudes.mapIndexed { index, target ->
-        val animatedValue by animateFloatAsState(
-            targetValue = target,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow
-            ),
-            label = "barHeight_$index"
-        )
-        animatedValue
+    // Animated bar heights using stable Animatable list
+    // Single animation controller prevents 50 independent recomposition triggers
+    val animatables = remember(barCount) {
+        List(barCount) { Animatable(0f) }
+    }
+    
+    // Drive all bar animations from single LaunchedEffect
+    LaunchedEffect(targetAmplitudes) {
+        animatables.forEachIndexed { index, animatable ->
+            val target = targetAmplitudes.getOrElse(index) { 0f }
+            launch {
+                animatable.animateTo(
+                    targetValue = target,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+            }
+        }
     }
     
     Canvas(
         modifier = modifier
             .fillMaxWidth()
             .height(maxBarHeight + 16.dp)
+            .graphicsLayer()  // GPU acceleration for smooth 120Hz rendering
     ) {
         val canvasWidth = size.width
         val canvasHeight = size.height
@@ -118,9 +131,9 @@ fun AudioWaveform(
         
         // Draw waveform bars with animated heights
         if (activeAlpha > 0f) {
-            animatedHeights.forEachIndexed { index, amplitude ->
+            animatables.forEachIndexed { index, animatable ->
                 // Scale amplitude by activeAlpha for smooth fade in/out
-                val scaledAmplitude = amplitude * activeAlpha
+                val scaledAmplitude = animatable.value * activeAlpha
                 val barHeight = (minHeightPx + (scaledAmplitude * (maxHeightPx - minHeightPx)))
                     .coerceIn(minHeightPx, maxHeightPx)
                 

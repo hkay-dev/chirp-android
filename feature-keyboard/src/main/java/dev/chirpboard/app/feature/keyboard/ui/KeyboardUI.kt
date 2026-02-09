@@ -1,12 +1,18 @@
 package dev.chirpboard.app.feature.keyboard.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.EaseInOutQuad
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -45,10 +51,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,23 +110,32 @@ fun KeyboardUI(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    when (val currentState = state) {
-                        is KeyboardState.Idle -> IdleContent(
-                            onTap = onTap,
-                            llmEnabled = llmEnabled,
-                            currentMode = currentMode,
-                            onModeChange = onModeChange,
-                            onBackspace = onBackspace,
-                            onSpace = onSpace,
-                            onMoveCursor = onMoveCursor
-                        )
-                        is KeyboardState.Recording -> RecordingContent(amplitudes, onTap)
-                        is KeyboardState.Transcribing -> ProcessingContent("Transcribing...")
-                        is KeyboardState.Polishing -> ProcessingContent("Polishing...")
-                        is KeyboardState.Downloading -> DownloadingContent(currentState.progress)
-                        is KeyboardState.ModelNotReady -> ModelNotReadyContent()
-                        is KeyboardState.Error -> ErrorContent(currentState.message, onTap)
-                        is KeyboardState.LlmError -> LlmErrorContent(currentState.message)
+                    AnimatedContent(
+                        targetState = state,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) togetherWith
+                                fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
+                        },
+                        label = "keyboardStateTransition"
+                    ) { currentState ->
+                        when (currentState) {
+                            is KeyboardState.Idle -> IdleContent(
+                                onTap = onTap,
+                                llmEnabled = llmEnabled,
+                                currentMode = currentMode,
+                                onModeChange = onModeChange,
+                                onBackspace = onBackspace,
+                                onSpace = onSpace,
+                                onMoveCursor = onMoveCursor
+                            )
+                            is KeyboardState.Recording -> RecordingContent(amplitudes, onTap)
+                            is KeyboardState.Transcribing -> ProcessingContent("Transcribing...")
+                            is KeyboardState.Polishing -> ProcessingContent("Polishing...")
+                            is KeyboardState.Downloading -> DownloadingContent(currentState.progress)
+                            is KeyboardState.ModelNotReady -> ModelNotReadyContent()
+                            is KeyboardState.Error -> ErrorContent(currentState.message, onTap)
+                            is KeyboardState.LlmError -> LlmErrorContent(currentState.message, onTap)
+                        }
                     }
                 }
             }
@@ -374,9 +391,18 @@ private fun ErrorContent(message: String, onTap: () -> Unit) {
 }
 
 @Composable
-private fun LlmErrorContent(message: String) {
+private fun LlmErrorContent(message: String, onDismiss: () -> Unit = {}) {
+    LaunchedEffect(message) {
+        delay(3000)
+        onDismiss()
+    }
     Row(
-        modifier = Modifier.padding(horizontal = 24.dp).clip(MaterialTheme.shapes.small).background(MaterialTheme.colorScheme.errorContainer).padding(12.dp),
+        modifier = Modifier
+            .padding(horizontal = 24.dp)
+            .clip(MaterialTheme.shapes.small)
+            .background(MaterialTheme.colorScheme.errorContainer)
+            .clickable { onDismiss() }
+            .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
