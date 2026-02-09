@@ -41,6 +41,7 @@ class ChirpApplication : Application(), Configuration.Provider {
         applicationScope.launch {
             try {
                 transcriptionQueueManager.processPendingOnStartup()
+                transcriptionQueueManager.startContinuousReconciliation(applicationScope)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to recover transcriptions on startup", e)
             }
