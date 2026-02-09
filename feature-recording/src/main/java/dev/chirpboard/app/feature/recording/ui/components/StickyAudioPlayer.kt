@@ -1,5 +1,10 @@
 package dev.chirpboard.app.feature.recording.ui.components
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +31,15 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.feature.recording.audio.PlaybackState
@@ -77,8 +89,14 @@ fun StickyAudioPlayer(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                val sliderValue = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f
+                val animatedSliderValue by animateFloatAsState(
+                    targetValue = sliderValue,
+                    animationSpec = tween(100, easing = FastOutSlowInEasing),
+                    label = "sliderPosition"
+                )
                 Slider(
-                    value = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f,
+                    value = animatedSliderValue,
                     onValueChange = { fraction ->
                         onSeek((fraction * durationMs).toLong())
                     },
@@ -108,10 +126,26 @@ fun StickyAudioPlayer(
                 horizontalArrangement = Arrangement.Center
             ) {
                 // Skip backward 10s
+                var isSkipBackPressed by remember { mutableStateOf(false) }
+                val skipBackScale by animateFloatAsState(
+                    targetValue = if (isSkipBackPressed) 0.85f else 1f,
+                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
+                    label = "skipBackButtonScale"
+                )
                 IconButton(
                     onClick = onSkipBackward,
                     enabled = controlsEnabled,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier
+                        .size(48.dp)
+                        .scale(skipBackScale)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    isSkipBackPressed = event.type == PointerEventType.Press
+                                }
+                            }
+                        }
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Replay10,
@@ -150,28 +184,43 @@ fun StickyAudioPlayer(
                                 modifier = Modifier.size(32.dp)
                             )
                         }
-                        isPlaying -> {
-                            Icon(
-                                imageVector = Icons.Filled.Pause,
-                                contentDescription = "Pause",
-                                modifier = Modifier.size(32.dp)
-                            )
-                        }
                         else -> {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = "Play",
-                                modifier = Modifier.size(32.dp)
-                            )
+                            Crossfade(
+                                targetState = isPlaying,
+                                animationSpec = tween(200, easing = FastOutSlowInEasing),
+                                label = "playPauseIcon"
+                            ) { playing ->
+                                Icon(
+                                    imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    contentDescription = if (playing) "Pause" else "Play",
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
                         }
                     }
                 }
 
                 // Skip forward 10s
+                var isSkipForwardPressed by remember { mutableStateOf(false) }
+                val skipForwardScale by animateFloatAsState(
+                    targetValue = if (isSkipForwardPressed) 0.85f else 1f,
+                    animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
+                    label = "skipForwardButtonScale"
+                )
                 IconButton(
                     onClick = onSkipForward,
                     enabled = controlsEnabled,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier
+                        .size(48.dp)
+                        .scale(skipForwardScale)
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    isSkipForwardPressed = event.type == PointerEventType.Press
+                                }
+                            }
+                        }
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Forward10,

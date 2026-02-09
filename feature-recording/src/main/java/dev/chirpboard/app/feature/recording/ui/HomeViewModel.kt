@@ -90,13 +90,16 @@ class HomeViewModel @Inject constructor(
         }
         .map { recordings ->
             withContext(Dispatchers.IO) {
-                // Pre-fetch all profiles that we'll need (cache miss only)
+                // Pre-fetch all profiles IN PARALLEL (not sequentially)
+                // This prevents blocking when displaying many recordings with different profiles
                 val profileIds = recordings.mapNotNull { it.profileId }.distinct()
-                profileIds.forEach { id ->
-                    if (!profileCache.containsKey(id)) {
-                        profileCache[id] = profileRepository.getProfile(id)
+                profileIds.map { id ->
+                    async {
+                        if (!profileCache.containsKey(id)) {
+                            profileCache[id] = profileRepository.getProfile(id)
+                        }
                     }
-                }
+                }.awaitAll()
                 
                 // Load all recordings in parallel for faster enrichment
                 recordings.map { recording ->

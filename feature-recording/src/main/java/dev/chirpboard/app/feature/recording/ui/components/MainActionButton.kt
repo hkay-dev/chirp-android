@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.ui.components
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseInOut
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -93,13 +94,13 @@ fun MainActionButton(
 
     val containerColor by animateColorAsState(
         targetValue = if (isActive) activeRecordingColor else idleColor,
-        animationSpec = tween(350, easing = EaseInOut),
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "containerColor",
     )
 
     val contentColor by animateColorAsState(
         targetValue = if (isActive) Color.White else idleContentColor,
-        animationSpec = tween(350, easing = EaseInOut),
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "contentColor",
     )
 
@@ -135,7 +136,7 @@ fun MainActionButton(
             // Crossfade between icons for smooth transition
             Crossfade(
                 targetState = state::class,
-                animationSpec = tween(250, easing = EaseInOut),
+                animationSpec = tween(300, easing = FastOutSlowInEasing),
                 label = "iconCrossfade",
             ) { stateClass ->
                 val (icon, description) = when (stateClass) {

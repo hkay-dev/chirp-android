@@ -1,8 +1,15 @@
 package dev.chirpboard.app.feature.transcription.settings
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -151,7 +158,13 @@ fun TranscriptionSettingsScreen(
     }
     
     // Delete Confirmation Dialog
-    if (uiState.showDeleteConfirmation) {
+    AnimatedVisibility(
+        visible = uiState.showDeleteConfirmation,
+        enter = fadeIn(tween(200, easing = FastOutSlowInEasing)) +
+                scaleIn(tween(200), initialScale = 0.85f),
+        exit = fadeOut(tween(200)) +
+                scaleOut(tween(200), targetScale = 0.85f)
+    ) {
         DeleteConfirmationDialog(
             modelName = uiState.modelName,
             onConfirm = viewModel::deleteModel,
@@ -239,45 +252,63 @@ private fun ModelStatusCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    when {
-                        isLoading -> {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = statusTint
-                            )
-                            Text(
-                                text = "Downloading",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = statusTint
-                            )
-                        }
-                        isDownloaded -> {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = statusTint
-                            )
-                            Text(
-                                text = "Ready",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = statusTint,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        else -> {
-                            Icon(
-                                imageVector = Icons.Default.Warning,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = statusTint
-                            )
-                            Text(
-                                text = "Not Downloaded",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = statusTint
-                            )
+                    AnimatedContent(
+                        targetState = when {
+                            isLoading -> "loading"
+                            isDownloaded -> "downloaded"
+                            else -> "not_downloaded"
+                        },
+                        transitionSpec = {
+                            fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.9f) togetherWith
+                                fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.9f)
+                        },
+                        label = "statusIconTransition"
+                    ) { state ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            when (state) {
+                                "loading" -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = statusTint
+                                    )
+                                    Text(
+                                        text = "Downloading",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = statusTint
+                                    )
+                                }
+                                "downloaded" -> {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = statusTint
+                                    )
+                                    Text(
+                                        text = "Ready",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = statusTint,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                                else -> {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                        tint = statusTint
+                                    )
+                                    Text(
+                                        text = "Not Downloaded",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = statusTint
+                                    )
+                                }
+                            }
                         }
                     }
                 }

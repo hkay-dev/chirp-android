@@ -1,6 +1,7 @@
 package dev.chirpboard.app.core.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -65,7 +66,8 @@ fun SettingsItem(
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
-        label = "press_scale"
+        animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
+        label = "itemScale"
     )
 
     Row(

@@ -365,10 +365,14 @@ private fun ProfileIconBadge(
  */
 @Composable
 private fun SmallTagChip(tag: Tag) {
-    val tagColor = tag.color?.let {
-        try { Color(android.graphics.Color.parseColor(it)) }
-        catch (_: Exception) { MaterialTheme.colorScheme.tertiary }
-    } ?: MaterialTheme.colorScheme.tertiary
+    // Memoize color parsing to avoid redundant computation during list scrolling
+    val defaultColor = MaterialTheme.colorScheme.tertiary
+    val tagColor = remember(tag.color, defaultColor) {
+        tag.color?.let {
+            try { Color(android.graphics.Color.parseColor(it)) }
+            catch (_: Exception) { defaultColor }
+        } ?: defaultColor
+    }
     
     Surface(
         shape = ChirpShapes.Large,

@@ -1,5 +1,7 @@
 package dev.chirpboard.app.ui.settings
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -93,8 +95,13 @@ fun AudioSettingsScreen(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    val displayedGain by animateFloatAsState(
+                        targetValue = microphoneGain,
+                        animationSpec = tween(200),
+                        label = "gainDisplay"
+                    )
                     Text(
-                        text = "Microphone Gain: ${String.format("%.1f", microphoneGain)}x",
+                        text = "Microphone Gain: ${String.format("%.1f", displayedGain)}x",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Slider(
