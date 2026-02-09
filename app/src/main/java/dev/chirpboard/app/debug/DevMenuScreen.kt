@@ -50,6 +50,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,6 +59,7 @@ fun DevMenuScreen(
     viewModel: DevMenuViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val reliabilityEvents by ReliabilityEventLogger.events.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
     
@@ -246,6 +248,46 @@ fun DevMenuScreen(
                             ) {
                                 Text("With Tags", style = MaterialTheme.typography.labelMedium)
                             }
+                        }
+                    }
+                }
+            }
+
+            // Reliability Timeline
+            item {
+                DevSection(
+                    title = "Reliability Timeline",
+                    icon = Icons.Default.BugReport
+                ) {
+                    Text(
+                        text = "Latest structured reliability lifecycle events (debug only).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(onClick = { ReliabilityEventLogger.clear() }) {
+                        Text("Clear Timeline")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val latestEvents = reliabilityEvents.takeLast(20).reversed()
+                    if (latestEvents.isEmpty()) {
+                        Text(
+                            text = "No reliability events yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        latestEvents.forEach { event ->
+                            Text(
+                                text = "${event.stage} ${event.outcome} [${event.reasonCode ?: "n/a"}]",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
                         }
                     }
                 }

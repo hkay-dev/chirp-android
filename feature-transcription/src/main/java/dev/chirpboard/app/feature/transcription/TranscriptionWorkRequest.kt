@@ -14,6 +14,7 @@ import java.util.UUID
 object TranscriptionWorkRequest {
 
     const val WORK_TAG_TRANSCRIPTION = "transcription"
+    const val INPUT_CORRELATION_ID = "correlation_id"
     private const val WORK_NAME_PREFIX = "transcription_"
     private const val WORK_TAG_RECORDING_PREFIX = "recording_"
 
@@ -35,10 +36,19 @@ object TranscriptionWorkRequest {
      * @param recordingId UUID of the recording to transcribe
      * @return The work request UUID for tracking
      */
-    fun enqueue(context: Context, recordingId: UUID): UUID {
-        val inputData = Data.Builder()
+    fun enqueue(
+        context: Context,
+        recordingId: UUID,
+        correlationId: String? = null
+    ): UUID {
+        val inputDataBuilder = Data.Builder()
             .putString(TranscriptionWorker.INPUT_RECORDING_ID, recordingId.toString())
-            .build()
+
+        if (correlationId != null) {
+            inputDataBuilder.putString(INPUT_CORRELATION_ID, correlationId)
+        }
+
+        val inputData = inputDataBuilder.build()
 
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(true)

@@ -17,6 +17,9 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.ReliabilityOutcome
+import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.R
@@ -68,6 +71,7 @@ class RecordingService : Service() {
     private val stopLock = Any()
     @Volatile
     private var isStopInProgress: Boolean = false
+    private var currentCorrelationId: String? = null
     
     override fun onBind(intent: Intent?): IBinder? = null
     
@@ -127,6 +131,12 @@ class RecordingService : Service() {
         when (val result = recordingStateManager.tryStartRecording(origin, profileId)) {
             is RecordingStartResult.AlreadyRecording -> {
                 // Another recording is in progress
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.RECORDING_START,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    reasonCode = "already_recording"
+                )
                 stopSelf()
                 return
             }
@@ -134,6 +144,14 @@ class RecordingService : Service() {
                 // Lock acquired, proceed with recording
             }
         }
+
+        currentCorrelationId = ReliabilityEventLogger.newCorrelationId("record")
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.RECORDING_START,
+            outcome = ReliabilityOutcome.STARTED,
+            correlationId = currentCorrelationId!!,
+            reasonCode = "service_start"
+        )
         
         currentProfileId = profileId
         
@@ -163,6 +181,13 @@ class RecordingService : Service() {
             recordingStartTime = System.currentTimeMillis()
             accumulatedDurationMs = 0
             recordingStateManager.onRecordingStarted(currentRecordingFile!!.absolutePath)
+
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.RECORDING_START,
+                outcome = ReliabilityOutcome.SUCCESS,
+                correlationId = currentCorrelationId!!,
+                reasonCode = "recorder_started"
+            )
             
             // Start foreground with notification
             startForeground(NOTIFICATION_ID, createNotification())
@@ -174,6 +199,13 @@ class RecordingService : Service() {
             startAmplitudeCollection()
             
         } catch (e: Exception) {
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.RECORDING_START,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                reasonCode = "recorder_start_failed",
+                message = e.message
+            )
             recordingStateManager.onRecordingError("Failed to start recording: ${e.message}", e)
             stopSelf()
         }
@@ -292,6 +324,15 @@ class RecordingService : Service() {
 
         val snapshot = captureStopSnapshot()
 
+        if (snapshot != null) {
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.RECORDING_STOP,
+                outcome = ReliabilityOutcome.STARTED,
+                correlationId = snapshot.correlationId,
+                reasonCode = "stop_requested"
+            )
+        }
+
         val timeoutJob = recordingStateManager.beginStopRecording()
         durationUpdateJob?.cancel()
         amplitudeJob?.cancel()
@@ -312,6 +353,13 @@ class RecordingService : Service() {
 
         when (result) {
             is StopPersistenceResult.SavedAndQueued -> {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.RECORDING_STOP,
+                    outcome = ReliabilityOutcome.SUCCESS,
+                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    recordingId = result.recordingId,
+                    reasonCode = "saved_and_enqueued"
+                )
                 recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
             }
             is StopPersistenceResult.SavedPendingRecovery -> {
@@ -320,12 +368,33 @@ class RecordingService : Service() {
                     "Saved recording ${result.recordingId} but queue handoff failed. " +
                         "Marked for startup recovery."
                 )
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    recordingId = result.recordingId,
+                    reasonCode = "queue_handoff_failed",
+                    message = result.message
+                )
                 recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
             }
             is StopPersistenceResult.PersistenceFailed -> {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.PERSISTENCE_SAVE,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    reasonCode = "persistence_failed",
+                    message = result.message
+                )
                 recordingStateManager.onRecordingError(result.message, result.cause)
             }
             StopPersistenceResult.NoAudioFile -> {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.RECORDING_STOP,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    reasonCode = "missing_audio_file"
+                )
                 recordingStateManager.onRecordingCompleted()
             }
         }
@@ -349,7 +418,8 @@ class RecordingService : Service() {
             audioFilePath = filePath,
             durationMs = totalDuration.coerceAtLeast(0L),
             stoppedAtEpochMs = System.currentTimeMillis(),
-            wasPaused = isPaused
+            wasPaused = isPaused,
+            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record")
         )
     }
 
@@ -386,8 +456,16 @@ class RecordingService : Service() {
                 durationMs = snapshot.durationMs
             )
 
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.PERSISTENCE_SAVE,
+                outcome = ReliabilityOutcome.SUCCESS,
+                correlationId = snapshot.correlationId,
+                recordingId = recording.id,
+                reasonCode = "recording_saved"
+            )
+
             try {
-                transcriptionQueueManager.enqueue(recording.id)
+                transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
                 StopPersistenceResult.SavedAndQueued(recording.id)
             } catch (enqueueError: Exception) {
                 val reason = "Queue handoff failed during stop. Will retry automatically on startup."
@@ -401,6 +479,7 @@ class RecordingService : Service() {
         currentRecordingFile = null
         currentProfileId = null
         accumulatedDurationMs = 0
+        currentCorrelationId = null
         synchronized(stopLock) {
             isStopInProgress = false
         }
@@ -623,7 +702,8 @@ class RecordingService : Service() {
         val audioFilePath: String?,
         val durationMs: Long,
         val stoppedAtEpochMs: Long,
-        val wasPaused: Boolean
+        val wasPaused: Boolean,
+        val correlationId: String
     )
 
     private sealed class StopPersistenceResult {

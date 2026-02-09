@@ -33,6 +33,9 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.ReliabilityOutcome
+import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
@@ -502,8 +505,22 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         // This prevents UI freezing on 120Hz displays where each frame is 8.3ms
         scope.launch(Dispatchers.Default) {
             try {
+                val correlationId = ReliabilityEventLogger.newCorrelationId("keyboard")
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    outcome = ReliabilityOutcome.STARTED,
+                    correlationId = correlationId,
+                    reasonCode = "keyboard_transcription_started"
+                )
+
                 if (!recognizerProvider.isReady()) {
                     Log.e(TAG, "Recognizer not ready for transcription")
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.TRANSCRIPTION,
+                        outcome = ReliabilityOutcome.FAILURE,
+                        correlationId = correlationId,
+                        reasonCode = "keyboard_recognizer_not_ready"
+                    )
                     withContext(Dispatchers.Main) {
                         _state.value = KeyboardState.Error("Recognizer not ready")
                         recordingStateManager.onRecordingError("Recognizer not ready")
@@ -517,6 +534,12 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 val rawText = when (mappedOutcome) {
                     is KeyboardTranscriptionResolution.Success -> mappedOutcome.text
                     KeyboardTranscriptionResolution.NoSpeech -> {
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.TRANSCRIPTION,
+                            outcome = ReliabilityOutcome.SKIPPED,
+                            correlationId = correlationId,
+                            reasonCode = "keyboard_no_speech"
+                        )
                         withContext(Dispatchers.Main) {
                             recordingStateManager.onRecordingCompleted()
                             _state.value = KeyboardState.Idle
@@ -524,6 +547,13 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                         return@launch
                     }
                     is KeyboardTranscriptionResolution.Failure -> {
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.TRANSCRIPTION,
+                            outcome = ReliabilityOutcome.FAILURE,
+                            correlationId = correlationId,
+                            reasonCode = "keyboard_transcription_failed",
+                            message = mappedOutcome.message
+                        )
                         withContext(Dispatchers.Main) {
                             _state.value = KeyboardState.Error(mappedOutcome.message)
                             recordingStateManager.onRecordingError(mappedOutcome.message)
@@ -533,6 +563,12 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 }
 
                 Log.d(TAG, "Transcribed: $rawText")
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    outcome = ReliabilityOutcome.SUCCESS,
+                    correlationId = correlationId,
+                    reasonCode = "keyboard_transcription_completed"
+                )
 
                 // State updates on Main thread
                 withContext(Dispatchers.Main) {
@@ -542,6 +578,12 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 // LLM post-processing if enabled
                 val mode = _currentMode.value
                 if (_llmEnabled.value) {
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.ENHANCEMENT,
+                        outcome = ReliabilityOutcome.STARTED,
+                        correlationId = correlationId,
+                        reasonCode = "keyboard_enhancement_started"
+                    )
                     withContext(Dispatchers.Main) {
                         _state.value = KeyboardState.Polishing
                     }
@@ -556,12 +598,25 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                             result.fold(
                                 onSuccess = { polishedText ->
                                     Log.d(TAG, "Polished: $polishedText")
+                                    ReliabilityEventLogger.log(
+                                        stage = ReliabilityStage.ENHANCEMENT,
+                                        outcome = ReliabilityOutcome.SUCCESS,
+                                        correlationId = correlationId,
+                                        reasonCode = "keyboard_enhancement_completed"
+                                    )
                                     currentInputConnection?.commitText("$polishedText ", 1)
                                     handleTranscriptionComplete(rawText, polishedText)
                                     _state.value = KeyboardState.Idle
                                 },
                                 onFailure = { error ->
                                     Log.e(TAG, "LLM failed, using raw text", error)
+                                    ReliabilityEventLogger.log(
+                                        stage = ReliabilityStage.ENHANCEMENT,
+                                        outcome = ReliabilityOutcome.FAILURE,
+                                        correlationId = correlationId,
+                                        reasonCode = "keyboard_enhancement_failed",
+                                        message = error.message
+                                    )
                                     currentInputConnection?.commitText("$rawText ", 1)
                                     handleTranscriptionComplete(rawText, null)
                                     _state.value = KeyboardState.LlmError("LLM failed: ${error.message}")
@@ -570,6 +625,12 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                         } else {
                             // Timeout - use raw text as fallback
                             Log.w(TAG, "LLM timed out after 10s, using raw text")
+                            ReliabilityEventLogger.log(
+                                stage = ReliabilityStage.ENHANCEMENT,
+                                outcome = ReliabilityOutcome.FAILURE,
+                                correlationId = correlationId,
+                                reasonCode = "keyboard_enhancement_timeout"
+                            )
                             currentInputConnection?.commitText("$rawText ", 1)
                             handleTranscriptionComplete(rawText, null)
                             _state.value = KeyboardState.Idle
@@ -584,6 +645,13 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Transcription failed", e)
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = ReliabilityEventLogger.newCorrelationId("keyboard"),
+                    reasonCode = "keyboard_exception",
+                    message = e.message
+                )
                 withContext(Dispatchers.Main) {
                     _state.value = KeyboardState.Error("Transcription failed: ${e.message}")
                     recordingStateManager.onRecordingError("Transcription failed: ${e.message}")
