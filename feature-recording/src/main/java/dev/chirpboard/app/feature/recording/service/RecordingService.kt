@@ -11,6 +11,7 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
@@ -75,6 +76,7 @@ class RecordingService : Service() {
     
     override fun onCreate() {
         super.onCreate()
+        activeInstanceForTest = this
         createNotificationChannel()
     }
     
@@ -122,6 +124,9 @@ class RecordingService : Service() {
         mediaRecorder?.release()
         mediaRecorder = null
         serviceScope.cancel()
+        if (activeInstanceForTest === this) {
+            activeInstanceForTest = null
+        }
     }
     
     private fun startRecording(origin: RecordingOrigin, profileId: UUID?) {
@@ -449,6 +454,8 @@ class RecordingService : Service() {
                 durationMs = snapshot.durationMs
             )
 
+            afterPersistenceBeforeQueueHookForTest?.invoke()
+
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.PERSISTENCE_SAVE,
                 outcome = ReliabilityOutcome.SUCCESS,
@@ -458,7 +465,12 @@ class RecordingService : Service() {
             )
 
             try {
-                transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
+                val enqueueOverride = enqueueOverrideForTest
+                if (enqueueOverride != null) {
+                    enqueueOverride(recording.id, snapshot.correlationId)
+                } else {
+                    transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
+                }
                 StopPersistenceResult.SavedAndQueued(recording.id)
             } catch (enqueueError: Exception) {
                 val reason = "Queue handoff failed during stop. Will retry automatically on startup."
@@ -631,6 +643,24 @@ class RecordingService : Service() {
         const val ACTION_RESTART_RECORDING = "dev.chirpboard.app.ACTION_RESTART_RECORDING"
         const val EXTRA_ORIGIN = "extra_origin"
         const val EXTRA_PROFILE_ID = "extra_profile_id"
+
+        @Volatile
+        @VisibleForTesting
+        var afterPersistenceBeforeQueueHookForTest: (() -> Unit)? = null
+
+        @Volatile
+        @VisibleForTesting
+        var enqueueOverrideForTest: (suspend (UUID, String?) -> Unit)? = null
+
+        @Volatile
+        @VisibleForTesting
+        var activeInstanceForTest: RecordingService? = null
+
+        @VisibleForTesting
+        fun clearTestHooks() {
+            afterPersistenceBeforeQueueHookForTest = null
+            enqueueOverrideForTest = null
+        }
         
         fun startRecording(
             context: Context,
