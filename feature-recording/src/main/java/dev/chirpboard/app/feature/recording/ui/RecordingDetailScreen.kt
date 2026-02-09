@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatForHeader
+import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.core.util.isDefaultDateTitle
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
@@ -35,6 +36,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.ui.components.ContentSection
 import dev.chirpboard.app.feature.recording.ui.components.MetadataPillRow
 import dev.chirpboard.app.feature.recording.ui.components.StickyAudioPlayer
+import java.util.Date
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +50,8 @@ fun RecordingDetailScreen(
     val isEditing by viewModel.isEditing.collectAsState()
     val editedTitle by viewModel.editedTitle.collectAsState()
     val message by viewModel.message.collectAsState()
+    val recoveryDiagnostics by viewModel.recoveryDiagnostics.collectAsState()
+    val recoveryActions by viewModel.recoveryActions.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -266,72 +270,101 @@ fun RecordingDetailScreen(
                     hasText -> {
                         ContentSection(
                             title = "Transcript",
-                            action = if (status == RecordingStatus.COMPLETED) {
+                            action = if (status == RecordingStatus.COMPLETED || status == RecordingStatus.ENHANCING) {
                                 {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        // Share button with dropdown
-                                        Box {
-                                            IconButton(
-                                                onClick = { showShareMenu = true },
-                                                modifier = Modifier.size(36.dp)
+                                        if (status == RecordingStatus.COMPLETED) {
+                                            Box {
+                                                IconButton(
+                                                    onClick = { showShareMenu = true },
+                                                    modifier = Modifier.size(36.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Share,
+                                                        contentDescription = "Share",
+                                                        modifier = Modifier.size(20.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+
+                                                DropdownMenu(
+                                                    expanded = showShareMenu,
+                                                    onDismissRequest = { showShareMenu = false }
+                                                ) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Share audio") },
+                                                        onClick = {
+                                                            showShareMenu = false
+                                                            viewModel.shareAudio()
+                                                        },
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.AudioFile, contentDescription = null)
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Share transcript") },
+                                                        onClick = {
+                                                            showShareMenu = false
+                                                            viewModel.shareTranscript()
+                                                        },
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.Description, contentDescription = null)
+                                                        }
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Share both") },
+                                                        onClick = {
+                                                            showShareMenu = false
+                                                            viewModel.shareBoth()
+                                                        },
+                                                        leadingIcon = {
+                                                            Icon(Icons.Default.FolderZip, contentDescription = null)
+                                                        }
+                                                    )
+                                                }
+                                            }
+
+                                            TextButton(
+                                                onClick = { viewModel.retryTranscription() },
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.Share,
-                                                    contentDescription = "Share",
-                                                    modifier = Modifier.size(20.dp),
-                                                    tint = MaterialTheme.colorScheme.primary
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
                                                 )
-                                            }
-                                            
-                                            DropdownMenu(
-                                                expanded = showShareMenu,
-                                                onDismissRequest = { showShareMenu = false }
-                                            ) {
-                                                DropdownMenuItem(
-                                                    text = { Text("Share audio") },
-                                                    onClick = {
-                                                        showShareMenu = false
-                                                        viewModel.shareAudio()
-                                                    },
-                                                    leadingIcon = {
-                                                        Icon(Icons.Default.AudioFile, contentDescription = null)
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("Share transcript") },
-                                                    onClick = {
-                                                        showShareMenu = false
-                                                        viewModel.shareTranscript()
-                                                    },
-                                                    leadingIcon = {
-                                                        Icon(Icons.Default.Description, contentDescription = null)
-                                                    }
-                                                )
-                                                DropdownMenuItem(
-                                                    text = { Text("Share both") },
-                                                    onClick = {
-                                                        showShareMenu = false
-                                                        viewModel.shareBoth()
-                                                    },
-                                                    leadingIcon = {
-                                                        Icon(Icons.Default.FolderZip, contentDescription = null)
-                                                    }
-                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Re-run", style = MaterialTheme.typography.labelMedium)
                                             }
                                         }
-                                        
-                                        // Re-run button
-                                        TextButton(
-                                            onClick = { viewModel.retryTranscription() },
-                                            contentPadding = PaddingValues(horizontal = 8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Re-run", style = MaterialTheme.typography.labelMedium)
+
+                                        if (status == RecordingStatus.ENHANCING) {
+                                            TextButton(
+                                                onClick = { viewModel.recoverEnhancing() },
+                                                enabled = recoveryActions.actionsEnabled,
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Build,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Recover", style = MaterialTheme.typography.labelMedium)
+                                            }
+                                            TextButton(
+                                                onClick = { viewModel.retranscribeFromEnhancing() },
+                                                enabled = recoveryActions.actionsEnabled,
+                                                contentPadding = PaddingValues(horizontal = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Re-transcribe", style = MaterialTheme.typography.labelMedium)
+                                            }
                                         }
                                     }
                                 }
@@ -342,6 +375,13 @@ fun RecordingDetailScreen(
                                 text = text,
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            if (status == RecordingStatus.ENHANCING) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RecoveryDiagnosticsSection(
+                                    diagnostics = recoveryDiagnostics,
+                                    actionsEnabled = recoveryActions.actionsEnabled
+                                )
+                            }
                         }
                     }
                     
@@ -384,6 +424,28 @@ fun RecordingDetailScreen(
                                     trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
                                 )
                             }
+
+                            if (status == RecordingStatus.PENDING_TRANSCRIPTION) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                FilledTonalButton(
+                                    onClick = { viewModel.recoverPendingTranscription() },
+                                    enabled = recoveryActions.actionsEnabled
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Recover Queue")
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RecoveryDiagnosticsSection(
+                                    diagnostics = recoveryDiagnostics,
+                                    actionsEnabled = recoveryActions.actionsEnabled
+                                )
+                            }
                         }
                     }
                     
@@ -423,6 +485,7 @@ fun RecordingDetailScreen(
                             
                             FilledTonalButton(
                                 onClick = { viewModel.retryTranscription() },
+                                enabled = recoveryActions.actionsEnabled,
                                 colors = ButtonDefaults.filledTonalButtonColors(
                                     containerColor = MaterialTheme.colorScheme.errorContainer,
                                     contentColor = MaterialTheme.colorScheme.onErrorContainer
@@ -486,5 +549,43 @@ fun RecordingDetailScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun RecoveryDiagnosticsSection(
+    diagnostics: RecoveryDiagnosticsUi,
+    actionsEnabled: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = "Latest reason: ${diagnostics.latestReason ?: "No reason available"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        val attempt = diagnostics.lastAttemptEpochMs?.let { Date(it).formatRelative() } ?: "Unknown"
+        Text(
+            text = "Last attempt: $attempt",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Text(
+            text = "Ownership: ${diagnostics.ownership.name}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (!actionsEnabled) {
+            Text(
+                text = "Recovery actions are disabled while work is active or ownership check timed out",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }

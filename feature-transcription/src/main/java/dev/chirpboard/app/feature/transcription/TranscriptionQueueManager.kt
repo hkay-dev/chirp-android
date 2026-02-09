@@ -51,6 +51,7 @@ class TranscriptionQueueManager @Inject constructor(
     
     companion object {
         private const val TAG = "TranscriptionQueueMgr"
+        private const val MANUAL_RECOVERY_PREFIX = "manual_recovery:"
         private const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = "recoverable_queue_handoff:"
         private const val RECOVERABLE_STALE_TRANSCRIBING_PREFIX = "recoverable_stale_transcribing:"
         private const val RECOVERABLE_STALE_ENHANCING_PREFIX = "recoverable_stale_enhancing:"
@@ -227,6 +228,79 @@ class TranscriptionQueueManager @Inject constructor(
                 ReliabilityEventLogger.newCorrelationId("queue-retry")
             )
         }
+    }
+
+    suspend fun recoverPendingTranscription(recordingId: UUID): ManualRecoveryResult {
+        val recording = recordingRepository.getRecording(recordingId)
+            ?: return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+
+        if (recording.status != RecordingStatus.PENDING_TRANSCRIPTION) {
+            return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+        }
+
+        return enqueueManualRecovery(
+            recordingId = recordingId,
+            status = RecordingStatus.PENDING_TRANSCRIPTION,
+            reason = "Re-established pending transcription ownership"
+        )
+    }
+
+    suspend fun recoverEnhancing(recordingId: UUID): ManualRecoveryResult {
+        val recording = recordingRepository.getRecording(recordingId)
+            ?: return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+
+        if (recording.status != RecordingStatus.ENHANCING) {
+            return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+        }
+
+        return enqueueManualRecovery(
+            recordingId = recordingId,
+            status = RecordingStatus.PENDING_ENHANCEMENT,
+            reason = "Queued enhancement-only recovery"
+        )
+    }
+
+    suspend fun retranscribeFromEnhancing(recordingId: UUID): ManualRecoveryResult {
+        val recording = recordingRepository.getRecording(recordingId)
+            ?: return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+
+        if (recording.status != RecordingStatus.ENHANCING) {
+            return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+        }
+
+        return enqueueManualRecovery(
+            recordingId = recordingId,
+            status = RecordingStatus.PENDING_TRANSCRIPTION,
+            reason = "Queued full retranscription from enhancing"
+        )
+    }
+
+    suspend fun recoverStuckRecordings(): Int {
+        val pending = recordingRepository
+            .getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION)
+            .first()
+        val enhancing = recordingRepository
+            .getRecordingsByStatus(RecordingStatus.ENHANCING)
+            .first()
+
+        return (pending.map { it.id } + enhancing.map { it.id }).count { id ->
+            when {
+                pending.any { it.id == id } -> recoverPendingTranscription(id) == ManualRecoveryResult.ENQUEUED
+                else -> recoverEnhancing(id) == ManualRecoveryResult.ENQUEUED
+            }
+        }
+    }
+
+    suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics {
+        val recording = recordingRepository.getRecording(recordingId)
+        val ownership = inspectQueueOwnership(recordingId).toRecoveryOwnershipState()
+        val parsed = parseRecoveryMetadata(recording?.errorMessage)
+
+        return RecoveryDiagnostics(
+            latestReason = parsed.reason,
+            lastAttemptEpochMs = parsed.lastAttemptEpochMs,
+            ownership = ownership
+        )
     }
     
     /**
@@ -423,6 +497,39 @@ class TranscriptionQueueManager @Inject constructor(
         }
     }
 
+    private suspend fun enqueueManualRecovery(
+        recordingId: UUID,
+        status: RecordingStatus,
+        reason: String
+    ): ManualRecoveryResult {
+        val ownership = inspectQueueOwnership(recordingId)
+        val blockResult = blockedManualRecoveryResult(ownership)
+        if (blockResult != null) {
+            return blockResult
+        }
+
+        val statusCheck = constraintChecker.checkConstraints()
+        _constraintWarning.value = constraintChecker.getConstraintMessage(statusCheck)
+
+        recordingRepository.updateStatusWithError(
+            id = recordingId,
+            status = status,
+            errorMessage = buildManualRecoveryMessage(reason)
+        )
+
+        TranscriptionWorkRequest.enqueue(
+            context,
+            recordingId,
+            ReliabilityEventLogger.newCorrelationId("queue-manual-recovery")
+        )
+
+        return ManualRecoveryResult.ENQUEUED
+    }
+
+    private fun buildManualRecoveryMessage(reason: String): String {
+        return "$MANUAL_RECOVERY_PREFIX$reason|attemptAt=${System.currentTimeMillis()}"
+    }
+
     private suspend fun loadWorkInfosWithTimeout(workName: String): List<WorkInfo>? {
         return withContext(Dispatchers.IO) {
             val future = workManager.getWorkInfosForUniqueWork(workName)
@@ -464,6 +571,74 @@ class TranscriptionQueueManager @Inject constructor(
             errorMessage?.startsWith(RECOVERABLE_STALE_TRANSCRIBING_PREFIX) == true
     }
 }
+
+private data class ParsedRecoveryMetadata(
+    val reason: String?,
+    val lastAttemptEpochMs: Long?
+)
+
+private fun parseRecoveryMetadata(errorMessage: String?): ParsedRecoveryMetadata {
+    if (errorMessage.isNullOrBlank()) {
+        return ParsedRecoveryMetadata(reason = null, lastAttemptEpochMs = null)
+    }
+
+    val normalizedReason = errorMessage
+        .removePrefix("recoverable_queue_handoff:")
+        .removePrefix("recoverable_stale_transcribing:")
+        .removePrefix("recoverable_stale_enhancing:")
+
+    if (!normalizedReason.startsWith("manual_recovery:")) {
+        return ParsedRecoveryMetadata(reason = normalizedReason, lastAttemptEpochMs = null)
+    }
+
+    val payload = normalizedReason.removePrefix("manual_recovery:")
+    val attemptToken = "|attemptAt="
+    val attemptIndex = payload.indexOf(attemptToken)
+    if (attemptIndex < 0) {
+        return ParsedRecoveryMetadata(reason = payload, lastAttemptEpochMs = null)
+    }
+
+    val reason = payload.substring(0, attemptIndex)
+    val timestampRaw = payload.substring(attemptIndex + attemptToken.length)
+    val timestamp = timestampRaw.toLongOrNull()
+
+    return ParsedRecoveryMetadata(reason = reason, lastAttemptEpochMs = timestamp)
+}
+
+internal fun blockedManualRecoveryResult(ownership: QueueOwnership): ManualRecoveryResult? {
+    return when (ownership) {
+        QueueOwnership.ACTIVE -> ManualRecoveryResult.BLOCKED_ACTIVE_WORK
+        QueueOwnership.INSPECTION_TIMEOUT -> ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT
+        QueueOwnership.MISSING_OR_TERMINAL -> null
+    }
+}
+
+private fun QueueOwnership.toRecoveryOwnershipState(): RecoveryOwnershipState {
+    return when (this) {
+        QueueOwnership.ACTIVE -> RecoveryOwnershipState.ACTIVE
+        QueueOwnership.MISSING_OR_TERMINAL -> RecoveryOwnershipState.MISSING_OR_TERMINAL
+        QueueOwnership.INSPECTION_TIMEOUT -> RecoveryOwnershipState.INSPECTION_TIMEOUT
+    }
+}
+
+enum class ManualRecoveryResult {
+    ENQUEUED,
+    BLOCKED_ACTIVE_WORK,
+    BLOCKED_OWNERSHIP_TIMEOUT,
+    NOT_RECOVERABLE_STATE
+}
+
+enum class RecoveryOwnershipState {
+    ACTIVE,
+    MISSING_OR_TERMINAL,
+    INSPECTION_TIMEOUT
+}
+
+data class RecoveryDiagnostics(
+    val latestReason: String?,
+    val lastAttemptEpochMs: Long?,
+    val ownership: RecoveryOwnershipState
+)
 
 internal enum class ReconciliationTrigger {
     STARTUP,
