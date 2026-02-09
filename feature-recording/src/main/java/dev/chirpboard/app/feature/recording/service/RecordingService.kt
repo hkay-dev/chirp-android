@@ -68,9 +68,7 @@ class RecordingService : Service() {
     private var accumulatedDurationMs: Long = 0
     private var durationUpdateJob: Job? = null
     private var amplitudeJob: Job? = null
-    private val stopLock = Any()
-    @Volatile
-    private var isStopInProgress: Boolean = false
+    private val stopRequestGate = StopRequestGate()
     private var currentCorrelationId: String? = null
     
     override fun onBind(intent: Intent?): IBinder? = null
@@ -113,7 +111,7 @@ class RecordingService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         val state = recordingStateManager.state.value
-        if (!isStopInProgress &&
+        if (!stopRequestGate.isInProgress() &&
             (state is RecordingState.Recording || state is RecordingState.Paused || state is RecordingState.Starting)
         ) {
             stopRecording()
@@ -305,21 +303,16 @@ class RecordingService : Service() {
         
         // Reset state manager lock so startRecording can acquire it
         recordingStateManager.forceCancel()
-        synchronized(stopLock) {
-            isStopInProgress = false
-        }
+        stopRequestGate.reset()
 
         // Start fresh recording in the same service instance
         startRecording(origin, profileId)
     }
 
     private fun stopRecording() {
-        synchronized(stopLock) {
-            if (isStopInProgress) {
-                Log.d(TAG, "Ignoring duplicate stop request while stop is in progress")
-                return
-            }
-            isStopInProgress = true
+        if (!stopRequestGate.tryBegin()) {
+            Log.d(TAG, "Ignoring duplicate stop request while stop is in progress")
+            return
         }
 
         val snapshot = captureStopSnapshot()
@@ -480,9 +473,7 @@ class RecordingService : Service() {
         currentProfileId = null
         accumulatedDurationMs = 0
         currentCorrelationId = null
-        synchronized(stopLock) {
-            isStopInProgress = false
-        }
+        stopRequestGate.reset()
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
