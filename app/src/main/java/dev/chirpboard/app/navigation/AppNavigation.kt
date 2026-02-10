@@ -6,7 +6,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -35,10 +38,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
-import dev.chirpboard.app.download.ModelDownloader
+import dev.chirpboard.app.download.ModelReadinessState
+import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import java.util.UUID
+import kotlinx.coroutines.flow.collect
 
 /**
  * Material 3 motion: shared axis forward/backward transitions.
@@ -46,6 +50,12 @@ import java.util.UUID
 private const val TRANSITION_DURATION = 300
 private const val FADE_DURATION = 250
 private const val SLIDE_OFFSET_DIVISOR = 10
+
+private data class RecordEntryDialogContent(
+    val title: String,
+    val message: String,
+    val openSettingsOnConfirm: Boolean
+)
 
 /**
  * Navigation routes for the app.
@@ -158,42 +168,86 @@ fun AppNavHost(
     ) {
         // Home Screen
         composable(Screen.Home.route) {
-            val context = LocalContext.current
-            var showModelRequiredDialog by remember { mutableStateOf(false) }
-            
+            val recordEntryViewModel: HomeRecordEntryViewModel = hiltViewModel()
+            val readinessState by recordEntryViewModel.readinessState.collectAsState()
+            var dialogContent by remember { mutableStateOf<RecordEntryDialogContent?>(null) }
+
+            LaunchedEffect(recordEntryViewModel) {
+                recordEntryViewModel.warmupOnHomeVisible()
+            }
+
+            LaunchedEffect(recordEntryViewModel) {
+                recordEntryViewModel.events.collect { event ->
+                    when (event) {
+                        HomeRecordEntryEvent.NavigateToRecord -> {
+                            navController.navigate(Screen.Record.createRoute())
+                        }
+
+                        is HomeRecordEntryEvent.ShowModelRequired -> {
+                            dialogContent = when (event.reason) {
+                                ModelReadinessUnavailableReason.MISSING_MODEL_FILES -> {
+                                    RecordEntryDialogContent(
+                                        title = "Model Required",
+                                        message = "The transcription model must be downloaded before you can record. Go to Settings to download it.",
+                                        openSettingsOnConfirm = true
+                                    )
+                                }
+
+                                ModelReadinessUnavailableReason.INTEGRITY_MISMATCH -> {
+                                    RecordEntryDialogContent(
+                                        title = "Model Integrity Check Failed",
+                                        message = "The local model files look corrupted. Re-download the model from Settings before recording.",
+                                        openSettingsOnConfirm = true
+                                    )
+                                }
+                            }
+                        }
+
+                        is HomeRecordEntryEvent.ShowError -> {
+                            dialogContent = RecordEntryDialogContent(
+                                title = "Model Check Error",
+                                message = "Could not verify model readiness. ${event.message}",
+                                openSettingsOnConfirm = false
+                            )
+                        }
+                    }
+                }
+            }
+
             HomeScreen(
                 onRecordingClick = { recording ->
                     navController.navigate(Screen.RecordingDetail.createRoute(recording.id.toString()))
                 },
                 onRecordClick = {
-                    if (ModelDownloader(context).isModelDownloaded()) {
-                        navController.navigate(Screen.Record.createRoute())
-                    } else {
-                        showModelRequiredDialog = true
-                    }
+                    recordEntryViewModel.onRecordTapped()
                 },
+                isRecordEntryChecking = readinessState is ModelReadinessState.Checking,
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
                 }
             )
-            
-            if (showModelRequiredDialog) {
+
+            if (dialogContent != null) {
+                val content = dialogContent
                 AnimatedAlertDialog(
-                    onDismissRequest = { showModelRequiredDialog = false },
-                    title = { Text("Model Required") },
-                    text = { Text("The transcription model must be downloaded before you can record. Go to Settings to download it.") },
+                    onDismissRequest = { dialogContent = null },
+                    title = { Text(content?.title.orEmpty()) },
+                    text = { Text(content?.message.orEmpty()) },
                     confirmButton = {
                         TextButton(
                             onClick = {
-                                showModelRequiredDialog = false
-                                navController.navigate(Screen.Settings.route)
+                                val shouldOpenSettings = content?.openSettingsOnConfirm == true
+                                dialogContent = null
+                                if (shouldOpenSettings) {
+                                    navController.navigate(Screen.Settings.route)
+                                }
                             }
                         ) {
-                            Text("Go to Settings")
+                            Text(if (content?.openSettingsOnConfirm == true) "Go to Settings" else "Dismiss")
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showModelRequiredDialog = false }) {
+                        TextButton(onClick = { dialogContent = null }) {
                             Text("Cancel")
                         }
                     }

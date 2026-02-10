@@ -3,6 +3,7 @@ package dev.chirpboard.app.download
 import android.content.Context
 import android.os.StatFs
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -17,11 +18,17 @@ import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
-class ModelDownloader(private val context: Context) {
+class ModelDownloader(
+    private val context: Context,
+    private val modelFiles: List<ModelFile> = MODEL_FILES,
+    private val modelDirProvider: (Context) -> File = { getModelDir(it) },
+    private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") }
+) {
     companion object {
         private const val TAG = "ModelDownloader"
         private const val MODEL_DIR = "parakeet-tdt-0.6b-v2"
         private const val BASE_URL = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/resolve/main"
+        internal const val VERIFICATION_PREFS_NAME = "model_verification_cache"
 
         private const val MIN_STORAGE_BUFFER_BYTES = 50L * 1024L * 1024L
 
@@ -47,6 +54,16 @@ class ModelDownloader(private val context: Context) {
                 expectedSha256 = "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d"
             )
         )
+
+        private val processVerificationCache = mutableMapOf<String, VerificationCacheEntry>()
+        private val processCacheLock = Any()
+
+        @VisibleForTesting
+        internal fun clearProcessVerificationCacheForTest() {
+            synchronized(processCacheLock) {
+                processVerificationCache.clear()
+            }
+        }
         
         /**
          * Get the persistent model directory that survives "Clear Data".
@@ -84,6 +101,17 @@ class ModelDownloader(private val context: Context) {
         val valid: Boolean
     )
 
+    private enum class FileValidationStatus {
+        VALID,
+        MISSING,
+        INVALID
+    }
+
+    private data class FileValidationResult(
+        val status: FileValidationStatus,
+        val source: ModelReadinessVerificationSource? = null
+    )
+
     sealed interface DownloadState {
         data class Progress(val file: String, val bytesDownloaded: Long, val totalBytes: Long) : DownloadState
         data object Complete : DownloadState
@@ -96,34 +124,97 @@ class ModelDownloader(private val context: Context) {
         .followRedirects(true)
         .build()
 
-    private val verificationCache = mutableMapOf<String, VerificationCacheEntry>()
+    private val verificationPrefs by lazy {
+        context.getSharedPreferences(VERIFICATION_PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
     fun isModelDownloaded(): Boolean {
-        val modelPath = getModelDir(context)
-        // Also check legacy internal storage path for backward compatibility
-        val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
-        Log.d(TAG, "isModelDownloaded check — persistent: ${modelPath.absolutePath} (exists=${modelPath.exists()})")
-        Log.d(TAG, "isModelDownloaded check — legacy: ${legacyPath.absolutePath} (exists=${legacyPath.exists()})")
-        val result = MODEL_FILES.all { file ->
-            val f = File(modelPath, file.name)
-            val legacy = File(legacyPath, file.name)
-            val persistentOk = isValidDownloadedFile(f, file)
-            val legacyOk = isValidDownloadedFile(legacy, file)
-            Log.d(TAG, "  ${file.name}: persistent=${f.exists()}(${f.length()}), legacy=${legacy.exists()}, ok=${persistentOk || legacyOk}")
-            persistentOk || legacyOk
+        return evaluateModelReadiness().isReady
+    }
+
+    internal fun evaluateModelReadiness(): ModelReadinessEvaluation {
+        val modelPath = modelDirProvider(context)
+        val legacyPath = legacyModelDirProvider(context)
+
+        val sources = linkedSetOf<ModelReadinessVerificationSource>()
+        var hasIntegrityMismatch = false
+        var hasMissing = false
+
+        modelFiles.forEach { modelFile ->
+            val persistentFile = File(modelPath, modelFile.name)
+            val legacyFile = File(legacyPath, modelFile.name)
+
+            val persistentResult = validateModelCandidate(persistentFile, modelFile)
+            val legacyResult = validateModelCandidate(legacyFile, modelFile)
+
+            val winner = when {
+                persistentResult.status == FileValidationStatus.VALID -> persistentResult
+                legacyResult.status == FileValidationStatus.VALID -> legacyResult
+                else -> null
+            }
+
+            if (winner != null) {
+                winner.source?.let(sources::add)
+                Log.d(
+                    TAG,
+                    "  ${modelFile.name}: valid via ${winner.source} (persistent=${persistentFile.exists()}, legacy=${legacyFile.exists()})"
+                )
+                return@forEach
+            }
+
+            if (
+                persistentResult.status == FileValidationStatus.INVALID ||
+                legacyResult.status == FileValidationStatus.INVALID
+            ) {
+                hasIntegrityMismatch = true
+            } else {
+                hasMissing = true
+            }
+
+            Log.d(
+                TAG,
+                "  ${modelFile.name}: unavailable (persistent=${persistentResult.status}, legacy=${legacyResult.status})"
+            )
         }
-        Log.d(TAG, "isModelDownloaded = $result")
-        return result
+
+        if (hasIntegrityMismatch || hasMissing) {
+            val reason = if (hasIntegrityMismatch) {
+                ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
+            } else {
+                ModelReadinessUnavailableReason.MISSING_MODEL_FILES
+            }
+            Log.d(TAG, "isModelDownloaded = false (reason=$reason)")
+            return ModelReadinessEvaluation(
+                isReady = false,
+                unavailableReason = reason
+            )
+        }
+
+        val source = when {
+            ModelReadinessVerificationSource.CHECKSUM_VERIFICATION in sources ->
+                ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+
+            ModelReadinessVerificationSource.PERSISTED_CACHE in sources ->
+                ModelReadinessVerificationSource.PERSISTED_CACHE
+
+            else -> ModelReadinessVerificationSource.PROCESS_CACHE
+        }
+
+        Log.d(TAG, "isModelDownloaded = true (source=$source)")
+        return ModelReadinessEvaluation(
+            isReady = true,
+            verificationSource = source
+        )
     }
 
     fun downloadModel(): Flow<DownloadState> = flow {
-        val modelPath = getModelDir(context)
+        val modelPath = modelDirProvider(context)
         modelPath.mkdirs()
 
         var totalDownloaded = 0L
-        val totalSize = MODEL_FILES.sumOf { it.expectedSize }
+        val totalSize = modelFiles.sumOf { it.expectedSize }
 
-        val requiredDownloadBytes = MODEL_FILES.sumOf { file ->
+        val requiredDownloadBytes = modelFiles.sumOf { file ->
             val existing = File(modelPath, file.name)
             if (isValidDownloadedFile(existing, file)) 0L else file.expectedSize
         }
@@ -139,7 +230,7 @@ class ModelDownloader(private val context: Context) {
             return@flow
         }
 
-        for (file in MODEL_FILES) {
+        for (file in modelFiles) {
             val destFile = File(modelPath, file.name)
             if (isValidDownloadedFile(destFile, file)) {
                 totalDownloaded += destFile.length()
@@ -197,12 +288,7 @@ class ModelDownloader(private val context: Context) {
                     return@flow
                 }
 
-                verificationCache[destFile.absolutePath] = VerificationCacheEntry(
-                    size = destFile.length(),
-                    lastModified = destFile.lastModified(),
-                    expectedSha256 = file.expectedSha256,
-                    valid = true
-                )
+                cacheValidationResult(destFile, file, valid = true)
 
                 totalDownloaded += downloaded
                 Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes")
@@ -218,28 +304,149 @@ class ModelDownloader(private val context: Context) {
     }.flowOn(Dispatchers.IO)
 
     private fun isValidDownloadedFile(file: File, modelFile: ModelFile): Boolean {
-        if (!file.exists()) return false
+        return validateModelCandidate(file, modelFile).status == FileValidationStatus.VALID
+    }
 
-        val size = file.length()
-        val lastModified = file.lastModified()
-        val cached = verificationCache[file.absolutePath]
+    private fun validateModelCandidate(file: File, modelFile: ModelFile): FileValidationResult {
+        if (!file.exists()) {
+            clearCacheEntry(file.absolutePath)
+            return FileValidationResult(FileValidationStatus.MISSING)
+        }
+
+        val fileSize = file.length()
+        val fileLastModified = file.lastModified()
+
+        val processEntry = synchronized(processCacheLock) {
+            processVerificationCache[file.absolutePath]
+        }
         if (
-            cached != null &&
-            cached.size == size &&
-            cached.lastModified == lastModified &&
-            cached.expectedSha256 == modelFile.expectedSha256
+            processEntry != null &&
+            !isCacheEntryUsable(
+                entry = processEntry,
+                size = fileSize,
+                lastModified = fileLastModified,
+                expectedSha256 = modelFile.expectedSha256
+            )
         ) {
-            return cached.valid
+            synchronized(processCacheLock) {
+                processVerificationCache.remove(file.absolutePath)
+            }
+        }
+
+        if (
+            processEntry != null &&
+            isCacheEntryUsable(
+                entry = processEntry,
+                size = fileSize,
+                lastModified = fileLastModified,
+                expectedSha256 = modelFile.expectedSha256
+            )
+        ) {
+            return FileValidationResult(
+                status = if (processEntry.valid) FileValidationStatus.VALID else FileValidationStatus.INVALID,
+                source = ModelReadinessVerificationSource.PROCESS_CACHE
+            )
+        }
+
+        val persistentEntry = readPersistentCacheEntry(file.absolutePath)
+        if (
+            persistentEntry != null &&
+            isCacheEntryUsable(
+                entry = persistentEntry,
+                size = fileSize,
+                lastModified = fileLastModified,
+                expectedSha256 = modelFile.expectedSha256
+            )
+        ) {
+            synchronized(processCacheLock) {
+                processVerificationCache[file.absolutePath] = persistentEntry
+            }
+            return FileValidationResult(
+                status = if (persistentEntry.valid) FileValidationStatus.VALID else FileValidationStatus.INVALID,
+                source = ModelReadinessVerificationSource.PERSISTED_CACHE
+            )
+        }
+        if (persistentEntry != null) {
+            clearCacheEntry(file.absolutePath)
         }
 
         val valid = validateFileIntegrity(file, modelFile.expectedSize, modelFile.expectedSha256)
-        verificationCache[file.absolutePath] = VerificationCacheEntry(
-            size = size,
-            lastModified = lastModified,
+        cacheValidationResult(file, modelFile, valid)
+        return FileValidationResult(
+            status = if (valid) FileValidationStatus.VALID else FileValidationStatus.INVALID,
+            source = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+        )
+    }
+
+    private fun cacheValidationResult(file: File, modelFile: ModelFile, valid: Boolean) {
+        val cacheEntry = VerificationCacheEntry(
+            size = file.length(),
+            lastModified = file.lastModified(),
             expectedSha256 = modelFile.expectedSha256,
             valid = valid
         )
-        return valid
+
+        synchronized(processCacheLock) {
+            processVerificationCache[file.absolutePath] = cacheEntry
+        }
+        writePersistentCacheEntry(file.absolutePath, cacheEntry)
+    }
+
+    private fun isCacheEntryUsable(
+        entry: VerificationCacheEntry,
+        size: Long,
+        lastModified: Long,
+        expectedSha256: String
+    ): Boolean {
+        return entry.size == size &&
+            entry.lastModified == lastModified &&
+            entry.expectedSha256 == expectedSha256
+    }
+
+    private fun readPersistentCacheEntry(filePath: String): VerificationCacheEntry? {
+        val prefix = cacheKeyPrefix(filePath)
+        val validKey = "$prefix:valid"
+        if (!verificationPrefs.contains(validKey)) {
+            return null
+        }
+
+        return VerificationCacheEntry(
+            size = verificationPrefs.getLong("$prefix:size", -1L),
+            lastModified = verificationPrefs.getLong("$prefix:lastModified", -1L),
+            expectedSha256 = verificationPrefs.getString("$prefix:expectedSha256", null).orEmpty(),
+            valid = verificationPrefs.getBoolean(validKey, false)
+        )
+    }
+
+    private fun writePersistentCacheEntry(filePath: String, entry: VerificationCacheEntry) {
+        val prefix = cacheKeyPrefix(filePath)
+        verificationPrefs.edit()
+            .putLong("$prefix:size", entry.size)
+            .putLong("$prefix:lastModified", entry.lastModified)
+            .putString("$prefix:expectedSha256", entry.expectedSha256)
+            .putBoolean("$prefix:valid", entry.valid)
+            .apply()
+    }
+
+    private fun clearCacheEntry(filePath: String) {
+        synchronized(processCacheLock) {
+            processVerificationCache.remove(filePath)
+        }
+
+        val prefix = cacheKeyPrefix(filePath)
+        verificationPrefs.edit()
+            .remove("$prefix:size")
+            .remove("$prefix:lastModified")
+            .remove("$prefix:expectedSha256")
+            .remove("$prefix:valid")
+            .apply()
+    }
+
+    private fun cacheKeyPrefix(filePath: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(filePath.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return "verification:$digest"
     }
 
     private fun getAvailableBytes(path: File): Long {

@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
+import dev.chirpboard.app.download.ModelReadinessGate
+import dev.chirpboard.app.download.VerificationTrigger
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +25,9 @@ class ChirpApplication : Application(), Configuration.Provider {
     
     @Inject
     lateinit var apiKeyMigration: ApiKeyMigration
+
+    @Inject
+    lateinit var modelReadinessGate: ModelReadinessGate
     
     private val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
@@ -44,6 +49,14 @@ class ChirpApplication : Application(), Configuration.Provider {
                 transcriptionQueueManager.startContinuousReconciliation(applicationScope)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to recover transcriptions on startup", e)
+            }
+        }
+
+        applicationScope.launch {
+            try {
+                modelReadinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to warm model readiness on startup", e)
             }
         }
     }
