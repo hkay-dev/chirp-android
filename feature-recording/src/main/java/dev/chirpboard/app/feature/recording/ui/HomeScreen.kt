@@ -46,6 +46,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -77,6 +78,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -99,6 +101,7 @@ fun HomeScreen(
     onRecordingClick: (Recording) -> Unit,
     onRecordClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    isRecordEntryChecking: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val displayItems by viewModel.displayItems.collectAsState()
@@ -237,6 +240,7 @@ fun HomeScreen(
         floatingActionButton = {
             BreathingExtendedFab(
                 expanded = fabExpanded,
+                isChecking = isRecordEntryChecking,
                 onClick = onRecordClick
             )
         },
@@ -254,6 +258,7 @@ fun HomeScreen(
             if (showEmpty) {
                 AnimatedEmptyState(
                     onRecordClick = onRecordClick,
+                    isRecordEntryChecking = isRecordEntryChecking,
                     modifier = Modifier.padding(paddingValues)
                 )
             } else {
@@ -680,12 +685,13 @@ private fun SheetActionItem(
  * Extended FAB with breathing animation.
  */
 @Composable
-private fun BreathingExtendedFab(
+fun BreathingExtendedFab(
     expanded: Boolean,
+    isChecking: Boolean,
     onClick: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "breathing")
-    val scale by infiniteTransition.animateFloat(
+    val animatedScale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.03f,
         animationSpec = infiniteRepeatable(
@@ -694,20 +700,36 @@ private fun BreathingExtendedFab(
         ),
         label = "fab_scale"
     )
+    val scale = if (isChecking) 1f else animatedScale
 
     ExtendedFloatingActionButton(
-        onClick = onClick,
+        onClick = {
+            if (isRecordEntryActionEnabled(isChecking)) {
+                onClick()
+            }
+        },
         containerColor = MaterialTheme.colorScheme.tertiaryContainer,
         contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
         expanded = expanded,
         icon = {
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = null
-            )
+            if (isChecking) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = null
+                )
+            }
         },
-        text = { Text("Record") },
-        modifier = Modifier.scale(scale)
+        text = {
+            Text(recordFabLabel(isChecking))
+        },
+        modifier = Modifier
+            .scale(scale)
+            .testTag(HomeScreenRecordEntryTestTags.RecordFab)
     )
 }
 
@@ -715,8 +737,9 @@ private fun BreathingExtendedFab(
  * Animated empty state with floating mic icon.
  */
 @Composable
-private fun AnimatedEmptyState(
+fun AnimatedEmptyState(
     onRecordClick: () -> Unit,
+    isRecordEntryChecking: Boolean,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "floating")
@@ -765,8 +788,23 @@ private fun AnimatedEmptyState(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        FilledTonalButton(onClick = onRecordClick) {
-            Text("Record now")
+        FilledTonalButton(
+            onClick = onRecordClick,
+            enabled = isRecordEntryActionEnabled(isRecordEntryChecking),
+            modifier = Modifier.testTag(HomeScreenRecordEntryTestTags.EmptyStateRecordButton)
+        ) {
+            if (isRecordEntryChecking) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
+                }
+            } else {
+                Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
+            }
         }
     }
 }
@@ -798,4 +836,19 @@ private fun StaggeredAnimatedItem(
 
 internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean {
     return status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.ENHANCING
+}
+
+internal fun isRecordEntryActionEnabled(isChecking: Boolean): Boolean = !isChecking
+
+internal fun recordFabLabel(isChecking: Boolean): String {
+    return if (isChecking) "Checking..." else "Record"
+}
+
+internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String {
+    return if (isChecking) "Checking model..." else "Record now"
+}
+
+object HomeScreenRecordEntryTestTags {
+    const val RecordFab = "home_record_fab"
+    const val EmptyStateRecordButton = "home_empty_record_button"
 }
