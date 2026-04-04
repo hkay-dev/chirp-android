@@ -142,79 +142,56 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         // Initialize audio focus manager
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         audioFocusManager = AudioFocusManager(audioManager)
-        audioFocusManager.onFocusLost = {
-            Log.w(TAG, "Audio focus lost during recording")
-            if (_state.value is KeyboardState.Recording) {
-                // Stop recording gracefully
-                stopAndTranscribe()
-            }
-        }
+        KeyboardServiceStartup.configureAudioFocusInterrupts(
+            tag = TAG,
+            audioFocusManager = audioFocusManager,
+            currentState = { _state.value },
+            onRecordingInterrupted = ::stopAndTranscribe
+        )
 
         // Initialize phone call handler to stop recording during calls
         val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
-        telephonyManager?.let { tm ->
-            phoneCallHandler = PhoneCallHandler(tm, mainExecutor)
-            phoneCallHandler?.onCallStateChanged = { isInCall ->
-                if (isInCall && _state.value is KeyboardState.Recording) {
-                    Log.w(TAG, "Phone call detected, stopping recording")
-                    stopAndTranscribe()
-                }
-            }
-            phoneCallHandler?.register()
-        }
+        phoneCallHandler = KeyboardServiceStartup.registerPhoneCallInterrupts(
+            telephonyManager = telephonyManager,
+            mainExecutor = mainExecutor,
+            tag = TAG,
+            currentState = { _state.value },
+            onRecordingInterrupted = ::stopAndTranscribe
+        )
 
         // Start the recomposer
-        recomposerScope.launch {
-            recomposer.runRecomposeAndApplyChanges()
-        }
+        KeyboardServiceStartup.startRecomposer(
+            recomposerScope = recomposerScope,
+            recomposer = recomposer
+        )
 
         // Observe preferences
-        scope.launch {
-            keyboardPreferences.llmEnabled.collect { enabled ->
-                _llmEnabled.value = enabled
-            }
-        }
-        
-        scope.launch {
-            keyboardPreferences.microphoneGain.collect { gain ->
-                _microphoneGain.value = gain
-            }
-        }
+        KeyboardServiceStartup.observePreferences(
+            scope = scope,
+            keyboardPreferences = keyboardPreferences,
+            onLlmEnabledChanged = { enabled -> _llmEnabled.value = enabled },
+            onMicrophoneGainChanged = { gain -> _microphoneGain.value = gain }
+        )
 
         // Observe processing mode changes
-        scope.launch {
-            modeRepository.currentMode.collect { mode ->
-                _currentMode.value = mode
-            }
-        }
+        KeyboardServiceStartup.observeProcessingMode(
+            scope = scope,
+            modeRepository = modeRepository,
+            onModeChanged = { mode -> _currentMode.value = mode }
+        )
 
         // Sync keyboard state from RecordingStateManager for recording-related states.
         // This ensures keyboard state reflects the global recording state (e.g., if another
         // source stops recording, or if an error occurs in RecordingStateManager).
         // Keyboard-specific states (Transcribing, Polishing, ModelNotReady, LlmError, Downloading)
         // are still managed directly by this service.
-        scope.launch {
-            recordingStateManager.state.collect { recordingState ->
-                val currentKeyboardState = _state.value
-                
-                // Only sync if we're in a recording-related state or the recording state changed
-                // Don't override keyboard-specific states like Transcribing, Polishing, etc.
-                val isKeyboardSpecificState = currentKeyboardState is KeyboardState.Transcribing ||
-                    currentKeyboardState is KeyboardState.Polishing ||
-                    currentKeyboardState is KeyboardState.Downloading ||
-                    currentKeyboardState is KeyboardState.ModelNotReady ||
-                    currentKeyboardState is KeyboardState.LlmError
-                
-                if (!isKeyboardSpecificState) {
-                    val derivedState = recordingState.toKeyboardState()
-                    // Only update if different to avoid unnecessary recompositions
-                    if (derivedState != currentKeyboardState) {
-                        Log.d(TAG, "Syncing state from RecordingStateManager: $recordingState -> $derivedState")
-                        _state.value = derivedState
-                    }
-                }
-            }
-        }
+        KeyboardServiceStartup.observeRecordingState(
+            scope = scope,
+            recordingStateManager = recordingStateManager,
+            currentState = { _state.value },
+            onStateChanged = { state -> _state.value = state },
+            tag = TAG
+        )
 
         // Initialize recognizer
         initializeModel()
