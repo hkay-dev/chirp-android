@@ -2,7 +2,6 @@ package dev.chirpboard.app.feature.transcription
 
 import android.content.Context
 import android.util.Log
-import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
@@ -12,7 +11,6 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -25,8 +23,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,14 +45,19 @@ class TranscriptionQueueManager @Inject constructor(
     private var reconciliationJob: Job? = null
     @Volatile
     private var reconciliationStarted = false
+    private val queueReconciler by lazy {
+        TranscriptionQueueReconciler(
+            context = context,
+            recordingRepository = recordingRepository,
+            constraintChecker = constraintChecker,
+            setConstraintWarning = { _constraintWarning.value = it },
+            setActiveCount = { _activeCount.value = it }
+        )
+    }
     
     companion object {
         private const val TAG = "TranscriptionQueueMgr"
         private const val DEFAULT_RECONCILIATION_INTERVAL_MS = 60_000L
-        private const val WORK_INFO_TIMEOUT_MS = 5_000L
-        private const val WORK_INFO_POLL_INTERVAL_MS = 50L
-        private const val TRANSCRIBING_STALE_THRESHOLD_MS = 15 * 60_000L
-        private const val ENHANCING_STALE_THRESHOLD_MS = 10 * 60_000L
     }
     
     private val _activeCount = MutableStateFlow(0)
@@ -103,7 +104,9 @@ class TranscriptionQueueManager @Inject constructor(
         reconciliationJob = scope.launch {
             while (isActive) {
                 try {
-                    reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
+                    reconciliationMutex.withLock {
+                        queueReconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
+                    }
                 } catch (e: Exception) {
                     Log.e(TAG, "Periodic queue reconciliation failed", e)
                 }
@@ -311,15 +314,7 @@ class TranscriptionQueueManager @Inject constructor(
     }
 
     suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics {
-        val recording = recordingRepository.getRecording(recordingId)
-        val ownership = inspectQueueOwnership(recordingId).toRecoveryOwnershipState()
-        val parsed = parseRecoveryMetadata(recording?.errorMessage)
-
-        return RecoveryDiagnostics(
-            latestReason = parsed.reason,
-            lastAttemptEpochMs = parsed.lastAttemptEpochMs,
-            ownership = ownership
-        )
+        return queueReconciler.getRecoveryDiagnostics(recordingId)
     }
     
     /**
@@ -371,154 +366,8 @@ class TranscriptionQueueManager @Inject constructor(
      * recordings but constraints are not met.
      */
     suspend fun processPendingOnStartup() {
-        reconcileQueueHealth(ReconciliationTrigger.STARTUP)
-    }
-
-    private suspend fun reconcileQueueHealth(trigger: ReconciliationTrigger) {
         reconciliationMutex.withLock {
-            Log.i(TAG, "Running queue reconciliation. trigger=$trigger")
-
-            recoverStaleTranscribing(trigger)
-            recoverStaleEnhancing(trigger)
-            reconcilePendingQueueOwnership()
-
-            updateActiveCount()
-
-            val pending = pendingRecordings.first()
-            if (pending.isNotEmpty()) {
-                val status = constraintChecker.checkConstraints()
-                _constraintWarning.value = constraintChecker.getConstraintMessage(status)
-            }
-        }
-    }
-
-    private suspend fun recoverStaleTranscribing(trigger: ReconciliationTrigger) {
-        val now = System.currentTimeMillis()
-        val transcribing = recordingRepository
-            .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
-            .first()
-
-        transcribing.forEach { recording ->
-            val ownership = inspectQueueOwnership(recording.id)
-            val shouldRecover = shouldRecoverStaleTranscribing(
-                trigger = trigger,
-                createdAtEpochMs = recording.createdAt.time,
-                ownership = ownership,
-                nowEpochMs = now,
-                staleThresholdMs = TRANSCRIBING_STALE_THRESHOLD_MS
-            )
-
-            if (shouldRecover) {
-                val reason = "${RECOVERABLE_STALE_TRANSCRIBING_PREFIX}Recovered stale transcribing state"
-                Log.w(TAG, "Recovering stale TRANSCRIBING recording ${recording.id}")
-                recordingRepository.updateStatusWithError(
-                    id = recording.id,
-                    status = RecordingStatus.PENDING_TRANSCRIPTION,
-                    errorMessage = reason
-                )
-            }
-        }
-    }
-
-    private suspend fun recoverStaleEnhancing(trigger: ReconciliationTrigger) {
-        val now = System.currentTimeMillis()
-        val enhancing = recordingRepository
-            .getRecordingsByStatus(RecordingStatus.ENHANCING)
-            .first()
-
-        enhancing.forEach { recording ->
-            val ownership = inspectQueueOwnership(recording.id)
-            val shouldRecover = shouldRecoverStaleEnhancing(
-                trigger = trigger,
-                createdAtEpochMs = recording.createdAt.time,
-                ownership = ownership,
-                nowEpochMs = now,
-                staleThresholdMs = ENHANCING_STALE_THRESHOLD_MS
-            )
-
-            if (shouldRecover) {
-                val reason = "${RECOVERABLE_STALE_ENHANCING_PREFIX}Enhancement stalled; you can retry"
-                Log.w(TAG, "Recovering stale ENHANCING recording ${recording.id}")
-                recordingRepository.updateStatusWithError(
-                    id = recording.id,
-                    status = RecordingStatus.FAILED,
-                    errorMessage = reason
-                )
-            }
-        }
-    }
-
-    private suspend fun reconcilePendingQueueOwnership() {
-        val pendingTranscription = pendingRecordings.first()
-        val pendingEnhancement = recordingRepository
-            .getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT)
-            .first()
-
-        // Reconcile both pending-transcription and pending-enhancement work. PENDING_ENHANCEMENT
-        // recordings whose WorkManager job is missing must be re-enqueued with the same care,
-        // or they stay stuck indefinitely.
-        mergePendingRecordings(pendingTranscription, pendingEnhancement).forEach { recording ->
-            val ownership = inspectQueueOwnership(recording.id)
-
-            when {
-                shouldRequeuePending(ownership) -> {
-                    try {
-                        TranscriptionWorkRequest.enqueue(
-                            context,
-                            recording.id,
-                            ReliabilityEventLogger.newCorrelationId("queue-reconcile")
-                        )
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.QUEUE_ENQUEUE,
-                            outcome = ReliabilityOutcome.RECOVERED,
-                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
-                            recordingId = recording.id,
-                            reasonCode = "reconciled_pending"
-                        )
-                        if (recording.hasRecoverablePendingError()) {
-                            clearPendingError(recording)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.QUEUE_ENQUEUE,
-                            outcome = ReliabilityOutcome.FAILURE,
-                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
-                            recordingId = recording.id,
-                            reasonCode = "reconcile_enqueue_failed",
-                            message = e.message
-                        )
-                    }
-                }
-
-                ownership == QueueOwnership.ACTIVE -> {
-                    if (recording.hasRecoverablePendingError()) {
-                        clearPendingError(recording)
-                    }
-                }
-
-                else -> {
-                    Log.w(TAG, "Timed out inspecting work ownership for pending ${recording.id}")
-                }
-            }
-        }
-    }
-
-    private suspend fun inspectQueueOwnership(recordingId: UUID): QueueOwnership {
-        return try {
-            val workInfos = loadWorkInfosWithTimeout(TranscriptionWorkRequest.workName(recordingId))
-                ?: return QueueOwnership.INSPECTION_TIMEOUT
-
-            val hasActiveWork = workInfos.any { info ->
-                info.state == WorkInfo.State.ENQUEUED ||
-                    info.state == WorkInfo.State.RUNNING ||
-                    info.state == WorkInfo.State.BLOCKED
-            }
-
-            if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to inspect queue ownership for $recordingId", e)
-            QueueOwnership.INSPECTION_TIMEOUT
+            queueReconciler.reconcileQueueHealth(ReconciliationTrigger.STARTUP)
         }
     }
 
@@ -527,7 +376,7 @@ class TranscriptionQueueManager @Inject constructor(
         status: RecordingStatus,
         reason: String
     ): ManualRecoveryResult {
-        val ownership = inspectQueueOwnership(recordingId)
+        val ownership = queueReconciler.inspectQueueOwnership(recordingId)
         val blockResult = blockedManualRecoveryResult(ownership)
         if (blockResult != null) {
             return blockResult
@@ -551,47 +400,4 @@ class TranscriptionQueueManager @Inject constructor(
         return ManualRecoveryResult.ENQUEUED
     }
 
-    private suspend fun loadWorkInfosWithTimeout(workName: String): List<WorkInfo>? {
-        return withContext(Dispatchers.IO) {
-            val future = workManager.getWorkInfosForUniqueWork(workName)
-
-            withTimeoutOrNull(WORK_INFO_TIMEOUT_MS) {
-                while (!future.isDone && !future.isCancelled) {
-                    delay(WORK_INFO_POLL_INTERVAL_MS)
-                }
-
-                if (future.isCancelled) {
-                    emptyList()
-                } else {
-                    future.get()
-                }
-            }
-        }
-    }
-
-    private suspend fun clearPendingError(recording: Recording) {
-        recordingRepository.updateStatusWithError(
-            id = recording.id,
-            status = recording.status,
-            errorMessage = null
-        )
-    }
-    
-    /**
-     * Update the active count by querying recordings with TRANSCRIBING status.
-     */
-    private suspend fun updateActiveCount() {
-        val transcribing = recordingRepository
-            .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
-            .first()
-        _activeCount.value = transcribing.size
-    }
-
-    private fun Recording.hasRecoverablePendingError(): Boolean {
-        return errorMessage?.startsWith(RECOVERABLE_QUEUE_HANDOFF_PREFIX) == true ||
-            errorMessage?.startsWith(RECOVERABLE_STALE_TRANSCRIBING_PREFIX) == true ||
-            // PENDING_ENHANCEMENT recordings created via recoverEnhancing() carry a
-            // MANUAL_RECOVERY_PREFIX marker; clear it once the job is re-enqueued.
-            errorMessage?.startsWith(MANUAL_RECOVERY_PREFIX) == true
-    }
 }
