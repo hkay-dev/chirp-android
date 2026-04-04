@@ -28,7 +28,6 @@ class DynamicLlmClient @Inject constructor(
     companion object {
         private const val TAG = "DynamicLlmClient"
         private const val BASE_URL = "https://generativelanguage.googleapis.com/"
-        private const val DEFAULT_MODEL = "gemini-2.0-flash"
 
         private const val TITLE_PROMPT = """Generate a brief, descriptive title (5-8 words max) for this voice recording transcript. 
 Return ONLY the title text, nothing else. No quotes, no explanation.
@@ -56,6 +55,7 @@ Transcript:
 
     override suspend fun process(text: String, systemPrompt: String): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
+        val modelName = preferences.getModelName()
         if (apiKey.isNullOrBlank()) {
             Log.e(TAG, "API key not configured")
             return@withContext Result.failure(Exception("API key not configured. Please set your Gemini API key in Settings."))
@@ -64,7 +64,7 @@ Transcript:
         try {
             val fullPrompt = systemPrompt + text + "\n</transcript>"
             val request = GeminiRequest.of(fullPrompt)
-            val url = "v1beta/models/$DEFAULT_MODEL:generateContent"
+            val url = "v1beta/models/$modelName:generateContent"
             val response = api.generate(url, apiKey, request)
 
             if (response.error != null) {
@@ -87,6 +87,7 @@ Transcript:
 
     override suspend fun generateTitle(transcript: String): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
+        val modelName = preferences.getModelName()
         if (apiKey.isNullOrBlank()) {
             Log.e(TAG, "API key not configured for title generation")
             return@withContext Result.failure(Exception("API key not configured"))
@@ -95,7 +96,7 @@ Transcript:
         try {
             val fullPrompt = TITLE_PROMPT + transcript
             val request = GeminiRequest.of(fullPrompt)
-            val url = "v1beta/models/$DEFAULT_MODEL:generateContent"
+            val url = "v1beta/models/$modelName:generateContent"
             val response = api.generate(url, apiKey, request)
 
             if (response.error != null) {
@@ -118,6 +119,7 @@ Transcript:
 
     override suspend fun generateSummary(transcript: String): Result<String> = withContext(Dispatchers.IO) {
         val apiKey = getApiKey()
+        val modelName = preferences.getModelName()
         if (apiKey.isNullOrBlank()) {
             Log.e(TAG, "API key not configured for summary generation")
             return@withContext Result.failure(Exception("API key not configured"))
@@ -126,7 +128,7 @@ Transcript:
         try {
             val fullPrompt = SUMMARY_PROMPT + transcript
             val request = GeminiRequest.of(fullPrompt)
-            val url = "v1beta/models/$DEFAULT_MODEL:generateContent"
+            val url = "v1beta/models/$modelName:generateContent"
             val response = api.generate(url, apiKey, request)
 
             if (response.error != null) {

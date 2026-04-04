@@ -38,7 +38,7 @@ class ApiKeyMigration @Inject constructor(
             val oldKey = preferences.geminiApiKey
             
             // Skip if it's the default/empty key
-            if (oldKey.isBlank() || oldKey == DEFAULT_KEY_PREFIX) {
+            if (oldKey.isBlank() || oldKey == OLD_DEFAULT_KEY || oldKey == CURRENT_DEFAULT_KEY) {
                 Log.d(TAG, "No custom API key to migrate")
                 return MigrationResult.NO_CUSTOM_KEY
             }
@@ -60,7 +60,7 @@ class ApiKeyMigration @Inject constructor(
     
     companion object {
         private const val TAG = "ApiKeyMigration"
-        // Prefix of the old hardcoded default key (check first few chars)
-        private const val DEFAULT_KEY_PREFIX = "AIzaSy"
+        private const val OLD_DEFAULT_KEY = "[removed-google-api-key]"
+        private const val CURRENT_DEFAULT_KEY = "[removed-google-api-key]"
     }
 }

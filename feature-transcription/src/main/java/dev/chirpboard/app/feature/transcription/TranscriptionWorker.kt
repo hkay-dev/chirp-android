@@ -212,18 +212,12 @@ class TranscriptionWorker @AssistedInject constructor(
                     .putString(OUTPUT_ERROR, "Out of memory during transcription")
                     .build()
             )
+        } catch (e: java.io.IOException) {
+            Log.e(TAG, "I/O error during decode/transcription (may be retried)", e)
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to decode/transcribe audio file", e)
-            recordingRepository.updateStatusWithError(
-                recordingId,
-                RecordingStatus.FAILED,
-                "Failed to transcribe audio: ${e.message}"
-            )
-            return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Failed to transcribe audio: ${e.message}")
-                    .build()
-            )
+            throw e
         }
         
         if (rawTranscriptionText.isBlank()) {
@@ -269,11 +263,27 @@ class TranscriptionWorker @AssistedInject constructor(
         correlationId: String
     ): Result {
         val transcript = recordingRepository.getTranscript(recordingId)
-            ?: return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "No transcript found for enhancement")
-                    .build()
-            )
+            ?: run {
+                val errorMessage = "No transcript found for enhancement"
+                recordingRepository.updateStatusWithError(
+                    recordingId,
+                    RecordingStatus.FAILED,
+                    errorMessage
+                )
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "enhancement_missing_transcript",
+                    message = errorMessage
+                )
+                return Result.failure(
+                    Data.Builder()
+                        .putString(OUTPUT_ERROR, errorMessage)
+                        .build()
+                )
+            }
 
         val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
         val processedText = transcript.processedText
@@ -340,6 +350,11 @@ class TranscriptionWorker @AssistedInject constructor(
         exception: Exception
     ): Result {
         val errorMessage = exception.message ?: "Unknown transcription error"
+        val disposition = resolveWorkerFailureDisposition(
+            exception = exception,
+            runAttemptCount = runAttemptCount,
+            maxRetryCount = MAX_RETRY_COUNT
+        )
 
         ReliabilityEventLogger.log(
             stage = ReliabilityStage.TRANSCRIPTION,
@@ -350,20 +365,18 @@ class TranscriptionWorker @AssistedInject constructor(
             message = errorMessage
         )
 
-        // Try to update the recording status to FAILED
         try {
             recordingRepository.updateStatusWithError(
                 recordingId,
-                RecordingStatus.FAILED,
+                disposition.status,
                 errorMessage
             )
         } catch (e: Exception) {
-            // If we can't update the status, just log and continue
-            // The recording will remain in TRANSCRIBING state
+            // If we can't update the status, just log and continue.
+            // The recording will remain in its previous state.
         }
 
-        // Check if this is a retryable error
-        return if (shouldRetry(exception) && runAttemptCount < MAX_RETRY_COUNT) {
+        return if (disposition.retry) {
             Result.retry()
         } else {
             Result.failure(
@@ -422,6 +435,21 @@ internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): Str
             }
         }
     }
+}
+
+internal data class WorkerFailureDisposition(
+    val status: RecordingStatus,
+    val retry: Boolean
+)
+
+internal fun resolveWorkerFailureDisposition(
+    exception: Exception,
+    runAttemptCount: Int,
+    maxRetryCount: Int
+): WorkerFailureDisposition {
+    val retry = exception is java.io.IOException && runAttemptCount < maxRetryCount
+    val status = if (retry) RecordingStatus.PENDING_TRANSCRIPTION else RecordingStatus.FAILED
+    return WorkerFailureDisposition(status = status, retry = retry)
 }
 
 internal class RetryableTranscriptionException(message: String) : java.io.IOException(message)

@@ -50,6 +50,6 @@ class Preferences @Inject constructor(
         private const val KEY_GEMINI_MODEL = "gemini_model"
         private const val KEY_HAPTIC_ENABLED = "haptic_enabled"
         
-        private const val DEFAULT_MODEL = "gemini-flash-lite-latest"
+        private const val DEFAULT_MODEL = "gemini-3.1-flash-lite-preview"
     }
 }

@@ -32,8 +32,11 @@ class LlmPreferences @Inject constructor(
     
     companion object {
         private const val TAG = "LlmPreferences"
-        private const val SECURE_PREFS_NAME = "secure_llm_prefs"
+        private const val SECURE_PREFS_NAME = "secure_prefs"
+        private const val APP_PREFS_NAME = "chirp"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
+        private const val KEY_GEMINI_MODEL = "gemini_model"
+        private const val DEFAULT_MODEL = "gemini-3.1-flash-lite-preview"
         
         /**
          * Development API key - only used in debug builds for convenience.
@@ -41,6 +44,9 @@ class LlmPreferences @Inject constructor(
          */
         private const val DEV_API_KEY = "[removed-google-api-key]"
     }
+
+    private val appPrefs: SharedPreferences =
+        context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
     
     /**
      * Encrypted SharedPreferences for secure API key storage.
@@ -74,6 +80,14 @@ class LlmPreferences @Inject constructor(
     val apiKey: Flow<String?> = flowOf(
         securePrefs?.getString(KEY_GEMINI_API_KEY, null) ?: DEV_API_KEY
     )
+
+    fun getApiKey(): String? {
+        return securePrefs?.getString(KEY_GEMINI_API_KEY, null) ?: DEV_API_KEY
+    }
+
+    fun getModelName(): String {
+        return appPrefs.getString(KEY_GEMINI_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
+    }
     
     val autoTitle: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[Keys.AUTO_TITLE] ?: false
@@ -97,6 +111,10 @@ class LlmPreferences @Inject constructor(
             ?: Log.e(TAG, "Cannot save API key: secure storage unavailable")
     }
 
+    fun setModelName(modelName: String) {
+        appPrefs.edit().putString(KEY_GEMINI_MODEL, modelName).apply()
+    }
+
     suspend fun clearApiKey() {
         securePrefs?.edit()?.remove(KEY_GEMINI_API_KEY)?.apply()
     }
@@ -105,7 +123,7 @@ class LlmPreferences @Inject constructor(
      * Check if an API key has been configured.
      */
     fun hasApiKey(): Boolean {
-        return !securePrefs?.getString(KEY_GEMINI_API_KEY, null).isNullOrBlank()
+        return !getApiKey().isNullOrBlank()
     }
     
     /**
