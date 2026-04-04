@@ -8,6 +8,7 @@ docs/plans/
 
 # Gradle
 .gradle/
+.kotlin/
 build/
 app/build/
 .desloppify/

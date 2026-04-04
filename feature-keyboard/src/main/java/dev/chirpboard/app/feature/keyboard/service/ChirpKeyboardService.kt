@@ -1,14 +1,9 @@
 package dev.chirpboard.app.feature.keyboard.service
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
-import android.os.Build
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
@@ -19,7 +14,6 @@ import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.compositionContext
-import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -36,19 +30,12 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
-import dev.chirpboard.app.core.transcription.TranscriptionOutcome
-import dev.chirpboard.app.data.entity.Recording
-import dev.chirpboard.app.data.entity.Transcript
-import dev.chirpboard.app.data.model.RecordingSource
-import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
-import java.io.File
-import java.util.UUID
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.state.toKeyboardState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
@@ -58,14 +45,13 @@ import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
@@ -135,7 +121,12 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
 
         // Start foreground service to prevent Android from killing us
-        startForegroundService()
+        KeyboardForegroundNotification.start(
+            service = this,
+            channelId = CHANNEL_ID,
+            notificationId = NOTIFICATION_ID,
+            mainActivityClass = MAIN_ACTIVITY_CLASS
+        )
 
         // Initialize audio focus manager
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -218,50 +209,6 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         initializeModel()
     }
     
-    private fun startForegroundService() {
-        createNotificationChannel()
-        
-        val notificationIntent = try {
-            Intent().setClassName(this, MAIN_ACTIVITY_CLASS)
-        } catch (e: Exception) {
-            Intent()
-        }
-        
-        val pendingIntent = PendingIntent.getActivity(
-            this, 0, notificationIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Chirp")
-            .setContentText("Voice model loaded in memory")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .build()
-        
-        startForeground(NOTIFICATION_ID, notification)
-        Log.d(TAG, "Foreground service started")
-    }
-    
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Chirp Service",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Keeps voice recognition model loaded in memory"
-                setShowBadge(false)
-            }
-            
-            val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager.createNotificationChannel(channel)
-        }
-    }
-
     private fun toggleLlm() {
         val newValue = !_llmEnabled.value
         _llmEnabled.value = newValue
@@ -277,30 +224,15 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     }
 
     private fun onBackspace() {
-        currentInputConnection?.deleteSurroundingText(1, 0)
+        deletePreviousCharacter(currentInputConnection)
     }
 
     private fun onSpace() {
-        currentInputConnection?.commitText(" ", 1)
+        commitSpace(currentInputConnection)
     }
 
     private fun onMoveCursor(delta: Int) {
-        val ic = currentInputConnection ?: return
-        
-        // Get current cursor position
-        val extractedText = ic.getExtractedText(
-            android.view.inputmethod.ExtractedTextRequest(),
-            0
-        ) ?: return
-        
-        val currentPos = extractedText.selectionStart
-        val textLength = extractedText.text.length
-        
-        // Calculate new position (clamped to text bounds)
-        val newPos = (currentPos + delta).coerceIn(0, textLength)
-        
-        // Set selection to new position
-        ic.setSelection(newPos, newPos)
+        moveCursor(currentInputConnection, delta)
     }
 
     private fun initializeModel() {
@@ -726,7 +658,13 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         )
 
         val job = persistenceScope.launch {
-            saveKeyboardRecording(persistencePlan, sampleSnapshot)
+            saveKeyboardRecording(
+                filesDir = filesDir,
+                audioEncoder = audioEncoder,
+                recordingRepository = recordingRepository,
+                persistencePlan = persistencePlan,
+                samples = sampleSnapshot
+            )
         }
         persistenceJob = job
 
@@ -784,125 +722,4 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         }
     }
 
-    // suspend so it can call suspend repository methods; runs on persistenceScope (IO).
-    // The critical encode + DB section is wrapped in NonCancellable so a timeout-triggered
-    // scope cancellation cannot leave a partial file or an incomplete DB row.
-    private suspend fun saveKeyboardRecording(
-        persistencePlan: KeyboardPersistencePlan,
-        samples: FloatArray
-    ) {
-        try {
-            withContext(NonCancellable) {
-                val filename = "keyboard_${System.currentTimeMillis()}.m4a"
-                val recordingsDir = File(filesDir, "recordings")
-                recordingsDir.mkdirs()
-                val outputPath = File(recordingsDir, filename).absolutePath
-
-                val success = audioEncoder.encodeToM4a(samples, VoiceRecorder.SAMPLE_RATE, outputPath)
-                if (!success) {
-                    Log.e(TAG, "Failed to encode keyboard recording")
-                    return@withContext
-                }
-
-                val durationMs = (samples.size * 1000L) / VoiceRecorder.SAMPLE_RATE
-
-                val recording = Recording(
-                    id = UUID.randomUUID(),
-                    title = persistencePlan.title,
-                    audioPath = outputPath,
-                    status = persistencePlan.status,
-                    source = RecordingSource.KEYBOARD,
-                    profileId = null,
-                    durationMs = durationMs,
-                    errorMessage = persistencePlan.errorMessage
-                )
-
-                val rawText = persistencePlan.rawText
-                if (rawText != null) {
-                    val transcript = Transcript(
-                        id = UUID.randomUUID(),
-                        recordingId = recording.id,
-                        rawText = rawText,
-                        processedText = persistencePlan.processedText
-                    )
-                    recordingRepository.createRecordingWithTranscript(recording, transcript)
-                } else {
-                    recordingRepository.insert(recording)
-                }
-
-                Log.i(TAG, "Saved keyboard recording: ${recording.id}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save keyboard recording", e)
-        }
-    }
-}
-
-internal data class KeyboardPersistencePlan(
-    val title: String,
-    val status: RecordingStatus,
-    val rawText: String?,
-    val processedText: String?,
-    val errorMessage: String?
-)
-
-internal fun buildKeyboardPersistencePlan(
-    rawText: String?,
-    processedText: String?,
-    errorMessage: String?
-): KeyboardPersistencePlan {
-    val normalizedRawText = rawText?.trim()?.takeIf { it.isNotEmpty() }
-    val normalizedError = errorMessage?.trim()?.takeIf { it.isNotEmpty() }
-
-    val title = normalizedRawText?.take(50)
-        ?: normalizedError?.take(50)
-        ?: "Keyboard recording"
-
-    return KeyboardPersistencePlan(
-        title = title,
-        status = if (normalizedError == null) RecordingStatus.COMPLETED else RecordingStatus.FAILED,
-        rawText = normalizedRawText,
-        processedText = if (normalizedRawText == null) null else processedText,
-        errorMessage = normalizedError
-    )
-}
-
-internal sealed interface KeyboardTranscriptionResolution {
-    data class Success(val text: String) : KeyboardTranscriptionResolution
-    object NoSpeech : KeyboardTranscriptionResolution
-    data class Failure(val message: String) : KeyboardTranscriptionResolution
-}
-
-internal fun mapKeyboardTranscriptionOutcome(
-    outcome: TranscriptionOutcome
-): KeyboardTranscriptionResolution {
-    return when (outcome) {
-        is TranscriptionOutcome.Success -> {
-            if (outcome.text.isBlank()) {
-                KeyboardTranscriptionResolution.NoSpeech
-            } else {
-                KeyboardTranscriptionResolution.Success(outcome.text)
-            }
-        }
-        TranscriptionOutcome.NoSpeech -> KeyboardTranscriptionResolution.NoSpeech
-        is TranscriptionOutcome.ModelUnavailable -> {
-            KeyboardTranscriptionResolution.Failure("Recognizer unavailable: ${outcome.reason}")
-        }
-        is TranscriptionOutcome.EngineError -> {
-            KeyboardTranscriptionResolution.Failure(
-                "Transcription engine failed: ${outcome.reason}"
-            )
-        }
-    }
-}
-
-/**
- * Interface for the speech recognizer.
- * This allows the keyboard module to be decoupled from the specific recognizer implementation.
- */
-interface RecognizerProvider {
-    fun isReady(): Boolean
-    fun isModelDownloaded(): Boolean
-    suspend fun initialize(): Boolean
-    suspend fun transcribe(samples: FloatArray): TranscriptionOutcome
 }
