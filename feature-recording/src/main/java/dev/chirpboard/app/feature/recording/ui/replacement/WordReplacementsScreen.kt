@@ -62,7 +62,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
 @Composable
 fun WordReplacementsScreen(
     viewModel: WordReplacementsViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
 ) {
     val replacements by viewModel.replacements.collectAsState()
 
@@ -77,10 +77,10 @@ fun WordReplacementsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
-                }
+                },
             )
         },
         floatingActionButton = {
@@ -88,14 +88,14 @@ fun WordReplacementsScreen(
                 onClick = {
                     editingReplacement = null
                     showEditorDialog = true
-                }
+                },
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add replacement"
+                    contentDescription = "Add replacement",
                 )
             }
-        }
+        },
     ) { paddingValues ->
         AnimatedContent(
             targetState = replacements.isEmpty(),
@@ -103,31 +103,33 @@ fun WordReplacementsScreen(
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
-            label = "replacements_content"
+            label = "replacements_content",
         ) { isEmpty ->
             if (isEmpty) {
                 EmptyState(
                     icon = Icons.Default.SwapHoriz,
                     title = "No word replacements",
                     description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
-                    modifier = Modifier.padding(paddingValues)
+                    modifier = Modifier.padding(paddingValues),
                 )
             } else {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = 88.dp // Extra padding for FAB
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
+                    contentPadding =
+                        PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 8.dp,
+                            bottom = 88.dp, // Extra padding for FAB
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
                         items = replacements,
-                        key = { it.id }
+                        key = { it.id },
                     ) { replacement ->
                         SwipeableReplacementItem(
                             replacement = replacement,
@@ -137,7 +139,7 @@ fun WordReplacementsScreen(
                                 showEditorDialog = true
                             },
                             onDelete = { viewModel.delete(replacement) },
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -159,15 +161,15 @@ fun WordReplacementsScreen(
                         editingReplacement!!.copy(
                             original = original,
                             replacement = replacement,
-                            caseSensitive = caseSensitive
-                        )
+                            caseSensitive = caseSensitive,
+                        ),
                     )
                 } else {
                     viewModel.create(original, replacement, caseSensitive)
                 }
                 showEditorDialog = false
                 editingReplacement = null
-            }
+            },
         )
     }
 }
@@ -179,18 +181,19 @@ private fun SwipeableReplacementItem(
     onToggleEnabled: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { dismissValue ->
-            if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                true
-            } else {
-                false
-            }
-        }
-    )
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { dismissValue ->
+                if (dismissValue == SwipeToDismissBoxValue.EndToStart) {
+                    onDelete()
+                    true
+                } else {
+                    false
+                }
+            },
+        )
 
     // Reset state after deletion animation
     LaunchedEffect(replacement.id) {
@@ -202,34 +205,36 @@ private fun SwipeableReplacementItem(
         state = dismissState,
         backgroundContent = {
             val backgroundColor by animateColorAsState(
-                targetValue = when (dismissState.targetValue) {
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                    else -> Color.Transparent
-                },
-                label = "background_color"
+                targetValue =
+                    when (dismissState.targetValue) {
+                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                        else -> Color.Transparent
+                    },
+                label = "background_color",
             )
 
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(backgroundColor)
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterEnd
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(backgroundColor)
+                        .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
         },
         enableDismissFromStartToEnd = false,
-        enableDismissFromEndToStart = true
+        enableDismissFromEndToStart = true,
     ) {
         ReplacementItemCard(
             replacement = replacement,
             onToggleEnabled = onToggleEnabled,
-            onEdit = onEdit
+            onEdit = onEdit,
         )
     }
 }
@@ -238,57 +243,63 @@ private fun SwipeableReplacementItem(
 private fun ReplacementItemCard(
     replacement: WordReplacement,
     onToggleEnabled: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
 ) {
     val fromTextColor by animateColorAsState(
-        targetValue = if (replacement.enabled) {
-            MaterialTheme.colorScheme.onSurface
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        },
+        targetValue =
+            if (replacement.enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            },
         animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "from_text_color"
+        label = "from_text_color",
     )
     val toTextColor by animateColorAsState(
-        targetValue = if (replacement.enabled) {
-            if (replacement.replacement.isEmpty()) {
-                MaterialTheme.colorScheme.error
+        targetValue =
+            if (replacement.enabled) {
+                if (replacement.replacement.isEmpty()) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
             } else {
-                MaterialTheme.colorScheme.primary
-            }
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-        },
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            },
         animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "to_text_color"
+        label = "to_text_color",
     )
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (replacement.enabled) {
-                MaterialTheme.colorScheme.surface
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            }
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    if (replacement.enabled) {
+                        MaterialTheme.colorScheme.surface
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    },
+            ),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Enable/disable switch + text - clickable area
             Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onToggleEnabled() },
-                verticalAlignment = Alignment.CenterVertically
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .clickable { onToggleEnabled() },
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Switch(
                     checked = replacement.enabled,
-                    onCheckedChange = null // Handled by row click
+                    onCheckedChange = null, // Handled by row click
                 )
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -296,25 +307,26 @@ private fun ReplacementItemCard(
                 // Replacement text
                 Column {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = replacement.original,
                             style = MaterialTheme.typography.bodyLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            textDecoration = if (!replacement.enabled) {
-                                TextDecoration.LineThrough
-                            } else {
-                                TextDecoration.None
-                            },
-                            color = fromTextColor
+                            textDecoration =
+                                if (!replacement.enabled) {
+                                    TextDecoration.LineThrough
+                                } else {
+                                    TextDecoration.None
+                                },
+                            color = fromTextColor,
                         )
 
                         Text(
                             text = " \u2192 ",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
                         )
 
                         Text(
@@ -322,7 +334,7 @@ private fun ReplacementItemCard(
                             style = MaterialTheme.typography.bodyLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            color = toTextColor
+                            color = toTextColor,
                         )
                     }
 
@@ -331,7 +343,7 @@ private fun ReplacementItemCard(
                         Text(
                             text = "Case sensitive",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -342,7 +354,7 @@ private fun ReplacementItemCard(
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = "Edit",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

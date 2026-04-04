@@ -7,13 +7,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RecordingRecoveryActionMatrixTest {
-
     @Test
     fun `pending transcription shows recover action and stays enabled when ownership missing`() {
-        val actions = computeDetailRecoveryActions(
-            status = RecordingStatus.PENDING_TRANSCRIPTION,
-            ownership = RecoveryOwnershipState.MISSING_OR_TERMINAL
-        )
+        val actions =
+            computeDetailRecoveryActions(
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                ownership = RecoveryOwnershipState.MISSING_OR_TERMINAL,
+            )
 
         assertTrue(actions.showPendingRecovery)
         assertFalse(actions.showEnhancementRecovery)
@@ -22,10 +22,11 @@ class RecordingRecoveryActionMatrixTest {
 
     @Test
     fun `pending transcription disables actions while active work is running`() {
-        val actions = computeDetailRecoveryActions(
-            status = RecordingStatus.PENDING_TRANSCRIPTION,
-            ownership = RecoveryOwnershipState.ACTIVE
-        )
+        val actions =
+            computeDetailRecoveryActions(
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                ownership = RecoveryOwnershipState.ACTIVE,
+            )
 
         assertTrue(actions.showPendingRecovery)
         assertFalse(actions.actionsEnabled)
@@ -33,10 +34,11 @@ class RecordingRecoveryActionMatrixTest {
 
     @Test
     fun `enhancing shows both recovery actions and disables on ownership timeout`() {
-        val actions = computeDetailRecoveryActions(
-            status = RecordingStatus.ENHANCING,
-            ownership = RecoveryOwnershipState.INSPECTION_TIMEOUT
-        )
+        val actions =
+            computeDetailRecoveryActions(
+                status = RecordingStatus.ENHANCING,
+                ownership = RecoveryOwnershipState.INSPECTION_TIMEOUT,
+            )
 
         assertTrue(actions.showEnhancementRecovery)
         assertTrue(actions.showRetranscribeFromEnhancing)
@@ -45,10 +47,11 @@ class RecordingRecoveryActionMatrixTest {
 
     @Test
     fun `failed retry remains available regardless of ownership state`() {
-        val actions = computeDetailRecoveryActions(
-            status = RecordingStatus.FAILED,
-            ownership = RecoveryOwnershipState.ACTIVE
-        )
+        val actions =
+            computeDetailRecoveryActions(
+                status = RecordingStatus.FAILED,
+                ownership = RecoveryOwnershipState.ACTIVE,
+            )
 
         assertTrue(actions.showFailedRetry)
         assertTrue(actions.actionsEnabled)

@@ -33,11 +33,11 @@ fun MetadataPillRow(
     durationMs: Long,
     source: RecordingSource,
     status: RecordingStatus,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier.padding(horizontal = 16.dp)
+        modifier = modifier.padding(horizontal = 16.dp),
     ) {
         // Duration pill
         SuggestionChip(
@@ -47,9 +47,9 @@ fun MetadataPillRow(
                 Icon(
                     imageVector = Icons.Filled.Timer,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
                 )
-            }
+            },
         )
 
         // Source pill
@@ -61,20 +61,21 @@ fun MetadataPillRow(
                         RecordingSource.APP -> "App"
                         RecordingSource.KEYBOARD -> "Keyboard"
                         RecordingSource.WIDGET -> "Widget"
-                    }
+                    },
                 )
             },
             icon = {
                 Icon(
-                    imageVector = when (source) {
-                        RecordingSource.APP -> Icons.Filled.PhoneAndroid
-                        RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
-                        RecordingSource.WIDGET -> Icons.Filled.Widgets
-                    },
+                    imageVector =
+                        when (source) {
+                            RecordingSource.APP -> Icons.Filled.PhoneAndroid
+                            RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
+                            RecordingSource.WIDGET -> Icons.Filled.Widgets
+                        },
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
                 )
-            }
+            },
         )
 
         // Status pill
@@ -84,60 +85,82 @@ fun MetadataPillRow(
 
 @Composable
 private fun StatusChip(status: RecordingStatus) {
-    val (containerColor, labelColor, iconContent, labelText) = when (status) {
-        RecordingStatus.COMPLETED -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            iconContent = { StatusIcon(Icons.Filled.CheckCircle) },
-            labelText = "Completed"
-        )
-        RecordingStatus.FAILED -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            labelColor = MaterialTheme.colorScheme.onErrorContainer,
-            iconContent = { StatusIcon(Icons.Filled.ErrorOutline) },
-            labelText = "Failed"
-        )
-        RecordingStatus.RECORDING -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            iconContent = { SmallProgressIndicator() },
-            labelText = "Recording"
-        )
-        RecordingStatus.TRANSCRIBING -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            iconContent = { SmallProgressIndicator() },
-            labelText = "Transcribing"
-        )
-        RecordingStatus.ENHANCING -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            iconContent = { SmallProgressIndicator() },
-            labelText = "Enhancing"
-        )
-        RecordingStatus.PENDING_TRANSCRIPTION -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            iconContent = { StatusIcon(Icons.Filled.Schedule) },
-            labelText = "Pending"
-        )
-        RecordingStatus.PENDING_ENHANCEMENT -> StatusChipData(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            iconContent = { StatusIcon(Icons.Filled.Schedule) },
-            labelText = "Pending"
-        )
-    }
+    val (containerColor, labelColor, iconContent, labelText) =
+        when (status) {
+            RecordingStatus.COMPLETED -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    iconContent = { StatusIcon(Icons.Filled.CheckCircle) },
+                    labelText = "Completed",
+                )
+            }
+
+            RecordingStatus.FAILED -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                    iconContent = { StatusIcon(Icons.Filled.ErrorOutline) },
+                    labelText = "Failed",
+                )
+            }
+
+            RecordingStatus.RECORDING -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    iconContent = { SmallProgressIndicator() },
+                    labelText = "Recording",
+                )
+            }
+
+            RecordingStatus.TRANSCRIBING -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    iconContent = { SmallProgressIndicator() },
+                    labelText = "Transcribing",
+                )
+            }
+
+            RecordingStatus.ENHANCING -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    iconContent = { SmallProgressIndicator() },
+                    labelText = "Enhancing",
+                )
+            }
+
+            RecordingStatus.PENDING_TRANSCRIPTION -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    iconContent = { StatusIcon(Icons.Filled.Schedule) },
+                    labelText = "Pending",
+                )
+            }
+
+            RecordingStatus.PENDING_ENHANCEMENT -> {
+                StatusChipData(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    iconContent = { StatusIcon(Icons.Filled.Schedule) },
+                    labelText = "Pending",
+                )
+            }
+        }
 
     SuggestionChip(
         onClick = {},
         label = { Text(labelText, color = labelColor) },
         icon = iconContent,
-        colors = SuggestionChipDefaults.suggestionChipColors(
-            containerColor = containerColor,
-            labelColor = labelColor,
-            iconContentColor = labelColor
-        )
+        colors =
+            SuggestionChipDefaults.suggestionChipColors(
+                containerColor = containerColor,
+                labelColor = labelColor,
+                iconContentColor = labelColor,
+            ),
     )
 }
 
@@ -146,7 +169,7 @@ private fun StatusIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Icon(
         imageVector = icon,
         contentDescription = null,
-        modifier = Modifier.size(18.dp)
+        modifier = Modifier.size(18.dp),
     )
 }
 
@@ -154,7 +177,7 @@ private fun StatusIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
 private fun SmallProgressIndicator() {
     CircularProgressIndicator(
         modifier = Modifier.size(16.dp),
-        strokeWidth = 2.dp
+        strokeWidth = 2.dp,
     )
 }
 
@@ -162,5 +185,5 @@ private data class StatusChipData(
     val containerColor: Color,
     val labelColor: Color,
     val iconContent: @Composable () -> Unit,
-    val labelText: String
+    val labelText: String,
 )

@@ -51,7 +51,7 @@ fun StickyAudioPlayer(
     onSeek: (Long) -> Unit,
     onSkipBackward: () -> Unit,
     onSkipForward: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val isIdle = playbackState is PlaybackState.Idle
     val isLoading = playbackState is PlaybackState.Loading
@@ -59,41 +59,43 @@ fun StickyAudioPlayer(
     val isPlaying = playbackState is PlaybackState.Playing
     val controlsEnabled = !isIdle && !isLoading && !isError
 
-    val positionMs = when (playbackState) {
-        is PlaybackState.Playing -> playbackState.positionMs
-        is PlaybackState.Paused -> playbackState.positionMs
-        else -> 0L
-    }
+    val positionMs =
+        when (playbackState) {
+            is PlaybackState.Playing -> playbackState.positionMs
+            is PlaybackState.Paused -> playbackState.positionMs
+            else -> 0L
+        }
 
-    val durationMs = when (playbackState) {
-        is PlaybackState.Playing -> playbackState.durationMs
-        is PlaybackState.Paused -> playbackState.durationMs
-        else -> 0L
-    }
+    val durationMs =
+        when (playbackState) {
+            is PlaybackState.Playing -> playbackState.durationMs
+            is PlaybackState.Paused -> playbackState.durationMs
+            else -> 0L
+        }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
-        tonalElevation = 3.dp
+        tonalElevation = 3.dp,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Seek bar with time labels
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = positionMs.formatAsDuration(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 val sliderValue = if (durationMs > 0) positionMs.toFloat() / durationMs.toFloat() else 0f
                 val animatedSliderValue by animateFloatAsState(
                     targetValue = sliderValue,
                     animationSpec = tween(100, easing = FastOutSlowInEasing),
-                    label = "sliderPosition"
+                    label = "sliderPosition",
                 )
                 Slider(
                     value = animatedSliderValue,
@@ -101,56 +103,60 @@ fun StickyAudioPlayer(
                         onSeek((fraction * durationMs).toLong())
                     },
                     enabled = controlsEnabled,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp),
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                    )
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp),
+                    colors =
+                        SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        ),
                 )
                 Text(
                     text = durationMs.formatAsDuration(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
             // Controls row - centered with prominent play button
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+                horizontalArrangement = Arrangement.Center,
             ) {
                 // Skip backward 10s
                 var isSkipBackPressed by remember { mutableStateOf(false) }
                 val skipBackScale by animateFloatAsState(
                     targetValue = if (isSkipBackPressed) 0.85f else 1f,
                     animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
-                    label = "skipBackButtonScale"
+                    label = "skipBackButtonScale",
                 )
                 IconButton(
                     onClick = onSkipBackward,
                     enabled = controlsEnabled,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .scale(skipBackScale)
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    isSkipBackPressed = event.type == PointerEventType.Press
+                    modifier =
+                        Modifier
+                            .size(48.dp)
+                            .scale(skipBackScale)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        isSkipBackPressed = event.type == PointerEventType.Press
+                                    }
                                 }
-                            }
-                        }
+                            },
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Replay10,
                         contentDescription = "Skip backward 10 seconds",
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(28.dp),
                     )
                 }
 
@@ -158,42 +164,46 @@ fun StickyAudioPlayer(
                 FilledIconButton(
                     onClick = onPlayPause,
                     enabled = controlsEnabled && !isLoading,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .size(64.dp),
+                    modifier =
+                        Modifier
+                            .padding(horizontal = 16.dp)
+                            .size(64.dp),
                     shape = CircleShape,
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    colors =
+                        IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
                 ) {
                     when {
                         isLoading -> {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(28.dp),
                                 strokeWidth = 3.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                color = MaterialTheme.colorScheme.onPrimary,
                             )
                         }
+
                         isError -> {
                             Icon(
                                 imageVector = Icons.Filled.Error,
                                 contentDescription = "Playback error",
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(32.dp),
                             )
                         }
+
                         else -> {
                             Crossfade(
                                 targetState = isPlaying,
                                 animationSpec = tween(200, easing = FastOutSlowInEasing),
-                                label = "playPauseIcon"
+                                label = "playPauseIcon",
                             ) { playing ->
                                 Icon(
                                     imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                     contentDescription = if (playing) "Pause" else "Play",
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(32.dp),
                                 )
                             }
                         }
@@ -205,27 +215,28 @@ fun StickyAudioPlayer(
                 val skipForwardScale by animateFloatAsState(
                     targetValue = if (isSkipForwardPressed) 0.85f else 1f,
                     animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
-                    label = "skipForwardButtonScale"
+                    label = "skipForwardButtonScale",
                 )
                 IconButton(
                     onClick = onSkipForward,
                     enabled = controlsEnabled,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .scale(skipForwardScale)
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    isSkipForwardPressed = event.type == PointerEventType.Press
+                    modifier =
+                        Modifier
+                            .size(48.dp)
+                            .scale(skipForwardScale)
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        isSkipForwardPressed = event.type == PointerEventType.Press
+                                    }
                                 }
-                            }
-                        }
+                            },
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Forward10,
                         contentDescription = "Skip forward 10 seconds",
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(28.dp),
                     )
                 }
             }

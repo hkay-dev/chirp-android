@@ -11,19 +11,20 @@ import androidx.compose.ui.unit.dp
 fun SectionHeader(
     title: String,
     action: (@Composable () -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.primary
+            color = MaterialTheme.colorScheme.primary,
         )
         if (action != null) {
             Spacer(Modifier.weight(1f))
@@ -37,13 +38,13 @@ fun ContentSection(
     title: String,
     action: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = modifier) {
         SectionHeader(title = title, action = action)
         Column(
             modifier = Modifier.padding(horizontal = 16.dp),
-            content = content
+            content = content,
         )
     }
 }

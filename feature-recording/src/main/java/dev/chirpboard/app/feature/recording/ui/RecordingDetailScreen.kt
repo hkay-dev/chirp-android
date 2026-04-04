@@ -15,10 +15,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.core.util.formatForHeader
-import dev.chirpboard.app.core.util.isDefaultDateTitle
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.chirpboard.app.core.ui.components.LoadingState
+import dev.chirpboard.app.core.util.formatForHeader
+import dev.chirpboard.app.core.util.isDefaultDateTitle
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.ui.components.MetadataPillRow
 import dev.chirpboard.app.feature.recording.ui.components.StickyAudioPlayer
@@ -27,7 +27,7 @@ import dev.chirpboard.app.feature.recording.ui.components.StickyAudioPlayer
 @Composable
 fun RecordingDetailScreen(
     onBackClick: () -> Unit,
-    viewModel: RecordingDetailViewModel = hiltViewModel()
+    viewModel: RecordingDetailViewModel = hiltViewModel(),
 ) {
     val recording by viewModel.recording.collectAsState()
     val transcript by viewModel.transcript.collectAsState()
@@ -37,10 +37,10 @@ fun RecordingDetailScreen(
     val message by viewModel.message.collectAsState()
     val recoveryDiagnostics by viewModel.recoveryDiagnostics.collectAsState()
     val recoveryActions by viewModel.recoveryActions.collectAsState()
-    
+
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    
+
     // Show messages
     LaunchedEffect(message) {
         message?.let {
@@ -48,7 +48,7 @@ fun RecordingDetailScreen(
             viewModel.clearMessage()
         }
     }
-    
+
     // Load audio when recording becomes available and is ready for playback
     LaunchedEffect(recording?.id, recording?.status) {
         recording?.let { rec ->
@@ -58,19 +58,19 @@ fun RecordingDetailScreen(
             }
         }
     }
-    
+
     var showDeleteDialog by remember { mutableStateOf(false) }
-    
+
     if (recording == null) {
         LoadingState()
         return
     }
-    
+
     val rec = recording!!
     // Determine display title - show "Voice Memo" if title is just a date
     val displayTitle = if (rec.title.isDefaultDateTitle()) "Voice Memo" else rec.title
     val dateTimeText = rec.createdAt.formatForHeader()
-    
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -85,48 +85,51 @@ fun RecordingDetailScreen(
                 onSaveTitle = { viewModel.saveTitle() },
                 onStartEditing = { viewModel.startEditing() },
                 onDeleteRequested = { showDeleteDialog = true },
-                onBackClick = onBackClick
+                onBackClick = onBackClick,
             )
         },
         bottomBar = {
             AnimatedVisibility(
                 visible = true,
-                enter = slideInVertically(
-                    initialOffsetY = { it },
-                    animationSpec = tween(300, easing = FastOutSlowInEasing)
-                ) + fadeIn(tween(300)),
-                exit = slideOutVertically(
-                    targetOffsetY = { it },
-                    animationSpec = tween(200)
-                ) + fadeOut(tween(200))
+                enter =
+                    slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    ) + fadeIn(tween(300)),
+                exit =
+                    slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = tween(200),
+                    ) + fadeOut(tween(200)),
             ) {
                 StickyAudioPlayer(
                     playbackState = playbackState,
                     onPlayPause = { viewModel.togglePlayPause() },
                     onSeek = { viewModel.seekTo(it) },
                     onSkipBackward = { viewModel.skipBackward() },
-                    onSkipForward = { viewModel.skipForward() }
+                    onSkipForward = { viewModel.skipForward() },
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .verticalScroll(rememberScrollState()),
         ) {
             // Metadata pill row
             Spacer(modifier = Modifier.height(8.dp))
             MetadataPillRow(
                 durationMs = rec.durationMs,
                 source = rec.source,
-                status = rec.status
+                status = rec.status,
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             RecordingDetailSummarySection(summary = transcript?.summary)
 
             RecordingDetailTranscriptSection(
@@ -140,9 +143,9 @@ fun RecordingDetailScreen(
                 onRetryTranscription = { viewModel.retryTranscription() },
                 onRecoverEnhancing = { viewModel.recoverEnhancing() },
                 onRetranscribe = { viewModel.retranscribeFromEnhancing() },
-                onRecoverPending = { viewModel.recoverPendingTranscription() }
+                onRecoverPending = { viewModel.recoverPendingTranscription() },
             )
-            
+
             Spacer(modifier = Modifier.height(32.dp))
         }
     }
@@ -153,6 +156,6 @@ fun RecordingDetailScreen(
         onDeleteConfirmed = {
             showDeleteDialog = false
             viewModel.deleteRecording(onBackClick)
-        }
+        },
     )
 }

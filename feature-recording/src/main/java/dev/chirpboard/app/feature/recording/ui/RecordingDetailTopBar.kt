@@ -42,7 +42,7 @@ internal fun RecordingDetailTopBar(
     onSaveTitle: () -> Unit,
     onStartEditing: () -> Unit,
     onDeleteRequested: () -> Unit,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
 ) {
     var showOverflowMenu by remember { mutableStateOf(false) }
 
@@ -54,10 +54,11 @@ internal fun RecordingDetailTopBar(
                     onValueChange = onEditedTitleChange,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    colors =
+                        TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        ),
                 )
             } else {
                 Column {
@@ -65,13 +66,13 @@ internal fun RecordingDetailTopBar(
                         text = displayTitle,
                         maxLines = if (collapsedFraction > 0.5f) 1 else 3,
                         overflow = TextOverflow.Ellipsis,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     if (collapsedFraction < 0.5f) {
                         Text(
                             text = dateTimeText,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -81,7 +82,7 @@ internal fun RecordingDetailTopBar(
             IconButton(onClick = onBackClick) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back"
+                    contentDescription = "Back",
                 )
             }
         },
@@ -101,7 +102,7 @@ internal fun RecordingDetailTopBar(
 
                     DropdownMenu(
                         expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
+                        onDismissRequest = { showOverflowMenu = false },
                     ) {
                         DropdownMenuItem(
                             text = { Text("Edit title") },
@@ -111,7 +112,7 @@ internal fun RecordingDetailTopBar(
                             },
                             leadingIcon = {
                                 Icon(Icons.Default.Edit, contentDescription = null)
-                            }
+                            },
                         )
                         DropdownMenuItem(
                             text = { Text("Delete") },
@@ -123,13 +124,13 @@ internal fun RecordingDetailTopBar(
                                 Icon(
                                     Icons.Default.Delete,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.error
+                                    tint = MaterialTheme.colorScheme.error,
                                 )
-                            }
+                            },
                         )
                     }
                 }
             }
-        }
+        },
     )
 }

@@ -22,29 +22,34 @@ fun RecordingCard(
     onRetryTranscription: (() -> Unit)? = null,
     onGenerateTitle: (() -> Unit)? = null,
     onGenerateSummary: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val recording = item.recording
-    val isProcessing = recording.status in listOf(
-        RecordingStatus.TRANSCRIBING,
-        RecordingStatus.ENHANCING,
-        RecordingStatus.PENDING_TRANSCRIPTION,
-        RecordingStatus.PENDING_ENHANCEMENT
-    )
-    
+    val isProcessing =
+        recording.status in
+            listOf(
+                RecordingStatus.TRANSCRIBING,
+                RecordingStatus.ENHANCING,
+                RecordingStatus.PENDING_TRANSCRIPTION,
+                RecordingStatus.PENDING_ENHANCEMENT,
+            )
+
     Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
-        shape = ChirpShapes.Medium
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+        shape = ChirpShapes.Medium,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
         ) {
             RecordingCardHeader(
                 item = item,
@@ -52,12 +57,12 @@ fun RecordingCard(
                 onShare = onShare,
                 onRetryTranscription = onRetryTranscription,
                 onGenerateTitle = onGenerateTitle,
-                onGenerateSummary = onGenerateSummary
+                onGenerateSummary = onGenerateSummary,
             )
 
             RecordingCardContent(
                 item = item,
-                isProcessing = isProcessing
+                isProcessing = isProcessing,
             )
         }
     }

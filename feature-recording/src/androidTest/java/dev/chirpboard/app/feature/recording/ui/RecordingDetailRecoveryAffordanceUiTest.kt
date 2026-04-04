@@ -15,7 +15,6 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class RecordingDetailRecoveryAffordanceUiTest {
-
     @get:Rule
     val composeRule = createComposeRule()
 
@@ -26,7 +25,7 @@ class RecordingDetailRecoveryAffordanceUiTest {
                 PendingRecoveryAffordance(
                     diagnostics = RecoveryDiagnosticsUi(),
                     actionsEnabled = true,
-                    onRecoverPending = {}
+                    onRecoverPending = {},
                 )
             }
         }
@@ -45,7 +44,7 @@ class RecordingDetailRecoveryAffordanceUiTest {
                     EnhancingRecoveryActions(
                         actionsEnabled = true,
                         onRecoverEnhancing = {},
-                        onRetranscribe = {}
+                        onRetranscribe = {},
                     )
                 }
             }

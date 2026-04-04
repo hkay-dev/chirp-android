@@ -24,11 +24,11 @@ internal fun RecordingCardMenu(
     onDelete: () -> Unit,
     onRetryTranscription: (() -> Unit)? = null,
     onGenerateTitle: (() -> Unit)? = null,
-    onGenerateSummary: (() -> Unit)? = null
+    onGenerateSummary: (() -> Unit)? = null,
 ) {
     DropdownMenu(
         expanded = expanded,
-        onDismissRequest = onDismissRequest
+        onDismissRequest = onDismissRequest,
     ) {
         DropdownMenuItem(
             text = { Text("Share") },
@@ -39,9 +39,9 @@ internal fun RecordingCardMenu(
             leadingIcon = {
                 Icon(
                     imageVector = Icons.Default.Share,
-                    contentDescription = null
+                    contentDescription = null,
                 )
-            }
+            },
         )
 
         if (recordingStatus == RecordingStatus.COMPLETED &&
@@ -60,9 +60,9 @@ internal fun RecordingCardMenu(
                         Icon(
                             imageVector = Icons.Default.Title,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary
+                            tint = MaterialTheme.colorScheme.tertiary,
                         )
-                    }
+                    },
                 )
             }
 
@@ -77,9 +77,9 @@ internal fun RecordingCardMenu(
                         Icon(
                             imageVector = Icons.Default.Summarize,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.tertiary
+                            tint = MaterialTheme.colorScheme.tertiary,
                         )
-                    }
+                    },
                 )
             }
         }
@@ -96,9 +96,9 @@ internal fun RecordingCardMenu(
                 leadingIcon = {
                     Icon(
                         imageVector = Icons.Default.Refresh,
-                        contentDescription = null
+                        contentDescription = null,
                     )
-                }
+                },
             )
         }
 
@@ -114,9 +114,9 @@ internal fun RecordingCardMenu(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error
+                    tint = MaterialTheme.colorScheme.error,
                 )
-            }
+            },
         )
     }
 }

@@ -38,19 +38,21 @@ private val MainIconSize = 48.dp
  */
 sealed class RecordingUiState {
     data object Idle : RecordingUiState()
+
     data object Recording : RecordingUiState()
+
     data object Paused : RecordingUiState()
 }
 
 /**
  * Main action button for recording control.
- * 
+ *
  * Features:
  * - Large 120dp circular button
  * - Pulsing animation during recording (900ms cycle, 1.0 to 1.06 scale)
  * - Smooth color transitions between states
  * - Icon crossfade for state changes
- * 
+ *
  * @param state Current recording UI state
  * @param recordingColor Color to use when recording/paused (typically error/red)
  * @param onStartRecording Called when user taps to start recording (from Idle state)
@@ -69,7 +71,7 @@ fun MainActionButton(
     onResume: () -> Unit,
     modifier: Modifier = Modifier,
     buttonSize: Dp = MainButtonSize,
-    iconSize: Dp = MainIconSize
+    iconSize: Dp = MainIconSize,
 ) {
     val isRecording = state is RecordingUiState.Recording
     val isPaused = state is RecordingUiState.Paused
@@ -80,10 +82,11 @@ fun MainActionButton(
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = if (isRecording) 1.06f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = EaseInOut),
-            repeatMode = RepeatMode.Reverse,
-        ),
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(900, easing = EaseInOut),
+                repeatMode = RepeatMode.Reverse,
+            ),
         label = "pulseScale",
     )
 
@@ -112,18 +115,20 @@ fun MainActionButton(
     )
     val elevation = elevationFloat.dp
 
-    val onClick = when {
-        isRecording -> onPause
-        isPaused -> onResume
-        else -> onStartRecording
-    }
+    val onClick =
+        when {
+            isRecording -> onPause
+            isPaused -> onResume
+            else -> onStartRecording
+        }
 
     // Button with prominent shadow
     Surface(
         onClick = onClick,
-        modifier = modifier
-            .size(buttonSize)
-            .scale(if (isRecording && !isPaused) pulseScale else 1f),
+        modifier =
+            modifier
+                .size(buttonSize)
+                .scale(if (isRecording && !isPaused) pulseScale else 1f),
         shape = CircleShape,
         color = containerColor,
         shadowElevation = elevation,
@@ -139,11 +144,12 @@ fun MainActionButton(
                 animationSpec = tween(300, easing = FastOutSlowInEasing),
                 label = "iconCrossfade",
             ) { stateClass ->
-                val (icon, description) = when (stateClass) {
-                    RecordingUiState.Recording::class -> Icons.Default.Pause to "Pause Recording"
-                    RecordingUiState.Paused::class -> Icons.Default.PlayArrow to "Resume Recording"
-                    else -> Icons.Default.Mic to "Start Recording"
-                }
+                val (icon, description) =
+                    when (stateClass) {
+                        RecordingUiState.Recording::class -> Icons.Default.Pause to "Pause Recording"
+                        RecordingUiState.Paused::class -> Icons.Default.PlayArrow to "Resume Recording"
+                        else -> Icons.Default.Mic to "Start Recording"
+                    }
 
                 Icon(
                     imageVector = icon,

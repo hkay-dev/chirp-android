@@ -14,85 +14,86 @@ import javax.inject.Inject
 
 /**
  * ViewModel for the full-screen RecordScreen.
- * 
+ *
  * Manages recording state and amplitude data for the recording interface.
  */
 @HiltViewModel
-class RecordViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val recordingStateManager: RecordingStateManager
-) : ViewModel() {
-    
-    /** Current recording state */
-    val recordingState: StateFlow<RecordingState> = recordingStateManager.state
-    
-    /** Buffer of amplitude samples for waveform display */
-    val amplitudeHistory: StateFlow<List<Float>> = recordingStateManager.amplitudeHistoryFlow
-    
-    /** Current audio amplitude (0-1) */
-    val currentAmplitude: StateFlow<Float> = recordingStateManager.amplitudeFlow
-    
-    /** ID of the last recording that completed successfully */
-    val lastCompletedRecordingId: StateFlow<UUID?> = recordingStateManager.lastCompletedRecordingId
-    
-    /**
-     * Start a new recording.
-     * 
-     * @param profileId Optional profile ID for recording settings
-     */
-    fun startRecording(profileId: UUID? = null) {
-        RecordingService.startRecording(
-            context = context,
-            origin = RecordingOrigin.APP,
-            profileId = profileId
-        )
+class RecordViewModel
+    @Inject
+    constructor(
+        @ApplicationContext private val context: Context,
+        private val recordingStateManager: RecordingStateManager,
+    ) : ViewModel() {
+        /** Current recording state */
+        val recordingState: StateFlow<RecordingState> = recordingStateManager.state
+
+        /** Buffer of amplitude samples for waveform display */
+        val amplitudeHistory: StateFlow<List<Float>> = recordingStateManager.amplitudeHistoryFlow
+
+        /** Current audio amplitude (0-1) */
+        val currentAmplitude: StateFlow<Float> = recordingStateManager.amplitudeFlow
+
+        /** ID of the last recording that completed successfully */
+        val lastCompletedRecordingId: StateFlow<UUID?> = recordingStateManager.lastCompletedRecordingId
+
+        /**
+         * Start a new recording.
+         *
+         * @param profileId Optional profile ID for recording settings
+         */
+        fun startRecording(profileId: UUID? = null) {
+            RecordingService.startRecording(
+                context = context,
+                origin = RecordingOrigin.APP,
+                profileId = profileId,
+            )
+        }
+
+        /**
+         * Pause the current recording.
+         */
+        fun pauseRecording() {
+            RecordingService.pauseRecording(context)
+        }
+
+        /**
+         * Resume a paused recording.
+         */
+        fun resumeRecording() {
+            RecordingService.resumeRecording(context)
+        }
+
+        /**
+         * Stop the current recording and save it.
+         */
+        fun stopRecording() {
+            RecordingService.stopRecording(context)
+        }
+
+        /**
+         * Clear the last completed recording ID after navigation has been handled.
+         */
+        fun clearLastCompletedRecordingId() {
+            recordingStateManager.clearLastCompletedRecordingId()
+        }
+
+        /**
+         * Cancel the current recording without saving.
+         * Releases MediaRecorder, deletes the audio file, no database entry.
+         */
+        fun cancelRecording() {
+            RecordingService.cancelRecording(context)
+        }
+
+        /**
+         * Atomic restart: cancel current recording and immediately start a new one.
+         * Handles cleanup and re-start within a single service call to avoid race conditions.
+         */
+        fun restartRecording(profileId: UUID? = null) {
+            RecordingService.restartRecording(
+                context = context,
+                origin = RecordingOrigin.APP,
+                profileId = profileId,
+            )
+        }
     }
-    
-    /**
-     * Pause the current recording.
-     */
-    fun pauseRecording() {
-        RecordingService.pauseRecording(context)
-    }
-    
-    /**
-     * Resume a paused recording.
-     */
-    fun resumeRecording() {
-        RecordingService.resumeRecording(context)
-    }
-    
-    /**
-     * Stop the current recording and save it.
-     */
-    fun stopRecording() {
-        RecordingService.stopRecording(context)
-    }
-    
-    /**
-     * Clear the last completed recording ID after navigation has been handled.
-     */
-    fun clearLastCompletedRecordingId() {
-        recordingStateManager.clearLastCompletedRecordingId()
-    }
-    
-    /**
-     * Cancel the current recording without saving.
-     * Releases MediaRecorder, deletes the audio file, no database entry.
-     */
-    fun cancelRecording() {
-        RecordingService.cancelRecording(context)
-    }
-    
-    /**
-     * Atomic restart: cancel current recording and immediately start a new one.
-     * Handles cleanup and re-start within a single service call to avoid race conditions.
-     */
-    fun restartRecording(profileId: UUID? = null) {
-        RecordingService.restartRecording(
-            context = context,
-            origin = RecordingOrigin.APP,
-            profileId = profileId
-        )
-    }
-}

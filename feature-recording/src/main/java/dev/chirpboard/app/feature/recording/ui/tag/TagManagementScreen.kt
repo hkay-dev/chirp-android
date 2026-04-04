@@ -62,7 +62,7 @@ import dev.chirpboard.app.data.entity.Tag
 @Composable
 fun TagManagementScreen(
     viewModel: TagsViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
 ) {
     val tags by viewModel.tags.collectAsState()
 
@@ -77,22 +77,22 @@ fun TagManagementScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
-                }
+                },
             )
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showCreateDialog = true }
+                onClick = { showCreateDialog = true },
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add tag"
+                    contentDescription = "Add tag",
                 )
             }
-        }
+        },
     ) { paddingValues ->
         AnimatedContent(
             targetState = tags.isEmpty(),
@@ -100,32 +100,35 @@ fun TagManagementScreen(
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
-            label = "tags_content"
+            label = "tags_content",
         ) { isEmpty ->
             if (isEmpty) {
                 EmptyState(
                     icon = Icons.AutoMirrored.Filled.Label,
                     title = "No tags yet",
                     description = "Create tags to organize your recordings",
-                    modifier = Modifier.padding(paddingValues)
+                    modifier = Modifier.padding(paddingValues),
                 )
             } else {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
+                    contentPadding =
+                        androidx.compose.foundation.layout
+                            .PaddingValues(16.dp),
                 ) {
                     items(
                         items = tags,
-                        key = { it.id }
+                        key = { it.id },
                     ) { tag ->
                         SwipeableTagItem(
                             tag = tag,
                             onEdit = { editingTag = tag },
                             onDelete = { viewModel.deleteTag(tag) },
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }
@@ -141,7 +144,7 @@ fun TagManagementScreen(
             onSave = { name, color ->
                 viewModel.createTag(name, color)
                 showCreateDialog = false
-            }
+            },
         )
     }
 
@@ -153,7 +156,7 @@ fun TagManagementScreen(
             onSave = { name, color ->
                 viewModel.updateTag(tag.copy(name = name, color = color))
                 editingTag = null
-            }
+            },
         )
     }
 }
@@ -164,50 +167,53 @@ private fun SwipeableTagItem(
     tag: Tag,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
-                onDelete()
-                true
-            } else {
-                false
-            }
-        }
-    )
+    val dismissState =
+        rememberSwipeToDismissBoxState(
+            confirmValueChange = { value ->
+                if (value == SwipeToDismissBoxValue.EndToStart) {
+                    onDelete()
+                    true
+                } else {
+                    false
+                }
+            },
+        )
 
     SwipeToDismissBox(
         modifier = modifier,
         state = dismissState,
         backgroundContent = {
             val backgroundColor by animateColorAsState(
-                targetValue = when (dismissState.targetValue) {
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                    else -> Color.Transparent
-                },
-                label = "dismiss_background"
+                targetValue =
+                    when (dismissState.targetValue) {
+                        SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                        else -> Color.Transparent
+                    },
+                label = "dismiss_background",
             )
 
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(backgroundColor)
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterEnd
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(backgroundColor)
+                        .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onErrorContainer
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
         },
-        enableDismissFromStartToEnd = false
+        enableDismissFromStartToEnd = false,
     ) {
         TagItemCard(
             tag = tag,
-            onEdit = onEdit
+            onEdit = onEdit,
         )
     }
 }
@@ -216,28 +222,31 @@ private fun SwipeableTagItem(
 private fun TagItemCard(
     tag: Tag,
     onEdit: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val tagColor = tag.color?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+            ),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Color indicator
             Box(
-                modifier = Modifier
-                    .size(24.dp)
-                    .clip(CircleShape)
-                    .background(tagColor)
+                modifier =
+                    Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(tagColor),
             )
 
             Spacer(modifier = Modifier.width(16.dp))
@@ -246,7 +255,7 @@ private fun TagItemCard(
             Text(
                 text = tag.name,
                 style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
 
             // Edit button
@@ -254,17 +263,16 @@ private fun TagItemCard(
                 Icon(
                     imageVector = Icons.Default.Edit,
                     contentDescription = "Edit tag",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
     }
 }
 
-private fun parseColor(hexColor: String): Color {
-    return try {
+private fun parseColor(hexColor: String): Color =
+    try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
         Color.Gray
     }
-}

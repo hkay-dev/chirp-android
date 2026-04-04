@@ -6,8 +6,10 @@ package dev.chirpboard.app.data.model
 enum class RecordingSource {
     /** Created from app FAB or profile shortcut */
     APP,
+
     /** Created during IME usage */
     KEYBOARD,
+
     /** Created from home screen widget */
-    WIDGET
+    WIDGET,
 }

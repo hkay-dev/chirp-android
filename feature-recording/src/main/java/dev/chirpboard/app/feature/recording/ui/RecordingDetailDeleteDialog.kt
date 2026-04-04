@@ -11,7 +11,7 @@ import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 internal fun RecordingDetailDeleteDialog(
     visible: Boolean,
     onDismissRequest: () -> Unit,
-    onDeleteConfirmed: () -> Unit
+    onDeleteConfirmed: () -> Unit,
 ) {
     if (!visible) {
         return
@@ -26,9 +26,10 @@ internal fun RecordingDetailDeleteDialog(
         confirmButton = {
             TextButton(
                 onClick = onDeleteConfirmed,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.error
-                )
+                colors =
+                    ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
             ) {
                 Text("Delete")
             }
@@ -37,6 +38,6 @@ internal fun RecordingDetailDeleteDialog(
             TextButton(onClick = onDismissRequest) {
                 Text("Cancel")
             }
-        }
+        },
     )
 }

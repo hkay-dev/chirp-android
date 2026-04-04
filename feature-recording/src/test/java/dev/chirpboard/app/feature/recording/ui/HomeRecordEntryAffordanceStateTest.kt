@@ -6,7 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeRecordEntryAffordanceStateTest {
-
     @Test
     fun recordEntryActionEnabled_isFalseWhenChecking() {
         assertFalse(isRecordEntryActionEnabled(isChecking = true))

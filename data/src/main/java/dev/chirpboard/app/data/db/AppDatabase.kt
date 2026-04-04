@@ -3,8 +3,17 @@ package dev.chirpboard.app.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
-import dev.chirpboard.app.data.dao.*
-import dev.chirpboard.app.data.entity.*
+import dev.chirpboard.app.data.dao.ProfileDao
+import dev.chirpboard.app.data.dao.RecordingDao
+import dev.chirpboard.app.data.dao.TagDao
+import dev.chirpboard.app.data.dao.TranscriptDao
+import dev.chirpboard.app.data.dao.WordReplacementDao
+import dev.chirpboard.app.data.entity.Profile
+import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.RecordingTag
+import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.entity.WordReplacement
 
 /**
  * AppDatabase - Main application database
@@ -77,20 +86,23 @@ import dev.chirpboard.app.data.entity.*
         Profile::class,
         Tag::class,
         RecordingTag::class,
-        WordReplacement::class
+        WordReplacement::class,
     ],
     version = 1,
-    exportSchema = true
+    exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
-    
     abstract fun recordingDao(): RecordingDao
+
     abstract fun transcriptDao(): TranscriptDao
+
     abstract fun profileDao(): ProfileDao
+
     abstract fun tagDao(): TagDao
+
     abstract fun wordReplacementDao(): WordReplacementDao
-    
+
     companion object {
         const val DATABASE_NAME = "chirp.db"
     }

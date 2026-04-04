@@ -1,8 +1,7 @@
 package dev.chirpboard.app.feature.llm
 
 import dev.chirpboard.app.data.model.RecordingSource
-import dev.chirpboard.app.feature.llm.generator.SummaryGenerator
-import dev.chirpboard.app.feature.llm.generator.TitleGenerator
+import dev.chirpboard.app.feature.llm.client.LlmClient
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,31 +11,38 @@ import javax.inject.Singleton
  * - Summary generation: For all sources
  */
 @Singleton
-class LlmProcessor @Inject constructor(
-    private val titleGenerator: TitleGenerator,
-    private val summaryGenerator: SummaryGenerator
-) {
-    data class ProcessingResult(
-        val title: String?,
-        val summary: String?
-    )
+class LlmProcessor
+    @Inject
+    constructor(
+        private val llmClient: LlmClient,
+    ) {
+        data class ProcessingResult(
+            val title: String?,
+            val summary: String?,
+        )
 
-    /**
-     * Process transcript to generate title and summary.
-     * @param transcript The transcript text
-     * @param source Recording source (affects whether title is generated)
-     * @return ProcessingResult with generated title (if applicable) and summary
-     */
-    suspend fun process(
-        transcript: String,
-        source: RecordingSource
-    ): ProcessingResult {
-        val title = if (source != RecordingSource.KEYBOARD) {
-            titleGenerator.generate(transcript)
-        } else null
+        /**
+         * Process transcript to generate title and summary.
+         * @param transcript The transcript text
+         * @param source Recording source (affects whether title is generated)
+         * @return ProcessingResult with generated title (if applicable) and summary
+         */
+        suspend fun process(
+            transcript: String,
+            source: RecordingSource,
+        ): ProcessingResult {
+            if (transcript.isBlank()) return ProcessingResult(null, null)
 
-        val summary = summaryGenerator.generate(transcript)
+            val title =
+                if (source != RecordingSource.KEYBOARD) {
+                    val truncated = transcript.split(" ").take(500).joinToString(" ")
+                    llmClient.generateTitle(truncated).getOrNull()
+                } else {
+                    null
+                }
 
-        return ProcessingResult(title = title, summary = summary)
+            val summary = llmClient.generateSummary(transcript).getOrNull()
+
+            return ProcessingResult(title = title, summary = summary)
+        }
     }
-}

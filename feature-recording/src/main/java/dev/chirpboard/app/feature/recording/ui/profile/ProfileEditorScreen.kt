@@ -21,29 +21,29 @@ import androidx.hilt.navigation.compose.hiltViewModel
 fun ProfileEditorScreen(
     viewModel: ProfileEditorViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
-    onSaved: () -> Unit
+    onSaved: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-    
+
     // Navigate back when saved
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
             onSaved()
         }
     }
-    
+
     // Show error messages
     LaunchedEffect(uiState.error) {
         uiState.error?.let { error ->
             snackbarHostState.showSnackbar(
                 message = error,
-                duration = SnackbarDuration.Short
+                duration = SnackbarDuration.Short,
             )
             viewModel.clearError()
         }
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -52,43 +52,45 @@ fun ProfileEditorScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
                 },
                 actions = {
                     IconButton(
                         onClick = { viewModel.save() },
-                        enabled = !uiState.isLoading && uiState.name.isNotBlank()
+                        enabled = !uiState.isLoading && uiState.name.isNotBlank(),
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Save"
+                            contentDescription = "Save",
                         )
                     }
-                }
+                },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         if (uiState.isLoading && viewModel.isEditing && uiState.name.isEmpty()) {
             // Loading state for edit mode
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
-                contentAlignment = androidx.compose.ui.Alignment.Center
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
+                contentAlignment = androidx.compose.ui.Alignment.Center,
             ) {
                 CircularProgressIndicator()
             }
         } else {
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // Name field
                 OutlinedTextField(
@@ -97,13 +99,14 @@ fun ProfileEditorScreen(
                     label = { Text("Name *") },
                     placeholder = { Text("e.g., Meeting Notes") },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Words,
-                        imeAction = ImeAction.Next
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                    keyboardOptions =
+                        KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Words,
+                            imeAction = ImeAction.Next,
+                        ),
+                    modifier = Modifier.fillMaxWidth(),
                 )
-                
+
                 // Icon field
                 OutlinedTextField(
                     value = uiState.icon,
@@ -111,75 +114,76 @@ fun ProfileEditorScreen(
                     label = { Text("Icon (emoji)") },
                     placeholder = { Text("e.g., \uD83C\uDFA4") },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        imeAction = ImeAction.Next
-                    ),
+                    keyboardOptions =
+                        KeyboardOptions(
+                            imeAction = ImeAction.Next,
+                        ),
                     modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text("Optional emoji to identify this profile") }
+                    supportingText = { Text("Optional emoji to identify this profile") },
                 )
-                
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                
+
                 Text(
                     text = "Automation Settings",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
                 )
-                
+
                 // Auto Transcribe toggle
                 SettingToggle(
                     title = "Auto Transcribe",
                     description = "Automatically transcribe recordings when finished",
                     checked = uiState.autoTranscribe,
-                    onCheckedChange = { viewModel.updateAutoTranscribe(it) }
+                    onCheckedChange = { viewModel.updateAutoTranscribe(it) },
                 )
-                
+
                 // Auto Title toggle
                 SettingToggle(
                     title = "Auto Title",
                     description = "Generate title using AI after transcription",
                     checked = uiState.autoTitle,
-                    onCheckedChange = { viewModel.updateAutoTitle(it) }
+                    onCheckedChange = { viewModel.updateAutoTitle(it) },
                 )
-                
+
                 // Auto Summary toggle
                 SettingToggle(
                     title = "Auto Summary",
                     description = "Generate summary using AI after transcription",
                     checked = uiState.autoSummary,
-                    onCheckedChange = { viewModel.updateAutoSummary(it) }
+                    onCheckedChange = { viewModel.updateAutoSummary(it) },
                 )
-                
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                
+
                 Text(
                     text = "Processing",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
                 )
-                
+
                 // Processing mode dropdown
                 ProcessingModeDropdown(
                     selectedMode = uiState.defaultProcessingMode,
-                    onModeSelected = { viewModel.updateDefaultProcessingMode(it) }
+                    onModeSelected = { viewModel.updateDefaultProcessingMode(it) },
                 )
-                
+
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                
+
                 Text(
                     text = "Obsidian Integration",
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
                 )
-                
+
                 // Auto Export to Obsidian toggle
                 SettingToggle(
                     title = "Auto Export to Obsidian",
                     description = "Automatically export processed recordings to Obsidian",
                     checked = uiState.autoExportToObsidian,
-                    onCheckedChange = { viewModel.updateAutoExportToObsidian(it) }
+                    onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
                 )
-                
+
                 // Obsidian vault path
                 if (uiState.autoExportToObsidian) {
                     OutlinedTextField(
@@ -188,14 +192,15 @@ fun ProfileEditorScreen(
                         label = { Text("Obsidian Vault Path") },
                         placeholder = { Text("Leave empty to use global setting") },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(
-                            imeAction = ImeAction.Done
-                        ),
+                        keyboardOptions =
+                            KeyboardOptions(
+                                imeAction = ImeAction.Done,
+                            ),
                         modifier = Modifier.fillMaxWidth(),
-                        supportingText = { Text("Override the global Obsidian vault path for this profile") }
+                        supportingText = { Text("Override the global Obsidian vault path for this profile") },
                     )
                 }
-                
+
                 // Spacer for bottom padding
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -209,30 +214,31 @@ private fun SettingToggle(
     description: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 4.dp),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .clickable { onCheckedChange(!checked) }
+                .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyLarge
+                style = MaterialTheme.typography.bodyLarge,
             )
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Switch(
             checked = checked,
-            onCheckedChange = null // Handled by row click
+            onCheckedChange = null, // Handled by row click
         )
     }
 }
@@ -242,23 +248,24 @@ private fun SettingToggle(
 private fun ProcessingModeDropdown(
     selectedMode: String?,
     onModeSelected: (String?) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    
+
     // TODO: These should come from a central place or API
-    val processingModes = listOf(
-        null to "None (No processing)",
-        "enhance" to "Enhance",
-        "summarize" to "Summarize",
-        "meeting_notes" to "Meeting Notes",
-        "action_items" to "Action Items"
-    )
-    
+    val processingModes =
+        listOf(
+            null to "None (No processing)",
+            "enhance" to "Enhance",
+            "summarize" to "Summarize",
+            "meeting_notes" to "Meeting Notes",
+            "action_items" to "Action Items",
+        )
+
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth(),
     ) {
         OutlinedTextField(
             value = processingModes.find { it.first == selectedMode }?.second ?: "None",
@@ -266,14 +273,15 @@ private fun ProcessingModeDropdown(
             readOnly = true,
             label = { Text("Default Processing Mode") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor()
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(),
         )
-        
+
         ExposedDropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
         ) {
             processingModes.forEach { (mode, label) ->
                 DropdownMenuItem(
@@ -282,7 +290,7 @@ private fun ProcessingModeDropdown(
                         onModeSelected(mode)
                         expanded = false
                     },
-                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
                 )
             }
         }
