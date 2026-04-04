@@ -200,7 +200,7 @@ fun LlmSettingsScreen(
 
                 OutlinedButton(
                     onClick = viewModel::testConnection,
-                    enabled = uiState.isKeyConfigured && !uiState.isTestingConnection
+                    enabled = uiState.apiKey.isNotBlank() && !uiState.isTestingConnection
                 ) {
                     if (uiState.isTestingConnection) {
                         CircularProgressIndicator(

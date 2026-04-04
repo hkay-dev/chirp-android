@@ -61,11 +61,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
@@ -80,6 +82,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         private const val TAG = "ChirpKeyboard"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "chirp_service"
+        private const val SHUTDOWN_PERSISTENCE_TIMEOUT_MS = 5_000L
         
         // Intent action for opening main activity - will be resolved at runtime
         private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
@@ -99,6 +102,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _state = MutableStateFlow<KeyboardState>(KeyboardState.ModelNotReady)
     private val state = _state.asStateFlow()
@@ -116,6 +120,8 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     private val _microphoneGain = MutableStateFlow(1.0f)
 
     private var recordingJob: Job? = null
+    private var finalizationJob: Job? = null
+    private var persistenceJob: Job? = null
     
     // Custom recomposer for IME
     private val recomposerScope = CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main)
@@ -378,17 +384,22 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
 
         // Stop recording if active
         if (_state.value is KeyboardState.Recording) {
-            audioFocusManager.abandonFocus()
-            recordingJob?.cancel()
-            recorder.stop()
-            recordingStateManager.onRecordingCompleted()
-            _state.value = KeyboardState.Idle
+            finalizeActiveRecording(
+                errorMessage = "Recording stopped when the keyboard closed before transcription finished"
+            )
         }
     }
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy - Stopping foreground service")
         stopForeground(STOP_FOREGROUND_REMOVE)
+
+        if (_state.value is KeyboardState.Recording) {
+            finalizeActiveRecording(
+                errorMessage = "Recording stopped because the keyboard service was destroyed"
+            )
+        }
+        awaitPendingPersistence()
         
         // Unregister phone call handler
         phoneCallHandler?.unregister()
@@ -401,6 +412,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         recomposer.cancel()
         recomposerScope.cancel()
         scope.cancel()
+        persistenceScope.cancel()
         
         super.onDestroy()
     }
@@ -504,6 +516,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         // Launch on Default dispatcher for CPU-intensive work (transcription, LLM)
         // This prevents UI freezing on 120Hz displays where each frame is 8.3ms
         scope.launch(Dispatchers.Default) {
+            var rawTextForPersistence: String? = null
             try {
                 val correlationId = ReliabilityEventLogger.newCorrelationId("keyboard")
                 ReliabilityEventLogger.log(
@@ -522,6 +535,11 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                         reasonCode = "keyboard_recognizer_not_ready"
                     )
                     withContext(Dispatchers.Main) {
+                        persistBufferedKeyboardCapture(
+                            rawText = null,
+                            processedText = null,
+                            errorMessage = "Recognizer not ready"
+                        )
                         _state.value = KeyboardState.Error("Recognizer not ready")
                         recordingStateManager.onRecordingError("Recognizer not ready")
                     }
@@ -541,6 +559,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                             reasonCode = "keyboard_no_speech"
                         )
                         withContext(Dispatchers.Main) {
+                            discardBufferedKeyboardCapture()
                             recordingStateManager.onRecordingCompleted()
                             _state.value = KeyboardState.Idle
                         }
@@ -555,6 +574,11 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                             message = mappedOutcome.message
                         )
                         withContext(Dispatchers.Main) {
+                            persistBufferedKeyboardCapture(
+                                rawText = rawTextForPersistence,
+                                processedText = null,
+                                errorMessage = mappedOutcome.message
+                            )
                             _state.value = KeyboardState.Error(mappedOutcome.message)
                             recordingStateManager.onRecordingError(mappedOutcome.message)
                         }
@@ -563,6 +587,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 }
 
                 Log.d(TAG, "Transcribed: $rawText")
+                rawTextForPersistence = rawText
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.TRANSCRIPTION,
                     outcome = ReliabilityOutcome.SUCCESS,
@@ -645,6 +670,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Transcription failed", e)
+                val errorMessage = "Transcription failed: ${e.message}"
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.TRANSCRIPTION,
                     outcome = ReliabilityOutcome.FAILURE,
@@ -653,8 +679,13 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                     message = e.message
                 )
                 withContext(Dispatchers.Main) {
-                    _state.value = KeyboardState.Error("Transcription failed: ${e.message}")
-                    recordingStateManager.onRecordingError("Transcription failed: ${e.message}")
+                    persistBufferedKeyboardCapture(
+                        rawText = rawTextForPersistence,
+                        processedText = null,
+                        errorMessage = errorMessage
+                    )
+                    _state.value = KeyboardState.Error(errorMessage)
+                    recordingStateManager.onRecordingError(errorMessage)
                 }
             }
         }
@@ -665,67 +696,177 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
      * When saveKeyboardRecordings is ON, saves the recording to database.
      */
     private suspend fun handleTranscriptionComplete(rawText: String, processedText: String?) {
-        val shouldSave = keyboardPreferences.saveKeyboardRecordings.first()
-        val samples = lastRecordingSamples
-        
-        if (shouldSave && samples != null && samples.isNotEmpty()) {
-            saveKeyboardRecording(rawText, processedText, samples)
-        } else {
-            lastRecordingSamples = null  // Free memory
-        }
+        persistBufferedKeyboardCapture(
+            rawText = rawText,
+            processedText = processedText
+        )
     }
     
     /**
      * Saves a keyboard recording to persistent storage.
      * Encodes audio to M4A and creates Recording + Transcript entities.
      */
-    private fun saveKeyboardRecording(rawText: String, processedText: String?, samples: FloatArray) {
-        scope.launch(Dispatchers.IO) {
+    private suspend fun persistBufferedKeyboardCapture(
+        rawText: String?,
+        processedText: String?,
+        errorMessage: String? = null
+    ) {
+        val shouldSave = keyboardPreferences.saveKeyboardRecordings.first()
+        val samples = lastRecordingSamples
+
+        if (!shouldSave || samples == null || samples.isEmpty()) {
+            lastRecordingSamples = null
+            return
+        }
+
+        val sampleSnapshot = samples.copyOf()
+        lastRecordingSamples = null
+        val persistencePlan = buildKeyboardPersistencePlan(
+            rawText = rawText,
+            processedText = processedText,
+            errorMessage = errorMessage
+        )
+
+        val job = persistenceScope.launch {
+            saveKeyboardRecording(persistencePlan, sampleSnapshot)
+        }
+        persistenceJob = job
+
+        try {
+            job.join()
+        } finally {
+            if (persistenceJob === job) {
+                persistenceJob = null
+            }
+        }
+    }
+
+    private fun discardBufferedKeyboardCapture() {
+        lastRecordingSamples = null
+    }
+
+    private fun finalizeActiveRecording(errorMessage: String) {
+        if (_state.value !is KeyboardState.Recording) {
+            return
+        }
+
+        Log.w(TAG, "Finalizing active recording: $errorMessage")
+        audioFocusManager.abandonFocus()
+        recordingJob?.cancel()
+
+        val samples = recorder.stop()
+        lastRecordingSamples = samples.takeIf { it.isNotEmpty() }
+        _state.value = KeyboardState.Idle
+
+        finalizationJob = persistenceScope.launch {
             try {
+                persistBufferedKeyboardCapture(
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = errorMessage
+                )
+            } finally {
+                recordingStateManager.onRecordingCompleted()
+            }
+        }
+    }
+
+    private fun awaitPendingPersistence() {
+        runBlocking {
+            val completed = withTimeoutOrNull(SHUTDOWN_PERSISTENCE_TIMEOUT_MS) {
+                finalizationJob?.join()
+                persistenceJob?.join()
+            }
+
+            if (completed == null &&
+                ((finalizationJob?.isActive == true) || (persistenceJob?.isActive == true))
+            ) {
+                Log.w(TAG, "Timed out waiting for keyboard recording persistence during shutdown")
+            }
+        }
+    }
+
+    // suspend so it can call suspend repository methods; runs on persistenceScope (IO).
+    // The critical encode + DB section is wrapped in NonCancellable so a timeout-triggered
+    // scope cancellation cannot leave a partial file or an incomplete DB row.
+    private suspend fun saveKeyboardRecording(
+        persistencePlan: KeyboardPersistencePlan,
+        samples: FloatArray
+    ) {
+        try {
+            withContext(NonCancellable) {
                 val filename = "keyboard_${System.currentTimeMillis()}.m4a"
                 val recordingsDir = File(filesDir, "recordings")
                 recordingsDir.mkdirs()
                 val outputPath = File(recordingsDir, filename).absolutePath
-                
+
                 val success = audioEncoder.encodeToM4a(samples, VoiceRecorder.SAMPLE_RATE, outputPath)
                 if (!success) {
                     Log.e(TAG, "Failed to encode keyboard recording")
-                    return@launch
+                    return@withContext
                 }
-                
+
                 val durationMs = (samples.size * 1000L) / VoiceRecorder.SAMPLE_RATE
-                
-                // Create recording
+
                 val recording = Recording(
                     id = UUID.randomUUID(),
-                    title = rawText.take(50).ifEmpty { "Keyboard recording" },
+                    title = persistencePlan.title,
                     audioPath = outputPath,
-                    status = RecordingStatus.COMPLETED,
+                    status = persistencePlan.status,
                     source = RecordingSource.KEYBOARD,
                     profileId = null,
-                    durationMs = durationMs
+                    durationMs = durationMs,
+                    errorMessage = persistencePlan.errorMessage
                 )
-                
-                // Create transcript
-                val transcript = Transcript(
-                    id = UUID.randomUUID(),
-                    recordingId = recording.id,
-                    rawText = rawText,
-                    processedText = processedText
-                )
-                
-                // Save atomically
-                recordingRepository.createRecordingWithTranscript(recording, transcript)
-                
+
+                val rawText = persistencePlan.rawText
+                if (rawText != null) {
+                    val transcript = Transcript(
+                        id = UUID.randomUUID(),
+                        recordingId = recording.id,
+                        rawText = rawText,
+                        processedText = persistencePlan.processedText
+                    )
+                    recordingRepository.createRecordingWithTranscript(recording, transcript)
+                } else {
+                    recordingRepository.insert(recording)
+                }
+
                 Log.i(TAG, "Saved keyboard recording: ${recording.id}")
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to save keyboard recording", e)
-            } finally {
-                lastRecordingSamples = null  // Free memory
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save keyboard recording", e)
         }
     }
+}
+
+internal data class KeyboardPersistencePlan(
+    val title: String,
+    val status: RecordingStatus,
+    val rawText: String?,
+    val processedText: String?,
+    val errorMessage: String?
+)
+
+internal fun buildKeyboardPersistencePlan(
+    rawText: String?,
+    processedText: String?,
+    errorMessage: String?
+): KeyboardPersistencePlan {
+    val normalizedRawText = rawText?.trim()?.takeIf { it.isNotEmpty() }
+    val normalizedError = errorMessage?.trim()?.takeIf { it.isNotEmpty() }
+
+    val title = normalizedRawText?.take(50)
+        ?: normalizedError?.take(50)
+        ?: "Keyboard recording"
+
+    return KeyboardPersistencePlan(
+        title = title,
+        status = if (normalizedError == null) RecordingStatus.COMPLETED else RecordingStatus.FAILED,
+        rawText = normalizedRawText,
+        processedText = if (normalizedRawText == null) null else processedText,
+        errorMessage = normalizedError
+    )
 }
 
 internal sealed interface KeyboardTranscriptionResolution {

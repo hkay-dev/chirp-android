@@ -64,7 +64,7 @@ class LlmSettingsViewModel @Inject constructor(
     }
 
     fun updateApiKey(key: String) {
-        _uiState.update { it.copy(apiKey = key) }
+        _uiState.update { it.copy(apiKey = key, isKeyConfigured = key.isNotBlank()) }
     }
 
     fun saveApiKey() {
@@ -83,6 +83,19 @@ class LlmSettingsViewModel @Inject constructor(
     fun testConnection() {
         viewModelScope.launch {
             _uiState.update { it.copy(isTestingConnection = true, connectionTestResult = null) }
+
+            val apiKey = _uiState.value.apiKey.trim()
+            if (apiKey.isBlank()) {
+                _uiState.update {
+                    it.copy(
+                        isTestingConnection = false,
+                        connectionTestResult = ConnectionTestResult.Error("API key not configured")
+                    )
+                }
+                return@launch
+            }
+
+            preferences.setApiKey(apiKey)
             
             val result = llmClient.process(
                 text = "Hello",

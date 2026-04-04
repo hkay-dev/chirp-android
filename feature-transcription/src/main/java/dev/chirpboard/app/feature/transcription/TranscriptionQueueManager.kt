@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -74,11 +75,16 @@ class TranscriptionQueueManager @Inject constructor(
     val constraintWarning: StateFlow<String?> = _constraintWarning.asStateFlow()
     
     /**
-     * Flow of recordings pending transcription.
-     * Emits updates whenever the pending queue changes.
+     * Flow of recordings pending background processing.
+     * Emits updates whenever pending transcription or enhancement work changes.
      */
     val pendingRecordings: Flow<List<Recording>> =
-        recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION)
+        combine(
+            recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION),
+            recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT)
+        ) { pendingTranscription, pendingEnhancement ->
+            mergePendingRecordings(pendingTranscription, pendingEnhancement)
+        }
     
     /**
      * Number of recordings currently being processed (TRANSCRIBING status).
@@ -245,6 +251,21 @@ class TranscriptionQueueManager @Inject constructor(
         )
     }
 
+    suspend fun recoverPendingEnhancement(recordingId: UUID): ManualRecoveryResult {
+        val recording = recordingRepository.getRecording(recordingId)
+            ?: return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+
+        if (recording.status != RecordingStatus.PENDING_ENHANCEMENT) {
+            return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+        }
+
+        return enqueueManualRecovery(
+            recordingId = recordingId,
+            status = RecordingStatus.PENDING_ENHANCEMENT,
+            reason = "Re-established pending enhancement ownership"
+        )
+    }
+
     suspend fun recoverEnhancing(recordingId: UUID): ManualRecoveryResult {
         val recording = recordingRepository.getRecording(recordingId)
             ?: return ManualRecoveryResult.NOT_RECOVERABLE_STATE
@@ -276,17 +297,19 @@ class TranscriptionQueueManager @Inject constructor(
     }
 
     suspend fun recoverStuckRecordings(): Int {
-        val pending = recordingRepository
-            .getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION)
-            .first()
+        val pending = recordingRepository.getPendingRecordings()
         val enhancing = recordingRepository
             .getRecordingsByStatus(RecordingStatus.ENHANCING)
             .first()
 
         return (pending.map { it.id } + enhancing.map { it.id }).count { id ->
-            when {
-                pending.any { it.id == id } -> recoverPendingTranscription(id) == ManualRecoveryResult.ENQUEUED
-                else -> recoverEnhancing(id) == ManualRecoveryResult.ENQUEUED
+            when (pending.firstOrNull { it.id == id }?.status) {
+                RecordingStatus.PENDING_TRANSCRIPTION ->
+                    recoverPendingTranscription(id) == ManualRecoveryResult.ENQUEUED
+                RecordingStatus.PENDING_ENHANCEMENT ->
+                    recoverPendingEnhancement(id) == ManualRecoveryResult.ENQUEUED
+                else ->
+                    recoverEnhancing(id) == ManualRecoveryResult.ENQUEUED
             }
         }
     }
@@ -430,9 +453,15 @@ class TranscriptionQueueManager @Inject constructor(
     }
 
     private suspend fun reconcilePendingQueueOwnership() {
-        val pending = pendingRecordings.first()
+        val pendingTranscription = pendingRecordings.first()
+        val pendingEnhancement = recordingRepository
+            .getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT)
+            .first()
 
-        pending.forEach { recording ->
+        // Reconcile both pending-transcription and pending-enhancement work. PENDING_ENHANCEMENT
+        // recordings whose WorkManager job is missing must be re-enqueued with the same care,
+        // or they stay stuck indefinitely.
+        mergePendingRecordings(pendingTranscription, pendingEnhancement).forEach { recording ->
             val ownership = inspectQueueOwnership(recording.id)
 
             when {
@@ -451,7 +480,7 @@ class TranscriptionQueueManager @Inject constructor(
                             reasonCode = "reconciled_pending"
                         )
                         if (recording.hasRecoverablePendingError()) {
-                            clearPendingError(recording.id)
+                            clearPendingError(recording)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
@@ -468,7 +497,7 @@ class TranscriptionQueueManager @Inject constructor(
 
                 ownership == QueueOwnership.ACTIVE -> {
                     if (recording.hasRecoverablePendingError()) {
-                        clearPendingError(recording.id)
+                        clearPendingError(recording)
                     }
                 }
 
@@ -548,10 +577,10 @@ class TranscriptionQueueManager @Inject constructor(
         }
     }
 
-    private suspend fun clearPendingError(recordingId: UUID) {
+    private suspend fun clearPendingError(recording: Recording) {
         recordingRepository.updateStatusWithError(
-            id = recordingId,
-            status = RecordingStatus.PENDING_TRANSCRIPTION,
+            id = recording.id,
+            status = recording.status,
             errorMessage = null
         )
     }
@@ -568,7 +597,10 @@ class TranscriptionQueueManager @Inject constructor(
 
     private fun Recording.hasRecoverablePendingError(): Boolean {
         return errorMessage?.startsWith(RECOVERABLE_QUEUE_HANDOFF_PREFIX) == true ||
-            errorMessage?.startsWith(RECOVERABLE_STALE_TRANSCRIBING_PREFIX) == true
+            errorMessage?.startsWith(RECOVERABLE_STALE_TRANSCRIBING_PREFIX) == true ||
+            // PENDING_ENHANCEMENT recordings created via recoverEnhancing() carry a
+            // MANUAL_RECOVERY_PREFIX marker; clear it once the job is re-enqueued.
+            errorMessage?.startsWith(MANUAL_RECOVERY_PREFIX) == true
     }
 }
 
@@ -683,4 +715,17 @@ internal fun shouldRecoverStaleEnhancing(
 
 internal fun shouldRequeuePending(ownership: QueueOwnership): Boolean {
     return ownership == QueueOwnership.MISSING_OR_TERMINAL
+}
+
+/**
+ * Combine pending-transcription and pending-enhancement recordings into a single list,
+ * ordered newest-first by [Recording.createdAt]. Used by reconciliation so that both
+ * categories of stalled work receive the same ownership check and re-enqueue treatment.
+ */
+internal fun mergePendingRecordings(
+    pendingTranscription: List<Recording>,
+    pendingEnhancement: List<Recording>
+): List<Recording> {
+    return (pendingTranscription + pendingEnhancement)
+        .sortedByDescending { it.createdAt }
 }

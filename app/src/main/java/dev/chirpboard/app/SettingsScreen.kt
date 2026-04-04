@@ -915,7 +915,7 @@ private fun MicrophoneSettingsSection(prefs: Preferences) {
 private fun GeminiConfigSection(prefs: Preferences, securePrefs: SecurePreferences) {
     var apiKey by remember { mutableStateOf(securePrefs.geminiApiKey ?: "") }
     var modelName by remember { mutableStateOf(prefs.geminiModel) }
-    var useCustomModel by remember { mutableStateOf(prefs.geminiModel != "gemini-flash-lite-latest") }
+    var useCustomModel by remember { mutableStateOf(prefs.geminiModel != "gemini-3.1-flash-lite-preview") }
     
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -964,12 +964,12 @@ private fun GeminiConfigSection(prefs: Preferences, securePrefs: SecurePreferenc
                         selected = !useCustomModel,
                         onClick = {
                             useCustomModel = false
-                            modelName = "gemini-flash-lite-latest"
+                            modelName = "gemini-3.1-flash-lite-preview"
                             prefs.geminiModel = modelName
                         }
                     )
                     Text(
-                        "gemini-flash-lite-latest (Recommended)",
+                        "gemini-3.1-flash-lite-preview (Recommended)",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(start = 8.dp)
                     )
@@ -1003,7 +1003,7 @@ private fun GeminiConfigSection(prefs: Preferences, securePrefs: SecurePreferenc
                             .fillMaxWidth()
                             .padding(start = 48.dp),
                         singleLine = true,
-                        placeholder = { Text("e.g., gemini-2.0-flash-exp") }
+                        placeholder = { Text("e.g., gemini-3.1-flash-lite-preview") }
                     )
                 }
             }
