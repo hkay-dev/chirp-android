@@ -58,12 +58,16 @@ class TranscriptionOutcomeMappingTest {
 
     @Test
     fun `RetryableTranscriptionException is IOException so retry policy fires`() {
-        assertTrue(RetryableTranscriptionException("transient codec issue") is java.io.IOException)
+        val exception: Exception = RetryableTranscriptionException("transient codec issue")
+
+        assertTrue(exception is java.io.IOException)
     }
 
     @Test
     fun `NonRetryableTranscriptionException is not IOException so retry policy skips`() {
-        assertFalse(NonRetryableTranscriptionException("model unavailable") is java.io.IOException)
+        val exception: Exception = NonRetryableTranscriptionException("model unavailable")
+
+        assertFalse(exception is java.io.IOException)
     }
 
     @Test
@@ -83,6 +87,18 @@ class TranscriptionOutcomeMappingTest {
         val disposition = resolveWorkerFailureDisposition(
             exception = NonRetryableTranscriptionException("bad audio format"),
             runAttemptCount = 0,
+            maxRetryCount = 3
+        )
+
+        assertEquals(RecordingStatus.FAILED, disposition.status)
+        assertFalse(disposition.retry)
+    }
+
+    @Test
+    fun `retryable worker failure becomes terminal after max retries`() {
+        val disposition = resolveWorkerFailureDisposition(
+            exception = RetryableTranscriptionException("temporary decoder issue"),
+            runAttemptCount = 3,
             maxRetryCount = 3
         )
 
