@@ -12,16 +12,19 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class ProfilesViewModel @Inject constructor(
-    private val profileRepository: ProfileRepository
-) : ViewModel() {
-    
-    val profiles: StateFlow<List<Profile>> = profileRepository.getAllProfiles()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    
-    fun deleteProfile(profile: Profile) {
-        viewModelScope.launch {
-            profileRepository.delete(profile)
+class ProfilesViewModel
+    @Inject
+    constructor(
+        private val profileRepository: ProfileRepository,
+    ) : ViewModel() {
+        val profiles: StateFlow<List<Profile>> =
+            profileRepository
+                .getAllProfiles()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        fun deleteProfile(profile: Profile) {
+            viewModelScope.launch {
+                profileRepository.delete(profile)
+            }
         }
     }
-}

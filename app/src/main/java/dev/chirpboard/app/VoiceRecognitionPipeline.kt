@@ -2,13 +2,14 @@ package dev.chirpboard.app
 
 import android.speech.SpeechRecognizer
 import android.util.Log
+import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
-import dev.chirpboard.app.llm.ProcessingMode
-import dev.chirpboard.app.llm.TextProcessor
+import dev.chirpboard.app.feature.llm.TextProcessor
+import dev.chirpboard.app.feature.llm.model.ProcessingMode
 
 internal class VoiceRecognitionPipeline(
     private val tag: String,
-    private val recognizerProvider: () -> SherpaRecognizer?,
+    private val transcriberProvider: TranscriberProvider,
     private val textProcessor: TextProcessor,
 ) {
     suspend fun process(
@@ -22,36 +23,34 @@ internal class VoiceRecognitionPipeline(
             return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_NO_MATCH)
         }
 
-        val recognizer = recognizerProvider()
-        if (recognizer == null) {
-            Log.e(tag, "Recognizer is null")
-            return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
-        }
-
-        Log.d(tag, "Checking if recognizer is ready: ${recognizer.isReady}")
-        if (!recognizer.isReady) {
-            Log.w(tag, "Recognizer not ready")
+        Log.d(tag, "Checking if transcriber is ready: ${transcriberProvider.isReady()}")
+        if (!transcriberProvider.isReady()) {
+            Log.w(tag, "Transcriber not ready")
             return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
         }
 
         Log.d(tag, "Starting transcription...")
-        var text = when (val outcome = recognizer.transcribeOutcome(samples)) {
-            is TranscriptionOutcome.Success -> outcome.text
-            TranscriptionOutcome.NoSpeech -> {
-                Log.w(tag, "No speech detected")
-                return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_NO_MATCH)
-            }
+        var text =
+            when (val outcome = transcriberProvider.transcribe(samples)) {
+                is TranscriptionOutcome.Success -> {
+                    outcome.text
+                }
 
-            is TranscriptionOutcome.ModelUnavailable -> {
-                Log.w(tag, "Model unavailable: ${outcome.reason}")
-                return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
-            }
+                TranscriptionOutcome.NoSpeech -> {
+                    Log.w(tag, "No speech detected")
+                    return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_NO_MATCH)
+                }
 
-            is TranscriptionOutcome.EngineError -> {
-                Log.e(tag, "Engine error: ${outcome.reason}")
-                return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_CLIENT)
+                is TranscriptionOutcome.ModelUnavailable -> {
+                    Log.w(tag, "Model unavailable: ${outcome.reason}")
+                    return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                }
+
+                is TranscriptionOutcome.EngineError -> {
+                    Log.e(tag, "Engine error: ${outcome.reason}")
+                    return VoiceRecognitionPipelineResult.Error(SpeechRecognizer.ERROR_CLIENT)
+                }
             }
-        }
 
         Log.d(tag, "Raw transcription: '$text' (length: ${text.length})")
         onPartialTranscript(text)
@@ -64,12 +63,13 @@ internal class VoiceRecognitionPipeline(
         if (llmEnabled) {
             Log.d(tag, "Applying LLM processing with mode: ${processingMode.id}")
             val result = textProcessor.process(text, processingMode)
-            result.onSuccess { processedText ->
-                text = processedText
-                Log.d(tag, "Processed text: '$text'")
-            }.onFailure { error ->
-                Log.w(tag, "LLM processing failed: ${error.message}, using raw text")
-            }
+            result
+                .onSuccess { processedText ->
+                    text = processedText
+                    Log.d(tag, "Processed text: '$text'")
+                }.onFailure { error ->
+                    Log.w(tag, "LLM processing failed: ${error.message}, using raw text")
+                }
         }
 
         return VoiceRecognitionPipelineResult.Success("$text ")
@@ -77,7 +77,11 @@ internal class VoiceRecognitionPipeline(
 }
 
 internal sealed interface VoiceRecognitionPipelineResult {
-    data class Success(val text: String) : VoiceRecognitionPipelineResult
+    data class Success(
+        val text: String,
+    ) : VoiceRecognitionPipelineResult
 
-    data class Error(val code: Int) : VoiceRecognitionPipelineResult
+    data class Error(
+        val code: Int,
+    ) : VoiceRecognitionPipelineResult
 }

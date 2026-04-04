@@ -2,7 +2,7 @@ package dev.chirpboard.app.feature.recording.ui.components
 
 /**
  * Format seconds into a human-readable duration string.
- * 
+ *
  * @param seconds Total seconds to format
  * @return Formatted string:
  *   - "MM:SS" for durations under 1 hour (e.g., "05:23")
@@ -22,10 +22,8 @@ fun formatTime(seconds: Long): String {
 
 /**
  * Format milliseconds into a human-readable duration string.
- * 
+ *
  * @param milliseconds Total milliseconds to format
  * @return Formatted string (see [formatTime])
  */
-fun formatTimeMs(milliseconds: Long): String {
-    return formatTime(milliseconds / 1000)
-}
+fun formatTimeMs(milliseconds: Long): String = formatTime(milliseconds / 1000)

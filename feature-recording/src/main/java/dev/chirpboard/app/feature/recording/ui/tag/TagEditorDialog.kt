@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -33,16 +32,30 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.data.entity.Tag
 
 /**
  * Preset colors for tag color picker.
  */
-val TagColorPresets = listOf(
-    "#F44336", "#E91E63", "#9C27B0", "#673AB7", "#3F51B5",
-    "#2196F3", "#03A9F4", "#00BCD4", "#009688", "#4CAF50",
-    "#8BC34A", "#CDDC39", "#FFC107", "#FF9800", "#FF5722"
-)
+val TagColorPresets =
+    listOf(
+        "#F44336",
+        "#E91E63",
+        "#9C27B0",
+        "#673AB7",
+        "#3F51B5",
+        "#2196F3",
+        "#03A9F4",
+        "#00BCD4",
+        "#009688",
+        "#4CAF50",
+        "#8BC34A",
+        "#CDDC39",
+        "#FFC107",
+        "#FF9800",
+        "#FF5722",
+    )
 
 /**
  * Dialog for creating or editing a tag.
@@ -56,7 +69,7 @@ val TagColorPresets = listOf(
 fun TagEditorDialog(
     tag: Tag? = null,
     onDismiss: () -> Unit,
-    onSave: (name: String, color: String?) -> Unit
+    onSave: (name: String, color: String?) -> Unit,
 ) {
     var name by remember { mutableStateOf(tag?.name ?: "") }
     var selectedColor by remember { mutableStateOf(tag?.color) }
@@ -74,7 +87,7 @@ fun TagEditorDialog(
                     onValueChange = { name = it },
                     label = { Text("Tag name") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -82,7 +95,7 @@ fun TagEditorDialog(
                 Text(
                     text = "Color",
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -90,7 +103,7 @@ fun TagEditorDialog(
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     TagColorPresets.forEach { colorHex ->
                         ColorCircle(
@@ -98,7 +111,7 @@ fun TagEditorDialog(
                             isSelected = selectedColor == colorHex,
                             onClick = {
                                 selectedColor = if (selectedColor == colorHex) null else colorHex
-                            }
+                            },
                         )
                     }
                 }
@@ -111,7 +124,7 @@ fun TagEditorDialog(
                         onSave(name.trim(), selectedColor)
                     }
                 },
-                enabled = name.isNotBlank()
+                enabled = name.isNotBlank(),
             ) {
                 Text("Save")
             }
@@ -120,7 +133,7 @@ fun TagEditorDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
-        }
+        },
     )
 }
 
@@ -129,41 +142,40 @@ private fun ColorCircle(
     colorHex: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val color = parseColor(colorHex)
     val checkColor = if (color.luminance() > 0.5f) Color.Black else Color.White
 
     Box(
-        modifier = modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .background(color)
-            .then(
-                if (isSelected) {
-                    Modifier.border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                } else {
-                    Modifier
-                }
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+        modifier =
+            modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(color)
+                .then(
+                    if (isSelected) {
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                    } else {
+                        Modifier
+                    },
+                ).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
         if (isSelected) {
             Icon(
                 imageVector = Icons.Default.Check,
                 contentDescription = "Selected",
                 tint = checkColor,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
     }
 }
 
-private fun parseColor(hexColor: String): Color {
-    return try {
+private fun parseColor(hexColor: String): Color =
+    try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
         Color.Gray
     }
-}

@@ -21,22 +21,24 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class RecordingRepositoryTransactionTest {
-
     private lateinit var database: AppDatabase
     private lateinit var repository: RecordingRepository
 
     @Before
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
-            .allowMainThreadQueries()
-            .build()
+        database =
+            Room
+                .inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+                .allowMainThreadQueries()
+                .build()
 
-        repository = RecordingRepository(
-            recordingDao = database.recordingDao(),
-            transcriptDao = database.transcriptDao(),
-            database = database
-        )
+        repository =
+            RecordingRepository(
+                recordingDao = database.recordingDao(),
+                transcriptDao = database.transcriptDao(),
+                database = database,
+            )
     }
 
     @After
@@ -45,51 +47,57 @@ class RecordingRepositoryTransactionTest {
     }
 
     @Test
-    fun createRecordingWithTranscript_persistsBothRows() = runBlocking {
-        val recording = Recording(
-            title = "Atomic write success",
-            audioPath = "",
-            source = RecordingSource.KEYBOARD,
-            status = RecordingStatus.COMPLETED
-        )
-        val transcript = Transcript(
-            recordingId = recording.id,
-            rawText = "test transcript"
-        )
+    fun createRecordingWithTranscript_persistsBothRows() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Atomic write success",
+                    audioPath = "",
+                    source = RecordingSource.KEYBOARD,
+                    status = RecordingStatus.COMPLETED,
+                )
+            val transcript =
+                Transcript(
+                    recordingId = recording.id,
+                    rawText = "test transcript",
+                )
 
-        repository.createRecordingWithTranscript(recording, transcript)
+            repository.createRecordingWithTranscript(recording, transcript)
 
-        val persistedRecording = repository.getRecording(recording.id)
-        val persistedTranscript = repository.getTranscript(recording.id)
+            val persistedRecording = repository.getRecording(recording.id)
+            val persistedTranscript = repository.getTranscript(recording.id)
 
-        assertNotNull(persistedRecording)
-        assertNotNull(persistedTranscript)
-    }
-
-    @Test
-    fun createRecordingWithTranscript_rollsBackWhenTranscriptInsertFails() = runBlocking {
-        val recording = Recording(
-            title = "Atomic write rollback",
-            audioPath = "",
-            source = RecordingSource.KEYBOARD,
-            status = RecordingStatus.COMPLETED
-        )
-
-        // Force FK violation by using a different recordingId than the one inserted above
-        val invalidTranscript = Transcript(
-            recordingId = UUID.randomUUID(),
-            rawText = "will fail"
-        )
-
-        var threw = false
-        try {
-            repository.createRecordingWithTranscript(recording, invalidTranscript)
-        } catch (e: Exception) {
-            threw = true
+            assertNotNull(persistedRecording)
+            assertNotNull(persistedTranscript)
         }
 
-        assertTrue(threw)
-        assertNull(repository.getRecording(recording.id))
-        assertNull(repository.getTranscript(recording.id))
-    }
+    @Test
+    fun createRecordingWithTranscript_rollsBackWhenTranscriptInsertFails() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Atomic write rollback",
+                    audioPath = "",
+                    source = RecordingSource.KEYBOARD,
+                    status = RecordingStatus.COMPLETED,
+                )
+
+            // Force FK violation by using a different recordingId than the one inserted above
+            val invalidTranscript =
+                Transcript(
+                    recordingId = UUID.randomUUID(),
+                    rawText = "will fail",
+                )
+
+            var threw = false
+            try {
+                repository.createRecordingWithTranscript(recording, invalidTranscript)
+            } catch (e: Exception) {
+                threw = true
+            }
+
+            assertTrue(threw)
+            assertNull(repository.getRecording(recording.id))
+            assertNull(repository.getTranscript(recording.id))
+        }
 }

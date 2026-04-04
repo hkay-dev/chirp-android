@@ -18,16 +18,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 4. Write tests in MigrationTest.kt
  */
 object Migrations {
-
     /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
-    val ALL: Array<Migration> = arrayOf(
-        // Add migrations here as they're created, e.g.:
-        // MIGRATION_1_2,
-        // MIGRATION_2_3,
-    )
+    val ALL: Array<Migration> =
+        arrayOf(
+            // Add migrations here as they're created, e.g.:
+            // MIGRATION_1_2,
+            // MIGRATION_2_3,
+        )
 
     // Example migration template (uncomment and modify when needed):
     /*
@@ -39,7 +39,7 @@ object Migrations {
             )
         }
     }
-    */
+     */
 
     // Common migration patterns:
     //

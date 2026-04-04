@@ -8,9 +8,8 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
 import android.widget.Toast
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Recomposer
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.compositionContext
@@ -27,6 +26,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
@@ -34,7 +34,6 @@ import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
-import dev.chirpboard.app.feature.keyboard.state.toKeyboardState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
@@ -42,12 +41,12 @@ import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
@@ -56,22 +55,30 @@ import javax.inject.Inject
  * Integrates with RecordingStateManager to coordinate with app and widget recording.
  */
 @AndroidEntryPoint
-class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateRegistryOwner {
+class ChirpKeyboardService :
+    InputMethodService(),
+    LifecycleOwner,
+    SavedStateRegistryOwner {
     companion object {
         private const val TAG = "ChirpKeyboard"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "chirp_service"
         private const val SHUTDOWN_PERSISTENCE_TIMEOUT_MS = 5_000L
-        
+
         // Intent action for opening main activity - will be resolved at runtime
         private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
     }
 
     @Inject lateinit var recordingStateManager: RecordingStateManager
+
     @Inject lateinit var textProcessor: TextProcessor
+
     @Inject lateinit var keyboardPreferences: KeyboardPreferences
+
     @Inject lateinit var modeRepository: ProcessingModeRepository
-    @Inject lateinit var recognizerProvider: RecognizerProvider
+
+    @Inject lateinit var recognizerProvider: TranscriberProvider
+
     @Inject lateinit var recordingRepository: RecordingRepository
 
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -90,7 +97,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     private val audioEncoder = AudioEncoder()
     private lateinit var audioFocusManager: AudioFocusManager
     private var phoneCallHandler: PhoneCallHandler? = null
-    
+
     /** Stores samples from last recording for potential persistence */
     private var lastRecordingSamples: FloatArray? = null
 
@@ -114,7 +121,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             getBufferedSamples = { lastRecordingSamples },
             setBufferedSamples = { lastRecordingSamples = it },
             getPersistenceJob = { persistenceJob },
-            setPersistenceJob = { persistenceJob = it }
+            setPersistenceJob = { persistenceJob = it },
         )
     }
 
@@ -125,7 +132,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "onCreate - Starting foreground service to keep model in memory")
-        
+
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
@@ -136,7 +143,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             service = this,
             channelId = CHANNEL_ID,
             notificationId = NOTIFICATION_ID,
-            mainActivityClass = MAIN_ACTIVITY_CLASS
+            mainActivityClass = MAIN_ACTIVITY_CLASS,
         )
 
         // Initialize audio focus manager
@@ -146,23 +153,24 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             tag = TAG,
             audioFocusManager = audioFocusManager,
             currentState = { _state.value },
-            onRecordingInterrupted = ::stopAndTranscribe
+            onRecordingInterrupted = ::stopAndTranscribe,
         )
 
         // Initialize phone call handler to stop recording during calls
         val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
-        phoneCallHandler = KeyboardServiceStartup.registerPhoneCallInterrupts(
-            telephonyManager = telephonyManager,
-            mainExecutor = mainExecutor,
-            tag = TAG,
-            currentState = { _state.value },
-            onRecordingInterrupted = ::stopAndTranscribe
-        )
+        phoneCallHandler =
+            KeyboardServiceStartup.registerPhoneCallInterrupts(
+                telephonyManager = telephonyManager,
+                mainExecutor = mainExecutor,
+                tag = TAG,
+                currentState = { _state.value },
+                onRecordingInterrupted = ::stopAndTranscribe,
+            )
 
         // Start the recomposer
         KeyboardServiceStartup.startRecomposer(
             recomposerScope = recomposerScope,
-            recomposer = recomposer
+            recomposer = recomposer,
         )
 
         // Observe preferences
@@ -170,14 +178,14 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             scope = scope,
             keyboardPreferences = keyboardPreferences,
             onLlmEnabledChanged = { enabled -> _llmEnabled.value = enabled },
-            onMicrophoneGainChanged = { gain -> _microphoneGain.value = gain }
+            onMicrophoneGainChanged = { gain -> _microphoneGain.value = gain },
         )
 
         // Observe processing mode changes
         KeyboardServiceStartup.observeProcessingMode(
             scope = scope,
             modeRepository = modeRepository,
-            onModeChanged = { mode -> _currentMode.value = mode }
+            onModeChanged = { mode -> _currentMode.value = mode },
         )
 
         // Sync keyboard state from RecordingStateManager for recording-related states.
@@ -190,13 +198,13 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             recordingStateManager = recordingStateManager,
             currentState = { _state.value },
             onStateChanged = { state -> _state.value = state },
-            tag = TAG
+            tag = TAG,
         )
 
         // Initialize recognizer
         initializeModel()
     }
-    
+
     private fun toggleLlm() {
         val newValue = !_llmEnabled.value
         _llmEnabled.value = newValue
@@ -246,8 +254,8 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         }
     }
 
-    override fun onCreateInputView(): View {
-        return ComposeView(this).apply {
+    override fun onCreateInputView(): View =
+        ComposeView(this).apply {
             // Set our custom recomposer so Compose doesn't look for ViewTreeLifecycleOwner
             compositionContext = recomposer
             setViewTreeLifecycleOwner(this@ChirpKeyboardService)
@@ -265,13 +273,15 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                     onModeChange = ::changeMode,
                     onBackspace = ::onBackspace,
                     onSpace = ::onSpace,
-                    onMoveCursor = ::onMoveCursor
+                    onMoveCursor = ::onMoveCursor,
                 )
             }
         }
-    }
 
-    override fun onStartInputView(info: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
+    override fun onStartInputView(
+        info: android.view.inputmethod.EditorInfo?,
+        restarting: Boolean,
+    ) {
         super.onStartInputView(info, restarting)
         Log.d(TAG, "onStartInputView, current state: ${_state.value}")
 
@@ -303,7 +313,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         // Stop recording if active
         if (_state.value is KeyboardState.Recording) {
             finalizeActiveRecording(
-                errorMessage = "Recording stopped when the keyboard closed before transcription finished"
+                errorMessage = "Recording stopped when the keyboard closed before transcription finished",
             )
         }
     }
@@ -314,15 +324,15 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
 
         if (_state.value is KeyboardState.Recording) {
             finalizeActiveRecording(
-                errorMessage = "Recording stopped because the keyboard service was destroyed"
+                errorMessage = "Recording stopped because the keyboard service was destroyed",
             )
         }
         awaitPendingPersistence()
-        
+
         // Unregister phone call handler
         phoneCallHandler?.unregister()
         phoneCallHandler = null
-        
+
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
@@ -331,18 +341,33 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         recomposerScope.cancel()
         scope.cancel()
         persistenceScope.cancel()
-        
+
         super.onDestroy()
     }
 
     private fun onTap() {
         val currentState = _state.value
         when (currentState) {
-            is KeyboardState.Idle -> startRecording()
-            is KeyboardState.Recording -> stopAndTranscribe()
-            is KeyboardState.ModelNotReady -> initializeModel()
-            is KeyboardState.Error -> initializeModel()
-            is KeyboardState.LlmError -> _state.value = KeyboardState.Idle
+            is KeyboardState.Idle -> {
+                startRecording()
+            }
+
+            is KeyboardState.Recording -> {
+                stopAndTranscribe()
+            }
+
+            is KeyboardState.ModelNotReady -> {
+                initializeModel()
+            }
+
+            is KeyboardState.Error -> {
+                initializeModel()
+            }
+
+            is KeyboardState.LlmError -> {
+                _state.value = KeyboardState.Idle
+            }
+
             else -> {}
         }
     }
@@ -357,9 +382,11 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 _state.value = KeyboardState.Error("Another app is using audio")
                 return
             }
+
             is AudioFocusManager.FocusResult.Granted -> {
                 Log.d(TAG, "Audio focus granted, starting recording")
             }
+
             else -> { /* shouldn't happen */ }
         }
 
@@ -369,12 +396,14 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             is RecordingStartResult.Success -> {
                 // Proceed with recording
             }
+
             is RecordingStartResult.AlreadyRecording -> {
-                val sourceMessage = when (result.currentOrigin) {
-                    RecordingOrigin.APP -> "app"
-                    RecordingOrigin.WIDGET -> "widget"
-                    RecordingOrigin.KEYBOARD -> "keyboard"
-                }
+                val sourceMessage =
+                    when (result.currentOrigin) {
+                        RecordingOrigin.APP -> "app"
+                        RecordingOrigin.WIDGET -> "widget"
+                        RecordingOrigin.KEYBOARD -> "keyboard"
+                    }
                 Toast.makeText(this, "Microphone in use by $sourceMessage", Toast.LENGTH_SHORT).show()
                 audioFocusManager.abandonFocus()
                 return
@@ -383,7 +412,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
 
         // Set microphone gain before recording
         recorder.gainMultiplier = _microphoneGain.value
-        
+
         // Set error callback to handle recording errors
         recorder.onRecordingError = { error ->
             Log.e(TAG, "Recording error: ${error.userMessage}")
@@ -403,9 +432,10 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         _state.value = KeyboardState.Recording
         recordingStateManager.onRecordingStarted("keyboard_temp_recording")
 
-        recordingJob = scope.launch {
-            recorder.collectSamples()
-        }
+        recordingJob =
+            scope.launch {
+                recorder.collectSamples()
+            }
     }
 
     private fun stopAndTranscribe() {
@@ -417,7 +447,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         HapticFeedback.onRecordStop(this)
         recordingJob?.cancel()
         val samples = recorder.stop()
-        
+
         // Store samples for potential persistence
         lastRecordingSamples = samples
 
@@ -438,7 +468,7 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
                 commitText = { text -> currentInputConnection?.commitText(text, 1) },
                 onStateChanged = { state -> _state.value = state },
                 onRecordingCompleted = { recordingStateManager.onRecordingCompleted() },
-                onRecordingError = { message -> recordingStateManager.onRecordingError(message) }
+                onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
             )
         }
     }
@@ -456,25 +486,27 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
         lastRecordingSamples = samples.takeIf { it.isNotEmpty() }
         _state.value = KeyboardState.Idle
 
-        finalizationJob = persistenceScope.launch {
-            try {
-                transcriptionPipeline.persistBufferedKeyboardCapture(
-                    rawText = null,
-                    processedText = null,
-                    errorMessage = errorMessage
-                )
-            } finally {
-                recordingStateManager.onRecordingCompleted()
+        finalizationJob =
+            persistenceScope.launch {
+                try {
+                    transcriptionPipeline.persistBufferedKeyboardCapture(
+                        rawText = null,
+                        processedText = null,
+                        errorMessage = errorMessage,
+                    )
+                } finally {
+                    recordingStateManager.onRecordingCompleted()
+                }
             }
-        }
     }
 
     private fun awaitPendingPersistence() {
         runBlocking {
-            val completed = withTimeoutOrNull(SHUTDOWN_PERSISTENCE_TIMEOUT_MS) {
-                finalizationJob?.join()
-                persistenceJob?.join()
-            }
+            val completed =
+                withTimeoutOrNull(SHUTDOWN_PERSISTENCE_TIMEOUT_MS) {
+                    finalizationJob?.join()
+                    persistenceJob?.join()
+                }
 
             if (completed == null &&
                 ((finalizationJob?.isActive == true) || (persistenceJob?.isActive == true))
@@ -483,5 +515,4 @@ class ChirpKeyboardService : InputMethodService(), LifecycleOwner, SavedStateReg
             }
         }
     }
-
 }

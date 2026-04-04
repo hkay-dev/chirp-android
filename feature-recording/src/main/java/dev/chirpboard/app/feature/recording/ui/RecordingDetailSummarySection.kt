@@ -26,27 +26,28 @@ internal fun RecordingDetailSummarySection(summary: String?) {
     AnimatedVisibility(
         visible = summary != null,
         enter = fadeIn(tween(300, easing = FastOutSlowInEasing)) + expandVertically(tween(300)),
-        exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        exit = fadeOut(tween(200)) + shrinkVertically(tween(200)),
     ) {
         Column(modifier = Modifier.animateContentSize()) {
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
-                shape = MaterialTheme.shapes.medium
+                shape = MaterialTheme.shapes.medium,
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = "Summary",
                         style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = summary.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                     )
                 }
             }

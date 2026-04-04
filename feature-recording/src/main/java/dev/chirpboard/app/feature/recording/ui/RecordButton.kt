@@ -23,35 +23,38 @@ import dev.chirpboard.app.core.util.formatAsDuration
 fun RecordButton(
     recordingState: RecordingState,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    val isRecording = recordingState is RecordingState.Recording || 
-                      recordingState is RecordingState.Starting
-    
+    val isRecording =
+        recordingState is RecordingState.Recording ||
+            recordingState is RecordingState.Starting
+
     // Pulsing animation when recording
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = if (isRecording) 1.1f else 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scale"
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(600, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+        label = "scale",
     )
-    
+
     val backgroundColor by animateColorAsState(
-        targetValue = if (isRecording) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.primary
-        },
-        label = "backgroundColor"
+        targetValue =
+            if (isRecording) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+        label = "backgroundColor",
     )
-    
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
+        modifier = modifier,
     ) {
         // Duration display when recording
         if (recordingState is RecordingState.Recording) {
@@ -59,39 +62,40 @@ fun RecordButton(
             Text(
                 text = duration.formatAsDuration(),
                 style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.error
+                color = MaterialTheme.colorScheme.error,
             )
             Spacer(modifier = Modifier.height(16.dp))
         }
-        
+
         // Record button
         LargeFloatingActionButton(
             onClick = onClick,
             modifier = Modifier.scale(scale),
             containerColor = backgroundColor,
-            contentColor = Color.White
+            contentColor = Color.White,
         ) {
             Icon(
                 imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
                 contentDescription = if (isRecording) "Stop recording" else "Start recording",
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(36.dp),
             )
         }
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         // Status text
         Text(
-             text = when (recordingState) {
-                is RecordingState.Idle -> "Tap to record"
-                is RecordingState.Starting -> "Starting..."
-                is RecordingState.Recording -> "Recording"
-                is RecordingState.Paused -> "Paused"
-                is RecordingState.Stopping -> "Stopping..."
-                is RecordingState.Error -> "Error"
-            },
+            text =
+                when (recordingState) {
+                    is RecordingState.Idle -> "Tap to record"
+                    is RecordingState.Starting -> "Starting..."
+                    is RecordingState.Recording -> "Recording"
+                    is RecordingState.Paused -> "Paused"
+                    is RecordingState.Stopping -> "Stopping..."
+                    is RecordingState.Error -> "Error"
+                },
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -103,26 +107,27 @@ fun RecordButton(
 fun CompactRecordButton(
     isRecording: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val backgroundColor by animateColorAsState(
-        targetValue = if (isRecording) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.primary
-        },
-        label = "backgroundColor"
+        targetValue =
+            if (isRecording) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+        label = "backgroundColor",
     )
-    
+
     FloatingActionButton(
         onClick = onClick,
         modifier = modifier,
         containerColor = backgroundColor,
-        contentColor = Color.White
+        contentColor = Color.White,
     ) {
         Icon(
             imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-            contentDescription = if (isRecording) "Stop recording" else "Start recording"
+            contentDescription = if (isRecording) "Stop recording" else "Start recording",
         )
     }
 }

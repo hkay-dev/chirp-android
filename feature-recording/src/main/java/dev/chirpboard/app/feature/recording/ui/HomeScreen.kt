@@ -41,12 +41,12 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DockedSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -102,7 +102,7 @@ fun HomeScreen(
     onRecordClick: () -> Unit,
     onSettingsClick: () -> Unit,
     isRecordEntryChecking: Boolean = false,
-    viewModel: HomeViewModel = hiltViewModel()
+    viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val displayItems by viewModel.displayItems.collectAsState()
     val stats by viewModel.stats.collectAsState()
@@ -132,7 +132,7 @@ fun HomeScreen(
         errorMessage?.let { message ->
             snackbarHostState.showSnackbar(
                 message = message,
-                duration = SnackbarDuration.Short
+                duration = SnackbarDuration.Short,
             )
             viewModel.clearError()
         }
@@ -143,7 +143,7 @@ fun HomeScreen(
             val error = recordingState as RecordingState.Error
             snackbarHostState.showSnackbar(
                 message = error.message,
-                duration = SnackbarDuration.Short
+                duration = SnackbarDuration.Short,
             )
             viewModel.clearError()
         }
@@ -159,12 +159,13 @@ fun HomeScreen(
                         val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
                         Text(
                             text = if (collapsed) "Recordings" else "Your Recordings",
-                            style = if (collapsed) {
-                                MaterialTheme.typography.titleLarge
-                            } else {
-                                MaterialTheme.typography.headlineMedium
-                            },
-                            fontWeight = FontWeight.Bold
+                            style =
+                                if (collapsed) {
+                                    MaterialTheme.typography.titleLarge
+                                } else {
+                                    MaterialTheme.typography.headlineMedium
+                                },
+                            fontWeight = FontWeight.Bold,
                         )
                     },
                     actions = {
@@ -173,28 +174,29 @@ fun HomeScreen(
                             IconButton(onClick = { searchActive = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "Search"
+                                    contentDescription = "Search",
                                 )
                             }
                         }
                         IconButton(onClick = onSettingsClick) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings"
+                                contentDescription = "Settings",
                             )
                         }
                     },
                     scrollBehavior = scrollBehavior,
-                    colors = TopAppBarDefaults.mediumTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surface
-                    )
+                    colors =
+                        TopAppBarDefaults.mediumTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                        ),
                 )
 
                 // Docked search bar (visible when expanded or active)
                 val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
                 AnimatedVisibility(
-                    visible = !collapsed || searchActive
+                    visible = !collapsed || searchActive,
                 ) {
                     DockedSearchBar(
                         inputField = {
@@ -208,7 +210,7 @@ fun HomeScreen(
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Search,
-                                        contentDescription = "Search"
+                                        contentDescription = "Search",
                                     )
                                 },
                                 trailingIcon = {
@@ -219,18 +221,19 @@ fun HomeScreen(
                                         }) {
                                             Icon(
                                                 imageVector = Icons.Default.Close,
-                                                contentDescription = "Clear search"
+                                                contentDescription = "Clear search",
                                             )
                                         }
                                     }
-                                }
+                                },
                             )
                         },
                         expanded = searchActive,
                         onExpandedChange = { searchActive = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                     ) {
                         // Search suggestions could go here
                     }
@@ -241,11 +244,11 @@ fun HomeScreen(
             BreathingExtendedFab(
                 expanded = fabExpanded,
                 isChecking = isRecordEntryChecking,
-                onClick = onRecordClick
+                onClick = onRecordClick,
             )
         },
         floatingActionButtonPosition = FabPosition.Center,
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
             targetState = displayItems.isEmpty() && searchQuery.isBlank(),
@@ -253,21 +256,22 @@ fun HomeScreen(
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
-            label = "home_content"
+            label = "home_content",
         ) { showEmpty ->
             if (showEmpty) {
                 AnimatedEmptyState(
                     onRecordClick = onRecordClick,
                     isRecordEntryChecking = isRecordEntryChecking,
-                    modifier = Modifier.padding(paddingValues)
+                    modifier = Modifier.padding(paddingValues),
                 )
             } else {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
                     state = listState,
-                    contentPadding = PaddingValues(bottom = 96.dp)
+                    contentPadding = PaddingValues(bottom = 96.dp),
                 ) {
                     // Stats pill row - show when not searching
                     if (searchQuery.isBlank() && stats.totalRecordings > 0) {
@@ -277,26 +281,28 @@ fun HomeScreen(
                                 totalDurationMs = stats.totalDurationMs,
                                 processingCount = stats.processingCount,
                                 onProcessingClick = { viewModel.onProcessingClick() },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                                    .animateItem()
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                        .animateItem(),
                             )
                         }
 
                         if (searchQuery.isBlank() && listFilter == ListFilterMode.PROCESSING && stuckCount > 0) {
                             item(key = "recover_stuck") {
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.End
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.End,
                                 ) {
                                     FilledTonalButton(onClick = { viewModel.recoverAllStuck() }) {
                                         Icon(
                                             imageVector = Icons.Default.Refresh,
                                             contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(18.dp),
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text("Recover stuck ($stuckCount)")
@@ -313,9 +319,10 @@ fun HomeScreen(
                                 text = "${displayItems.size} result${if (displayItems.size != 1) "s" else ""}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .animateItem()
+                                modifier =
+                                    Modifier
+                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                        .animateItem(),
                             )
                         }
                     }
@@ -323,17 +330,17 @@ fun HomeScreen(
                     // Recording list items - smooth scrolling, no stagger delay
                     items(
                         items = displayItems,
-                        key = { it.recording.id }
+                        key = { it.recording.id },
                     ) { item ->
                         Column(modifier = Modifier.animateItem()) {
                             RecordingListItem(
                                 item = item,
                                 onClick = { onRecordingClick(item.recording) },
-                                onLongClick = { selectedItem = item }
+                                onLongClick = { selectedItem = item },
                             )
                             HorizontalDivider(
                                 modifier = Modifier.padding(start = 72.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             )
                         }
                     }
@@ -345,7 +352,7 @@ fun HomeScreen(
         if (selectedItem != null) {
             ModalBottomSheet(
                 onDismissRequest = { selectedItem = null },
-                sheetState = sheetState
+                sheetState = sheetState,
             ) {
                 RecordingActionsSheet(
                     item = selectedItem!!,
@@ -363,42 +370,54 @@ fun HomeScreen(
                             selectedItem = null
                         }
                     },
-                    onRetryTranscription = if (selectedItem!!.recording.status == RecordingStatus.FAILED) {
-                        {
-                            viewModel.retryTranscription(selectedItem!!.recording)
-                            scope.launch {
-                                sheetState.hide()
-                                selectedItem = null
+                    onRetryTranscription =
+                        if (selectedItem!!.recording.status == RecordingStatus.FAILED) {
+                            {
+                                viewModel.retryTranscription(selectedItem!!.recording)
+                                scope.launch {
+                                    sheetState.hide()
+                                    selectedItem = null
+                                }
                             }
-                        }
-                    } else null,
-                    onGenerateTitle = if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
-                        {
-                            viewModel.generateTitle(selectedItem!!.recording)
-                            scope.launch {
-                                sheetState.hide()
-                                selectedItem = null
+                        } else {
+                            null
+                        },
+                    onGenerateTitle =
+                        if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
+                            {
+                                viewModel.generateTitle(selectedItem!!.recording)
+                                scope.launch {
+                                    sheetState.hide()
+                                    selectedItem = null
+                                }
                             }
-                        }
-                    } else null,
-                    onGenerateSummary = if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
-                        {
-                            viewModel.generateSummary(selectedItem!!.recording)
-                            scope.launch {
-                                sheetState.hide()
-                                selectedItem = null
+                        } else {
+                            null
+                        },
+                    onGenerateSummary =
+                        if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
+                            {
+                                viewModel.generateSummary(selectedItem!!.recording)
+                                scope.launch {
+                                    sheetState.hide()
+                                    selectedItem = null
+                                }
                             }
-                        }
-                    } else null,
-                    onRecoverStuck = if (shouldShowStuckRecoveryAction(selectedItem!!.recording.status)) {
-                        {
-                            viewModel.recoverStuckItem(selectedItem!!.recording)
-                            scope.launch {
-                                sheetState.hide()
-                                selectedItem = null
+                        } else {
+                            null
+                        },
+                    onRecoverStuck =
+                        if (shouldShowStuckRecoveryAction(selectedItem!!.recording.status)) {
+                            {
+                                viewModel.recoverStuckItem(selectedItem!!.recording)
+                                scope.launch {
+                                    sheetState.hide()
+                                    selectedItem = null
+                                }
                             }
-                        }
-                    } else null
+                        } else {
+                            null
+                        },
                 )
             }
         }
@@ -414,39 +433,40 @@ private fun RecordingListItem(
     item: RecordingDisplayItem,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val recording = item.recording
 
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Top
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                ).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         // Profile emoji in 40dp touch target with secondaryContainer background
         Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center
+            modifier =
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+            contentAlignment = Alignment.Center,
         ) {
             if (item.profileIcon != null) {
                 Text(
                     text = item.profileIcon,
-                    style = MaterialTheme.typography.titleSmall
+                    style = MaterialTheme.typography.titleSmall,
                 )
             } else {
                 Icon(
                     imageVector = Icons.Default.Mic,
                     contentDescription = null,
                     modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
             }
         }
@@ -460,7 +480,7 @@ private fun RecordingListItem(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             Spacer(modifier = Modifier.height(2.dp))
@@ -469,7 +489,7 @@ private fun RecordingListItem(
             Text(
                 text = "${recording.createdAt.formatRelative()} · ${recording.durationMs.formatAsDuration()}",
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             // Summary (2 lines, 60% alpha)
@@ -480,18 +500,20 @@ private fun RecordingListItem(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
             if (shouldShowStuckRecoveryAction(recording.status)) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = recording.errorMessage ?: "Stuck in ${recording.status.name.lowercase().replace('_', ' ')}. Long-press for recovery.",
+                    text =
+                        recording.errorMessage
+                            ?: "Stuck in ${recording.status.name.lowercase().replace('_', ' ')}. Long-press for recovery.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -500,7 +522,7 @@ private fun RecordingListItem(
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     item.tags.take(3).forEach { tag ->
                         CompactTagChip(tag = tag)
@@ -509,7 +531,7 @@ private fun RecordingListItem(
                         Text(
                             text = "+${item.tags.size - 3}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -526,37 +548,39 @@ private fun CompactTagChip(tag: Tag) {
     // Memoize color parsing to avoid redundant computation during list scrolling
     // Color.parseColor is expensive and list items recompose frequently during scroll
     val defaultColor = MaterialTheme.colorScheme.tertiary
-    val tagColor = remember(tag.color, defaultColor) {
-        tag.color?.let {
-            try {
-                Color(android.graphics.Color.parseColor(it))
-            } catch (_: Exception) {
-                defaultColor
-            }
-        } ?: defaultColor
-    }
+    val tagColor =
+        remember(tag.color, defaultColor) {
+            tag.color?.let {
+                try {
+                    Color(android.graphics.Color.parseColor(it))
+                } catch (_: Exception) {
+                    defaultColor
+                }
+            } ?: defaultColor
+        }
 
     Row(
-        modifier = Modifier
-            .background(
-                color = tagColor.copy(alpha = 0.12f),
-                shape = MaterialTheme.shapes.small
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier =
+            Modifier
+                .background(
+                    color = tagColor.copy(alpha = 0.12f),
+                    shape = MaterialTheme.shapes.small,
+                ).padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Box(
-            modifier = Modifier
-                .size(6.dp)
-                .clip(CircleShape)
-                .background(tagColor)
+            modifier =
+                Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(tagColor),
         )
         Text(
             text = tag.name,
             style = MaterialTheme.typography.labelSmall,
             color = tagColor,
-            maxLines = 1
+            maxLines = 1,
         )
     }
 }
@@ -572,12 +596,13 @@ private fun RecordingActionsSheet(
     onRetryTranscription: (() -> Unit)?,
     onGenerateTitle: (() -> Unit)?,
     onGenerateSummary: (() -> Unit)?,
-    onRecoverStuck: (() -> Unit)?
+    onRecoverStuck: (() -> Unit)?,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 32.dp)
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp),
     ) {
         // Header
         Text(
@@ -586,7 +611,7 @@ private fun RecordingActionsSheet(
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
             maxLines = 2,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
 
         HorizontalDivider()
@@ -595,7 +620,7 @@ private fun RecordingActionsSheet(
         SheetActionItem(
             icon = Icons.Default.Share,
             text = "Share",
-            onClick = onShare
+            onClick = onShare,
         )
 
         // AI Options (for completed recordings)
@@ -607,7 +632,7 @@ private fun RecordingActionsSheet(
                     icon = Icons.Default.Title,
                     text = "Generate title",
                     onClick = onGenerateTitle,
-                    tint = MaterialTheme.colorScheme.tertiary
+                    tint = MaterialTheme.colorScheme.tertiary,
                 )
             }
 
@@ -616,7 +641,7 @@ private fun RecordingActionsSheet(
                     icon = Icons.Default.Summarize,
                     text = "Generate summary",
                     onClick = onGenerateSummary,
-                    tint = MaterialTheme.colorScheme.tertiary
+                    tint = MaterialTheme.colorScheme.tertiary,
                 )
             }
         }
@@ -627,7 +652,7 @@ private fun RecordingActionsSheet(
             SheetActionItem(
                 icon = Icons.Default.Refresh,
                 text = "Retry transcription",
-                onClick = onRetryTranscription
+                onClick = onRetryTranscription,
             )
         }
 
@@ -636,7 +661,7 @@ private fun RecordingActionsSheet(
             SheetActionItem(
                 icon = Icons.Default.Refresh,
                 text = "Recover stuck processing",
-                onClick = onRecoverStuck
+                onClick = onRecoverStuck,
             )
         }
 
@@ -647,7 +672,7 @@ private fun RecordingActionsSheet(
             icon = Icons.Default.Delete,
             text = "Delete",
             onClick = onDelete,
-            tint = MaterialTheme.colorScheme.error
+            tint = MaterialTheme.colorScheme.error,
         )
     }
 }
@@ -658,25 +683,26 @@ private fun SheetActionItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     text: String,
     onClick: () -> Unit,
-    tint: Color = MaterialTheme.colorScheme.onSurface
+    tint: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick)
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .combinedClickable(onClick = onClick)
+                .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = tint
+            tint = tint,
         )
         Text(
             text = text,
             style = MaterialTheme.typography.bodyLarge,
-            color = tint
+            color = tint,
         )
     }
 }
@@ -688,17 +714,18 @@ private fun SheetActionItem(
 fun BreathingExtendedFab(
     expanded: Boolean,
     isChecking: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "breathing")
     val animatedScale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.03f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "fab_scale"
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+        label = "fab_scale",
     )
     val scale = if (isChecking) 1f else animatedScale
 
@@ -715,21 +742,22 @@ fun BreathingExtendedFab(
             if (isChecking) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
                 )
             } else {
                 Icon(
                     imageVector = Icons.Default.Mic,
-                    contentDescription = null
+                    contentDescription = null,
                 )
             }
         },
         text = {
             Text(recordFabLabel(isChecking))
         },
-        modifier = Modifier
-            .scale(scale)
-            .testTag(HomeScreenRecordEntryTestTags.RecordFab)
+        modifier =
+            Modifier
+                .scale(scale)
+                .testTag(HomeScreenRecordEntryTestTags.RecordFab),
     )
 }
 
@@ -740,34 +768,37 @@ fun BreathingExtendedFab(
 fun AnimatedEmptyState(
     onRecordClick: () -> Unit,
     isRecordEntryChecking: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "floating")
     val offsetY by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "float_offset"
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+        label = "float_offset",
     )
 
     Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
         // Floating mic icon
         Icon(
             imageVector = Icons.Default.Mic,
             contentDescription = null,
-            modifier = Modifier
-                .size(80.dp)
-                .offset { IntOffset(0, -offsetY.roundToInt()) },
-            tint = MaterialTheme.colorScheme.primary
+            modifier =
+                Modifier
+                    .size(80.dp)
+                    .offset { IntOffset(0, -offsetY.roundToInt()) },
+            tint = MaterialTheme.colorScheme.primary,
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -775,7 +806,7 @@ fun AnimatedEmptyState(
         Text(
             text = "Your stage awaits",
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -783,7 +814,7 @@ fun AnimatedEmptyState(
         Text(
             text = "Tap Record to capture your first brilliant idea",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -791,13 +822,13 @@ fun AnimatedEmptyState(
         FilledTonalButton(
             onClick = onRecordClick,
             enabled = isRecordEntryActionEnabled(isRecordEntryChecking),
-            modifier = Modifier.testTag(HomeScreenRecordEntryTestTags.EmptyStateRecordButton)
+            modifier = Modifier.testTag(HomeScreenRecordEntryTestTags.EmptyStateRecordButton),
         ) {
             if (isRecordEntryChecking) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.dp,
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
@@ -816,7 +847,7 @@ fun AnimatedEmptyState(
 private fun StaggeredAnimatedItem(
     index: Int,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     var visible by remember { mutableStateOf(false) }
 
@@ -828,25 +859,20 @@ private fun StaggeredAnimatedItem(
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(tween(300)),
-        modifier = modifier
+        modifier = modifier,
     ) {
         content()
     }
 }
 
-internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean {
-    return status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.ENHANCING
-}
+internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean =
+    status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.ENHANCING
 
 internal fun isRecordEntryActionEnabled(isChecking: Boolean): Boolean = !isChecking
 
-internal fun recordFabLabel(isChecking: Boolean): String {
-    return if (isChecking) "Checking..." else "Record"
-}
+internal fun recordFabLabel(isChecking: Boolean): String = if (isChecking) "Checking..." else "Record"
 
-internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String {
-    return if (isChecking) "Checking model..." else "Record now"
-}
+internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String = if (isChecking) "Checking model..." else "Record now"
 
 object HomeScreenRecordEntryTestTags {
     const val RecordFab = "home_record_fab"

@@ -27,7 +27,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
 fun WordReplacementEditorDialog(
     replacement: WordReplacement? = null,
     onDismiss: () -> Unit,
-    onSave: (original: String, replacement: String, caseSensitive: Boolean) -> Unit
+    onSave: (original: String, replacement: String, caseSensitive: Boolean) -> Unit,
 ) {
     var original by remember { mutableStateOf(replacement?.original ?: "") }
     var replacementText by remember { mutableStateOf(replacement?.replacement ?: "") }
@@ -43,7 +43,7 @@ fun WordReplacementEditorDialog(
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 OutlinedTextField(
                     value = original,
@@ -53,7 +53,7 @@ fun WordReplacementEditorDialog(
                     singleLine = true,
                     supportingText = {
                         Text("The word or phrase to find")
-                    }
+                    },
                 )
 
                 OutlinedTextField(
@@ -64,23 +64,23 @@ fun WordReplacementEditorDialog(
                     singleLine = true,
                     supportingText = {
                         Text("What to replace it with (leave empty to remove)")
-                    }
+                    },
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = caseSensitive,
-                        onCheckedChange = { caseSensitive = it }
+                        onCheckedChange = { caseSensitive = it },
                     )
                     Text(
                         text = "Case sensitive",
                         style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(start = 8.dp)
+                        modifier = Modifier.padding(start = 8.dp),
                     )
                 }
             }
@@ -88,7 +88,7 @@ fun WordReplacementEditorDialog(
         confirmButton = {
             TextButton(
                 onClick = { onSave(original, replacementText, caseSensitive) },
-                enabled = canSave
+                enabled = canSave,
             ) {
                 Text("Save")
             }
@@ -97,6 +97,6 @@ fun WordReplacementEditorDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
-        }
+        },
     )
 }

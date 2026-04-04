@@ -38,11 +38,11 @@ internal fun RecordingCardHeader(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         ProfileIconBadge(
             profileIcon = item.profileIcon,
-            status = recording.status
+            status = recording.status,
         )
 
         Spacer(modifier = Modifier.width(12.dp))
@@ -53,14 +53,14 @@ internal fun RecordingCardHeader(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             Spacer(modifier = Modifier.height(2.dp))
 
             RecordingCardMetadata(
                 recording = recording,
-                profileName = item.profileName
+                profileName = item.profileName,
             )
         }
 
@@ -69,7 +69,7 @@ internal fun RecordingCardHeader(
                 Icon(
                     imageVector = Icons.Default.MoreVert,
                     contentDescription = "More options",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
@@ -81,7 +81,7 @@ internal fun RecordingCardHeader(
                 onDelete = onDelete,
                 onRetryTranscription = onRetryTranscription,
                 onGenerateTitle = onGenerateTitle,
-                onGenerateSummary = onGenerateSummary
+                onGenerateSummary = onGenerateSummary,
             )
         }
     }

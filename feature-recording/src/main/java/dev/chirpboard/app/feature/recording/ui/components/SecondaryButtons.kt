@@ -30,7 +30,7 @@ fun DoneButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     buttonSize: Dp = SecondaryButtonSize,
-    iconSize: Dp = SecondaryIconSize
+    iconSize: Dp = SecondaryIconSize,
 ) {
     val containerColor = MaterialTheme.colorScheme.secondaryContainer
     val contentColor = MaterialTheme.colorScheme.onSecondaryContainer
@@ -65,7 +65,7 @@ fun CancelButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     buttonSize: Dp = SecondaryButtonSize,
-    iconSize: Dp = SecondaryIconSize
+    iconSize: Dp = SecondaryIconSize,
 ) {
     val containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val contentColor = MaterialTheme.colorScheme.error
@@ -100,7 +100,7 @@ fun RestartButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     buttonSize: Dp = SecondaryButtonSize,
-    iconSize: Dp = SecondaryIconSize
+    iconSize: Dp = SecondaryIconSize,
 ) {
     val containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
     val contentColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -136,7 +136,7 @@ fun SecondaryButtonsRow(
     onDone: () -> Unit,
     onCancel: () -> Unit,
     onRestart: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier,

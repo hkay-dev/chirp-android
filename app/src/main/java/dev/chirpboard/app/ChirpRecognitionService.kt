@@ -6,6 +6,7 @@ import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
@@ -24,16 +25,18 @@ class ChirpRecognitionService : RecognitionService() {
 
         // Error codes matching android.speech.SpeechRecognizer
         private const val ERROR_AUDIO = 3
-        private const val ERROR_SERVER = 4  // Model not ready
+        private const val ERROR_SERVER = 4 // Model not ready
         private const val ERROR_RECOGNIZER_BUSY = 7
     }
 
     private val recorder = VoiceRecorder()
-    private var recognizer: SherpaRecognizer? = null
-    
+
+    @Inject
+    lateinit var transcriberProvider: TranscriberProvider
+
     @Inject
     lateinit var recordingRepository: RecordingRepository
-    
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var recordingJob: Job? = null
@@ -42,19 +45,20 @@ class ChirpRecognitionService : RecognitionService() {
         super.onCreate()
         Log.d(TAG, "Service created")
 
-        // Eagerly initialize recognizer via singleton manager
+        // Initialize transcriber
         scope.launch {
-            Log.d(TAG, "Loading recognizer singleton...")
-            recognizer = RecognizerManager.getRecognizer(applicationContext)
-            Log.d(TAG, "Recognizer loaded, ready: ${recognizer?.isReady}")
+            Log.d(TAG, "Initializing transcriber...")
+            transcriberProvider.initialize()
+            Log.d(TAG, "Transcriber ready: ${transcriberProvider.isReady()}")
         }
     }
 
     private fun saveTranscription(rawText: String) {
         scope.launch(Dispatchers.IO) {
-            val persistenceResult = persistRecognitionHistoryAtomically(rawText) { recording, transcript ->
-                recordingRepository.createRecordingWithTranscript(recording, transcript)
-            }
+            val persistenceResult =
+                persistRecognitionHistoryAtomically(rawText) { recording, transcript ->
+                    recordingRepository.createRecordingWithTranscript(recording, transcript)
+                }
 
             if (persistenceResult.isSuccess) {
                 val recordingId = persistenceResult.getOrNull()
@@ -66,12 +70,14 @@ class ChirpRecognitionService : RecognitionService() {
         }
     }
 
-    override fun onStartListening(intent: Intent, listener: Callback) {
+    override fun onStartListening(
+        intent: Intent,
+        listener: Callback,
+    ) {
         Log.d(TAG, "onStartListening")
 
         // Check if model is ready before allowing recording
-        val rec = recognizer
-        if (rec == null || !rec.isReady) {
+        if (!transcriberProvider.isReady()) {
             Log.w(TAG, "Recognizer not ready yet (model still loading)")
             listener.error(ERROR_SERVER)
             return
@@ -99,24 +105,24 @@ class ChirpRecognitionService : RecognitionService() {
                 listener.beginningOfSpeech()
 
                 // Collect samples in background
-                recordingJob = scope.launch {
-                    try {
-                        recorder.collectSamples()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error collecting samples", e)
+                recordingJob =
+                    scope.launch {
+                        try {
+                            recorder.collectSamples()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error collecting samples", e)
+                        }
                     }
-                }
 
                 // Monitor amplitudes for RMS reporting
                 scope.launch {
                     recorder.amplitudes.collect { amps ->
                         if (amps.isNotEmpty()) {
-                            val rms = amps.average() * 100  // Scale 0-100
+                            val rms = amps.average() * 100 // Scale 0-100
                             listener.rmsChanged(rms.toFloat())
                         }
                     }
                 }
-
             } catch (e: Exception) {
                 Log.e(TAG, "Error in onStartListening", e)
                 listener.error(ERROR_AUDIO)
@@ -126,7 +132,7 @@ class ChirpRecognitionService : RecognitionService() {
 
     override fun onStopListening(listener: Callback) {
         Log.d(TAG, "onStopListening")
-        
+
         scope.launch {
             try {
                 recordingJob?.cancel()
@@ -140,33 +146,38 @@ class ChirpRecognitionService : RecognitionService() {
                 }
 
                 // Check if recognizer is ready
-                val rec = recognizer
-                if (rec == null || !rec.isReady) {
+                if (!transcriberProvider.isReady()) {
                     Log.w(TAG, "Recognizer not ready")
                     listener.error(ERROR_SERVER)
                     return@launch
                 }
 
                 // Transcribe with typed outcome
-                val outcome = rec.transcribeOutcome(samples)
-                val text = when (outcome) {
-                    is TranscriptionOutcome.Success -> outcome.text
-                    TranscriptionOutcome.NoSpeech -> {
-                        Log.w(TAG, "No speech detected")
-                        listener.error(ERROR_AUDIO)
-                        return@launch
+                val outcome = transcriberProvider.transcribe(samples)
+                val text =
+                    when (outcome) {
+                        is TranscriptionOutcome.Success -> {
+                            outcome.text
+                        }
+
+                        TranscriptionOutcome.NoSpeech -> {
+                            Log.w(TAG, "No speech detected")
+                            listener.error(ERROR_AUDIO)
+                            return@launch
+                        }
+
+                        is TranscriptionOutcome.ModelUnavailable -> {
+                            Log.w(TAG, "Model unavailable: ${outcome.reason}")
+                            listener.error(ERROR_SERVER)
+                            return@launch
+                        }
+
+                        is TranscriptionOutcome.EngineError -> {
+                            Log.e(TAG, "Engine error: ${outcome.reason}")
+                            listener.error(ERROR_AUDIO)
+                            return@launch
+                        }
                     }
-                    is TranscriptionOutcome.ModelUnavailable -> {
-                        Log.w(TAG, "Model unavailable: ${outcome.reason}")
-                        listener.error(ERROR_SERVER)
-                        return@launch
-                    }
-                    is TranscriptionOutcome.EngineError -> {
-                        Log.e(TAG, "Engine error: ${outcome.reason}")
-                        listener.error(ERROR_AUDIO)
-                        return@launch
-                    }
-                }
 
                 Log.d(TAG, "Transcribed: $text")
 
@@ -174,14 +185,14 @@ class ChirpRecognitionService : RecognitionService() {
                 saveTranscription(text)
 
                 // Send results
-                val results = Bundle().apply {
-                    putStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION,
-                        arrayListOf(text)
-                    )
-                }
+                val results =
+                    Bundle().apply {
+                        putStringArrayList(
+                            SpeechRecognizer.RESULTS_RECOGNITION,
+                            arrayListOf(text),
+                        )
+                    }
                 listener.results(results)
-
             } catch (e: Exception) {
                 Log.e(TAG, "Error in onStopListening", e)
                 listener.error(ERROR_AUDIO)

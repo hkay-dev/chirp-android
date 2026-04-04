@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.runtime.getValue
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
@@ -18,6 +17,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,69 +41,69 @@ fun TagChip(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     onRemove: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val tagColor = tag.color?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) tagColor else Color.Transparent,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "tag_background"
+        label = "tag_background",
     )
     val contentColor by animateColorAsState(
-        targetValue = if (selected) {
-            if (tagColor.luminance() > 0.5f) Color.Black else Color.White
-        } else {
-            tagColor
-        },
+        targetValue =
+            if (selected) {
+                if (tagColor.luminance() > 0.5f) Color.Black else Color.White
+            } else {
+                tagColor
+            },
         animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "tag_content"
+        label = "tag_content",
     )
 
     val shape = ChirpShapes.Large
 
     Box(
-        modifier = modifier
-            .clip(shape)
-            .then(
-                if (selected) {
-                    Modifier.background(backgroundColor)
-                } else {
-                    Modifier.border(1.dp, tagColor, shape)
-                }
-            )
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
-                } else {
-                    Modifier
-                }
-            )
-            .padding(
-                start = 12.dp,
-                end = if (onRemove != null) 4.dp else 12.dp,
-                top = 6.dp,
-                bottom = 6.dp
-            )
+        modifier =
+            modifier
+                .clip(shape)
+                .then(
+                    if (selected) {
+                        Modifier.background(backgroundColor)
+                    } else {
+                        Modifier.border(1.dp, tagColor, shape)
+                    },
+                ).then(
+                    if (onClick != null) {
+                        Modifier.clickable(onClick = onClick)
+                    } else {
+                        Modifier
+                    },
+                ).padding(
+                    start = 12.dp,
+                    end = if (onRemove != null) 4.dp else 12.dp,
+                    top = 6.dp,
+                    bottom = 6.dp,
+                ),
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = tag.name,
                 style = MaterialTheme.typography.labelMedium,
-                color = contentColor
+                color = contentColor,
             )
 
             if (onRemove != null) {
                 IconButton(
                     onClick = onRemove,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Remove tag",
                         tint = contentColor,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(14.dp),
                     )
                 }
             }
@@ -114,10 +114,9 @@ fun TagChip(
 /**
  * Parse a hex color string to a Compose Color.
  */
-private fun parseColor(hexColor: String): Color {
-    return try {
+private fun parseColor(hexColor: String): Color =
+    try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
         Color.Gray
     }
-}

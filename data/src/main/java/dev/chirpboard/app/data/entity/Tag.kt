@@ -1,6 +1,10 @@
 package dev.chirpboard.app.data.entity
 
-import androidx.room.*
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.ForeignKey
+import androidx.room.Index
+import androidx.room.PrimaryKey
 import java.util.UUID
 
 /**
@@ -10,12 +14,10 @@ import java.util.UUID
 data class Tag(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),
-    
     /** Tag display name */
     val name: String,
-    
     /** Color as hex string (e.g., "#FF5733") */
-    val color: String? = null
+    val color: String? = null,
 )
 
 /**
@@ -29,18 +31,18 @@ data class Tag(
             entity = Recording::class,
             parentColumns = ["id"],
             childColumns = ["recordingId"],
-            onDelete = ForeignKey.CASCADE
+            onDelete = ForeignKey.CASCADE,
         ),
         ForeignKey(
             entity = Tag::class,
             parentColumns = ["id"],
             childColumns = ["tagId"],
-            onDelete = ForeignKey.CASCADE
-        )
+            onDelete = ForeignKey.CASCADE,
+        ),
     ],
-    indices = [Index("tagId")]
+    indices = [Index("tagId")],
 )
 data class RecordingTag(
     val recordingId: UUID,
-    val tagId: UUID
+    val tagId: UUID,
 )

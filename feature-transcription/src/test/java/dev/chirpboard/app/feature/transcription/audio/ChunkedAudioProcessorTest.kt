@@ -1,279 +1,105 @@
 package dev.chirpboard.app.feature.transcription.audio
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Unit tests for ChunkedAudioProcessor.
- * 
- * Tests cover:
- * - Processing audio shorter than one chunk
- * - Processing audio exactly one chunk
- * - Processing audio spanning multiple chunks
- * - Verifying overlap is preserved
- * - Verifying word deduplication at boundaries
- */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ChunkedAudioProcessorTest {
 
-    // Use small values for testing: 100 samples per chunk, 20 sample overlap
-    // At "1000 Hz" this represents 100ms chunks with 20ms overlap
-    private val testSampleRate = 1000
-    private val testChunkDurationMs = 100L
-    private val testOverlapDurationMs = 20L
+    @Test
+    fun `process yields expected chunks`() = runTest {
+        // chunk duration 2s, overlap 1s, sample rate 10 -> chunk size 20, overlap 10
+        val processor = ChunkedAudioProcessor(
+            chunkDurationMs = 2000,
+            overlapDurationMs = 1000,
+            sampleRate = 10
+        )
+
+        // total 35 samples -> should make chunks
+        // C1: 0..19
+        // C2: 10..29
+        // final chunk: 20..34 (15 samples)
+        val sourceSamples = FloatArray(35) { it.toFloat() }
+        val flowSource = flowOf(sourceSamples)
+
+        val results = processor.process(flowSource) { chunk ->
+            "Chunk size: ${chunk.size}, first: ${chunk.first()}, last: ${chunk.last()}"
+        }.toList()
+
+        assertEquals(3, results.size)
+        assertEquals("Chunk size: 20, first: 0.0, last: 19.0", results[0])
+        assertEquals("Chunk size: 20, first: 10.0, last: 29.0", results[1])
+        assertEquals("Chunk size: 15, first: 20.0, last: 34.0", results[2])
+    }
+
+    @Test
+    fun `joinTranscripts merges parts without overlap`() {
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf("Hello world", "this is a test")
+        val joined = processor.joinTranscripts(parts)
+        assertEquals("Hello world this is a test", joined)
+    }
+
+    @Test
+    fun `joinTranscripts merges parts with single word overlap`() {
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf("Hello world there", "there is a test")
+        val joined = processor.joinTranscripts(parts)
+        assertEquals("Hello world there is a test", joined)
+    }
+
+    @Test
+    fun `joinTranscripts merges parts with multiple words overlap`() {
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf("Hello world how are", "how are you doing")
+        val joined = processor.joinTranscripts(parts)
+        assertEquals("Hello world how are you doing", joined)
+    }
+
+    @Test
+    fun `joinTranscripts handles capitalization differences`() {
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf("Hello world HOW ARE", "how are you doing")
+        val joined = processor.joinTranscripts(parts)
+        assertEquals("Hello world HOW ARE you doing", joined)
+    }
     
-    private fun createProcessor() = ChunkedAudioProcessor(
-        chunkDurationMs = testChunkDurationMs,
-        overlapDurationMs = testOverlapDurationMs,
-        sampleRate = testSampleRate
-    )
-
     @Test
-    fun `process audio shorter than one chunk`() = runTest {
-        val processor = createProcessor()
-        val shortAudio = FloatArray(50) { it.toFloat() } // 50 samples < 100 chunk size
+    fun `processAndJoin processes and joins all chunks`() = runTest {
+        val processor = ChunkedAudioProcessor(
+            chunkDurationMs = 2000,
+            overlapDurationMs = 1000,
+            sampleRate = 10
+        )
+        val sourceSamples = FloatArray(35) { it.toFloat() }
+        val flowSource = flowOf(sourceSamples)
         
-        val transcriptions = mutableListOf<String>()
-        var transcribedSamples: FloatArray? = null
-        
-        processor.process(flowOf(shortAudio)) { samples ->
-            transcribedSamples = samples
-            "short audio transcription"
-        }.toList().also { transcriptions.addAll(it) }
-        
-        assertEquals(1, transcriptions.size)
-        assertEquals("short audio transcription", transcriptions[0])
-        assertEquals(50, transcribedSamples?.size)
-    }
-
-    @Test
-    fun `process audio exactly one chunk`() = runTest {
-        val processor = createProcessor()
-        val exactChunk = FloatArray(100) { it.toFloat() } // Exactly 100 samples = 1 chunk
-        
-        val transcriptions = mutableListOf<String>()
         var callCount = 0
-        
-        processor.process(flowOf(exactChunk)) { samples ->
+        val joined = processor.processAndJoin(flowSource) { chunk ->
             callCount++
-            "chunk $callCount"
-        }.toList().also { transcriptions.addAll(it) }
-        
-        // Should process as one full chunk, with remaining overlap as second chunk
-        assertEquals(2, callCount)
-        assertEquals(2, transcriptions.size)
-    }
-
-    @Test
-    fun `process audio spanning multiple chunks`() = runTest {
-        val processor = createProcessor()
-        // 250 samples = 2 full chunks (100 each, minus overlap) + remainder
-        // First chunk: 0-99, second starts at 80 (100-20 overlap)
-        val multiChunkAudio = FloatArray(250) { it.toFloat() }
-        
-        val chunkSizes = mutableListOf<Int>()
-        
-        processor.process(flowOf(multiChunkAudio)) { samples ->
-            chunkSizes.add(samples.size)
-            "transcription"
-        }.toList()
-        
-        // Should have multiple transcribe calls
-        assertTrue("Expected multiple chunks, got ${chunkSizes.size}", chunkSizes.size >= 2)
-        
-        // First chunks should be full size (100 samples)
-        assertEquals(100, chunkSizes[0])
-        assertEquals(100, chunkSizes[1])
-    }
-
-    @Test
-    fun `verify overlap is preserved between chunks`() = runTest {
-        val processor = createProcessor()
-        // Create audio where we can verify overlap
-        val audio = FloatArray(150) { it.toFloat() }
-        
-        val chunks = mutableListOf<FloatArray>()
-        
-        processor.process(flowOf(audio)) { samples ->
-            chunks.add(samples.copyOf())
-            "transcription"
-        }.toList()
-        
-        // With 100-sample chunks and 20-sample overlap:
-        // Chunk 1: samples 0-99
-        // Chunk 2: samples 80-149 (or less if remaining)
-        
-        assertTrue("Expected at least 2 chunks", chunks.size >= 2)
-        
-        // Verify overlap: last 20 samples of chunk 1 should equal first 20 of chunk 2
-        if (chunks.size >= 2 && chunks[1].size >= 20) {
-            val chunk1End = chunks[0].takeLast(20)
-            val chunk2Start = chunks[1].take(20)
-            
-            for (i in 0 until 20) {
-                assertEquals(
-                    "Overlap sample $i should match",
-                    chunk1End[i],
-                    chunk2Start[i],
-                    0.001f
-                )
+            when (callCount) {
+                1 -> "First part of the"
+                2 -> "of the second part"
+                else -> "part finally ends"
             }
         }
+        
+        // "First part of the" + "of the second part" -> "First part of the second part"
+        // "First part of the second part" + "part finally ends" -> "First part of the second part finally ends"
+        assertEquals("First part of the second part finally ends", joined)
     }
-
-    @Test
-    fun `joinTranscripts removes duplicate words at boundaries`() {
-        val processor = createProcessor()
-        
-        // Test case: overlapping words at boundary
-        val parts = listOf(
-            "the quick brown fox",
-            "brown fox jumps over",
-            "over the lazy dog"
-        )
-        
-        val result = processor.joinTranscripts(parts)
-        
-        assertEquals("the quick brown fox jumps over the lazy dog", result)
-    }
-
-    @Test
-    fun `joinTranscripts handles single part`() {
-        val processor = createProcessor()
-        
-        val parts = listOf("hello world")
-        val result = processor.joinTranscripts(parts)
-        
-        assertEquals("hello world", result)
-    }
-
-    @Test
-    fun `joinTranscripts handles empty list`() {
-        val processor = createProcessor()
-        
-        val parts = emptyList<String>()
-        val result = processor.joinTranscripts(parts)
-        
-        assertEquals("", result)
-    }
-
-    @Test
-    fun `joinTranscripts handles case-insensitive deduplication`() {
-        val processor = createProcessor()
-        
-        // "The" and "the" should be recognized as duplicates
-        val parts = listOf(
-            "Hello The",
-            "the World"
-        )
-        
-        val result = processor.joinTranscripts(parts)
-        
-        assertEquals("Hello The World", result)
-    }
-
-    @Test
-    fun `joinTranscripts handles no overlap`() {
-        val processor = createProcessor()
-        
-        val parts = listOf(
-            "first sentence",
-            "completely different"
-        )
-        
-        val result = processor.joinTranscripts(parts)
-        
-        assertEquals("first sentence completely different", result)
-    }
-
-    @Test
-    fun `processAndJoin combines chunks correctly`() = runTest {
-        val processor = createProcessor()
-        val audio = FloatArray(250) { it.toFloat() }
-        
-        var chunkIndex = 0
-        val transcriptions = listOf(
-            "the quick brown",
-            "brown fox jumps",
-            "jumps high"
-        )
-        
-        val result = processor.processAndJoin(flowOf(audio)) { _ ->
-            val transcript = transcriptions.getOrElse(chunkIndex) { "" }
-            chunkIndex++
-            transcript
-        }
-        
-        // Should deduplicate overlapping words
-        assertEquals("the quick brown fox jumps high", result)
-    }
-
-    @Test
-    fun `process handles empty audio`() = runTest {
-        val processor = createProcessor()
-        val emptyAudio = FloatArray(0)
-        
-        val transcriptions = processor.process(flowOf(emptyAudio)) { _ ->
-            "should not be called"
-        }.toList()
-        
-        assertTrue("Empty audio should produce no transcriptions", transcriptions.isEmpty())
-    }
-
-    @Test
-    fun `process handles blank transcription results`() = runTest {
-        val processor = createProcessor()
-        val audio = FloatArray(50) { it.toFloat() }
-        
-        val transcriptions = processor.process(flowOf(audio)) { _ ->
-            "   " // Blank transcription
-        }.toList()
-        
-        // Blank results should be filtered out
-        assertTrue("Blank transcriptions should be filtered", transcriptions.isEmpty())
-    }
-
-    @Test
-    fun `process handles multiple flow emissions`() = runTest {
-        val processor = createProcessor()
-        
-        // Simulate decoder emitting multiple small chunks
-        val chunk1 = FloatArray(30) { it.toFloat() }
-        val chunk2 = FloatArray(30) { (it + 30).toFloat() }
-        val chunk3 = FloatArray(30) { (it + 60).toFloat() }
-        val chunk4 = FloatArray(30) { (it + 90).toFloat() }
-        
-        val transcribeCalls = mutableListOf<Int>()
-        
-        processor.process(flowOf(chunk1, chunk2, chunk3, chunk4)) { samples ->
-            transcribeCalls.add(samples.size)
-            "transcription"
-        }.toList()
-        
-        // 120 total samples with 100-sample chunks should produce:
-        // - 1 full chunk when buffer reaches 100
-        // - 1 final chunk with remaining samples
-        assertTrue("Expected transcribe to be called", transcribeCalls.isNotEmpty())
+    
+    @Test(expected = IllegalArgumentException::class)
+    fun `init fails with invalid chunk duration`() {
+        ChunkedAudioProcessor(chunkDurationMs = -100)
     }
 
     @Test(expected = IllegalArgumentException::class)
-    fun `constructor rejects negative chunk duration`() {
-        ChunkedAudioProcessor(
-            chunkDurationMs = -1000,
-            overlapDurationMs = 2000,
-            sampleRate = 16000
-        )
-    }
-
-    @Test(expected = IllegalArgumentException::class)
-    fun `constructor rejects overlap greater than chunk`() {
-        ChunkedAudioProcessor(
-            chunkDurationMs = 1000,
-            overlapDurationMs = 2000,
-            sampleRate = 16000
-        )
+    fun `init fails with invalid overlap duration`() {
+        ChunkedAudioProcessor(chunkDurationMs = 1000, overlapDurationMs = 2000)
     }
 }

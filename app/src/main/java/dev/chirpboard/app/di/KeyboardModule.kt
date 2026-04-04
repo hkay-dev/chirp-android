@@ -8,10 +8,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.RecognizerManager
 import dev.chirpboard.app.SherpaRecognizer
-import dev.chirpboard.app.download.ModelDownloader
-import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriberProvider
-import dev.chirpboard.app.feature.keyboard.service.RecognizerProvider
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.download.ModelDownloader
 import javax.inject.Singleton
 
 /**
@@ -20,58 +19,36 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object KeyboardModule {
-    
-    @Provides
-    @Singleton
-    fun provideRecognizerProvider(
-        @ApplicationContext context: Context
-    ): RecognizerProvider {
-        return SherpaRecognizerProvider(context)
-    }
-    
     @Provides
     @Singleton
     fun provideTranscriberProvider(
-        @ApplicationContext context: Context
-    ): TranscriberProvider {
-        return SherpaRecognizerProvider(context)
-    }
+        @ApplicationContext context: Context,
+    ): TranscriberProvider = SherpaRecognizerProvider(context)
 }
 
 /**
- * Implementation of RecognizerProvider and TranscriberProvider that wraps SherpaRecognizer.
+ * Implementation of TranscriberProvider that wraps SherpaRecognizer.
  */
 class SherpaRecognizerProvider(
-    private val context: Context
-) : RecognizerProvider, TranscriberProvider {
-    
+    private val context: Context,
+) : TranscriberProvider {
     private var recognizer: SherpaRecognizer? = null
     private val downloader = ModelDownloader(context)
-    
-    override fun isReady(): Boolean {
-        return recognizer?.isReady == true
-    }
-    
-    override fun isModelDownloaded(): Boolean {
-        return downloader.isModelDownloaded()
-    }
-    
+
+    override fun isReady(): Boolean = recognizer?.isReady == true
+
+    override fun isModelDownloaded(): Boolean = downloader.isModelDownloaded()
+
     override suspend fun initialize(): Boolean {
         if (recognizer == null) {
             recognizer = RecognizerManager.getRecognizer(context)
         }
         return recognizer?.isReady == true
     }
-    
-    override suspend fun transcribe(samples: FloatArray): TranscriptionOutcome {
-        val activeRecognizer = recognizer
-        return activeRecognizer?.transcribeOutcome(samples)
-            ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
-    }
-    
+
     override suspend fun transcribe(
         samples: FloatArray,
-        sampleRate: Int
+        sampleRate: Int,
     ): TranscriptionOutcome {
         val activeRecognizer = recognizer
         return activeRecognizer?.transcribeOutcome(samples, sampleRate)

@@ -4,13 +4,13 @@ import android.util.Log
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
+import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -18,10 +18,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.File
 
 internal class KeyboardTranscriptionPipeline(
     private val tag: String,
-    private val recognizerProvider: RecognizerProvider,
+    private val recognizerProvider: TranscriberProvider,
     private val textProcessor: TextProcessor,
     private val keyboardPreferences: KeyboardPreferences,
     private val persistenceScope: CoroutineScope,
@@ -50,7 +51,7 @@ internal class KeyboardTranscriptionPipeline(
                 stage = ReliabilityStage.TRANSCRIPTION,
                 outcome = ReliabilityOutcome.STARTED,
                 correlationId = correlationId,
-                reasonCode = "keyboard_transcription_started"
+                reasonCode = "keyboard_transcription_started",
             )
 
             if (!recognizerProvider.isReady()) {
@@ -59,13 +60,13 @@ internal class KeyboardTranscriptionPipeline(
                     stage = ReliabilityStage.TRANSCRIPTION,
                     outcome = ReliabilityOutcome.FAILURE,
                     correlationId = correlationId,
-                    reasonCode = "keyboard_recognizer_not_ready"
+                    reasonCode = "keyboard_recognizer_not_ready",
                 )
                 withContext(Dispatchers.Main) {
                     persistBufferedKeyboardCapture(
                         rawText = null,
                         processedText = null,
-                        errorMessage = "Recognizer not ready"
+                        errorMessage = "Recognizer not ready",
                     )
                     onStateChanged(KeyboardState.Error("Recognizer not ready"))
                     onRecordingError("Recognizer not ready")
@@ -75,42 +76,47 @@ internal class KeyboardTranscriptionPipeline(
 
             val transcriptionOutcome = recognizerProvider.transcribe(samples)
             val mappedOutcome = mapKeyboardTranscriptionOutcome(transcriptionOutcome)
-            val rawText = when (mappedOutcome) {
-                is KeyboardTranscriptionResolution.Success -> mappedOutcome.text
-                KeyboardTranscriptionResolution.NoSpeech -> {
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.TRANSCRIPTION,
-                        outcome = ReliabilityOutcome.SKIPPED,
-                        correlationId = correlationId,
-                        reasonCode = "keyboard_no_speech"
-                    )
-                    withContext(Dispatchers.Main) {
-                        discardBufferedKeyboardCapture()
-                        onRecordingCompleted()
-                        onStateChanged(KeyboardState.Idle)
+            val rawText =
+                when (mappedOutcome) {
+                    is KeyboardTranscriptionResolution.Success -> {
+                        mappedOutcome.text
                     }
-                    return
-                }
-                is KeyboardTranscriptionResolution.Failure -> {
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.TRANSCRIPTION,
-                        outcome = ReliabilityOutcome.FAILURE,
-                        correlationId = correlationId,
-                        reasonCode = "keyboard_transcription_failed",
-                        message = mappedOutcome.message
-                    )
-                    withContext(Dispatchers.Main) {
-                        persistBufferedKeyboardCapture(
-                            rawText = rawTextForPersistence,
-                            processedText = null,
-                            errorMessage = mappedOutcome.message
+
+                    KeyboardTranscriptionResolution.NoSpeech -> {
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.TRANSCRIPTION,
+                            outcome = ReliabilityOutcome.SKIPPED,
+                            correlationId = correlationId,
+                            reasonCode = "keyboard_no_speech",
                         )
-                        onStateChanged(KeyboardState.Error(mappedOutcome.message))
-                        onRecordingError(mappedOutcome.message)
+                        withContext(Dispatchers.Main) {
+                            discardBufferedKeyboardCapture()
+                            onRecordingCompleted()
+                            onStateChanged(KeyboardState.Idle)
+                        }
+                        return
                     }
-                    return
+
+                    is KeyboardTranscriptionResolution.Failure -> {
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.TRANSCRIPTION,
+                            outcome = ReliabilityOutcome.FAILURE,
+                            correlationId = correlationId,
+                            reasonCode = "keyboard_transcription_failed",
+                            message = mappedOutcome.message,
+                        )
+                        withContext(Dispatchers.Main) {
+                            persistBufferedKeyboardCapture(
+                                rawText = rawTextForPersistence,
+                                processedText = null,
+                                errorMessage = mappedOutcome.message,
+                            )
+                            onStateChanged(KeyboardState.Error(mappedOutcome.message))
+                            onRecordingError(mappedOutcome.message)
+                        }
+                        return
+                    }
                 }
-            }
 
             Log.d(tag, "Transcribed: $rawText")
             rawTextForPersistence = rawText
@@ -118,7 +124,7 @@ internal class KeyboardTranscriptionPipeline(
                 stage = ReliabilityStage.TRANSCRIPTION,
                 outcome = ReliabilityOutcome.SUCCESS,
                 correlationId = correlationId,
-                reasonCode = "keyboard_transcription_completed"
+                reasonCode = "keyboard_transcription_completed",
             )
 
             withContext(Dispatchers.Main) {
@@ -130,15 +136,16 @@ internal class KeyboardTranscriptionPipeline(
                     stage = ReliabilityStage.ENHANCEMENT,
                     outcome = ReliabilityOutcome.STARTED,
                     correlationId = correlationId,
-                    reasonCode = "keyboard_enhancement_started"
+                    reasonCode = "keyboard_enhancement_started",
                 )
                 withContext(Dispatchers.Main) {
                     onStateChanged(KeyboardState.Polishing)
                 }
 
-                val result = withTimeoutOrNull(10_000L) {
-                    textProcessor.process(rawText, currentMode)
-                }
+                val result =
+                    withTimeoutOrNull(10_000L) {
+                        textProcessor.process(rawText, currentMode)
+                    }
 
                 withContext(Dispatchers.Main) {
                     if (result != null) {
@@ -149,7 +156,7 @@ internal class KeyboardTranscriptionPipeline(
                                     stage = ReliabilityStage.ENHANCEMENT,
                                     outcome = ReliabilityOutcome.SUCCESS,
                                     correlationId = correlationId,
-                                    reasonCode = "keyboard_enhancement_completed"
+                                    reasonCode = "keyboard_enhancement_completed",
                                 )
                                 commitText("$polishedText ")
                                 handleTranscriptionComplete(rawText, polishedText)
@@ -162,12 +169,12 @@ internal class KeyboardTranscriptionPipeline(
                                     outcome = ReliabilityOutcome.FAILURE,
                                     correlationId = correlationId,
                                     reasonCode = "keyboard_enhancement_failed",
-                                    message = error.message
+                                    message = error.message,
                                 )
                                 commitText("$rawText ")
                                 handleTranscriptionComplete(rawText, null)
                                 onStateChanged(KeyboardState.LlmError("LLM failed: ${error.message}"))
-                            }
+                            },
                         )
                     } else {
                         Log.w(tag, "LLM timed out after 10s, using raw text")
@@ -175,7 +182,7 @@ internal class KeyboardTranscriptionPipeline(
                             stage = ReliabilityStage.ENHANCEMENT,
                             outcome = ReliabilityOutcome.FAILURE,
                             correlationId = correlationId,
-                            reasonCode = "keyboard_enhancement_timeout"
+                            reasonCode = "keyboard_enhancement_timeout",
                         )
                         commitText("$rawText ")
                         handleTranscriptionComplete(rawText, null)
@@ -197,13 +204,13 @@ internal class KeyboardTranscriptionPipeline(
                 outcome = ReliabilityOutcome.FAILURE,
                 correlationId = ReliabilityEventLogger.newCorrelationId("keyboard"),
                 reasonCode = "keyboard_exception",
-                message = e.message
+                message = e.message,
             )
             withContext(Dispatchers.Main) {
                 persistBufferedKeyboardCapture(
                     rawText = rawTextForPersistence,
                     processedText = null,
-                    errorMessage = errorMessage
+                    errorMessage = errorMessage,
                 )
                 onStateChanged(KeyboardState.Error(errorMessage))
                 onRecordingError(errorMessage)
@@ -226,21 +233,23 @@ internal class KeyboardTranscriptionPipeline(
 
         val sampleSnapshot = samples.copyOf()
         setBufferedSamples(null)
-        val persistencePlan = buildKeyboardPersistencePlan(
-            rawText = rawText,
-            processedText = processedText,
-            errorMessage = errorMessage
-        )
-
-        val job = persistenceScope.launch {
-            saveKeyboardRecording(
-                filesDir = filesDirProvider(),
-                audioEncoder = audioEncoder,
-                recordingRepository = recordingRepository,
-                persistencePlan = persistencePlan,
-                samples = sampleSnapshot
+        val persistencePlan =
+            buildKeyboardPersistencePlan(
+                rawText = rawText,
+                processedText = processedText,
+                errorMessage = errorMessage,
             )
-        }
+
+        val job =
+            persistenceScope.launch {
+                saveKeyboardRecording(
+                    filesDir = filesDirProvider(),
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    persistencePlan = persistencePlan,
+                    samples = sampleSnapshot,
+                )
+            }
         setPersistenceJob(job)
 
         try {
@@ -256,10 +265,13 @@ internal class KeyboardTranscriptionPipeline(
         setBufferedSamples(null)
     }
 
-    private suspend fun handleTranscriptionComplete(rawText: String, processedText: String?) {
+    private suspend fun handleTranscriptionComplete(
+        rawText: String,
+        processedText: String?,
+    ) {
         persistBufferedKeyboardCapture(
             rawText = rawText,
-            processedText = processedText
+            processedText = processedText,
         )
     }
 }

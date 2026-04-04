@@ -29,13 +29,13 @@ fun ProfileListScreen(
     viewModel: ProfilesViewModel = hiltViewModel(),
     onProfileClick: (UUID) -> Unit,
     onAddProfile: () -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
 ) {
     val profiles by viewModel.profiles.collectAsState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    
+
     var profileToDelete by remember { mutableStateOf<dev.chirpboard.app.data.entity.Profile?>(null) }
-    
+
     // Delete confirmation dialog
     profileToDelete?.let { profile ->
         AnimatedAlertDialog(
@@ -48,9 +48,10 @@ fun ProfileListScreen(
                         viewModel.deleteProfile(profile)
                         profileToDelete = null
                     },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
+                    colors =
+                        ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                 ) {
                     Text("Delete")
                 }
@@ -59,10 +60,10 @@ fun ProfileListScreen(
                 TextButton(onClick = { profileToDelete = null }) {
                     Text("Cancel")
                 }
-            }
+            },
         )
     }
-    
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -72,25 +73,25 @@ fun ProfileListScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
                 },
-                scrollBehavior = scrollBehavior
+                scrollBehavior = scrollBehavior,
             )
         },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = onAddProfile,
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add Profile"
+                    contentDescription = "Add Profile",
                 )
             }
-        }
+        },
     ) { paddingValues ->
         AnimatedContent(
             targetState = profiles.isEmpty(),
@@ -98,7 +99,7 @@ fun ProfileListScreen(
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
-            label = "profiles_content"
+            label = "profiles_content",
         ) { isEmpty ->
             if (isEmpty) {
                 EmptyState(
@@ -107,30 +108,32 @@ fun ProfileListScreen(
                     description = "Create a profile to save your recording preferences",
                     actionLabel = "Create Profile",
                     onAction = onAddProfile,
-                    modifier = Modifier.padding(paddingValues)
+                    modifier = Modifier.padding(paddingValues),
                 )
             } else {
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 8.dp,
-                        bottom = 88.dp // Extra padding for FAB
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues),
+                    contentPadding =
+                        PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 8.dp,
+                            bottom = 88.dp, // Extra padding for FAB
+                        ),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
                         items = profiles,
-                        key = { it.id }
+                        key = { it.id },
                     ) { profile ->
                         ProfileCard(
                             profile = profile,
                             onClick = { onProfileClick(profile.id) },
                             onDelete = { profileToDelete = profile },
-                            modifier = Modifier.animateItem()
+                            modifier = Modifier.animateItem(),
                         )
                     }
                 }

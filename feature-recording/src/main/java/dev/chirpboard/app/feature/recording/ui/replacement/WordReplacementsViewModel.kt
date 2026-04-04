@@ -12,39 +12,46 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class WordReplacementsViewModel @Inject constructor(
-    private val repository: WordReplacementRepository
-) : ViewModel() {
+class WordReplacementsViewModel
+    @Inject
+    constructor(
+        private val repository: WordReplacementRepository,
+    ) : ViewModel() {
+        val replacements: StateFlow<List<WordReplacement>> =
+            repository
+                .getAllReplacements()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val replacements: StateFlow<List<WordReplacement>> = repository.getAllReplacements()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        fun create(
+            original: String,
+            replacement: String,
+            caseSensitive: Boolean,
+        ) {
+            viewModelScope.launch {
+                repository.createReplacement(
+                    original = original,
+                    replacement = replacement,
+                    caseSensitive = caseSensitive,
+                    enabled = true,
+                )
+            }
+        }
 
-    fun create(original: String, replacement: String, caseSensitive: Boolean) {
-        viewModelScope.launch {
-            repository.createReplacement(
-                original = original,
-                replacement = replacement,
-                caseSensitive = caseSensitive,
-                enabled = true
-            )
+        fun update(item: WordReplacement) {
+            viewModelScope.launch {
+                repository.update(item)
+            }
+        }
+
+        fun delete(item: WordReplacement) {
+            viewModelScope.launch {
+                repository.delete(item)
+            }
+        }
+
+        fun toggleEnabled(item: WordReplacement) {
+            viewModelScope.launch {
+                repository.setEnabled(item.id, !item.enabled)
+            }
         }
     }
-
-    fun update(item: WordReplacement) {
-        viewModelScope.launch {
-            repository.update(item)
-        }
-    }
-
-    fun delete(item: WordReplacement) {
-        viewModelScope.launch {
-            repository.delete(item)
-        }
-    }
-
-    fun toggleEnabled(item: WordReplacement) {
-        viewModelScope.launch {
-            repository.setEnabled(item.id, !item.enabled)
-        }
-    }
-}

@@ -21,14 +21,14 @@ import java.io.IOException
  */
 @RunWith(AndroidJUnit4::class)
 class MigrationTest {
-
     private val TEST_DB = "migration-test"
 
     @get:Rule
-    val helper: MigrationTestHelper = MigrationTestHelper(
-        InstrumentationRegistry.getInstrumentation(),
-        AppDatabase::class.java
-    )
+    val helper: MigrationTestHelper =
+        MigrationTestHelper(
+            InstrumentationRegistry.getInstrumentation(),
+            AppDatabase::class.java,
+        )
 
     /**
      * Test that the current database can be created and is valid.
@@ -39,11 +39,13 @@ class MigrationTest {
     @Throws(IOException::class)
     fun createDb() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val db = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            TEST_DB
-        ).build()
+        val db =
+            Room
+                .databaseBuilder(
+                    context,
+                    AppDatabase::class.java,
+                    TEST_DB,
+                ).build()
 
         // Verify database is accessible by getting DAOs
         db.recordingDao()
@@ -69,14 +71,17 @@ class MigrationTest {
 
         // Run all migrations
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            TEST_DB
-        ).addMigrations(*Migrations.ALL).build().apply {
-            openHelper.writableDatabase.version
-            close()
-        }
+        Room
+            .databaseBuilder(
+                context,
+                AppDatabase::class.java,
+                TEST_DB,
+            ).addMigrations(*Migrations.ALL)
+            .build()
+            .apply {
+                openHelper.writableDatabase.version
+                close()
+            }
     }
 
     // Template for future migration tests:
@@ -112,7 +117,7 @@ class MigrationTest {
         cursor.close()
         db.close()
     }
-    */
+     */
 
     // Add new migration tests here as migrations are created...
 }

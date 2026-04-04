@@ -12,29 +12,34 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class TagsViewModel @Inject constructor(
-    private val tagRepository: TagRepository
-) : ViewModel() {
+class TagsViewModel
+    @Inject
+    constructor(
+        private val tagRepository: TagRepository,
+    ) : ViewModel() {
+        val tags: StateFlow<List<Tag>> =
+            tagRepository
+                .getAllTags()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val tags: StateFlow<List<Tag>> = tagRepository
-        .getAllTags()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        fun createTag(
+            name: String,
+            color: String?,
+        ) {
+            viewModelScope.launch {
+                tagRepository.createTag(name, color)
+            }
+        }
 
-    fun createTag(name: String, color: String?) {
-        viewModelScope.launch {
-            tagRepository.createTag(name, color)
+        fun updateTag(tag: Tag) {
+            viewModelScope.launch {
+                tagRepository.update(tag)
+            }
+        }
+
+        fun deleteTag(tag: Tag) {
+            viewModelScope.launch {
+                tagRepository.delete(tag)
+            }
         }
     }
-
-    fun updateTag(tag: Tag) {
-        viewModelScope.launch {
-            tagRepository.update(tag)
-        }
-    }
-
-    fun deleteTag(tag: Tag) {
-        viewModelScope.launch {
-            tagRepository.delete(tag)
-        }
-    }
-}
