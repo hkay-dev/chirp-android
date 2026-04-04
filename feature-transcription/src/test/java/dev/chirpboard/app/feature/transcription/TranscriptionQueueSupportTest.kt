@@ -114,21 +114,21 @@ class TranscriptionQueueSupportTest {
     fun `mergePendingRecordings sorts descending by creation time`() {
         val oldRecord = Recording(
             id = UUID.randomUUID(),
-            filePath = "path1",
+            audioPath = "path1", title = "1", source = dev.chirpboard.app.data.model.RecordingSource.APP,
             createdAt = Date(1000),
             status = RecordingStatus.PENDING_TRANSCRIPTION,
             durationMs = 0
         )
         val newRecord = Recording(
             id = UUID.randomUUID(),
-            filePath = "path2",
+            audioPath = "path2", title = "2", source = dev.chirpboard.app.data.model.RecordingSource.APP,
             createdAt = Date(3000),
-            status = RecordingStatus.PENDING_ENHANCING,
+            status = RecordingStatus.PENDING_ENHANCEMENT,
             durationMs = 0
         )
         val middleRecord = Recording(
             id = UUID.randomUUID(),
-            filePath = "path3",
+            audioPath = "path3", title = "3", source = dev.chirpboard.app.data.model.RecordingSource.APP,
             createdAt = Date(2000),
             status = RecordingStatus.PENDING_TRANSCRIPTION,
             durationMs = 0
