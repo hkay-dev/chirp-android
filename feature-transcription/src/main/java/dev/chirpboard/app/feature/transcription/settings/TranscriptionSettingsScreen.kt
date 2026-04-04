@@ -46,7 +46,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -62,7 +61,7 @@ fun TranscriptionSettingsScreen(
     viewModel: TranscriptionSettingsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -180,7 +179,7 @@ private fun ModelStatusCard(
     isDownloaded: Boolean,
     isLoading: Boolean
 ) {
-    val statusTint by animateColorAsState(
+    val statusTint = animateColorAsState(
         targetValue = when {
             isLoading -> MaterialTheme.colorScheme.tertiary
             isDownloaded -> MaterialTheme.colorScheme.primary
@@ -188,7 +187,7 @@ private fun ModelStatusCard(
         },
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "status_tint"
-    )
+    ).value
     
     Card(
         modifier = Modifier.fillMaxWidth(),

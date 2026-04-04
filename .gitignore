@@ -10,6 +10,7 @@ docs/plans/
 .gradle/
 build/
 app/build/
+.desloppify/
 
 # IDE
 .idea/
@@ -25,6 +26,7 @@ README_VOICE_IME.md
 VOICE_IME_IMPLEMENTATION_GUIDE.md
 VOICE_IME_QUICK_REFERENCE.md
 VOICE_IME_RESEARCH_SUMMARY.md
+scorecard.png
 
 # OS
 .DS_Store
