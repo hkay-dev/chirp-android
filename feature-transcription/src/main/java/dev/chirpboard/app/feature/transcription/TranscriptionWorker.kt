@@ -49,26 +49,16 @@ class TranscriptionWorker @AssistedInject constructor(
         const val INPUT_RECORDING_ID = "recording_id"
         const val OUTPUT_TRANSCRIPT_ID = "transcript_id"
         const val OUTPUT_ERROR = "error"
-
-        private const val MAX_RETRY_COUNT = 3
     }
 
     override suspend fun doWork(): Result {
         val recordingIdString = inputData.getString(INPUT_RECORDING_ID)
-            ?: return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Missing recording ID")
-                    .build()
-            )
+            ?: return buildTranscriptionFailureResult("Missing recording ID")
 
         val recordingId = try {
             UUID.fromString(recordingIdString)
         } catch (e: IllegalArgumentException) {
-            return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Invalid recording ID format")
-                    .build()
-            )
+            return buildTranscriptionFailureResult("Invalid recording ID format")
         }
 
         val correlationId = inputData.getString(TranscriptionWorkRequest.INPUT_CORRELATION_ID)
@@ -84,11 +74,7 @@ class TranscriptionWorker @AssistedInject constructor(
     private suspend fun transcribeRecording(recordingId: UUID, correlationId: String): Result {
         // Fetch the recording
         val recording = recordingRepository.getRecording(recordingId)
-            ?: return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Recording not found: $recordingId")
-                    .build()
-            )
+            ?: return buildTranscriptionFailureResult("Recording not found: $recordingId")
 
         if (recording.status == RecordingStatus.PENDING_ENHANCEMENT) {
             return runEnhancementOnly(recordingId, recording, correlationId)
@@ -119,11 +105,7 @@ class TranscriptionWorker @AssistedInject constructor(
                 recordingId = recordingId,
                 reasonCode = "audio_missing"
             )
-            return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Audio file not found")
-                    .build()
-            )
+            return buildTranscriptionFailureResult("Audio file not found")
         }
 
         // Check if model is downloaded
@@ -140,11 +122,7 @@ class TranscriptionWorker @AssistedInject constructor(
                 recordingId = recordingId,
                 reasonCode = "model_not_downloaded"
             )
-            return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Model not downloaded")
-                    .build()
-            )
+            return buildTranscriptionFailureResult("Model not downloaded")
         }
 
         // Initialize the transcriber if needed
@@ -164,11 +142,7 @@ class TranscriptionWorker @AssistedInject constructor(
                     recordingId = recordingId,
                     reasonCode = "model_init_failed"
                 )
-                return Result.failure(
-                    Data.Builder()
-                        .putString(OUTPUT_ERROR, "Failed to initialize model")
-                        .build()
-                )
+                return buildTranscriptionFailureResult("Failed to initialize model")
             }
         }
 
@@ -207,11 +181,7 @@ class TranscriptionWorker @AssistedInject constructor(
                 RecordingStatus.FAILED,
                 "Out of memory during transcription. Recording may be too long."
             )
-            return Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, "Out of memory during transcription")
-                    .build()
-            )
+            return buildTranscriptionFailureResult("Out of memory during transcription")
         } catch (e: java.io.IOException) {
             Log.e(TAG, "I/O error during decode/transcription (may be retried)", e)
             throw e
@@ -250,11 +220,7 @@ class TranscriptionWorker @AssistedInject constructor(
             reasonCode = "worker_completed"
         )
 
-        return Result.success(
-            Data.Builder()
-                .putString(OUTPUT_TRANSCRIPT_ID, transcript.id.toString())
-                .build()
-        )
+        return buildTranscriptionSuccessResult(transcript.id)
     }
 
     private suspend fun runEnhancementOnly(
@@ -278,11 +244,7 @@ class TranscriptionWorker @AssistedInject constructor(
                     reasonCode = "enhancement_missing_transcript",
                     message = errorMessage
                 )
-                return Result.failure(
-                    Data.Builder()
-                        .putString(OUTPUT_ERROR, errorMessage)
-                        .build()
-                )
+                return buildTranscriptionFailureResult(errorMessage)
             }
 
         val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
@@ -353,7 +315,7 @@ class TranscriptionWorker @AssistedInject constructor(
         val disposition = resolveWorkerFailureDisposition(
             exception = exception,
             runAttemptCount = runAttemptCount,
-            maxRetryCount = MAX_RETRY_COUNT
+            maxRetryCount = TRANSCRIPTION_MAX_RETRY_COUNT
         )
 
         ReliabilityEventLogger.log(
@@ -379,18 +341,8 @@ class TranscriptionWorker @AssistedInject constructor(
         return if (disposition.retry) {
             Result.retry()
         } else {
-            Result.failure(
-                Data.Builder()
-                    .putString(OUTPUT_ERROR, errorMessage)
-                    .build()
-            )
+            buildTranscriptionFailureResult(errorMessage)
         }
-    }
-
-    private fun shouldRetry(exception: Exception): Boolean {
-        // Retry on transient errors (e.g., file system busy)
-        // Don't retry on permanent errors (e.g., file not found, invalid format)
-        return exception is java.io.IOException
     }
 
     /**
@@ -416,41 +368,3 @@ class TranscriptionWorker @AssistedInject constructor(
         }
     }
 }
-
-internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): String {
-    return when (outcome) {
-        is TranscriptionOutcome.Success -> outcome.text
-        TranscriptionOutcome.NoSpeech -> ""
-        is TranscriptionOutcome.ModelUnavailable -> {
-            throw NonRetryableTranscriptionException(
-                "Speech model unavailable: ${outcome.reason}"
-            )
-        }
-        is TranscriptionOutcome.EngineError -> {
-            val message = "Speech engine failed: ${outcome.reason}"
-            if (outcome.retryable) {
-                throw RetryableTranscriptionException(message)
-            } else {
-                throw NonRetryableTranscriptionException(message)
-            }
-        }
-    }
-}
-
-internal data class WorkerFailureDisposition(
-    val status: RecordingStatus,
-    val retry: Boolean
-)
-
-internal fun resolveWorkerFailureDisposition(
-    exception: Exception,
-    runAttemptCount: Int,
-    maxRetryCount: Int
-): WorkerFailureDisposition {
-    val retry = exception is java.io.IOException && runAttemptCount < maxRetryCount
-    val status = if (retry) RecordingStatus.PENDING_TRANSCRIPTION else RecordingStatus.FAILED
-    return WorkerFailureDisposition(status = status, retry = retry)
-}
-
-internal class RetryableTranscriptionException(message: String) : java.io.IOException(message)
-internal class NonRetryableTranscriptionException(message: String) : Exception(message)
