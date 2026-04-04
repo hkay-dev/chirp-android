@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
