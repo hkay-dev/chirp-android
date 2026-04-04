@@ -52,10 +52,6 @@ class TranscriptionQueueManager @Inject constructor(
     
     companion object {
         private const val TAG = "TranscriptionQueueMgr"
-        private const val MANUAL_RECOVERY_PREFIX = "manual_recovery:"
-        private const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = "recoverable_queue_handoff:"
-        private const val RECOVERABLE_STALE_TRANSCRIBING_PREFIX = "recoverable_stale_transcribing:"
-        private const val RECOVERABLE_STALE_ENHANCING_PREFIX = "recoverable_stale_enhancing:"
         private const val DEFAULT_RECONCILIATION_INTERVAL_MS = 60_000L
         private const val WORK_INFO_TIMEOUT_MS = 5_000L
         private const val WORK_INFO_POLL_INTERVAL_MS = 50L
@@ -555,10 +551,6 @@ class TranscriptionQueueManager @Inject constructor(
         return ManualRecoveryResult.ENQUEUED
     }
 
-    private fun buildManualRecoveryMessage(reason: String): String {
-        return "$MANUAL_RECOVERY_PREFIX$reason|attemptAt=${System.currentTimeMillis()}"
-    }
-
     private suspend fun loadWorkInfosWithTimeout(workName: String): List<WorkInfo>? {
         return withContext(Dispatchers.IO) {
             val future = workManager.getWorkInfosForUniqueWork(workName)
@@ -602,130 +594,4 @@ class TranscriptionQueueManager @Inject constructor(
             // MANUAL_RECOVERY_PREFIX marker; clear it once the job is re-enqueued.
             errorMessage?.startsWith(MANUAL_RECOVERY_PREFIX) == true
     }
-}
-
-private data class ParsedRecoveryMetadata(
-    val reason: String?,
-    val lastAttemptEpochMs: Long?
-)
-
-private fun parseRecoveryMetadata(errorMessage: String?): ParsedRecoveryMetadata {
-    if (errorMessage.isNullOrBlank()) {
-        return ParsedRecoveryMetadata(reason = null, lastAttemptEpochMs = null)
-    }
-
-    val normalizedReason = errorMessage
-        .removePrefix("recoverable_queue_handoff:")
-        .removePrefix("recoverable_stale_transcribing:")
-        .removePrefix("recoverable_stale_enhancing:")
-
-    if (!normalizedReason.startsWith("manual_recovery:")) {
-        return ParsedRecoveryMetadata(reason = normalizedReason, lastAttemptEpochMs = null)
-    }
-
-    val payload = normalizedReason.removePrefix("manual_recovery:")
-    val attemptToken = "|attemptAt="
-    val attemptIndex = payload.indexOf(attemptToken)
-    if (attemptIndex < 0) {
-        return ParsedRecoveryMetadata(reason = payload, lastAttemptEpochMs = null)
-    }
-
-    val reason = payload.substring(0, attemptIndex)
-    val timestampRaw = payload.substring(attemptIndex + attemptToken.length)
-    val timestamp = timestampRaw.toLongOrNull()
-
-    return ParsedRecoveryMetadata(reason = reason, lastAttemptEpochMs = timestamp)
-}
-
-internal fun blockedManualRecoveryResult(ownership: QueueOwnership): ManualRecoveryResult? {
-    return when (ownership) {
-        QueueOwnership.ACTIVE -> ManualRecoveryResult.BLOCKED_ACTIVE_WORK
-        QueueOwnership.INSPECTION_TIMEOUT -> ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT
-        QueueOwnership.MISSING_OR_TERMINAL -> null
-    }
-}
-
-private fun QueueOwnership.toRecoveryOwnershipState(): RecoveryOwnershipState {
-    return when (this) {
-        QueueOwnership.ACTIVE -> RecoveryOwnershipState.ACTIVE
-        QueueOwnership.MISSING_OR_TERMINAL -> RecoveryOwnershipState.MISSING_OR_TERMINAL
-        QueueOwnership.INSPECTION_TIMEOUT -> RecoveryOwnershipState.INSPECTION_TIMEOUT
-    }
-}
-
-enum class ManualRecoveryResult {
-    ENQUEUED,
-    BLOCKED_ACTIVE_WORK,
-    BLOCKED_OWNERSHIP_TIMEOUT,
-    NOT_RECOVERABLE_STATE
-}
-
-enum class RecoveryOwnershipState {
-    ACTIVE,
-    MISSING_OR_TERMINAL,
-    INSPECTION_TIMEOUT
-}
-
-data class RecoveryDiagnostics(
-    val latestReason: String?,
-    val lastAttemptEpochMs: Long?,
-    val ownership: RecoveryOwnershipState
-)
-
-internal enum class ReconciliationTrigger {
-    STARTUP,
-    PERIODIC
-}
-
-internal enum class QueueOwnership {
-    ACTIVE,
-    MISSING_OR_TERMINAL,
-    INSPECTION_TIMEOUT
-}
-
-internal fun shouldRecoverStaleTranscribing(
-    trigger: ReconciliationTrigger,
-    createdAtEpochMs: Long,
-    ownership: QueueOwnership,
-    nowEpochMs: Long,
-    staleThresholdMs: Long
-): Boolean {
-    if (ownership == QueueOwnership.ACTIVE || ownership == QueueOwnership.INSPECTION_TIMEOUT) {
-        return false
-    }
-
-    return trigger == ReconciliationTrigger.STARTUP ||
-        (nowEpochMs - createdAtEpochMs) >= staleThresholdMs
-}
-
-internal fun shouldRecoverStaleEnhancing(
-    trigger: ReconciliationTrigger,
-    createdAtEpochMs: Long,
-    ownership: QueueOwnership,
-    nowEpochMs: Long,
-    staleThresholdMs: Long
-): Boolean {
-    if (ownership == QueueOwnership.ACTIVE || ownership == QueueOwnership.INSPECTION_TIMEOUT) {
-        return false
-    }
-
-    return trigger == ReconciliationTrigger.STARTUP ||
-        (nowEpochMs - createdAtEpochMs) >= staleThresholdMs
-}
-
-internal fun shouldRequeuePending(ownership: QueueOwnership): Boolean {
-    return ownership == QueueOwnership.MISSING_OR_TERMINAL
-}
-
-/**
- * Combine pending-transcription and pending-enhancement recordings into a single list,
- * ordered newest-first by [Recording.createdAt]. Used by reconciliation so that both
- * categories of stalled work receive the same ownership check and re-enqueue treatment.
- */
-internal fun mergePendingRecordings(
-    pendingTranscription: List<Recording>,
-    pendingEnhancement: List<Recording>
-): List<Recording> {
-    return (pendingTranscription + pendingEnhancement)
-        .sortedByDescending { it.createdAt }
 }
