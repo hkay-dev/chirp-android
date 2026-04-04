@@ -46,13 +46,11 @@ import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
-import dev.chirpboard.app.feature.keyboard.recorder.RecordingError
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
 import java.io.File
 import java.util.UUID
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.state.toKeyboardState
-import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
