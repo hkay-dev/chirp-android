@@ -28,6 +28,16 @@ class KeyboardPersistencePlanTest {
     }
 
     @Test
+    fun `title is trimmed before being used`() {
+        val plan = buildKeyboardPersistencePlan(
+            rawText = "   hello world   ",
+            processedText = null,
+            errorMessage = null
+        )
+        assertEquals("hello world", plan.title)
+    }
+
+    @Test
     fun `title is truncated to 50 characters`() {
         val longText = "a".repeat(80)
         val plan = buildKeyboardPersistencePlan(
@@ -106,6 +116,16 @@ class KeyboardPersistencePlanTest {
     fun `rawText is preserved when non-blank`() {
         val plan = buildKeyboardPersistencePlan(
             rawText = "voice memo",
+            processedText = null,
+            errorMessage = null
+        )
+        assertEquals("voice memo", plan.rawText)
+    }
+
+    @Test
+    fun `rawText is trimmed when stored`() {
+        val plan = buildKeyboardPersistencePlan(
+            rawText = "   voice memo   ",
             processedText = null,
             errorMessage = null
         )

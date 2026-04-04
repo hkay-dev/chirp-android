@@ -52,6 +52,19 @@ class KeyboardTranscriptionOutcomeMappingTest {
     }
 
     @Test
+    fun `retryable engine error still maps to failure`() {
+        val result = mapKeyboardTranscriptionOutcome(
+            TranscriptionOutcome.EngineError("decoder busy", retryable = true)
+        )
+
+        assertTrue(result is KeyboardTranscriptionResolution.Failure)
+        assertEquals(
+            "Transcription engine failed: decoder busy",
+            (result as KeyboardTranscriptionResolution.Failure).message
+        )
+    }
+
+    @Test
     fun `successful persistence plan keeps transcript and completed status`() {
         val plan = buildKeyboardPersistencePlan(
             rawText = "hello from the keyboard",
