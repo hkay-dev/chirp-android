@@ -1,0 +1,14 @@
+--- feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModelTest.kt
++++ feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModelTest.kt
+@@ -118,9 +118,8 @@
+             awaitItem() // initial
+             viewModel.deleteModel()
+             
+-            val state1 = awaitItem() // dismissing confirmation
+-            val state2 = awaitItem() // error
+-            assertEquals("Failed to delete model files", state2.errorMessage)
++            val state1 = awaitItem() // error and dismissed confirmation
++            assertEquals("Failed to delete model files", state1.errorMessage)
+             
+             cancelAndIgnoreRemainingEvents()
+         }

@@ -8,17 +8,12 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
-import dev.chirpboard.app.ui.theme.ChirpTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch

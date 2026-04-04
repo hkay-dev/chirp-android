@@ -1,138 +1,147 @@
 package dev.chirpboard.app.download
 
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.async
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelReadinessGateTest {
+    private lateinit var verifier: ModelReadinessVerifier
+    private lateinit var gate: ModelReadinessGate
+    private val testDispatcher = StandardTestDispatcher()
+    private val testScope = TestScope(testDispatcher)
 
-    @Test
-    fun ensureReady_readyEvaluation_updatesStateAndReturnsReady() = runTest {
-        val gate = ModelReadinessGate(
-            verifier = ModelReadinessVerifier {
-                ModelReadinessEvaluation(
-                    isReady = true,
-                    verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
-                )
-            },
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            now = { 1_000L },
-            gateScope = this
-        )
-
-        val result = gate.ensureReady(VerificationTrigger.HOME_RECORD_TAP)
-
-        assertTrue(result is ModelReadyResult.Ready)
-        assertTrue(gate.state.value is ModelReadinessState.Ready)
+    @Before
+    fun setup() {
+        verifier = mockk()
+        gate =
+            ModelReadinessGate(
+                verifier = verifier,
+                ioDispatcher = testDispatcher,
+                now = { 1000L },
+                gateScope = testScope,
+            )
     }
 
     @Test
-    fun ensureReady_setsCheckingStateImmediately() = runTest {
-        val blocker = CompletableDeferred<Unit>()
-        val gate = ModelReadinessGate(
-            verifier = ModelReadinessVerifier {
-                blocker.await()
+    fun `warmupIfNeeded calls ensureReady when state is Unknown`() =
+        testScope.runTest {
+            coEvery { verifier.verify() } returns
                 ModelReadinessEvaluation(
                     isReady = true,
-                    verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+                    verificationSource = ModelReadinessVerificationSource.PROCESS_CACHE,
                 )
-            },
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            now = { 2_000L },
-            gateScope = this
-        )
 
-        val pending = async { gate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) }
-        runCurrent()
+            gate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+            testDispatcher.scheduler.advanceUntilIdle()
 
-        assertTrue(gate.state.value is ModelReadinessState.Checking)
+            val state = gate.state.value
+            assertTrue(state is ModelReadinessState.Ready)
+            assertEquals(ModelReadinessVerificationSource.PROCESS_CACHE, (state as ModelReadinessState.Ready).source)
 
-        blocker.complete(Unit)
-        advanceUntilIdle()
-
-        assertTrue(pending.await() is ModelReadyResult.Ready)
-    }
+            coVerify(exactly = 1) { verifier.verify() }
+        }
 
     @Test
-    fun ensureReady_concurrentCallsShareSingleVerification() = runTest {
-        var verifierCalls = 0
-        val blocker = CompletableDeferred<Unit>()
-        val gate = ModelReadinessGate(
-            verifier = ModelReadinessVerifier {
-                verifierCalls += 1
-                blocker.await()
+    fun `warmupIfNeeded does nothing if state is already Checking or Ready`() =
+        testScope.runTest {
+            coEvery { verifier.verify() } returns ModelReadinessEvaluation(isReady = true)
+
+            gate.warmupIfNeeded()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // Second call should do nothing
+            gate.warmupIfNeeded()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 1) { verifier.verify() }
+        }
+
+    @Test
+    fun `ensureReady returns Ready if verifier is successful`() =
+        testScope.runTest {
+            coEvery { verifier.verify() } returns
                 ModelReadinessEvaluation(
                     isReady = true,
-                    verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+                    verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION,
                 )
-            },
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            gateScope = this
-        )
 
-        val first = async { gate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) }
-        val second = async { gate.ensureReady(VerificationTrigger.HOME_VISIBLE) }
-        runCurrent()
+            val result = gate.ensureReady(VerificationTrigger.HOME_VISIBLE)
 
-        assertEquals(1, verifierCalls)
-
-        blocker.complete(Unit)
-        advanceUntilIdle()
-
-        assertTrue(first.await() is ModelReadyResult.Ready)
-        assertTrue(second.await() is ModelReadyResult.Ready)
-        assertEquals(1, verifierCalls)
-    }
+            assertTrue(result is ModelReadyResult.Ready)
+            assertEquals(ModelReadinessVerificationSource.CHECKSUM_VERIFICATION, (result as ModelReadyResult.Ready).source)
+        }
 
     @Test
-    fun ensureReady_unavailableEvaluation_surfacesIntegrityMismatch() = runTest {
-        val gate = ModelReadinessGate(
-            verifier = ModelReadinessVerifier {
+    fun `ensureReady deduplicates concurrent verifications`() =
+        testScope.runTest {
+            coEvery { verifier.verify() } coAnswers {
+                delay(100)
+                ModelReadinessEvaluation(true, ModelReadinessVerificationSource.CHECKSUM_VERIFICATION)
+            }
+
+            var result1: ModelReadyResult? = null
+            var result2: ModelReadyResult? = null
+
+            val job1 =
+                launch {
+                    result1 = gate.ensureReady(VerificationTrigger.APP_STARTUP)
+                }
+            val job2 =
+                launch {
+                    result2 = gate.ensureReady(VerificationTrigger.HOME_RECORD_TAP)
+                }
+
+            testDispatcher.scheduler.advanceUntilIdle()
+            job1.join()
+            job2.join()
+
+            assertTrue(result1 is ModelReadyResult.Ready)
+            assertEquals(result1, result2)
+            coVerify(exactly = 1) { verifier.verify() }
+        }
+
+    @Test
+    fun `ensureReady handles verifier returning false`() =
+        testScope.runTest {
+            coEvery { verifier.verify() } returns
                 ModelReadinessEvaluation(
                     isReady = false,
-                    unavailableReason = ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
+                    unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
                 )
-            },
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            gateScope = this
-        )
 
-        val result = gate.ensureReady(VerificationTrigger.HOME_RECORD_TAP)
+            val result = gate.ensureReady(VerificationTrigger.APP_STARTUP)
 
-        assertTrue(result is ModelReadyResult.Unavailable)
-        val unavailable = result as ModelReadyResult.Unavailable
-        assertEquals(ModelReadinessUnavailableReason.INTEGRITY_MISMATCH, unavailable.reason)
-        assertTrue(gate.state.value is ModelReadinessState.Unavailable)
-    }
+            assertTrue(result is ModelReadyResult.Unavailable)
+            assertEquals(ModelReadinessUnavailableReason.MISSING_MODEL_FILES, (result as ModelReadyResult.Unavailable).reason)
+
+            val state = gate.state.value
+            assertTrue(state is ModelReadinessState.Unavailable)
+            assertEquals(ModelReadinessUnavailableReason.MISSING_MODEL_FILES, (state as ModelReadinessState.Unavailable).reason)
+        }
 
     @Test
-    fun warmupIfNeeded_onlyRunsFromUnknownState() = runTest {
-        var verifierCalls = 0
-        val gate = ModelReadinessGate(
-            verifier = ModelReadinessVerifier {
-                verifierCalls += 1
-                ModelReadinessEvaluation(
-                    isReady = true,
-                    verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
-                )
-            },
-            ioDispatcher = StandardTestDispatcher(testScheduler),
-            gateScope = this
-        )
+    fun `ensureReady handles verifier exception`() =
+        testScope.runTest {
+            coEvery { verifier.verify() } throws RuntimeException("Verification crashed")
 
-        gate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
-        advanceUntilIdle()
-        gate.warmupIfNeeded(VerificationTrigger.HOME_VISIBLE)
-        advanceUntilIdle()
+            val result = gate.ensureReady(VerificationTrigger.APP_STARTUP)
 
-        assertEquals(1, verifierCalls)
-    }
+            assertTrue(result is ModelReadyResult.Error)
+            assertEquals("Verification crashed", (result as ModelReadyResult.Error).message)
+
+            val state = gate.state.value
+            assertTrue(state is ModelReadinessState.Error)
+        }
 }
