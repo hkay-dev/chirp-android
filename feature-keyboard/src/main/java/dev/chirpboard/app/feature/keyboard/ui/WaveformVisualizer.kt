@@ -12,9 +12,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.draw.clip
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -25,7 +32,7 @@ import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
  * Displays animated vertical bars representing audio amplitude.
  * Used during recording state to provide visual feedback of audio input.
  *
- * @param amplitudes List of normalized amplitude values (0-1). Recent samples that will
+ * @param amplitudesFlow Flow of normalized amplitude values (0-1). Recent samples that will
  *                   be mapped to bars. If fewer values than barCount, remaining bars use 0.
  *                   If more values, only the last barCount values are used.
  * @param modifier Modifier for the composable
@@ -36,30 +43,32 @@ import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
  */
 @Composable
 fun WaveformVisualizer(
-    amplitudes: List<Float>,
+    amplitudesFlow: StateFlow<ImmutableList<Float>>,
     modifier: Modifier = Modifier,
     barCount: Int = 5,
     barColor: Color = MaterialTheme.colorScheme.primary,
     barWidth: Dp = 8.dp,
-    barSpacing: Dp = 4.dp
+    barSpacing: Dp = 4.dp,
 ) {
+    val amplitudes by amplitudesFlow.collectAsStateWithLifecycle()
     // Take the last barCount amplitudes, or pad with zeros if not enough
-    val displayAmplitudes = when {
-        amplitudes.size >= barCount -> amplitudes.takeLast(barCount)
-        else -> List(barCount - amplitudes.size) { 0f } + amplitudes
-    }
+    val displayAmplitudes =
+        when {
+            amplitudes.size >= barCount -> amplitudes.takeLast(barCount)
+            else -> List(barCount - amplitudes.size) { 0f } + amplitudes
+        }
 
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(barSpacing),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         displayAmplitudes.forEachIndexed { index, amplitude ->
             WaveformBar(
                 amplitude = amplitude.coerceIn(0f, 1f),
                 color = barColor,
                 barWidth = barWidth,
-                modifier = Modifier.fillMaxHeight()
+                modifier = Modifier.fillMaxHeight(),
             )
         }
     }
@@ -78,7 +87,7 @@ private fun WaveformBar(
     amplitude: Float,
     color: Color,
     barWidth: Dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     // Minimum height of 20% so bars are always visible
     val minHeightFraction = 0.2f
@@ -87,19 +96,20 @@ private fun WaveformBar(
     val animatedHeightFraction by animateFloatAsState(
         targetValue = targetHeightFraction,
         animationSpec = tween(durationMillis = 100),
-        label = "barHeight"
+        label = "barHeight",
     )
 
     Box(
         modifier = modifier,
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Box(
-            modifier = Modifier
-                .width(barWidth)
-                .fillMaxHeight(animatedHeightFraction)
-                .clip(RoundedCornerShape(barWidth / 2))
-                .background(color)
+            modifier =
+                Modifier
+                    .width(barWidth)
+                    .fillMaxHeight(animatedHeightFraction)
+                    .clip(RoundedCornerShape(barWidth / 2))
+                    .background(color),
         )
     }
 }
@@ -109,8 +119,8 @@ private fun WaveformBar(
 private fun WaveformVisualizerPreview() {
     KeyboardTheme {
         WaveformVisualizer(
-            amplitudes = listOf(0.3f, 0.7f, 0.5f, 0.9f, 0.4f),
-            modifier = Modifier.height(60.dp)
+            amplitudesFlow = MutableStateFlow(persistentListOf(0.3f, 0.7f, 0.5f, 0.9f, 0.4f)),
+            modifier = Modifier.height(60.dp),
         )
     }
 }
@@ -120,8 +130,8 @@ private fun WaveformVisualizerPreview() {
 private fun WaveformVisualizerEmptyPreview() {
     KeyboardTheme {
         WaveformVisualizer(
-            amplitudes = emptyList(),
-            modifier = Modifier.height(60.dp)
+            amplitudesFlow = MutableStateFlow(persistentListOf()),
+            modifier = Modifier.height(60.dp),
         )
     }
 }
@@ -131,9 +141,9 @@ private fun WaveformVisualizerEmptyPreview() {
 private fun WaveformVisualizerPartialPreview() {
     KeyboardTheme {
         WaveformVisualizer(
-            amplitudes = listOf(0.5f, 0.8f),
+            amplitudesFlow = MutableStateFlow(persistentListOf(0.5f, 0.8f)),
             modifier = Modifier.height(60.dp),
-            barCount = 5
+            barCount = 5,
         )
     }
 }

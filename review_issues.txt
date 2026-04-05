@@ -1,0 +1,4 @@
+No open issues matching: subjective
+  Subjective quality (<85%): Test strategy 58.0%, API coherence 66.0%, Convention drift 67.0%
+  Next command to improve subjective scores: `desloppify show review --status open`
+

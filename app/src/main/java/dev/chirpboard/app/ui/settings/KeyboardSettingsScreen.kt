@@ -203,7 +203,11 @@ fun KeyboardSettingsScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(
                             onClick = {
-                                context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                                try {
+                                    context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                                } catch (e: android.content.ActivityNotFoundException) {
+                                    // Ignore or handle for custom ROMs where this isn't available
+                                }
                             }
                         ) {
                             Text("Enable Keyboard")

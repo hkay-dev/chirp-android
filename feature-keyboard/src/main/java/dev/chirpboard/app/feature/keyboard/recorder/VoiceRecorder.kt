@@ -14,12 +14,21 @@ import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import java.io.Closeable
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlin.time.Duration.Companion.milliseconds
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 /**
  * Errors that can occur during audio recording.
  */
@@ -29,13 +38,14 @@ sealed class RecordingError(val userMessage: String) {
     object DeadObject : RecordingError("Microphone disconnected")
     data class Generic(val code: Int) : RecordingError("Recording failed (code: $code)")
     object TooShort : RecordingError("Recording too short")
+    object PermissionDenied : RecordingError("Microphone permission denied")
 }
 
 /**
  * Handles audio recording for keyboard voice input.
  * Records PCM float samples at 16kHz mono for speech recognition.
  */
-class VoiceRecorder {
+class VoiceRecorder(private val context: Context) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
         const val SAMPLE_RATE = 16000
@@ -69,18 +79,22 @@ class VoiceRecorder {
 
     // Amplitude tracking for waveform visualization
     // Raw amplitude updates flow (internal)
-    private val _amplitudesRaw = MutableStateFlow<List<Float>>(emptyList())
+    private val _amplitudesRaw = MutableStateFlow<ImmutableList<Float>>(persistentListOf())
     
     // Debounced amplitudes for UI consumption (~60fps to prevent recomposition storms)
     // This prevents 44.1kHz sample updates from overwhelming UI on 120Hz displays
-    val amplitudes: StateFlow<List<Float>> = _amplitudesRaw
+    val amplitudes: StateFlow<ImmutableList<Float>> = _amplitudesRaw
         .sample(AMPLITUDE_DEBOUNCE_MS.milliseconds)
-        .stateIn(scope, SharingStarted.WhileSubscribed(5000), emptyList())
-    
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000), persistentListOf())
     private val amplitudeHistory = mutableListOf<Float>()
 
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            hasError = true
+            onRecordingError?.invoke(RecordingError.PermissionDenied)
+            return false
+        }
         if (isRecording.get()) return false
         
         // Reset synchronization
@@ -113,7 +127,7 @@ class VoiceRecorder {
                 samples.clear()
             }
             amplitudeHistory.clear()
-            _amplitudesRaw.value = emptyList()
+            _amplitudesRaw.value = persistentListOf()
             audioRecord?.startRecording()
             isRecording.set(true)
             recordingStartTimeMs = System.currentTimeMillis()
@@ -148,8 +162,10 @@ class VoiceRecorder {
             // Check for errors
             when {
                 readResult == AudioRecord.ERROR_INVALID_OPERATION -> {
-                    hasError = true
-                    onRecordingError?.invoke(RecordingError.InvalidOperation)
+                    if (isRecording.get()) {
+                        hasError = true
+                        onRecordingError?.invoke(RecordingError.InvalidOperation)
+                    }
                     isRecording.set(false)
                     return@withContext
                 }
@@ -192,7 +208,7 @@ class VoiceRecorder {
                         while (amplitudeHistory.size > 5) {
                             amplitudeHistory.removeAt(0)
                         }
-                        _amplitudesRaw.value = amplitudeHistory.toList()
+                        _amplitudesRaw.value = amplitudeHistory.toImmutableList()
                     }
                 }
             }
@@ -221,4 +237,9 @@ class VoiceRecorder {
     }
 
     fun isRecording(): Boolean = isRecording.get()
+    override fun close() {
+        scope.cancel()
+        audioRecord?.release()
+        audioRecord = null
+    }
 }

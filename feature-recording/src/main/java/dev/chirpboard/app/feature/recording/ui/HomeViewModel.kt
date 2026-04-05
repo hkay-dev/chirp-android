@@ -17,6 +17,9 @@ import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.recording.RecordingManager
@@ -37,6 +40,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 import javax.inject.Inject
 
@@ -45,7 +49,7 @@ import javax.inject.Inject
  */
 data class RecordingDisplayItem(
     val recording: Recording,
-    val tags: List<Tag> = emptyList(),
+    val tags: ImmutableList<Tag> = persistentListOf(),
     val summary: String? = null,
     val profileName: String? = null,
     val profileIcon: String? = null,
@@ -87,7 +91,7 @@ class HomeViewModel
         val listFilter: StateFlow<ListFilterMode> = _listFilter.asStateFlow()
 
         /** Cached profiles for fast lookup */
-        private val profileCache = mutableMapOf<UUID, Profile?>()
+        private val profileCache = ConcurrentHashMap<UUID, Profile?>()
 
         /** All recordings based on search, enriched with tags/summary/profile */
         private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
@@ -121,7 +125,7 @@ class HomeViewModel
                                     val profile = recording.profileId?.let { profileCache[it] }
                                     RecordingDisplayItem(
                                         recording = recording,
-                                        tags = tags,
+                                        tags = tags.toImmutableList(),
                                         summary =
                                             transcript?.summary ?: transcript?.processedText?.take(120)
                                                 ?: transcript?.rawText?.take(120),

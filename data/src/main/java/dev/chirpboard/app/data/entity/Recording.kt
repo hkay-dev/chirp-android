@@ -27,6 +27,8 @@ import java.util.UUID
         Index("profileId"),
         Index("createdAt"),
         Index("status"),
+        Index("status", "createdAt"),
+        Index("profileId", "createdAt"),
     ],
 )
 data class Recording(

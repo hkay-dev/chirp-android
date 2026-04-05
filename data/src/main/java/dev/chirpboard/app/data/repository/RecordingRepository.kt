@@ -29,28 +29,21 @@ class RecordingRepository
         private val recordingDao: RecordingDao,
         private val transcriptDao: TranscriptDao,
     ) {
-        /** Get all recordings ordered by creation date (newest first) */
         fun getAllRecordings(): Flow<List<Recording>> = recordingDao.getAllRecordings()
 
-        /** Get a single recording by ID */
         suspend fun getRecording(id: UUID): Recording? = recordingDao.getRecording(id)
 
-        /** Get recording as Flow for reactive updates */
         fun getRecordingFlow(id: UUID): Flow<Recording?> = recordingDao.getRecordingFlow(id)
 
-        /** Get recordings with a specific status */
         fun getRecordingsByStatus(status: RecordingStatus): Flow<List<Recording>> = recordingDao.getRecordingsByStatus(status)
 
-        /** Get all recordings pending processing (for queue management) */
         suspend fun getPendingRecordings(): List<Recording> =
             recordingDao.getRecordingsByStatuses(
                 listOf(RecordingStatus.PENDING_TRANSCRIPTION, RecordingStatus.PENDING_ENHANCEMENT),
             )
 
-        /** Search recordings by title */
         fun searchRecordings(query: String): Flow<List<Recording>> = recordingDao.searchRecordings(query)
 
-        /** Create a new recording */
         suspend fun createRecording(
             title: String,
             audioPath: String,
@@ -71,80 +64,63 @@ class RecordingRepository
             return recording
         }
 
-        /** Insert an existing recording */
         suspend fun insert(recording: Recording) = recordingDao.insert(recording)
 
-        /** Update a recording */
         suspend fun update(recording: Recording) = recordingDao.update(recording)
 
-        /** Update recording status */
         suspend fun updateStatus(
             id: UUID,
             status: RecordingStatus,
         ) = recordingDao.updateStatus(id, status)
 
-        /** Update recording status with error message */
         suspend fun updateStatusWithError(
             id: UUID,
             status: RecordingStatus,
             errorMessage: String?,
         ) = recordingDao.updateStatusWithError(id, status, errorMessage)
 
-        /** Update recording title */
         suspend fun updateTitle(
             id: UUID,
             title: String,
         ) = recordingDao.updateTitle(id, title)
 
-        /** Update recording duration */
         suspend fun updateDuration(
             id: UUID,
             durationMs: Long,
         ) = recordingDao.updateDuration(id, durationMs)
 
-        /** Update export info */
         suspend fun updateExportInfo(
             id: UUID,
             path: String,
         ) = recordingDao.updateExportInfo(id, path, Date())
 
-        /** Delete a recording */
         suspend fun delete(recording: Recording) = recordingDao.delete(recording)
 
-        /** Delete a recording by ID */
         suspend fun deleteById(id: UUID) = recordingDao.deleteById(id)
 
-        // Transcript operations
 
-        /** Get transcript for a recording */
         suspend fun getTranscript(recordingId: UUID): Transcript? = transcriptDao.getTranscript(recordingId)
 
-        /** Get transcript as Flow */
         fun getTranscriptFlow(recordingId: UUID): Flow<Transcript?> = transcriptDao.getTranscriptFlow(recordingId)
 
-        /** Create or update transcript */
         suspend fun saveTranscript(transcript: Transcript) = transcriptDao.insert(transcript)
 
-        /** Update raw text */
         suspend fun updateRawText(
             recordingId: UUID,
             rawText: String,
         ) = transcriptDao.updateRawText(recordingId, rawText)
 
-        /** Update processed text */
         suspend fun updateProcessedText(
             recordingId: UUID,
             processedText: String,
             mode: String,
         ) = transcriptDao.updateProcessedText(recordingId, processedText, mode)
 
-        /** Update summary */
         suspend fun updateSummary(
             recordingId: UUID,
             summary: String,
         ) = transcriptDao.updateSummary(recordingId, summary)
 
-        /** Delete all recordings (for dev/testing) */
         suspend fun deleteAll() = recordingDao.deleteAll()
 
         // Transactional operations
@@ -170,11 +146,9 @@ class RecordingRepository
          * Note: Associated transcripts are automatically deleted via CASCADE.
          */
         suspend fun deleteRecordings(ids: List<UUID>) {
-            ids.chunked(100).forEach { batch ->
-                database.withTransaction {
-                    batch.forEach { id ->
-                        recordingDao.deleteById(id)
-                    }
+            database.withTransaction {
+                ids.chunked(999).forEach { batch ->
+                    recordingDao.deleteByIds(batch)
                 }
             }
         }

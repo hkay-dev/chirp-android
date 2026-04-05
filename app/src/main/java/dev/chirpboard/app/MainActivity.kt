@@ -31,10 +31,14 @@ class MainActivity : ComponentActivity() {
         
         // Request "All Files Access" for persistent model storage (survives Clear Data)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                data = Uri.parse("package:$packageName")
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: android.content.ActivityNotFoundException) {
+                // Ignore or handle for custom ROMs where this isn't available
             }
-            startActivity(intent)
         }
 
         setContent {

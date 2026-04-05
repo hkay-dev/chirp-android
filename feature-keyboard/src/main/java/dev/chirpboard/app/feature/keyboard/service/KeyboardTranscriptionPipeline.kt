@@ -13,6 +13,8 @@ import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -196,6 +198,16 @@ internal class KeyboardTranscriptionPipeline(
                     onStateChanged(KeyboardState.Idle)
                 }
             }
+        } catch (e: CancellationException) {
+            Log.w(tag, "Transcription cancelled", e)
+            withContext(NonCancellable + Dispatchers.Main) {
+                persistBufferedKeyboardCapture(
+                    rawText = rawTextForPersistence,
+                    processedText = null,
+                    errorMessage = "Keyboard closed during transcription",
+                )
+            }
+            throw e
         } catch (e: Exception) {
             Log.e(tag, "Transcription failed", e)
             val errorMessage = "Transcription failed: ${e.message}"
@@ -206,7 +218,7 @@ internal class KeyboardTranscriptionPipeline(
                 reasonCode = "keyboard_exception",
                 message = e.message,
             )
-            withContext(Dispatchers.Main) {
+            withContext(NonCancellable + Dispatchers.Main) {
                 persistBufferedKeyboardCapture(
                     rawText = rawTextForPersistence,
                     processedText = null,

@@ -1,0 +1,818 @@
+{
+  "query": "test_coverage",
+  "status_filter": "open",
+  "total": 57,
+  "summary": {
+    "by_tier": {
+      "T2": 4,
+      "T3": 53
+    },
+    "by_detector": {
+      "test_coverage": 57
+    },
+    "files": 55
+  },
+  "by_file": {
+    "app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt::untested_critical",
+        "tier": 2,
+        "confidence": "high",
+        "summary": "Untested critical module (593 LOC, 0 importers) \u2014 high blast radius",
+        "detail": {
+          "kind": "untested_critical",
+          "loc": 593,
+          "importer_count": 0,
+          "loc_weight": 24.351591323771842,
+          "complexity_score": 192
+        }
+      },
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (183 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 183,
+          "importer_count": 0,
+          "loc_weight": 13.527749258468683
+        }
+      }
+    ],
+    "feature-obsidian/build.gradle.kts": [
+      {
+        "id": "test_coverage::feature-obsidian/build.gradle.kts",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (67 LOC, 0 importers) \u2014 no test files found",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 67,
+          "importer_count": 0,
+          "loc_weight": 8.18535277187245
+        }
+      },
+      {
+        "id": "test_coverage::feature-obsidian/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (73 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 73,
+          "importer_count": 0,
+          "loc_weight": 8.54400374531753
+        }
+      }
+    ],
+    "app/build.gradle.kts": [
+      {
+        "id": "test_coverage::app/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (126 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 126,
+          "importer_count": 0,
+          "loc_weight": 11.224972160321824
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/ChirpApplication.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/ChirpApplication.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (72 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 72,
+          "importer_count": 0,
+          "loc_weight": 8.48528137423857
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/VoiceRecognitionPipeline.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/VoiceRecognitionPipeline.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (87 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 87,
+          "importer_count": 0,
+          "loc_weight": 9.327379053088816
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/VoiceRecorder.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/VoiceRecorder.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (110 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 110,
+          "importer_count": 0,
+          "loc_weight": 10.488088481701515
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (294 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 294,
+          "importer_count": 0,
+          "loc_weight": 17.146428199482248
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt::untested_critical",
+        "tier": 2,
+        "confidence": "high",
+        "summary": "Untested critical module (528 LOC, 0 importers) \u2014 high blast radius",
+        "detail": {
+          "kind": "untested_critical",
+          "loc": 528,
+          "importer_count": 0,
+          "loc_weight": 22.978250586152114,
+          "complexity_score": 45
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (184 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 184,
+          "importer_count": 0,
+          "loc_weight": 13.564659966250536
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/ui/settings/AudioSettingsViewModel.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/ui/settings/AudioSettingsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (30 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 30,
+          "importer_count": 0,
+          "loc_weight": 5.477225575051661
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/ui/settings/KeyboardSettingsViewModel.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/ui/settings/KeyboardSettingsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (73 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 73,
+          "importer_count": 0,
+          "loc_weight": 8.54400374531753
+        }
+      }
+    ],
+    "app/src/main/java/dev/chirpboard/app/ui/settings/SettingsViewModel.kt": [
+      {
+        "id": "test_coverage::app/src/main/java/dev/chirpboard/app/ui/settings/SettingsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (69 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 69,
+          "importer_count": 0,
+          "loc_weight": 8.306623862918075
+        }
+      }
+    ],
+    "core/build.gradle.kts": [
+      {
+        "id": "test_coverage::core/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (55 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 55,
+          "importer_count": 0,
+          "loc_weight": 7.416198487095663
+        }
+      }
+    ],
+    "core/src/main/java/dev/chirpboard/app/core/recording/RecordingState.kt": [
+      {
+        "id": "test_coverage::core/src/main/java/dev/chirpboard/app/core/recording/RecordingState.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (73 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 73,
+          "importer_count": 0,
+          "loc_weight": 8.54400374531753
+        }
+      }
+    ],
+    "core/src/main/java/dev/chirpboard/app/core/reliability/ReliabilityEvent.kt": [
+      {
+        "id": "test_coverage::core/src/main/java/dev/chirpboard/app/core/reliability/ReliabilityEvent.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (95 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 95,
+          "importer_count": 0,
+          "loc_weight": 9.746794344808963
+        }
+      }
+    ],
+    "core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt": [
+      {
+        "id": "test_coverage::core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (56 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 56,
+          "importer_count": 0,
+          "loc_weight": 7.483314773547883
+        }
+      }
+    ],
+    "core/src/main/java/dev/chirpboard/app/core/util/Extensions.kt": [
+      {
+        "id": "test_coverage::core/src/main/java/dev/chirpboard/app/core/util/Extensions.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (110 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 110,
+          "importer_count": 0,
+          "loc_weight": 10.488088481701515
+        }
+      }
+    ],
+    "data/build.gradle.kts": [
+      {
+        "id": "test_coverage::data/build.gradle.kts",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (52 LOC, 0 importers) \u2014 no test files found",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 52,
+          "importer_count": 0,
+          "loc_weight": 7.211102550927978
+        }
+      }
+    ],
+    "feature-keyboard/build.gradle.kts": [
+      {
+        "id": "test_coverage::feature-keyboard/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (69 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 69,
+          "importer_count": 0,
+          "loc_weight": 8.306623862918075
+        }
+      }
+    ],
+    "feature-llm/build.gradle.kts": [
+      {
+        "id": "test_coverage::feature-llm/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (78 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 78,
+          "importer_count": 0,
+          "loc_weight": 8.831760866327848
+        }
+      }
+    ],
+    "feature-llm/src/main/java/dev/chirpboard/app/feature/llm/LlmProcessor.kt": [
+      {
+        "id": "test_coverage::feature-llm/src/main/java/dev/chirpboard/app/feature/llm/LlmProcessor.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (48 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 48,
+          "importer_count": 0,
+          "loc_weight": 6.928203230275509
+        }
+      }
+    ],
+    "feature-llm/src/main/java/dev/chirpboard/app/feature/llm/TextProcessor.kt": [
+      {
+        "id": "test_coverage::feature-llm/src/main/java/dev/chirpboard/app/feature/llm/TextProcessor.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (103 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 103,
+          "importer_count": 0,
+          "loc_weight": 10.14889156509222
+        }
+      }
+    ],
+    "feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt": [
+      {
+        "id": "test_coverage::feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (115 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 115,
+          "importer_count": 0,
+          "loc_weight": 10.723805294763608
+        }
+      }
+    ],
+    "feature-llm/src/main/java/dev/chirpboard/app/feature/llm/model/GeminiModels.kt": [
+      {
+        "id": "test_coverage::feature-llm/src/main/java/dev/chirpboard/app/feature/llm/model/GeminiModels.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (55 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 55,
+          "importer_count": 0,
+          "loc_weight": 7.416198487095663
+        }
+      }
+    ],
+    "feature-llm/src/main/java/dev/chirpboard/app/feature/llm/model/ProcessingMode.kt": [
+      {
+        "id": "test_coverage::feature-llm/src/main/java/dev/chirpboard/app/feature/llm/model/ProcessingMode.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (313 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 313,
+          "importer_count": 0,
+          "loc_weight": 17.69180601295413
+        }
+      }
+    ],
+    "feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmSettingsViewModel.kt": [
+      {
+        "id": "test_coverage::feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmSettingsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (141 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 141,
+          "importer_count": 0,
+          "loc_weight": 11.874342087037917
+        }
+      }
+    ],
+    "feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/MarkdownFormatter.kt": [
+      {
+        "id": "test_coverage::feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/MarkdownFormatter.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (93 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 93,
+          "importer_count": 0,
+          "loc_weight": 9.643650760992955
+        }
+      }
+    ],
+    "feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt": [
+      {
+        "id": "test_coverage::feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (195 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 195,
+          "importer_count": 0,
+          "loc_weight": 13.96424004376894
+        }
+      }
+    ],
+    "feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianPreferences.kt": [
+      {
+        "id": "test_coverage::feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianPreferences.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (75 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 75,
+          "importer_count": 0,
+          "loc_weight": 8.660254037844387
+        }
+      }
+    ],
+    "feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianSettingsViewModel.kt": [
+      {
+        "id": "test_coverage::feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianSettingsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (119 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 119,
+          "importer_count": 0,
+          "loc_weight": 10.908712114635714
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (442 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 442,
+          "importer_count": 0,
+          "loc_weight": 21.02379604162864
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (99 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 99,
+          "importer_count": 0,
+          "loc_weight": 9.9498743710662
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (467 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 467,
+          "importer_count": 0,
+          "loc_weight": 21.61018278497431
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (163 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 163,
+          "importer_count": 0,
+          "loc_weight": 12.767145334803704
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfilesViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfilesViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (30 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 30,
+          "importer_count": 0,
+          "loc_weight": 5.477225575051661
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/replacement/WordReplacementsViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/replacement/WordReplacementsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (57 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 57,
+          "importer_count": 0,
+          "loc_weight": 7.54983443527075
+        }
+      }
+    ],
+    "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagsViewModel.kt": [
+      {
+        "id": "test_coverage::feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (45 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 45,
+          "importer_count": 0,
+          "loc_weight": 6.708203932499369
+        }
+      }
+    ],
+    "feature-transcription/build.gradle.kts": [
+      {
+        "id": "test_coverage::feature-transcription/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (80 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 80,
+          "importer_count": 0,
+          "loc_weight": 8.94427190999916
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (403 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 403,
+          "importer_count": 0,
+          "loc_weight": 20.074859899884732
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (235 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 235,
+          "importer_count": 0,
+          "loc_weight": 15.329709716755891
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueSupport.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueSupport.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (127 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 127,
+          "importer_count": 0,
+          "loc_weight": 11.269427669584644
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkRequest.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkRequest.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (103 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 103,
+          "importer_count": 0,
+          "loc_weight": 10.14889156509222
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt::untested_critical",
+        "tier": 2,
+        "confidence": "high",
+        "summary": "Untested critical module (390 LOC, 0 importers) \u2014 high blast radius",
+        "detail": {
+          "kind": "untested_critical",
+          "loc": 390,
+          "importer_count": 0,
+          "loc_weight": 19.748417658131498,
+          "complexity_score": 234
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkerSupport.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkerSupport.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (62 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 62,
+          "importer_count": 0,
+          "loc_weight": 7.874007874011811
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WhisperModelManager.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WhisperModelManager.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (181 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 181,
+          "importer_count": 0,
+          "loc_weight": 13.45362404707371
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WordReplacer.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WordReplacer.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (31 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 31,
+          "importer_count": 0,
+          "loc_weight": 5.5677643628300215
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (91 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 91,
+          "importer_count": 0,
+          "loc_weight": 9.539392014169456
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt::untested_critical",
+        "tier": 2,
+        "confidence": "high",
+        "summary": "Untested critical module (511 LOC, 0 importers) \u2014 high blast radius",
+        "detail": {
+          "kind": "untested_critical",
+          "loc": 511,
+          "importer_count": 0,
+          "loc_weight": 22.60530911091463,
+          "complexity_score": 231
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/ChunkedAudioProcessor.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/ChunkedAudioProcessor.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (156 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 156,
+          "importer_count": 0,
+          "loc_weight": 12.489995996796797
+        }
+      }
+    ],
+    "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt": [
+      {
+        "id": "test_coverage::feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (215 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 215,
+          "importer_count": 0,
+          "loc_weight": 14.66287829861518
+        }
+      }
+    ],
+    "feature-widget/build.gradle.kts": [
+      {
+        "id": "test_coverage::feature-widget/build.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (46 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 46,
+          "importer_count": 0,
+          "loc_weight": 6.782329983125268
+        }
+      }
+    ],
+    "feature-widget/src/main/java/dev/chirpboard/app/feature/widget/RecordingWidgetProvider.kt": [
+      {
+        "id": "test_coverage::feature-widget/src/main/java/dev/chirpboard/app/feature/widget/RecordingWidgetProvider.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (111 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 111,
+          "importer_count": 0,
+          "loc_weight": 10.535653752852738
+        }
+      }
+    ],
+    "feature-widget/src/main/java/dev/chirpboard/app/feature/widget/WidgetReceiver.kt": [
+      {
+        "id": "test_coverage::feature-widget/src/main/java/dev/chirpboard/app/feature/widget/WidgetReceiver.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (69 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 69,
+          "importer_count": 0,
+          "loc_weight": 8.306623862918075
+        }
+      }
+    ],
+    "feature-widget/src/main/java/dev/chirpboard/app/feature/widget/WidgetUpdateWorker.kt": [
+      {
+        "id": "test_coverage::feature-widget/src/main/java/dev/chirpboard/app/feature/widget/WidgetUpdateWorker.kt::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (77 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 77,
+          "importer_count": 0,
+          "loc_weight": 8.774964387392123
+        }
+      }
+    ],
+    "settings.gradle.kts": [
+      {
+        "id": "test_coverage::settings.gradle.kts::untested_module",
+        "tier": 3,
+        "confidence": "high",
+        "summary": "Untested module (27 LOC, 0 importers)",
+        "detail": {
+          "kind": "untested_module",
+          "loc": 27,
+          "importer_count": 0,
+          "loc_weight": 5.196152422706632
+        }
+      }
+    ]
+  },
+  "total_matching": 57,
+  "noise_budget": 0,
+  "noise_global_budget": 0
+}

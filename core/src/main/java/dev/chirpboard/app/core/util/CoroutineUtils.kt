@@ -37,6 +37,8 @@ fun <T> Flow<T>.asUiState(): Flow<UiState<T>> {
 suspend fun <T> runCatchingUiState(block: suspend () -> T): UiState<T> {
     return try {
         UiState.Success(block())
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
     } catch (e: Exception) {
         UiState.Error(e.message ?: "Unknown error", e)
     }

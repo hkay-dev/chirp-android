@@ -7,12 +7,16 @@ import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import okhttp3.OkHttpClient
+import retrofit2.HttpException
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
 import retrofit2.http.Query
 import retrofit2.http.Url
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,10 +47,16 @@ Transcript:
 """
         }
 
+        private val okHttpClient = OkHttpClient.Builder()
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+
         private val api: GeminiApi =
             Retrofit
                 .Builder()
                 .baseUrl(BASE_URL)
+                .client(okHttpClient)
                 .addConverterFactory(GsonConverterFactory.create())
                 .build()
                 .create(GeminiApi::class.java)
@@ -66,21 +76,45 @@ Transcript:
                 try {
                     val request = GeminiRequest.of(prompt)
                     val url = "v1beta/models/$modelName:generateContent"
-                    val response = api.generate(url, apiKey, request)
 
-                    if (response.error != null) {
-                        Log.e(TAG, "API error generating $operationName: ${response.error.message}")
-                        return@withContext Result.failure(Exception(response.error.message ?: "API error"))
+                    var currentDelay = 1000L
+                    var lastException: Exception? = null
+
+                    for (attempt in 1..3) {
+                        try {
+                            val response = api.generate(url, apiKey, request)
+
+                            if (response.error != null) {
+                                Log.e(TAG, "API error generating $operationName: ${response.error.message}")
+                                return@withContext Result.failure(Exception(response.error.message ?: "API error"))
+                            }
+
+                            val resultText = response.extractText()
+                            if (resultText.isNullOrBlank()) {
+                                Log.e(TAG, "Empty $operationName response")
+                                return@withContext Result.failure(Exception("Empty response"))
+                            }
+
+                            return@withContext Result.success(resultText.trim())
+                        } catch (e: HttpException) {
+                            if (e.code() == 429 || e.code() == 503) {
+                                Log.w(TAG, "Rate limited or service unavailable (${e.code()}) for $operationName, attempt $attempt. Retrying in ${currentDelay}ms")
+                                lastException = e
+                                if (attempt < 3) {
+                                    delay(currentDelay)
+                                    currentDelay *= 2
+                                }
+                            } else {
+                                throw e
+                            }
+                        }
                     }
-
-                    val resultText = response.extractText()
-                    if (resultText.isNullOrBlank()) {
-                        Log.e(TAG, "Empty $operationName response")
-                        return@withContext Result.failure(Exception("Empty response"))
-                    }
-
-                    Result.success(resultText.trim())
+                    
+                    val finalException = lastException ?: Exception("Max retries exceeded")
+                    Log.e(TAG, "$operationName failed after retries", finalException)
+                    Result.failure(finalException)
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "$operationName failed", e)
                     Result.failure(e)
                 }

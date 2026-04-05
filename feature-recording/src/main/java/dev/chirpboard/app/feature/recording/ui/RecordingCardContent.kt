@@ -21,9 +21,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,16 +86,17 @@ internal fun RecordingCardMetadata(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val relativeDateText = remember(recording.createdAt) { recording.createdAt.formatRelative() }
         Text(
-            text = recording.createdAt.formatRelative(),
+            text = relativeDateText,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         MetadataDot()
-
+        val durationText = remember(recording.durationMs) { recording.durationMs.formatAsDuration() }
         Text(
-            text = recording.durationMs.formatAsDuration(),
+            text = durationText,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -195,7 +200,7 @@ internal fun RecordingErrorMessage(errorMessage: String?) {
 }
 
 @Composable
-internal fun RecordingTagsRow(tags: List<Tag>) {
+internal fun RecordingTagsRow(tags: ImmutableList<Tag>) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         modifier = Modifier.fillMaxWidth(),

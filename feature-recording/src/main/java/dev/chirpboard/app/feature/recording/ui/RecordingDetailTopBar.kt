@@ -36,7 +36,7 @@ internal fun RecordingDetailTopBar(
     dateTimeText: String,
     isEditing: Boolean,
     editedTitle: String,
-    collapsedFraction: Float,
+    collapsedFractionProvider: () -> Float,
     onEditedTitleChange: (String) -> Unit,
     onCancelEditing: () -> Unit,
     onSaveTitle: () -> Unit,
@@ -64,11 +64,11 @@ internal fun RecordingDetailTopBar(
                 Column {
                     Text(
                         text = displayTitle,
-                        maxLines = if (collapsedFraction > 0.5f) 1 else 3,
+                        maxLines = if (collapsedFractionProvider() > 0.5f) 1 else 3,
                         overflow = TextOverflow.Ellipsis,
                         fontWeight = FontWeight.Bold,
                     )
-                    if (collapsedFraction < 0.5f) {
+                    if (collapsedFractionProvider() < 0.5f) {
                         Text(
                             text = dateTimeText,
                             style = MaterialTheme.typography.bodySmall,

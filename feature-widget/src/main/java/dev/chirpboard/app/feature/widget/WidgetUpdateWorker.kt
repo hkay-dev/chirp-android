@@ -32,13 +32,7 @@ class WidgetUpdateWorker @AssistedInject constructor(
         val isRecording = currentState is RecordingState.Recording || 
                           currentState is RecordingState.Starting
         
-        val durationText = if (currentState is RecordingState.Recording) {
-            formatDuration(recordingStateManager.getCurrentDurationMs())
-        } else {
-            null
-        }
-        
-        RecordingWidgetProvider.updateWidget(context, isRecording, durationText)
+        RecordingWidgetProvider.updateWidget(context, isRecording, null)
         
         return Result.success()
     }

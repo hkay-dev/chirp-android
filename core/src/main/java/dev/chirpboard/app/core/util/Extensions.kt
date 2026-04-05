@@ -5,6 +5,28 @@ import java.util.*
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
+private val nowCalendar = object : ThreadLocal<Calendar>() {
+    override fun initialValue() = Calendar.getInstance()
+}
+private val thenCalendar = object : ThreadLocal<Calendar>() {
+    override fun initialValue() = Calendar.getInstance()
+}
+private val yesterdayCalendar = object : ThreadLocal<Calendar>() {
+    override fun initialValue() = Calendar.getInstance()
+}
+private val monthDayFormat = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue() = SimpleDateFormat("MMM d", Locale.getDefault())
+}
+private val monthDayYearFormat = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue() = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
+}
+private val dateTimeFormat = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue() = SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault())
+}
+private val timeFormat = object : ThreadLocal<SimpleDateFormat>() {
+    override fun initialValue() = SimpleDateFormat("h:mm a", Locale.getDefault())
+}
+
 /**
  * Format duration as "MM:SS" or "HH:MM:SS" for longer durations.
  */
@@ -30,14 +52,14 @@ fun Long.formatAsDuration(): String = this.milliseconds.formatDuration()
  * Format date relative to now (Today, Yesterday, or date).
  */
 fun Date.formatRelative(): String {
-    val now = Calendar.getInstance()
-    val then = Calendar.getInstance().apply { time = this@formatRelative }
+    val now = nowCalendar.get()!!.apply { timeInMillis = System.currentTimeMillis() }
+    val then = thenCalendar.get()!!.apply { time = this@formatRelative }
     
     return when {
         isSameDay(now, then) -> "Today"
         isYesterday(now, then) -> "Yesterday"
-        isSameYear(now, then) -> SimpleDateFormat("MMM d", Locale.getDefault()).format(this)
-        else -> SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(this)
+        isSameYear(now, then) -> monthDayFormat.get()!!.format(this)
+        else -> monthDayYearFormat.get()!!.format(this)
     }
 }
 
@@ -45,7 +67,7 @@ fun Date.formatRelative(): String {
  * Format date with time.
  */
 fun Date.formatDateTime(): String {
-    return SimpleDateFormat("MMM d, yyyy 'at' h:mm a", Locale.getDefault()).format(this)
+    return dateTimeFormat.get()!!.format(this)
 }
 
 private fun isSameDay(cal1: Calendar, cal2: Calendar): Boolean {
@@ -54,8 +76,8 @@ private fun isSameDay(cal1: Calendar, cal2: Calendar): Boolean {
 }
 
 private fun isYesterday(now: Calendar, then: Calendar): Boolean {
-    val yesterday = Calendar.getInstance().apply {
-        time = now.time
+    val yesterday = yesterdayCalendar.get()!!.apply {
+        timeInMillis = now.timeInMillis
         add(Calendar.DAY_OF_YEAR, -1)
     }
     return isSameDay(yesterday, then)
@@ -70,16 +92,15 @@ private fun isSameYear(cal1: Calendar, cal2: Calendar): Boolean {
  * Shows relative day + time: "Today at 10:30 AM", "Yesterday at 3:45 PM", "Jan 29 at 10:30 AM"
  */
 fun Date.formatForHeader(): String {
-    val now = Calendar.getInstance()
-    val then = Calendar.getInstance().apply { time = this@formatForHeader }
-    val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
-    val time = timeFormat.format(this)
+    val now = nowCalendar.get()!!.apply { timeInMillis = System.currentTimeMillis() }
+    val then = thenCalendar.get()!!.apply { time = this@formatForHeader }
+    val timeStr = timeFormat.get()!!.format(this)
     
     return when {
-        isSameDay(now, then) -> "Today at $time"
-        isYesterday(now, then) -> "Yesterday at $time"
-        isSameYear(now, then) -> "${SimpleDateFormat("MMM d", Locale.getDefault()).format(this)} at $time"
-        else -> "${SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(this)} at $time"
+        isSameDay(now, then) -> "Today at $timeStr"
+        isYesterday(now, then) -> "Yesterday at $timeStr"
+        isSameYear(now, then) -> "${monthDayFormat.get()!!.format(this)} at $timeStr"
+        else -> "${monthDayYearFormat.get()!!.format(this)} at $timeStr"
     }
 }
 

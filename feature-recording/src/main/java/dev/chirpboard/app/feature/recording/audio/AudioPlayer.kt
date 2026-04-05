@@ -87,8 +87,9 @@ class AudioPlayer
             _state.value = PlaybackState.Loading(filePath)
 
             try {
-                mediaPlayer =
-                    MediaPlayer().apply {
+                val player = MediaPlayer()
+                mediaPlayer = player
+                player.apply {
                         setDataSource(filePath)
                         setOnPreparedListener { mp ->
                             isPrepared = true

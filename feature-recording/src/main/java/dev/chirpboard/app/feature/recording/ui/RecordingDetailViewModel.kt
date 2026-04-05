@@ -82,7 +82,7 @@ class RecordingDetailViewModel
 
         init {
             viewModelScope.launch {
-                recording.collect { rec ->
+                recording.collectLatest { rec ->
                     if (rec == null) {
                         _recoveryDiagnostics.value = RecoveryDiagnosticsUi()
                     } else {

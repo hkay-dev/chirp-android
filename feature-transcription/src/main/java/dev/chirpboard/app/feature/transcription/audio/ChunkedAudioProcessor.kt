@@ -3,6 +3,8 @@ package dev.chirpboard.app.feature.transcription.audio
 import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Processes audio in fixed-size chunks with overlap to prevent word truncation.
@@ -49,19 +51,24 @@ class ChunkedAudioProcessor(
         audioSource: Flow<FloatArray>,
         transcribe: suspend (FloatArray) -> String
     ): Flow<String> = flow {
-        val buffer = ArrayDeque<Float>(chunkSize + overlapSize)
+        var buffer = FloatArray(chunkSize * 2)
+        var bufferSize = 0
         var chunksProcessed = 0
         
         audioSource.collect { samples ->
             // Add new samples to buffer
-            samples.forEach { buffer.addLast(it) }
+            if (bufferSize + samples.size > buffer.size) {
+                val newBuffer = FloatArray(maxOf(buffer.size * 2, bufferSize + samples.size))
+                System.arraycopy(buffer, 0, newBuffer, 0, bufferSize)
+                buffer = newBuffer
+            }
+            System.arraycopy(samples, 0, buffer, bufferSize, samples.size)
+            bufferSize += samples.size
             
             // Process complete chunks
-            while (buffer.size >= chunkSize) {
+            while (bufferSize >= chunkSize) {
                 val chunk = FloatArray(chunkSize)
-                for (i in 0 until chunkSize) {
-                    chunk[i] = buffer[i]
-                }
+                System.arraycopy(buffer, 0, chunk, 0, chunkSize)
                 
                 chunksProcessed++
                 Log.d(TAG, "Processing chunk $chunksProcessed (${chunkSize} samples)")
@@ -74,18 +81,16 @@ class ChunkedAudioProcessor(
                 
                 // Remove processed samples, keeping overlap
                 val toRemove = chunkSize - overlapSize
-                repeat(toRemove) {
-                    buffer.removeFirst()
-                }
+                val remaining = bufferSize - toRemove
+                System.arraycopy(buffer, toRemove, buffer, 0, remaining)
+                bufferSize = remaining
             }
         }
         
         // Process remaining samples (final partial chunk)
-        if (buffer.isNotEmpty()) {
-            val remaining = FloatArray(buffer.size)
-            buffer.forEachIndexed { index, value ->
-                remaining[index] = value
-            }
+        if (bufferSize > 0) {
+            val remaining = FloatArray(bufferSize)
+            System.arraycopy(buffer, 0, remaining, 0, bufferSize)
             
             Log.d(TAG, "Processing final chunk (${remaining.size} samples)")
             val finalTranscript = transcribe(remaining)
@@ -122,15 +127,17 @@ class ChunkedAudioProcessor(
      * these duplicates by comparing the last few words of each chunk with the
      * first few words of the next.
      */
-    internal fun joinTranscripts(parts: List<String>): String {
-        if (parts.isEmpty()) return ""
-        if (parts.size == 1) return parts[0].trim()
+    internal suspend fun joinTranscripts(parts: List<String>): String = withContext(Dispatchers.Default) {
+        if (parts.isEmpty()) return@withContext ""
+        if (parts.size == 1) return@withContext parts[0].trim()
         
         val result = StringBuilder(parts[0].trim())
         
+        var prevWords = parts[0].trim().split("\\s+".toRegex()).takeLast(3)
+        
         for (i in 1 until parts.size) {
-            val prevWords = result.toString().split("\\s+".toRegex()).takeLast(3)
             val currentPart = parts[i].trim()
+            if (currentPart.isEmpty()) continue
             val currentWords = currentPart.split("\\s+".toRegex())
             
             // Find overlap - look for repeated words at boundary
@@ -145,12 +152,13 @@ class ChunkedAudioProcessor(
             }
             
             // Append non-duplicate words
-            val toAppend = currentWords.drop(skipWords).joinToString(" ")
-            if (toAppend.isNotBlank()) {
-                result.append(" ").append(toAppend)
+            val toAppend = currentWords.drop(skipWords)
+            if (toAppend.isNotEmpty()) {
+                result.append(" ").append(toAppend.joinToString(" "))
+                prevWords = (prevWords + toAppend).takeLast(3)
             }
         }
         
-        return result.toString()
+        result.toString()
     }
 }

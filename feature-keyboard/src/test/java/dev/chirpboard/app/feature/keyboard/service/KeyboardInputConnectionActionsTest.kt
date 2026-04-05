@@ -25,16 +25,9 @@ class KeyboardInputConnectionActionsTest {
     @Test
     fun `moveCursor moves selection within bounds`() {
         val connection = mockk<InputConnection>(relaxed = true)
-        val extractedText =
-            ExtractedText().apply {
-                text = "Hello"
-                selectionStart = 2
-                selectionEnd = 2
-            }
-        every { connection.getExtractedText(any(), any()) } returns extractedText
-
         moveCursor(connection, 2)
 
-        verify { connection.setSelection(4, 4) }
+        // 2 DOWN events and 2 UP events = 4 total calls
+        verify(exactly = 4) { connection.sendKeyEvent(any()) }
     }
 }

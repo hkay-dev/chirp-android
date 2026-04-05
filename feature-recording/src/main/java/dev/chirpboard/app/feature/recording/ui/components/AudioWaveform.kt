@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -43,7 +44,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun AudioWaveform(
-    amplitudes: List<Float>,
+    amplitudes: ImmutableList<Float>,
     isActive: Boolean,
     color: Color,
     modifier: Modifier = Modifier,
@@ -84,19 +85,22 @@ fun AudioWaveform(
             List(barCount) { Animatable(0f) }
         }
 
-    // Drive all bar animations from single LaunchedEffect
-    LaunchedEffect(targetAmplitudes) {
-        animatables.forEachIndexed { index, animatable ->
-            val target = targetAmplitudes.getOrElse(index) { 0f }
-            launch {
-                animatable.animateTo(
-                    targetValue = target,
-                    animationSpec =
-                        spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium,
-                        ),
-                )
+    val latestAmplitudes = androidx.compose.runtime.rememberUpdatedState(targetAmplitudes)
+    // Drive all bar animations from single LaunchedEffect without restarting it
+    LaunchedEffect(barCount) {
+        androidx.compose.runtime.snapshotFlow { latestAmplitudes.value }.collect { targets ->
+            animatables.forEachIndexed { index, animatable ->
+                val target = targets.getOrElse(index) { 0f }
+                launch {
+                    animatable.animateTo(
+                        targetValue = target,
+                        animationSpec =
+                            spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            ),
+                    )
+                }
             }
         }
     }

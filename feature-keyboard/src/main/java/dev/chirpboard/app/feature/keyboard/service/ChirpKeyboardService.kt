@@ -10,6 +10,8 @@ import android.view.View
 import android.widget.Toast
 import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.compositionContext
@@ -30,6 +32,8 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
+import kotlinx.collections.immutable.toImmutableList
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
@@ -86,6 +90,10 @@ class ChirpKeyboardService :
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
+    override fun onEvaluateFullscreenMode(): Boolean {
+        return false
+    }
+
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -93,7 +101,7 @@ class ChirpKeyboardService :
     private val _state = MutableStateFlow<KeyboardState>(KeyboardState.ModelNotReady)
     private val state = _state.asStateFlow()
 
-    private val recorder = VoiceRecorder()
+    private val recorder by lazy { VoiceRecorder(this) }
     private val audioEncoder = AudioEncoder()
     private lateinit var audioFocusManager: AudioFocusManager
     private var phoneCallHandler: PhoneCallHandler? = null
@@ -124,6 +132,7 @@ class ChirpKeyboardService :
             setPersistenceJob = { persistenceJob = it },
         )
     }
+    private var composeView: ComposeView? = null
 
     // Custom recomposer for IME
     private val recomposerScope = CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main)
@@ -207,7 +216,6 @@ class ChirpKeyboardService :
 
     private fun toggleLlm() {
         val newValue = !_llmEnabled.value
-        _llmEnabled.value = newValue
         scope.launch {
             keyboardPreferences.setLlmEnabled(newValue)
         }
@@ -254,19 +262,20 @@ class ChirpKeyboardService :
         }
     }
 
-    override fun onCreateInputView(): View =
-        ComposeView(this).apply {
+    override fun onCreateInputView(): View {
+        val view = ComposeView(this).apply {
             // Set our custom recomposer so Compose doesn't look for ViewTreeLifecycleOwner
             compositionContext = recomposer
             setViewTreeLifecycleOwner(this@ChirpKeyboardService)
             setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
             setContent {
-                val llmEnabled = _llmEnabled.collectAsState()
-                val currentMode by _currentMode.collectAsState(initial = ProcessingMode.Proofread)
+                val llmEnabled by _llmEnabled.collectAsState()
+                val currentMode by _currentMode.collectAsState()
+                val state by state.collectAsState()
                 KeyboardUI(
-                    stateFlow = state,
-                    amplitudesFlow = recorder.amplitudes,
-                    llmEnabled = llmEnabled.value,
+                    state = state,
+                    amplitudes = recorder.amplitudes,
+                    llmEnabled = llmEnabled,
                     currentMode = currentMode,
                     onTap = ::onTap,
                     onToggleLlm = ::toggleLlm,
@@ -277,6 +286,9 @@ class ChirpKeyboardService :
                 )
             }
         }
+        composeView = view
+        return view
+    }
 
     override fun onStartInputView(
         info: android.view.inputmethod.EditorInfo?,
@@ -309,6 +321,8 @@ class ChirpKeyboardService :
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         Log.d(TAG, "onFinishInputView")
+        composeView?.disposeComposition()
+        composeView = null
 
         // Stop recording if active
         if (_state.value is KeyboardState.Recording) {
@@ -342,6 +356,7 @@ class ChirpKeyboardService :
         scope.cancel()
         persistenceScope.cancel()
 
+        recorder.close()
         super.onDestroy()
     }
 

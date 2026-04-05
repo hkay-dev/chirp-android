@@ -1,6 +1,8 @@
 package dev.chirpboard.app.feature.transcription
 
 import dev.chirpboard.app.data.entity.WordReplacement
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,15 +19,13 @@ class WordReplacer @Inject constructor() {
      * @param replacements List of replacement rules (only enabled ones are applied)
      * @return Text with replacements applied
      */
-    fun apply(text: String, replacements: List<WordReplacement>): String {
+    suspend fun apply(text: String, replacements: List<WordReplacement>): String = withContext(Dispatchers.Default) {
         var result = text
         for (rule in replacements.filter { it.enabled }) {
-            result = if (rule.caseSensitive) {
-                result.replace(rule.original, rule.replacement)
-            } else {
-                result.replace(rule.original, rule.replacement, ignoreCase = true)
-            }
+            val options = if (rule.caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)
+            val regex = Regex("\\b${Regex.escape(rule.original)}\\b", options)
+            result = result.replace(regex, rule.replacement)
         }
-        return result
+        result
     }
 }

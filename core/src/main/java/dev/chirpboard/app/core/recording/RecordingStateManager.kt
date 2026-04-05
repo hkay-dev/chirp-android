@@ -65,7 +65,7 @@ class RecordingStateManager @Inject constructor() {
     
     /** Scope for internal operations like timeouts */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    
+    private var timeoutJob: Job? = null
     companion object {
         private const val TAG = "RecordingStateManager"
         private const val AMPLITUDE_HISTORY_SIZE = 50
@@ -133,23 +133,24 @@ class RecordingStateManager @Inject constructor() {
      * Only valid when in Recording state.
      */
     fun pauseRecording() {
-        _state.update { current ->
-            when (current) {
-                is RecordingState.Recording -> {
-                    val elapsedThisSegment = System.currentTimeMillis() - current.startTimeMs
-                    val totalAccumulated = accumulatedSegmentMs.addAndGet(elapsedThisSegment)
-                    Log.d(TAG, "State: Recording -> Paused")
-                    RecordingState.Paused(
-                        origin = current.origin,
-                        profileId = current.profileId,
-                        audioFilePath = current.audioFilePath,
-                        accumulatedMs = totalAccumulated
-                    )
-                }
-                else -> {
-                    Log.w(TAG, "pauseRecording called in wrong state: ${current::class.simpleName}")
-                    current // Don't change state
-                }
+        while (true) {
+            val current = _state.value
+            if (current !is RecordingState.Recording) {
+                Log.w(TAG, "pauseRecording called in wrong state: ${current::class.simpleName}")
+                break
+            }
+            val elapsedThisSegment = System.currentTimeMillis() - current.startTimeMs
+            val totalAccumulated = accumulatedSegmentMs.get() + elapsedThisSegment
+            val nextState = RecordingState.Paused(
+                origin = current.origin,
+                profileId = current.profileId,
+                audioFilePath = current.audioFilePath,
+                accumulatedMs = totalAccumulated
+            )
+            if (_state.compareAndSet(current, nextState)) {
+                accumulatedSegmentMs.set(totalAccumulated)
+                Log.d(TAG, "State: Recording -> Paused")
+                break
             }
         }
     }
@@ -167,7 +168,6 @@ class RecordingStateManager @Inject constructor() {
                         origin = current.origin,
                         profileId = current.profileId,
                         // Set startTimeMs so that (now - startTimeMs + accumulatedMs) == total recorded time
-                        // We offset the start time backward by accumulatedMs so the timer math works
                         startTimeMs = System.currentTimeMillis(),
                         audioFilePath = current.audioFilePath
                     )
@@ -214,18 +214,23 @@ class RecordingStateManager @Inject constructor() {
         if (!transitioned) return null
         
         // Launch timeout recovery
-        return scope.launch {
+        timeoutJob = scope.launch {
             delay(STOPPING_TIMEOUT_MS)
+            var timedOut = false
             _state.update { current ->
                 if (current is RecordingState.Stopping) {
+                    timedOut = true
                     Log.w(TAG, "Stopping state timed out after ${STOPPING_TIMEOUT_MS}ms, forcing to Idle")
-                    recordingLock.set(false)
                     RecordingState.Idle
                 } else {
                     current
                 }
             }
+            if (timedOut) {
+                recordingLock.set(false)
+            }
         }
+        return timeoutJob
     }
     
     /**
@@ -235,22 +240,22 @@ class RecordingStateManager @Inject constructor() {
      * @param recordingId The ID of the saved recording, if available
      */
     fun onRecordingCompleted(recordingId: UUID? = null) {
+        timeoutJob?.cancel()
         _lastCompletedRecordingId.value = recordingId
         _state.update { current ->
             when (current) {
                 is RecordingState.Stopping -> {
                     Log.d(TAG, "State: Stopping -> Idle")
-                    recordingLock.set(false)
                     RecordingState.Idle
                 }
                 else -> {
                     // Fallback: still transition to Idle and release lock
                     Log.w(TAG, "onRecordingCompleted called in unexpected state: ${current::class.simpleName}, forcing to Idle")
-                    recordingLock.set(false)
                     RecordingState.Idle
                 }
             }
         }
+        recordingLock.set(false)
         clearAmplitude()
     }
     
@@ -270,6 +275,7 @@ class RecordingStateManager @Inject constructor() {
      * @param cause Optional underlying exception
      */
     fun onRecordingError(message: String, cause: Throwable? = null) {
+        timeoutJob?.cancel()
         _state.update { current ->
             val origin = current.activeOrigin ?: RecordingOrigin.APP
             Log.d(TAG, "State: ${current::class.simpleName} -> Error")
@@ -302,6 +308,7 @@ class RecordingStateManager @Inject constructor() {
      * Use this for emergency cleanup (e.g., app being killed).
      */
     fun forceCancel() {
+        timeoutJob?.cancel()
         accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Idle (force cancelled)")

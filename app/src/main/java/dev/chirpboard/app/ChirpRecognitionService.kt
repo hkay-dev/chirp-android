@@ -9,6 +9,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
 import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +30,7 @@ class ChirpRecognitionService : RecognitionService() {
         private const val ERROR_RECOGNIZER_BUSY = 7
     }
 
-    private val recorder = VoiceRecorder()
+    private val recorder by lazy { VoiceRecorder(this) }
 
     @Inject
     lateinit var transcriberProvider: TranscriberProvider

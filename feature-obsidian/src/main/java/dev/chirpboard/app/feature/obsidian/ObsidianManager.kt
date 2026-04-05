@@ -60,7 +60,7 @@ class ObsidianManager @Inject constructor(
             // Format the content
             val date = LocalDateTime.ofInstant(
                 recording.createdAt.toInstant(),
-                ZoneId.systemDefault()
+                java.time.ZoneOffset.UTC
             )
             val durationSeconds = recording.durationMs / 1000
 
@@ -158,8 +158,12 @@ class ObsidianManager @Inject constructor(
                 val finalFile = vaultDir.createFile("text/markdown", filename)
                     ?: throw IOException("Failed to create final file: $filename")
 
-                context.contentResolver.openOutputStream(finalFile.uri)?.use { out ->
-                    context.contentResolver.openInputStream(tempFile.uri)?.use { inp ->
+                val outStream = context.contentResolver.openOutputStream(finalFile.uri)
+                    ?: throw IOException("Failed to open output stream")
+                outStream.use { out ->
+                    val inpStream = context.contentResolver.openInputStream(tempFile.uri)
+                        ?: throw IOException("Failed to open temp stream")
+                    inpStream.use { inp ->
                         inp.copyTo(out)
                     }
                 }

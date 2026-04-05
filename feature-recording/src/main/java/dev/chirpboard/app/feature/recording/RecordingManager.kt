@@ -69,17 +69,17 @@ class RecordingManager
          *
          * @param origin Where the recording is being toggled from
          * @param profileId Optional profile to use if starting
-         * @return Result if starting, null if stopping
+         * @return Result if starting or stopped
          */
         fun toggleRecording(
             origin: RecordingOrigin = RecordingOrigin.APP,
             profileId: UUID? = null,
-        ): RecordingStartResult? =
+        ): ToggleResult =
             if (state.value.isActive) {
                 stopRecording()
-                null
+                ToggleResult.Stopped
             } else {
-                startRecording(origin, profileId)
+                ToggleResult.Started(startRecording(origin, profileId))
             }
 
         /**
@@ -89,3 +89,11 @@ class RecordingManager
             stateManager.clearError()
         }
     }
+
+sealed class ToggleResult {
+    data class Started(
+        val startResult: RecordingStartResult,
+    ) : ToggleResult()
+
+    object Stopped : ToggleResult()
+}

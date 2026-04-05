@@ -28,69 +28,9 @@ class RecordingWidgetProvider : AppWidgetProvider() {
         }
     }
     
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-        
-        when (intent.action) {
-            ACTION_UPDATE_WIDGET -> {
-                val isRecording = intent.getBooleanExtra(EXTRA_IS_RECORDING, false)
-                val durationText = intent.getStringExtra(EXTRA_DURATION_TEXT)
-                updateAllWidgets(context, isRecording, durationText)
-            }
-        }
-    }
-    
-    private fun updateAllWidgets(context: Context, isRecording: Boolean, durationText: String?) {
-        val appWidgetManager = AppWidgetManager.getInstance(context)
-        val componentName = ComponentName(context, RecordingWidgetProvider::class.java)
-        val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
-        
-        for (appWidgetId in appWidgetIds) {
-            updateAppWidget(context, appWidgetManager, appWidgetId, isRecording, durationText)
-        }
-    }
-    
-    private fun updateAppWidget(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetId: Int,
-        isRecording: Boolean,
-        durationText: String? = null
-    ) {
-        val views = RemoteViews(context.packageName, R.layout.widget_layout)
-        
-        // Set button icon based on state
-        if (isRecording) {
-            views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
-            views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
-            views.setTextViewText(R.id.widget_status, durationText ?: "Recording...")
-        } else {
-            views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
-            views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
-            views.setTextViewText(R.id.widget_status, "Tap to record")
-        }
-        
-        // Set up click handler for toggle button
-        val toggleIntent = Intent(context, WidgetReceiver::class.java).apply {
-            action = ACTION_TOGGLE_RECORDING
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            toggleIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        views.setOnClickPendingIntent(R.id.widget_button, pendingIntent)
-        
-        // Update the widget
-        appWidgetManager.updateAppWidget(appWidgetId, views)
-    }
     
     companion object {
         const val ACTION_TOGGLE_RECORDING = "dev.chirpboard.app.TOGGLE_RECORDING"
-        const val ACTION_UPDATE_WIDGET = "dev.chirpboard.app.UPDATE_WIDGET"
-        const val EXTRA_IS_RECORDING = "extra_is_recording"
-        const val EXTRA_DURATION_TEXT = "extra_duration_text"
         
         /**
          * Update all widget instances with the current recording state.
@@ -100,12 +40,51 @@ class RecordingWidgetProvider : AppWidgetProvider() {
          * @param durationText Optional duration text to display (e.g., "1:23")
          */
         fun updateWidget(context: Context, isRecording: Boolean, durationText: String? = null) {
-            val intent = Intent(context, RecordingWidgetProvider::class.java).apply {
-                action = ACTION_UPDATE_WIDGET
-                putExtra(EXTRA_IS_RECORDING, isRecording)
-                durationText?.let { putExtra(EXTRA_DURATION_TEXT, it) }
+            val appWidgetManager = AppWidgetManager.getInstance(context)
+            val componentName = ComponentName(context, RecordingWidgetProvider::class.java)
+            val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
+            
+            for (appWidgetId in appWidgetIds) {
+                updateAppWidget(context, appWidgetManager, appWidgetId, isRecording, durationText)
             }
-            context.sendBroadcast(intent)
+        }
+
+        fun updateAppWidget(
+            context: Context,
+            appWidgetManager: AppWidgetManager,
+            appWidgetId: Int,
+            isRecording: Boolean,
+            durationText: String? = null
+        ) {
+            val views = RemoteViews(context.packageName, R.layout.widget_layout)
+            
+            // Set button icon based on state
+            if (isRecording) {
+                views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
+                views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
+                // Use Chronometer for recording duration
+                views.setChronometer(R.id.widget_status, android.os.SystemClock.elapsedRealtime(), null, true)
+            } else {
+                views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
+                views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
+                // Stop chronometer and show default text
+                views.setChronometer(R.id.widget_status, 0, "Tap to record", false)
+            }
+            
+            // Set up click handler for toggle button
+            val toggleIntent = Intent(context, WidgetReceiver::class.java).apply {
+                action = ACTION_TOGGLE_RECORDING
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                toggleIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_button, pendingIntent)
+            
+            // Update the widget
+            appWidgetManager.updateAppWidget(appWidgetId, views)
         }
     }
 }

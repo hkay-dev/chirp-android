@@ -3,6 +3,8 @@ package dev.chirpboard.app.data.repository
 import dev.chirpboard.app.data.dao.WordReplacementDao
 import dev.chirpboard.app.data.entity.WordReplacement
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -71,7 +73,7 @@ class WordReplacementRepository
          * Apply all enabled word replacements to text.
          * Returns the text with replacements applied.
          */
-        suspend fun applyReplacements(text: String): String {
+        suspend fun applyReplacements(text: String): String = withContext(Dispatchers.Default) {
             val replacements = getEnabledReplacements()
             var result = text
 
@@ -84,6 +86,6 @@ class WordReplacementRepository
                     }
             }
 
-            return result
+            result
         }
     }

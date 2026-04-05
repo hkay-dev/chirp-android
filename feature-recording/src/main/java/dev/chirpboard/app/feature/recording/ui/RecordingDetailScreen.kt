@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -29,14 +30,14 @@ fun RecordingDetailScreen(
     onBackClick: () -> Unit,
     viewModel: RecordingDetailViewModel = hiltViewModel(),
 ) {
-    val recording by viewModel.recording.collectAsState()
-    val transcript by viewModel.transcript.collectAsState()
-    val playbackState by viewModel.playbackState.collectAsState()
-    val isEditing by viewModel.isEditing.collectAsState()
-    val editedTitle by viewModel.editedTitle.collectAsState()
-    val message by viewModel.message.collectAsState()
-    val recoveryDiagnostics by viewModel.recoveryDiagnostics.collectAsState()
-    val recoveryActions by viewModel.recoveryActions.collectAsState()
+    val recording by viewModel.recording.collectAsStateWithLifecycle()
+    val transcript by viewModel.transcript.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val isEditing by viewModel.isEditing.collectAsStateWithLifecycle()
+    val editedTitle by viewModel.editedTitle.collectAsStateWithLifecycle()
+    val message by viewModel.message.collectAsStateWithLifecycle()
+    val recoveryDiagnostics by viewModel.recoveryDiagnostics.collectAsStateWithLifecycle()
+    val recoveryActions by viewModel.recoveryActions.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -44,8 +45,8 @@ fun RecordingDetailScreen(
     // Show messages
     LaunchedEffect(message) {
         message?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             viewModel.clearMessage()
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
         }
     }
 
@@ -79,12 +80,12 @@ fun RecordingDetailScreen(
                 dateTimeText = dateTimeText,
                 isEditing = isEditing,
                 editedTitle = editedTitle,
-                collapsedFraction = scrollBehavior.state.collapsedFraction,
-                onEditedTitleChange = { viewModel.updateTitle(it) },
-                onCancelEditing = { viewModel.cancelEditing() },
-                onSaveTitle = { viewModel.saveTitle() },
-                onStartEditing = { viewModel.startEditing() },
-                onDeleteRequested = { showDeleteDialog = true },
+                collapsedFractionProvider = { scrollBehavior.state.collapsedFraction },
+                onEditedTitleChange = remember { { viewModel.updateTitle(it) } },
+                onCancelEditing = remember { { viewModel.cancelEditing() } },
+                onSaveTitle = remember { { viewModel.saveTitle() } },
+                onStartEditing = remember { { viewModel.startEditing() } },
+                onDeleteRequested = remember { { showDeleteDialog = true } },
                 onBackClick = onBackClick,
             )
         },
@@ -104,10 +105,10 @@ fun RecordingDetailScreen(
             ) {
                 StickyAudioPlayer(
                     playbackState = playbackState,
-                    onPlayPause = { viewModel.togglePlayPause() },
-                    onSeek = { viewModel.seekTo(it) },
-                    onSkipBackward = { viewModel.skipBackward() },
-                    onSkipForward = { viewModel.skipForward() },
+                    onPlayPause = remember { { viewModel.togglePlayPause() } },
+                    onSeek = remember { { viewModel.seekTo(it) } },
+                    onSkipBackward = remember { { viewModel.skipBackward() } },
+                    onSkipForward = remember { { viewModel.skipForward() } },
                 )
             }
         },
@@ -137,13 +138,13 @@ fun RecordingDetailScreen(
                 transcript = transcript,
                 recoveryDiagnostics = recoveryDiagnostics,
                 recoveryActions = recoveryActions,
-                onShareAudio = { viewModel.shareAudio() },
-                onShareTranscript = { viewModel.shareTranscript() },
-                onShareBoth = { viewModel.shareBoth() },
-                onRetryTranscription = { viewModel.retryTranscription() },
-                onRecoverEnhancing = { viewModel.recoverEnhancing() },
-                onRetranscribe = { viewModel.retranscribeFromEnhancing() },
-                onRecoverPending = { viewModel.recoverPendingTranscription() },
+                onShareAudio = remember { { viewModel.shareAudio() } },
+                onShareTranscript = remember { { viewModel.shareTranscript() } },
+                onShareBoth = remember { { viewModel.shareBoth() } },
+                onRetryTranscription = remember { { viewModel.retryTranscription() } },
+                onRecoverEnhancing = remember { { viewModel.recoverEnhancing() } },
+                onRetranscribe = remember { { viewModel.retranscribeFromEnhancing() } },
+                onRecoverPending = remember { { viewModel.recoverPendingTranscription() } },
             )
 
             Spacer(modifier = Modifier.height(32.dp))
@@ -153,9 +154,9 @@ fun RecordingDetailScreen(
     RecordingDetailDeleteDialog(
         visible = showDeleteDialog,
         onDismissRequest = { showDeleteDialog = false },
-        onDeleteConfirmed = {
+        onDeleteConfirmed = remember { {
             showDeleteDialog = false
             viewModel.deleteRecording(onBackClick)
-        },
+        } },
     )
 }

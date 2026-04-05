@@ -31,7 +31,6 @@ class LlmSettingsViewModel @Inject constructor(
         data object Success : ConnectionTestResult()
         data class Error(val message: String) : ConnectionTestResult()
     }
-
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 

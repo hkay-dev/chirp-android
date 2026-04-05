@@ -13,9 +13,17 @@ internal fun commitSpace(inputConnection: InputConnection?) {
 
 internal fun moveCursor(inputConnection: InputConnection?, delta: Int) {
     val safeInputConnection = inputConnection ?: return
-    val extractedText = safeInputConnection.getExtractedText(ExtractedTextRequest(), 0) ?: return
-    val currentPos = extractedText.selectionStart
-    val textLength = extractedText.text.length
-    val newPos = (currentPos + delta).coerceIn(0, textLength)
-    safeInputConnection.setSelection(newPos, newPos)
+    if (delta == 0) return
+
+    val keyEventCode = if (delta > 0) {
+        android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+    } else {
+        android.view.KeyEvent.KEYCODE_DPAD_LEFT
+    }
+
+    val absDelta = kotlin.math.abs(delta)
+    for (i in 0 until absDelta) {
+        safeInputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyEventCode))
+        safeInputConnection.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, keyEventCode))
+    }
 }

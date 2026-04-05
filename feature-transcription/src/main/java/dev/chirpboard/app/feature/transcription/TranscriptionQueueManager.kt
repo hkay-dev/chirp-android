@@ -108,6 +108,7 @@ class TranscriptionQueueManager @Inject constructor(
                         queueReconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Periodic queue reconciliation failed", e)
                 }
                 delay(intervalMs)
@@ -125,7 +126,7 @@ class TranscriptionQueueManager @Inject constructor(
      * 
      * @param recordingId The UUID of the recording to transcribe
      */
-    suspend fun enqueue(recordingId: UUID, correlationId: String? = null) {
+    suspend fun enqueue(recordingId: UUID, correlationId: String? = null): UUID {
         val corrId = correlationId ?: ReliabilityEventLogger.newCorrelationId("queue")
 
         ReliabilityEventLogger.log(
@@ -149,7 +150,7 @@ class TranscriptionQueueManager @Inject constructor(
         
         try {
             // Schedule the work
-            TranscriptionWorkRequest.enqueue(context, recordingId, corrId)
+            val workId = TranscriptionWorkRequest.enqueue(context, recordingId, corrId)
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.QUEUE_ENQUEUE,
                 outcome = ReliabilityOutcome.SUCCESS,
@@ -157,6 +158,7 @@ class TranscriptionQueueManager @Inject constructor(
                 recordingId = recordingId,
                 reasonCode = "enqueue_scheduled"
             )
+            return workId
         } catch (e: Exception) {
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.QUEUE_ENQUEUE,
@@ -314,7 +316,9 @@ class TranscriptionQueueManager @Inject constructor(
     }
 
     suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics {
-        return queueReconciler.getRecoveryDiagnostics(recordingId)
+        return reconciliationMutex.withLock {
+            queueReconciler.getRecoveryDiagnostics(recordingId)
+        }
     }
     
     /**
@@ -330,14 +334,10 @@ class TranscriptionQueueManager @Inject constructor(
             // Cancel any pending work for this recording
             workManager.cancelUniqueWork(TranscriptionWorkRequest.workName(recordingId))
             
-            // If it was actively transcribing, mark as pending so it can be retried
-            // If it was just pending, keep it pending
+            // Mark as FAILED so it doesn't get automatically restarted by the reconciler
             when (recording.status) {
-                RecordingStatus.TRANSCRIBING -> {
-                    recordingRepository.updateStatus(recordingId, RecordingStatus.PENDING_TRANSCRIPTION)
-                }
-                RecordingStatus.PENDING_TRANSCRIPTION -> {
-                    // Already pending, nothing to change
+                RecordingStatus.TRANSCRIBING, RecordingStatus.PENDING_TRANSCRIPTION -> {
+                    recordingRepository.updateStatusWithError(recordingId, RecordingStatus.FAILED, "Cancelled by user")
                 }
                 else -> {
                     // For other statuses, don't change
@@ -376,7 +376,7 @@ class TranscriptionQueueManager @Inject constructor(
         status: RecordingStatus,
         reason: String
     ): ManualRecoveryResult {
-        val ownership = queueReconciler.inspectQueueOwnership(recordingId)
+        val ownership = reconciliationMutex.withLock { queueReconciler.inspectQueueOwnership(recordingId) }
         val blockResult = blockedManualRecoveryResult(ownership)
         if (blockResult != null) {
             return blockResult
