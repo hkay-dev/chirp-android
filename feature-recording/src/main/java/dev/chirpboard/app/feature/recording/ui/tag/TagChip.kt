@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui.tag
 
+import androidx.compose.runtime.remember
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -43,7 +44,10 @@ fun TagChip(
     onRemove: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val tagColor = tag.color?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
+    val defaultColor = MaterialTheme.colorScheme.primary
+    val tagColor = remember(tag.color, defaultColor) {
+        tag.color?.let { parseColor(it) } ?: defaultColor
+    }
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) tagColor else Color.Transparent,
         animationSpec = tween(300, easing = FastOutSlowInEasing),

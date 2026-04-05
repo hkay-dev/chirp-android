@@ -1,50 +1,58 @@
 package dev.chirpboard.app
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideIn
-import androidx.compose.animation.slideOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.BreathingPulse
@@ -76,10 +84,10 @@ fun VoiceRecognitionDialog(
     onToggleLlm: (Boolean) -> Unit,
 ) {
     var isRecording by remember { mutableStateOf(false) }
-    val amplitudes by amplitudesFlow.collectAsState()
-    val isProcessing by isProcessingFlow.collectAsState()
-    val shouldDismiss by shouldDismissFlow.collectAsState()
-    val partialTranscript by partialTranscriptFlow.collectAsState()
+    val amplitudes by amplitudesFlow.collectAsStateWithLifecycle(emptyList())
+    val isProcessing by isProcessingFlow.collectAsStateWithLifecycle(false)
+    val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
+    val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
     var isVisible by remember { mutableStateOf(false) }
 
     val recognitionState =
@@ -105,58 +113,81 @@ fun VoiceRecognitionDialog(
     }
 
     val enterTransition =
-        fadeIn(
-            animationSpec = tween(300, easing = FastOutSlowInEasing),
-        ) +
-            scaleIn(
-                initialScale = 0.9f,
-                animationSpec = tween(300, easing = FastOutSlowInEasing),
-            ) +
-            slideIn(
-                initialOffset = { IntOffset(0, 20) },
-                animationSpec = tween(300, easing = FastOutSlowInEasing),
+        fadeIn(animationSpec = tween(200)) +
+            slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(
+                    dampingRatio = 0.8f,
+                    stiffness = 400f
+                ),
             )
 
     val exitTransition =
-        fadeOut(
-            animationSpec = tween(250, easing = FastOutSlowInEasing),
-        ) +
-            scaleOut(
-                targetScale = 0.95f,
-                animationSpec = tween(250, easing = FastOutSlowInEasing),
-            ) +
-            slideOut(
-                targetOffset = { IntOffset(0, 10) },
-                animationSpec = tween(250, easing = FastOutSlowInEasing),
+        fadeOut(animationSpec = tween(150)) +
+            slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = spring(
+                    dampingRatio = 0.9f,
+                    stiffness = 400f
+                ),
             )
 
-    AnimatedVisibility(
-        visible = isVisible,
-        enter = enterTransition,
-        exit = exitTransition,
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        VoiceRecognitionDialogContent(
-            recognitionState = recognitionState,
-            partialTranscript = partialTranscript,
-            llmEnabled = llmEnabled,
-            currentMode = currentMode,
-            onStart = {
-                isRecording = true
-                onStart()
-            },
-            onStop = {
-                isRecording = false
-                onStop()
-            },
-            onCancel = {
-                isVisible = false
-                MainScope().launch {
-                    delay(250)
-                    onCancel()
-                }
-            },
-            onToggleLlm = onToggleLlm,
-        )
+        // Scrim background to dim the app behind the STT overlay
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(250)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.15f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {
+                            isVisible = false
+                            MainScope().launch {
+                                delay(250)
+                                onCancel()
+                            }
+                        }
+                    )
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = enterTransition,
+            exit = exitTransition,
+        ) {
+            VoiceRecognitionDialogContent(
+                recognitionState = recognitionState,
+                partialTranscript = partialTranscript,
+                llmEnabled = llmEnabled,
+                currentMode = currentMode,
+                onStart = {
+                    isRecording = true
+                    onStart()
+                },
+                onStop = {
+                    isRecording = false
+                    onStop()
+                },
+                onCancel = {
+                    isVisible = false
+                    MainScope().launch {
+                        delay(250)
+                        onCancel()
+                    }
+                },
+                onToggleLlm = onToggleLlm,
+            )
+        }
     }
 }
 
@@ -172,29 +203,28 @@ private fun VoiceRecognitionDialogContent(
     onToggleLlm: (Boolean) -> Unit,
 ) {
     val containerSize by animateDpAsState(
-        targetValue = if (recognitionState == RecognitionState.Listening) 80.dp else 72.dp,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        targetValue = if (recognitionState == RecognitionState.Listening) 96.dp else 80.dp,
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
         label = "mic_container_size",
     )
 
     Surface(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .wrapContentSize(Alignment.Center)
-                .widthIn(max = 280.dp),
-        shape = RoundedCornerShape(32.dp),
-        tonalElevation = 3.dp,
-        shadowElevation = 8.dp,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        tonalElevation = 6.dp, // Premium native feel
+        shadowElevation = 16.dp,
     ) {
-        Box {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding() // Ensures we draw above the system nav bar
+        ) {
             IconButton(
                 onClick = onCancel,
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(40.dp),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(48.dp),
             ) {
                 Icon(
                     Icons.Filled.Close,
@@ -204,97 +234,119 @@ private fun VoiceRecognitionDialogContent(
             }
 
             Column(
-                modifier =
-                    Modifier.padding(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
                         top = 32.dp,
                         bottom = 24.dp,
                         start = 24.dp,
                         end = 24.dp,
                     ),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // Transcript Area
                 Box(
-                    modifier = Modifier.size(containerSize),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp)
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AnimatedContent(
+                        targetState = partialTranscript,
+                        transitionSpec = {
+                            fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
+                        },
+                        label = "transcript_animation"
+                    ) { text ->
+                        if (text.isNotBlank()) {
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                                maxLines = 3,
+                            )
+                        } else if (recognitionState == RecognitionState.Listening) {
+                            Text(
+                                text = "Listening...",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Mic Button Area
+                Box(
+                    modifier = Modifier
+                        .size(120.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    BreathingPulse(
-                        isActive = recognitionState == RecognitionState.Listening,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                        baseSize = 72.dp,
-                        expandedSize = containerSize + 16.dp,
-                    )
-
-                    if (recognitionState == RecognitionState.Processing) {
-                        ThinkingDots(
-                            color = MaterialTheme.colorScheme.tertiary,
-                            modifier =
-                                Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .offset(y = 24.dp),
+                    if (recognitionState == RecognitionState.Listening) {
+                        BreathingPulse(
+                            isActive = true,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                            baseSize = 80.dp,
+                            expandedSize = containerSize + 24.dp,
                         )
+                    }
+
+                    val buttonColor = if (recognitionState == RecognitionState.Listening) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant
+                    }
+                    val iconColor = if (recognitionState == RecognitionState.Listening) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
                     }
 
                     Box(
-                        modifier =
-                            Modifier
-                                .size(64.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .background(buttonColor)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false, radius = 56.dp),
+                                enabled = recognitionState != RecognitionState.Processing,
+                                onClick = {
+                                    if (recognitionState == RecognitionState.Listening) {
+                                        onStop()
+                                    } else {
+                                        onStart()
+                                    }
+                                }
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(
-                            Icons.Filled.Mic,
-                            contentDescription = "Recording",
-                            modifier = Modifier.size(32.dp),
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
+                        if (recognitionState == RecognitionState.Processing) {
+                            ThinkingDots(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (recognitionState == RecognitionState.Listening) Icons.Filled.Stop else Icons.Filled.Mic,
+                                contentDescription = if (recognitionState == RecognitionState.Listening) "Stop" else "Start",
+                                modifier = Modifier.size(32.dp),
+                                tint = iconColor,
+                            )
+                        }
                     }
                 }
 
-                when (recognitionState) {
-                    RecognitionState.Listening -> {
-                        Text(
-                            "Listening",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
+                Spacer(modifier = Modifier.height(32.dp))
 
-                    RecognitionState.Processing -> {
-                        Text(
-                            "Processing",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.tertiary,
-                        )
-                    }
-
-                    RecognitionState.Idle -> {
-                        Unit
-                    }
-                }
-
-                if (partialTranscript.isNotBlank()) {
-                    Text(
-                        text = partialTranscript,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
-
+                // LLM Control Chip
                 VoiceRecognitionLlmControlSection(
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
                     isRecording = recognitionState == RecognitionState.Listening,
                     onToggleLlm = onToggleLlm,
-                )
-
-                VoiceRecognitionActionButton(
-                    recognitionState = recognitionState,
-                    onStart = onStart,
-                    onStop = onStop,
                 )
             }
         }
@@ -305,101 +357,26 @@ private fun VoiceRecognitionDialogContent(
 private fun VoiceRecognitionLlmControlSection(
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
-    isRecording: Boolean,
+    isRecording: Boolean, // Can still toggle while recording
     onToggleLlm: (Boolean) -> Unit,
 ) {
-    if (!llmEnabled) {
-        Text(
-            text = "Enhance with AI",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier =
-                Modifier.clickable(
-                    enabled = isRecording,
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                ) {
-                    onToggleLlm(true)
-                },
-        )
-    } else {
-        Surface(
-            modifier =
-                Modifier
-                    .height(16.dp)
-                    .clickable(
-                        enabled = isRecording,
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                    ) {
-                        onToggleLlm(false)
-                    },
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Box(
-                modifier = Modifier.padding(horizontal = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "AI: ${currentMode.displayName}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    FilterChip(
+        selected = llmEnabled,
+        onClick = { onToggleLlm(!llmEnabled) },
+        label = {
+            Text(
+                text = if (llmEnabled) "AI: ${currentMode.displayName}" else "Enhance with AI",
+                style = MaterialTheme.typography.labelLarge
+            )
+        },
+        leadingIcon = if (llmEnabled) {
+            {
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(FilterChipDefaults.IconSize)
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun VoiceRecognitionActionButton(
-    recognitionState: RecognitionState,
-    onStart: () -> Unit,
-    onStop: () -> Unit,
-) {
-    when (recognitionState) {
-        RecognitionState.Idle -> {
-            FilledTonalButton(
-                onClick = onStart,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("Start Listening")
-            }
-        }
-
-        RecognitionState.Listening -> {
-            Button(
-                onClick = onStop,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors =
-                    ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                    ),
-            ) {
-                Text("Stop")
-            }
-        }
-
-        RecognitionState.Processing -> {
-            Button(
-                onClick = { },
-                enabled = false,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Text("Processing...")
-            }
-        }
-    }
+        } else null,
+    )
 }

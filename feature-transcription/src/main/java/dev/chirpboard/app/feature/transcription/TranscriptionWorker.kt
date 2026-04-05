@@ -16,7 +16,7 @@ import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
-import dev.chirpboard.app.feature.llm.LlmProcessor
+import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import java.io.File
@@ -40,7 +40,7 @@ class TranscriptionWorker
         private val recordingRepository: RecordingRepository,
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
-        private val llmProcessor: LlmProcessor,
+        private val llmClient: LlmClient,
         private val transcriberProvider: TranscriberProvider,
         private val audioDecoder: AudioDecoder,
     ) : CoroutineWorker(appContext, workerParams) {
@@ -263,6 +263,7 @@ class TranscriptionWorker
                 transcript.processedText
                     ?: wordReplacer.apply(transcript.rawText, enabledReplacements)
 
+            recordingRepository.updateProcessedText(recordingId, processedText, "word_replacement")
             applyEnhancement(recordingId, recording.source, processedText, correlationId)
 
             recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
@@ -290,15 +291,21 @@ class TranscriptionWorker
             )
 
             try {
-                val llmResult = llmProcessor.process(processedText, source)
-
-                llmResult.title?.let { generatedTitle ->
-                    recordingRepository.updateTitle(recordingId, generatedTitle)
+                val titleResult = llmClient.generateTitle(processedText)
+                if (titleResult.isFailure) {
+                    val e = titleResult.exceptionOrNull() ?: Exception("Failed to generate title")
+                    Log.e(TAG, "Failed to generate title", e)
+                    throw e
                 }
+                recordingRepository.updateTitle(recordingId, titleResult.getOrThrow())
 
-                llmResult.summary?.let { generatedSummary ->
-                    recordingRepository.updateSummary(recordingId, generatedSummary)
+                val summaryResult = llmClient.generateSummary(processedText)
+                if (summaryResult.isFailure) {
+                    val e = summaryResult.exceptionOrNull() ?: Exception("Failed to generate summary")
+                    Log.e(TAG, "Failed to generate summary", e)
+                    throw e
                 }
+                recordingRepository.updateSummary(recordingId, summaryResult.getOrThrow())
 
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.ENHANCEMENT,
@@ -308,6 +315,7 @@ class TranscriptionWorker
                     reasonCode = "enhancement_applied",
                 )
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.ENHANCEMENT,
                     outcome = ReliabilityOutcome.FAILURE,
@@ -316,6 +324,7 @@ class TranscriptionWorker
                     reasonCode = "enhancement_failed",
                     message = e.message,
                 )
+                throw e
             }
         }
 

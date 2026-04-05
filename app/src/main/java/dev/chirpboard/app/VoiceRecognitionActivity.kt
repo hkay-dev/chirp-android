@@ -8,9 +8,16 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.core.ui.theme.ChirpTheme
+import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
@@ -25,7 +32,7 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class VoiceRecognitionActivity : ComponentActivity() {
-    private val recorder = VoiceRecorder()
+    private val recorder by lazy { VoiceRecorder(this) }
     private var recordingJob: Job? = null
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
@@ -50,6 +57,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Log.d(TAG, "VoiceRecognitionActivity created")
+
+        androidx.core.view.WindowCompat
+            .setDecorFitsSystemWindows(window, false)
 
         // Ensure transcriber is initialized
         lifecycleScope.launch {

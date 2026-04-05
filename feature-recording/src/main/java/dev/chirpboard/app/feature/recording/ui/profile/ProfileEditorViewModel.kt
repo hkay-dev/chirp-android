@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import androidx.compose.runtime.Stable
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +29,7 @@ class ProfileEditorViewModel
 
         val isEditing = profileId != null
 
+@Stable
         data class UiState(
             val name: String = "",
             val icon: String = "",
@@ -41,7 +43,6 @@ class ProfileEditorViewModel
             val isSaved: Boolean = false,
             val error: String? = null,
         )
-
         private val _uiState = MutableStateFlow(UiState())
         val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -139,14 +140,16 @@ class ProfileEditorViewModel
                     } else {
                         // Create new profile
                         profileRepository.createProfile(
-                            name = state.name.trim(),
-                            icon = state.icon.ifBlank { null },
-                            autoTranscribe = state.autoTranscribe,
-                            autoTitle = state.autoTitle,
-                            autoSummary = state.autoSummary,
-                            obsidianVaultPath = state.obsidianVaultPath.ifBlank { null },
-                            autoExportToObsidian = state.autoExportToObsidian,
-                            defaultProcessingMode = state.defaultProcessingMode,
+                            ProfileRepository.CreateProfileRequest(
+                                name = state.name.trim(),
+                                icon = state.icon.ifBlank { null },
+                                autoTranscribe = state.autoTranscribe,
+                                autoTitle = state.autoTitle,
+                                autoSummary = state.autoSummary,
+                                obsidianVaultPath = state.obsidianVaultPath.ifBlank { null },
+                                autoExportToObsidian = state.autoExportToObsidian,
+                                defaultProcessingMode = state.defaultProcessingMode,
+                            ),
                         )
                     }
 

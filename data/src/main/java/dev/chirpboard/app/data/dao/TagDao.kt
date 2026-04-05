@@ -63,6 +63,9 @@ interface TagDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addTagToRecording(recordingTag: RecordingTag)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addTagsToRecording(tags: List<RecordingTag>)
+
     @Delete
     suspend fun removeTagFromRecording(recordingTag: RecordingTag)
 
@@ -81,9 +84,7 @@ interface TagDao {
         tagIds: List<UUID>,
     ) {
         removeAllTagsFromRecording(recordingId)
-        tagIds.forEach { tagId ->
-            addTagToRecording(RecordingTag(recordingId, tagId))
-        }
+        addTagsToRecording(tagIds.map { RecordingTag(recordingId, it) })
     }
 
     @Query("SELECT COUNT(*) FROM tags")

@@ -13,6 +13,8 @@ import android.os.IBinder
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationCompat
+import android.content.pm.ServiceInfo
+import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
@@ -57,6 +59,9 @@ class RecordingService : Service() {
 
     @Inject
     lateinit var transcriptionQueueManager: TranscriptionQueueManager
+
+    @Inject
+    lateinit var stopOrchestrator: RecordingStopOrchestrator
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -152,11 +157,10 @@ class RecordingService : Service() {
                     correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                     reasonCode = "already_recording",
                 )
-                stopSelf()
                 return
             }
 
-            RecordingStartResult.Success -> {
+            is RecordingStartResult.Success -> {
                 // Lock acquired, proceed with recording
             }
         }
@@ -177,14 +181,21 @@ class RecordingService : Service() {
             val outputDir = File(filesDir, "recordings").apply { mkdirs() }
             currentRecordingFile = File(outputDir, "recording_$timestamp.m4a")
 
+            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                recordingStateManager.onRecordingError("Permission denied: Microphone access is required.", SecurityException("RECORD_AUDIO permission missing"))
+                stopSelf()
+                return
+            }
             // Initialize MediaRecorder
-            mediaRecorder =
+            val recorder =
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     MediaRecorder(this)
                 } else {
                     @Suppress("DEPRECATION")
                     MediaRecorder()
-                }.apply {
+                }
+            mediaRecorder = recorder
+            recorder.apply {
                     setAudioSource(MediaRecorder.AudioSource.MIC)
                     setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                     setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -194,7 +205,6 @@ class RecordingService : Service() {
                     prepare()
                     start()
                 }
-
             recordingStartTime = System.currentTimeMillis()
             accumulatedDurationMs = 0
             recordingStateManager.onRecordingStarted(currentRecordingFile!!.absolutePath)
@@ -207,7 +217,7 @@ class RecordingService : Service() {
             )
 
             // Start foreground with notification
-            startForeground(NOTIFICATION_ID, createNotification())
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
 
             // Start duration update job for notification
             startDurationUpdates()
@@ -357,69 +367,76 @@ class RecordingService : Service() {
         durationUpdateJob?.cancel()
         amplitudeJob?.cancel()
 
-        val result =
-            try {
-                releaseRecorderForStop(snapshot?.wasPaused == true)
-                if (snapshot == null) {
-                    StopPersistenceResult.NoAudioFile
-                } else {
-                    persistAndQueueRecording(snapshot)
+        try {
+            releaseRecorderForStop(snapshot?.wasPaused == true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to release recorder", e)
+        }
+        mediaRecorder = null
+
+        CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
+            val result =
+                try {
+                    if (snapshot == null) {
+                        StopPersistenceResult.NoAudioFile
+                    } else {
+                        stopOrchestrator.persistAndQueueRecording(snapshot)
+                    }
+                } catch (e: Exception) {
+                    StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
+                } finally {
+                    timeoutJob?.cancel()
                 }
-            } catch (e: Exception) {
-                StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
-            } finally {
-                timeoutJob?.cancel()
-                mediaRecorder = null
-            }
 
-        when (result) {
-            is StopPersistenceResult.SavedAndQueued -> {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.SUCCESS,
-                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    recordingId = result.recordingId,
-                    reasonCode = "saved_and_enqueued",
-                )
-                recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
-            }
+            when (result) {
+                is StopPersistenceResult.SavedAndQueued -> {
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        outcome = ReliabilityOutcome.SUCCESS,
+                        correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        recordingId = result.recordingId,
+                        reasonCode = "saved_and_enqueued",
+                    )
+                    recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
+                }
 
-            is StopPersistenceResult.SavedPendingRecovery -> {
-                Log.w(
-                    TAG,
-                    "Saved recording ${result.recordingId} but queue handoff failed. " +
-                        "Marked for startup recovery.",
-                )
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.QUEUE_ENQUEUE,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    recordingId = result.recordingId,
-                    reasonCode = "queue_handoff_failed",
-                    message = result.message,
-                )
-                recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
-            }
+                is StopPersistenceResult.SavedPendingRecovery -> {
+                    Log.w(
+                        TAG,
+                        "Saved recording ${result.recordingId} but queue handoff failed. " +
+                            "Marked for startup recovery.",
+                    )
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.QUEUE_ENQUEUE,
+                        outcome = ReliabilityOutcome.FAILURE,
+                        correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        recordingId = result.recordingId,
+                        reasonCode = "queue_handoff_failed",
+                        message = result.message,
+                    )
+                    recordingStateManager.onRecordingCompleted(recordingId = result.recordingId)
+                }
 
-            is StopPersistenceResult.PersistenceFailed -> {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.PERSISTENCE_SAVE,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "persistence_failed",
-                    message = result.message,
-                )
-                recordingStateManager.onRecordingError(result.message, result.cause)
-            }
+                is StopPersistenceResult.PersistenceFailed -> {
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.PERSISTENCE_SAVE,
+                        outcome = ReliabilityOutcome.FAILURE,
+                        correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        reasonCode = "persistence_failed",
+                        message = result.message,
+                    )
+                    recordingStateManager.onRecordingError(result.message, result.cause)
+                }
 
-            StopPersistenceResult.NoAudioFile -> {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "missing_audio_file",
-                )
-                recordingStateManager.onRecordingCompleted()
+                StopPersistenceResult.NoAudioFile -> {
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        outcome = ReliabilityOutcome.SKIPPED,
+                        correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        reasonCode = "missing_audio_file",
+                    )
+                    recordingStateManager.onRecordingCompleted()
+                }
             }
         }
 
@@ -455,57 +472,6 @@ class RecordingService : Service() {
             }
             stop()
             release()
-        }
-    }
-
-    private fun persistAndQueueRecording(snapshot: StopSnapshot): StopPersistenceResult {
-        val audioPath = snapshot.audioFilePath ?: return StopPersistenceResult.NoAudioFile
-        val file = File(audioPath)
-        if (!file.exists()) {
-            return StopPersistenceResult.NoAudioFile
-        }
-
-        return runBlocking(Dispatchers.IO) {
-            val title = SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(snapshot.stoppedAtEpochMs))
-            val source =
-                when (snapshot.origin) {
-                    RecordingOrigin.APP -> RecordingSource.APP
-                    RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
-                    RecordingOrigin.WIDGET -> RecordingSource.WIDGET
-                }
-
-            val recording =
-                recordingRepository.createRecording(
-                    title = title,
-                    audioPath = audioPath,
-                    source = source,
-                    profileId = snapshot.profileId,
-                    durationMs = snapshot.durationMs,
-                )
-
-            afterPersistenceBeforeQueueHookForTest?.invoke()
-
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.PERSISTENCE_SAVE,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = snapshot.correlationId,
-                recordingId = recording.id,
-                reasonCode = "recording_saved",
-            )
-
-            try {
-                val enqueueOverride = enqueueOverrideForTest
-                if (enqueueOverride != null) {
-                    enqueueOverride(recording.id, snapshot.correlationId)
-                } else {
-                    transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
-                }
-                StopPersistenceResult.SavedAndQueued(recording.id)
-            } catch (enqueueError: Exception) {
-                val reason = "Queue handoff failed during stop. Will retry automatically on startup."
-                transcriptionQueueManager.markPendingForQueueRecovery(recording.id, reason, enqueueError)
-                StopPersistenceResult.SavedPendingRecovery(recording.id, reason, enqueueError)
-            }
         }
     }
 
@@ -696,21 +662,7 @@ class RecordingService : Service() {
 
         @Volatile
         @VisibleForTesting
-        var afterPersistenceBeforeQueueHookForTest: (() -> Unit)? = null
-
-        @Volatile
-        @VisibleForTesting
-        var enqueueOverrideForTest: (suspend (UUID, String?) -> Unit)? = null
-
-        @Volatile
-        @VisibleForTesting
         var activeInstanceForTest: RecordingService? = null
-
-        @VisibleForTesting
-        fun clearTestHooks() {
-            afterPersistenceBeforeQueueHookForTest = null
-            enqueueOverrideForTest = null
-        }
 
         fun startRecording(
             context: Context,
@@ -771,34 +723,5 @@ class RecordingService : Service() {
                 }
             context.startService(intent)
         }
-    }
-
-    private data class StopSnapshot(
-        val origin: RecordingOrigin,
-        val profileId: UUID?,
-        val audioFilePath: String?,
-        val durationMs: Long,
-        val stoppedAtEpochMs: Long,
-        val wasPaused: Boolean,
-        val correlationId: String,
-    )
-
-    private sealed class StopPersistenceResult {
-        data class SavedAndQueued(
-            val recordingId: UUID,
-        ) : StopPersistenceResult()
-
-        data class SavedPendingRecovery(
-            val recordingId: UUID,
-            val message: String,
-            val cause: Throwable?,
-        ) : StopPersistenceResult()
-
-        data class PersistenceFailed(
-            val message: String,
-            val cause: Throwable?,
-        ) : StopPersistenceResult()
-
-        object NoAudioFile : StopPersistenceResult()
     }
 }

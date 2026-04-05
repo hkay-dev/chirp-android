@@ -13,7 +13,7 @@ import java.util.UUID
 
 @Dao
 interface RecordingDao {
-    @Query("SELECT * FROM recordings ORDER BY createdAt DESC")
+    @Query("SELECT * FROM recordings ORDER BY createdAt DESC LIMIT 500")
     fun getAllRecordings(): Flow<List<Recording>>
 
     @Query("SELECT * FROM recordings WHERE id = :id")
@@ -80,6 +80,9 @@ interface RecordingDao {
 
     @Delete
     suspend fun delete(recording: Recording)
+
+    @Query("DELETE FROM recordings WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<UUID>)
 
     @Query("DELETE FROM recordings WHERE id = :id")
     suspend fun deleteById(id: UUID)

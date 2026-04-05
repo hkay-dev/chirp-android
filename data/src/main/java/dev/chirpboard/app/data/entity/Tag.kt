@@ -10,7 +10,10 @@ import java.util.UUID
 /**
  * Represents a tag for organizing recordings.
  */
-@Entity(tableName = "tags")
+@Entity(
+    tableName = "tags",
+    indices = [Index("name")]
+)
 data class Tag(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),

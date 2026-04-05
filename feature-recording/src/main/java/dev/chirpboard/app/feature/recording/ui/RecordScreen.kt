@@ -31,11 +31,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.withFrameMillis
+import kotlinx.collections.immutable.toImmutableList
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -79,9 +84,10 @@ fun RecordScreen(
     autoStart: Boolean = true,
     viewModel: RecordViewModel = hiltViewModel(),
 ) {
-    val recordingState by viewModel.recordingState.collectAsState()
-    val amplitudeHistory by viewModel.amplitudeHistory.collectAsState()
-    val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsState()
+    val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
+    val rawAmplitudeHistory by viewModel.amplitudeHistory.collectAsStateWithLifecycle()
+    val amplitudeHistory = remember(rawAmplitudeHistory) { rawAmplitudeHistory.toImmutableList() }
+    val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
 
     // Track elapsed time for timer display
     var elapsedMs by remember { mutableLongStateOf(0L) }
@@ -137,8 +143,9 @@ fun RecordScreen(
             is RecordingState.Recording -> {
                 val segmentStart = state.startTimeMs
                 while (true) {
-                    elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
-                    delay(500)
+                    withFrameMillis { frameTime ->
+                        elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    }
                 }
             }
 
@@ -165,8 +172,8 @@ fun RecordScreen(
     LaunchedEffect(lastCompletedRecordingId) {
         val recordingId = lastCompletedRecordingId
         if (recordingId != null) {
-            delay(200) // Brief delay for state to settle
             viewModel.clearLastCompletedRecordingId()
+            delay(200) // Brief delay for state to settle
             onRecordingComplete(recordingId.toString())
         }
     }

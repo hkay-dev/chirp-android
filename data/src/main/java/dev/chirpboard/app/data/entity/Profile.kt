@@ -10,7 +10,10 @@ import java.util.UUID
 /**
  * Represents a recording profile with settings.
  */
-@Entity(tableName = "profiles")
+@Entity(
+    tableName = "profiles",
+    indices = [Index("sortOrder", "name")]
+)
 data class Profile(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),

@@ -1,0 +1,206 @@
+
+Desloppify Scan (kotlin)
+
+MAPPED data/src/test/java/dev/chirpboard/app/data/db/ConvertersTest.kt -> data/src/main/java/dev/chirpboard/app/data/db/Converters.kt
+MAPPED data/src/test/java/dev/chirpboard/app/data/repository/RecordingRepositoryTest.kt -> data/src/main/java/dev/chirpboard/app/data/repository/RecordingRepository.kt
+MAPPED data/src/test/java/dev/chirpboard/app/data/repository/TagRepositoryTest.kt -> data/src/main/java/dev/chirpboard/app/data/repository/TagRepository.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/state/KeyboardStateTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/state/KeyboardState.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueSupportTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueSupport.kt
+MAPPED core/src/test/java/dev/chirpboard/app/core/recording/RecordingStateManagerTest.kt -> core/src/main/java/dev/chirpboard/app/core/recording/RecordingStateManager.kt
+MAPPED core/src/test/java/dev/chirpboard/app/core/util/ExtensionsTest.kt -> core/src/main/java/dev/chirpboard/app/core/util/Extensions.kt
+MAPPED app/src/test/java/dev/chirpboard/app/ApiKeyMigrationTest.kt -> app/src/main/java/dev/chirpboard/app/ApiKeyMigration.kt
+MAPPED app/src/test/java/dev/chirpboard/app/debug/DevMenuViewModelTest.kt -> app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistenceTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/service/StopRequestGateTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/StopRequestGate.kt
+MAPPED app/src/test/java/dev/chirpboard/app/ui/settings/AudioSettingsViewModelTest.kt -> app/src/main/java/dev/chirpboard/app/ui/settings/AudioSettingsViewModel.kt
+MAPPED feature-obsidian/src/test/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianSettingsViewModelTest.kt -> feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianSettingsViewModel.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModelTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt
+MAPPED app/src/test/java/dev/chirpboard/app/download/ModelReadinessGateTest.kt -> app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt
+MAPPED app/src/test/java/dev/chirpboard/app/ui/settings/KeyboardSettingsViewModelTest.kt -> app/src/main/java/dev/chirpboard/app/ui/settings/KeyboardSettingsViewModel.kt
+MAPPED data/src/test/java/dev/chirpboard/app/data/repository/WordReplacementRepositoryTest.kt -> data/src/main/java/dev/chirpboard/app/data/repository/WordReplacementRepository.kt
+MAPPED app/src/test/java/dev/chirpboard/app/ui/settings/SettingsViewModelTest.kt -> app/src/main/java/dev/chirpboard/app/ui/settings/SettingsViewModel.kt
+MAPPED feature-obsidian/src/test/java/dev/chirpboard/app/feature/obsidian/ObsidianManagerTest.kt -> feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/service/RecordingServiceTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt
+MAPPED app/src/test/java/dev/chirpboard/app/VoiceRecognitionPipelineTest.kt -> app/src/main/java/dev/chirpboard/app/VoiceRecognitionPipeline.kt
+MAPPED data/src/test/java/dev/chirpboard/app/data/repository/ProfileRepositoryTest.kt -> data/src/main/java/dev/chirpboard/app/data/repository/ProfileRepository.kt
+MAPPED feature-obsidian/src/test/java/dev/chirpboard/app/feature/obsidian/MarkdownFormatterTest.kt -> feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/MarkdownFormatter.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/profile/ProfilesViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfilesViewModel.kt
+MAPPED app/src/test/java/dev/chirpboard/app/download/ModelDownloaderTest.kt -> app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/WorkConstraintCheckerTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/components/TimeUtilsTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/components/TimeUtils.kt
+MAPPED feature-llm/src/test/java/dev/chirpboard/app/feature/llm/LlmProcessorTest.kt -> feature-llm/src/main/java/dev/chirpboard/app/feature/llm/LlmProcessor.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkRequestTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkRequest.kt
+MAPPED core/src/test/java/dev/chirpboard/app/core/recording/RecordingStateTest.kt -> core/src/main/java/dev/chirpboard/app/core/recording/RecordingState.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/haptic/HapticFeedbackTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/haptic/HapticFeedback.kt
+MAPPED app/src/test/java/dev/chirpboard/app/navigation/HomeRecordEntryViewModelTest.kt -> app/src/main/java/dev/chirpboard/app/navigation/HomeRecordEntryViewModel.kt
+MAPPED app/src/test/java/dev/chirpboard/app/VoiceRecorderTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt
+MAPPED app/src/test/java/dev/chirpboard/app/VoiceRecorderTest.kt -> app/src/main/java/dev/chirpboard/app/VoiceRecorder.kt
+MAPPED feature-llm/src/test/java/dev/chirpboard/app/feature/llm/model/ProcessingModeTest.kt -> feature-llm/src/main/java/dev/chirpboard/app/feature/llm/model/ProcessingMode.kt
+MAPPED feature-llm/src/test/java/dev/chirpboard/app/feature/llm/settings/LlmSettingsViewModelTest.kt -> feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmSettingsViewModel.kt
+MAPPED app/src/test/java/dev/chirpboard/app/recognition/RecognitionHistoryPersistenceTest.kt -> app/src/main/java/dev/chirpboard/app/recognition/RecognitionHistoryPersistence.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/tag/TagsViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagsViewModel.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/replacement/WordReplacementsViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/replacement/WordReplacementsViewModel.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipelineTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/RecordViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordViewModel.kt
+MAPPED feature-llm/src/test/java/dev/chirpboard/app/feature/llm/client/LlmClientImplTest.kt -> feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkerSupportTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorkerSupport.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/audio/ChunkedAudioProcessorTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/ChunkedAudioProcessor.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecognitionModelsTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecognitionModels.kt
+MAPPED core/src/test/java/dev/chirpboard/app/core/util/CoroutineUtilsTest.kt -> core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/audio/AudioPlayerTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/RecordingManagerTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/RecordingManager.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/service/KeyboardInputConnectionActionsTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardInputConnectionActions.kt
+MAPPED feature-obsidian/src/test/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianPreferencesTest.kt -> feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/settings/ObsidianPreferences.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/WhisperModelManagerTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WhisperModelManager.kt
+MAPPED feature-recording/src/test/java/dev/chirpboard/app/feature/recording/ui/HomeViewModelTest.kt -> feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt
+MAPPED feature-transcription/src/test/java/dev/chirpboard/app/feature/transcription/WordReplacerTest.kt -> feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WordReplacer.kt
+MAPPED feature-keyboard/src/test/java/dev/chirpboard/app/feature/keyboard/service/KeyboardServiceStartupTest.kt -> feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardServiceStartup.kt
+MAPPED feature-llm/src/test/java/dev/chirpboard/app/feature/llm/model/GeminiModelsTest.kt -> feature-llm/src/main/java/dev/chirpboard/app/feature/llm/model/GeminiModels.kt
+MAPPED core/src/test/java/dev/chirpboard/app/core/ui/animation/AnimationConstantsTest.kt -> core/src/main/java/dev/chirpboard/app/core/ui/animation/AnimationConstants.kt
+MAPPED app/src/test/java/dev/chirpboard/app/SherpaRecognizerTest.kt -> app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt
+MAPPED feature-llm/src/test/java/dev/chirpboard/app/feature/llm/TextProcessorTest.kt -> feature-llm/src/main/java/dev/chirpboard/app/feature/llm/TextProcessor.kt
+  ℹ Excluded directory '.gradle' has 0 references from scanned code — may be stale
+  ℹ Excluded directory 'core/build' has 0 references from scanned code — may be stale
+  ℹ Excluded directory 'data/build' has 0 references from scanned code — may be stale
+  ℹ Excluded directory 'feature-llm/build' has 0 references from scanned code — may be stale
+  ℹ Excluded directory 'feature-recording/build' has 0 references from scanned code — may be stale
+  ℹ Excluded directory 'feature-transcription/build' has 0 references from scanned code — may be stale
+  ℹ Excluded directory '.claude' has 0 references from scanned code — may be stale
+  Scan complete
+  ──────────────────────────────────────────────────
+  -124 resolved · ↻2 reopened
+  ⚠ Skipped auto-resolve for: review (returned 0 — likely transient)
+  Scores: overall 76.7/100  objective 85.5/100 (-0.1)  strict 72.7/100 (-0.1)  verified 70.8/100
+  Score guide:
+    overall  = 25% mechanical + 75% subjective (lenient — ignores wontfix)
+    objective = mechanical detectors only (no subjective review)
+    strict   = like overall, but wontfix counts against you  <-- your north star
+    verified = strict, but only credits scan-verified fixes
+  Strict 72.7 (target: 85.0)
+  * 456 issues hidden (showing 10/detector). Use `desloppify show <detector>` to see all.
+  Scorecard dimensions (matches scorecard.png):
+  File health        █████████████░░  85.8%  (strict  85.0%)
+  AI generated debt  ███████████░░░░  76.5%  (strict  76.5%)
+  API coherence      ██████████░░░░░  66.0%  (strict  66.0%)
+  Abstraction fit    ███████████░░░░  71.5%  (strict  71.5%)  [stale — re-review]
+  Auth consistency   ████████████░░░  78.0%  (strict  78.0%)
+  Code quality       █████████████░░  84.3%  (strict  66.0%)
+  Convention drift   ██████████░░░░░  67.0%  (strict  67.0%)  [stale — re-review]
+  Cross-module arch  ███████████░░░░  71.0%  (strict  71.0%)
+  Dep health         ████████████░░░  78.4%  (strict  78.4%)
+  Design coherence   ███████████░░░░  71.0%  (strict  71.0%)  [stale — re-review]
+  Duplication        █████████████░░  87.9%  (strict  85.1%)
+  Elegance           ████████████░░░  76.8%  (strict  76.8%)
+  Error consistency  ███████████░░░░  74.0%  (strict  74.0%)
+  Init coupling      ████████████░░░  79.0%  (strict  79.0%)
+  Naming quality     ████████████░░░  78.4%  (strict  78.4%)
+  Security           ███████████████ 100.0%  (strict 100.0%)
+  Stale migration    ██████████░░░░░  68.0%  (strict  68.0%)
+  Structure nav      ███████████░░░░  76.0%  (strict  76.0%)
+  Test health        ██████████░░░░░  69.5%  (strict   0.0%)
+  Test strategy      █████████░░░░░░  58.0%  (strict  58.0%)
+
+  Score recipe:
+    overall = 25% mechanical + 75% subjective
+    Pool averages: mechanical 85.5% · subjective 73.7%
+    Biggest weighted drags:
+      - Mid elegance: -3.76 pts (score 72.0%, 17.9% of subjective pool)
+      - High elegance: -3.22 pts (score 76.0%, 17.9% of subjective pool)
+      - Contracts: -2.71 pts (score 63.0%, 9.8% of subjective pool)
+      - Type safety: -2.12 pts (score 71.0%, 9.8% of subjective pool)
+      - Design coherence: -1.77 pts (score 71.0%, 8.1% of subjective pool)
+
+  Moved:
+    Code quality           84.7% → 84.3%  (-0.4%)  strict: 66.3→66.0% (-0.3%)
+
+  ⟳ 19 chronic reopeners — run `desloppify show --chronic` to see them.
+  Coverage reduced (ktlint_violation): ktlint tooling unavailable (parser_error) Repercussion: Detector results may be under-reported for this scan. Fix: Install/fix the tool command and rerun scan.
+
+  → Score plateaued at 72.7 for 5 scans. Test health (0.0%) is where the breakthrough is. 278 wontfix items may also be worth revisiting. (64 review work items — run `desloppify show review --status open`)
+  Run `desloppify next` for the highest-priority item.
+  Run `desloppify plan` to see the updated living plan.
+  Run `desloppify status` for the full dashboard.
+
+  Scorecard → scorecard.png
+  💡 Ask the user if they'd like to add it to their README with:
+     <img src="scorecard.png" width="100%">
+     (disable: --no-badge | move: --badge-path <path>)
+────────────────────────────────────────────────────────────
+INSTRUCTIONS FOR LLM
+IMPORTANT: ALWAYS present ALL scores to the user after a scan.
+Show overall health (lenient + strict), ALL dimension scores,
+AND all subjective dimension scores in a markdown table.
+The goal is to maximize strict scores. Never skip the scores.
+
+LIVING PLAN ACTIVE: 158 ordered, 281 skipped.
+The plan is the single source of truth for work order.
+Use `desloppify next` which respects the plan.
+Use `desloppify plan` to view and update it.
+
+Overall score:   76.7/100
+Objective score: 85.6/100
+Strict score:    72.8/100
+Verified score:  70.8/100
+Score guide:
+  overall  = 25% mechanical + 75% subjective (lenient — ignores wontfix)
+  objective = mechanical detectors only (no subjective review)
+  strict   = like overall, but wontfix counts against you  <-- your north star
+  verified = strict, but only credits scan-verified fixes
+
+| Dimension | Health | Strict | Issues | Tier | Action |
+|-----------|--------|--------|--------|------|--------|
+| Code quality | 84.7% | 66.3% | 92 | T3 | autofix |
+| Duplication | 87.9% | 85.1% | 119 | T3 | refactor |
+| File health | 85.8% | 85.0% | 38 | T3 | refactor |
+| Security | 100.0% | 100.0% | 0 | T4 | move |
+| Test health | 69.5% | 0.0% | 57 | T4 | autofix |
+| **Subjective Dimensions** | | | | | |
+| AI generated debt | 76.5% | 76.5% | 4 | T4 | review |
+| API coherence | 66.0% | 66.0% | 5 | T4 | review |
+| Abstraction fit | 71.5% | 71.5% | 0 | T4 | review |
+| Auth consistency | 78.0% | 78.0% | 1 | T4 | review |
+| Convention drift | 67.0% | 67.0% | 3 | T4 | review |
+| Cross-module arch | 71.0% | 71.0% | 3 | T4 | review |
+| Dep health | 78.4% | 78.4% | 3 | T4 | review |
+| Design coherence | 71.0% | 71.0% | 4 | T4 | review |
+| Elegance | 76.8% | 76.8% | 10 | T4 | review |
+| Error consistency | 74.0% | 74.0% | 4 | T4 | review |
+| Init coupling | 79.0% | 79.0% | 3 | T4 | review |
+| Naming quality | 78.4% | 78.4% | 5 | T4 | review |
+| Stale migration | 68.0% | 68.0% | 2 | T4 | review |
+| Structure nav | 76.0% | 76.0% | 3 | T4 | review |
+| Test strategy | 58.0% | 58.0% | 4 | T4 | review |
+
+Biggest score drags (fixing these dimensions has the most impact):
+  - Mid elegance: -3.76 pts (score 72.0%, 17.9% of subjective pool)
+  - High elegance: -3.22 pts (score 76.0%, 17.9% of subjective pool)
+  - Contracts: -2.71 pts (score 63.0%, 9.8% of subjective pool)
+  - Type safety: -2.12 pts (score 71.0%, 9.8% of subjective pool)
+  - Design coherence: -1.77 pts (score 71.0%, 8.1% of subjective pool)
+
+Total issues: 943 | Open: 539 | Fixed: 67 | Wontfix: 278
+Ignored: 0 (by 0 patterns) | Strict gap: 3.9 pts
+Focus on strict score — wontfix and ignore inflate the lenient score.
+
+
+Follow the living plan: `desloppify next` for your next execution task,
+`desloppify backlog` for broader backlog discovery, and `desloppify plan` for plan details.
+Current status: Score plateaued at 72.7 for 5 scans. Test health (0.0%) is where the breakthrough is. 278 wontfix items may also be worth revisiting. (64 review work items — run `desloppify show review --status open`)
+Strategy: 5 independent workstreams, safe to parallelize. Rescan after each phase to verify. Review: 64 issue(s) — `desloppify show review --status open`.
+Top action: `desloppify show orphaned --status open` — 90 orphaned issues — delete dead files or relocate with `desloppify move`
+
+A scorecard image was saved to `scorecard.png`.
+Let the user know they can view it, and suggest adding it
+to their README: `<img src="scorecard.png" width="100%">`
+────────────────────────────────────────────────────────────
+
+  ┌──────────────────────────────────────────────────────────┐
+  │                                                          │
+  │  Hey — please follow the living plan. Run `desloppify    │
+  │  next` for your next execution task. No need to reply,   │
+  │  just continue.                                          │
+  │                                                          │
+  └──────────────────────────────────────────────────────────┘
+

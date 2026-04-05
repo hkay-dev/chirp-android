@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.repository
 
+import androidx.room.withTransaction
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.entity.Profile
 import kotlinx.coroutines.flow.Flow
@@ -15,6 +16,7 @@ class ProfileRepository
     @Inject
     constructor(
         private val profileDao: ProfileDao,
+        private val db: dev.chirpboard.app.data.db.AppDatabase,
     ) {
         /** Get all profiles ordered by sort order then name */
         fun getAllProfiles(): Flow<List<Profile>> = profileDao.getAllProfiles()
@@ -28,33 +30,37 @@ class ProfileRepository
         /** Get profile as Flow for reactive updates */
         fun getProfileFlow(id: UUID): Flow<Profile?> = profileDao.getProfileFlow(id)
 
+        data class CreateProfileRequest(
+            val name: String,
+            val icon: String? = null,
+            val defaultProcessingMode: String? = null,
+            val autoTranscribe: Boolean = true,
+            val autoTitle: Boolean = false,
+            val autoSummary: Boolean = false,
+            val obsidianVaultPath: String? = null,
+            val autoExportToObsidian: Boolean = false,
+            val defaultTagIds: List<UUID> = emptyList(),
+        )
+
         /** Create a new profile */
-        suspend fun createProfile(
-            name: String,
-            icon: String? = null,
-            defaultProcessingMode: String? = null,
-            autoTranscribe: Boolean = true,
-            autoTitle: Boolean = false,
-            autoSummary: Boolean = false,
-            obsidianVaultPath: String? = null,
-            autoExportToObsidian: Boolean = false,
-            defaultTagIds: List<UUID> = emptyList(),
-        ): Profile {
-            val maxOrder = profileDao.getMaxSortOrder() ?: 0
-            val profile =
-                Profile(
-                    name = name,
-                    icon = icon,
-                    defaultProcessingMode = defaultProcessingMode,
-                    autoTranscribe = autoTranscribe,
-                    autoTitle = autoTitle,
-                    autoSummary = autoSummary,
-                    obsidianVaultPath = obsidianVaultPath,
-                    autoExportToObsidian = autoExportToObsidian,
-                    sortOrder = maxOrder + 1,
-                ).withDefaultTags(defaultTagIds)
-            profileDao.insert(profile)
-            return profile
+        suspend fun createProfile(request: CreateProfileRequest): Profile {
+            return db.withTransaction {
+                val maxOrder = profileDao.getMaxSortOrder() ?: 0
+                val profile =
+                    Profile(
+                        name = request.name,
+                        icon = request.icon,
+                        defaultProcessingMode = request.defaultProcessingMode,
+                        autoTranscribe = request.autoTranscribe,
+                        autoTitle = request.autoTitle,
+                        autoSummary = request.autoSummary,
+                        obsidianVaultPath = request.obsidianVaultPath,
+                        autoExportToObsidian = request.autoExportToObsidian,
+                        sortOrder = maxOrder + 1,
+                    ).withDefaultTags(request.defaultTagIds)
+                profileDao.insert(profile)
+                profile
+            }
         }
 
         /** Insert an existing profile */

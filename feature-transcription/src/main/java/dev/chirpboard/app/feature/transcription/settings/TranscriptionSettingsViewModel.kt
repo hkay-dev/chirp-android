@@ -36,7 +36,6 @@ class TranscriptionSettingsViewModel @Inject constructor(
         val errorMessage: String? = null,
         val showDeleteConfirmation: Boolean = false
     )
-
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 

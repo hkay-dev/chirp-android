@@ -43,16 +43,6 @@ fun StatsPillRow(
     onProcessingClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "processing_pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.6f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_alpha"
-    )
 
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -102,6 +92,20 @@ fun StatsPillRow(
         // Processing count pill (with pulse animation when > 0)
         item {
             val isProcessing = processingCount > 0
+            val pulseAlpha = if (isProcessing) {
+                val infiniteTransition = rememberInfiniteTransition(label = "processing_pulse")
+                infiniteTransition.animateFloat(
+                    initialValue = 0.6f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 800),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "pulse_alpha"
+                ).value
+            } else {
+                1f
+            }
             SuggestionChip(
                 onClick = onProcessingClick,
                 label = { Text(processingCount.toString()) },

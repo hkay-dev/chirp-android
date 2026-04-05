@@ -12,7 +12,7 @@ import java.util.UUID
  */
 @Entity(
     tableName = "word_replacements",
-    indices = [Index("original")],
+    indices = [Index("original"), Index("enabled", "original")],
 )
 data class WordReplacement(
     @PrimaryKey

@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import androidx.compose.runtime.Stable
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
@@ -28,6 +29,7 @@ class ObsidianSettingsViewModel @Inject constructor(
     /**
      * UI state for the Obsidian settings screen.
      */
+@Stable
     data class UiState(
         /** The stored vault URI as a string, or null if not configured */
         val vaultUri: String? = null,
@@ -40,7 +42,6 @@ class ObsidianSettingsViewModel @Inject constructor(
         /** Whether the initial data has loaded */
         val isLoading: Boolean = true
     )
-
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 

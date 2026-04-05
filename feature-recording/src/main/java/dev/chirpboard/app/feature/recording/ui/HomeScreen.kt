@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -64,13 +65,17 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -101,13 +106,13 @@ fun HomeScreen(
     isRecordEntryChecking: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
-    val displayItems by viewModel.displayItems.collectAsState()
-    val stats by viewModel.stats.collectAsState()
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val listFilter by viewModel.listFilter.collectAsState()
-    val stuckCount by viewModel.stuckCount.collectAsState()
-    val recordingState by viewModel.recordingState.collectAsState()
-    val errorMessage by viewModel.errorMessage.collectAsState()
+    val displayItems by viewModel.displayItems.collectAsStateWithLifecycle()
+    val stats by viewModel.stats.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val listFilter by viewModel.listFilter.collectAsStateWithLifecycle()
+    val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
+    val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     var searchActive by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -127,22 +132,22 @@ fun HomeScreen(
     // Show error messages
     LaunchedEffect(errorMessage) {
         errorMessage?.let { message ->
+            viewModel.clearError()
             snackbarHostState.showSnackbar(
                 message = message,
                 duration = SnackbarDuration.Short,
             )
-            viewModel.clearError()
         }
     }
 
     LaunchedEffect(recordingState) {
         if (recordingState is RecordingState.Error) {
             val error = recordingState as RecordingState.Error
+            viewModel.clearError()
             snackbarHostState.showSnackbar(
                 message = error.message,
                 duration = SnackbarDuration.Short,
             )
-            viewModel.clearError()
         }
     }
 
@@ -272,7 +277,7 @@ fun HomeScreen(
                 ) {
                     // Stats pill row - show when not searching
                     if (searchQuery.isBlank() && stats.totalRecordings > 0) {
-                        item(key = "stats") {
+                        item(key = "stats", contentType = "stats") {
                             StatsPillRow(
                                 recordingCount = stats.totalRecordings,
                                 totalDurationMs = stats.totalDurationMs,
@@ -287,7 +292,7 @@ fun HomeScreen(
                         }
 
                         if (searchQuery.isBlank() && listFilter == ListFilterMode.PROCESSING && stuckCount > 0) {
-                            item(key = "recover_stuck") {
+                            item(key = "recover_stuck", contentType = "recover_stuck") {
                                 Row(
                                     modifier =
                                         Modifier
@@ -311,7 +316,7 @@ fun HomeScreen(
 
                     // Search results count
                     if (searchQuery.isNotBlank()) {
-                        item(key = "search_results") {
+                        item(key = "search_results", contentType = "search_results") {
                             Text(
                                 text = "${displayItems.size} result${if (displayItems.size != 1) "s" else ""}",
                                 style = MaterialTheme.typography.labelMedium,
@@ -328,6 +333,7 @@ fun HomeScreen(
                     items(
                         items = displayItems,
                         key = { it.recording.id },
+                        contentType = { "recording" },
                     ) { item ->
                         Column(modifier = Modifier.animateItem()) {
                             RecordingListItem(
@@ -483,8 +489,11 @@ private fun RecordingListItem(
             Spacer(modifier = Modifier.height(2.dp))
 
             // Metadata line: "3h ago · 4:32"
+            val metadataText = remember(recording.createdAt, recording.durationMs) {
+                "${recording.createdAt.formatRelative()} · ${recording.durationMs.formatAsDuration()}"
+            }
             Text(
-                text = "${recording.createdAt.formatRelative()} · ${recording.durationMs.formatAsDuration()}",
+                text = metadataText,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -753,7 +762,10 @@ fun BreathingExtendedFab(
         },
         modifier =
             Modifier
-                .scale(scale)
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                }
                 .testTag(HomeScreenRecordEntryTestTags.RecordFab),
     )
 }
@@ -794,7 +806,7 @@ fun AnimatedEmptyState(
             modifier =
                 Modifier
                     .size(80.dp)
-                    .offset { IntOffset(0, -offsetY.roundToInt()) },
+                    .graphicsLayer { translationY = -offsetY },
             tint = MaterialTheme.colorScheme.primary,
         )
 
@@ -834,31 +846,6 @@ fun AnimatedEmptyState(
                 Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
             }
         }
-    }
-}
-
-/**
- * Wrapper for staggered fade-in animation.
- */
-@Composable
-private fun StaggeredAnimatedItem(
-    index: Int,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    var visible by remember { mutableStateOf(false) }
-
-    LaunchedEffect(index) {
-        delay(index * 50L) // 50ms stagger per item
-        visible = true
-    }
-
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(300)),
-        modifier = modifier,
-    ) {
-        content()
     }
 }
 

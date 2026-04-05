@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.data.entity.Tag
@@ -35,7 +36,7 @@ import java.util.UUID
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TagPicker(
-    availableTags: List<Tag>,
+    availableTags: ImmutableList<Tag>,
     selectedTagIds: Set<UUID>,
     onTagToggle: (UUID) -> Unit,
     onCreateTag: (String) -> Unit,

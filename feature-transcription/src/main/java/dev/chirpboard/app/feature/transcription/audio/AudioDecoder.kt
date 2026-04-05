@@ -471,10 +471,11 @@ class AudioDecoder @Inject constructor() {
 
     /**
      * Accumulates samples and emits fixed-size chunks.
-     * Uses ArrayDeque for O(1) removeFirst() instead of ArrayList's O(n) removeAt(0).
+     * Uses a primitive FloatArray to avoid autoboxing overhead.
      */
     private class ChunkBuffer(private val chunkSize: Int) {
-        private val buffer = ArrayDeque<Float>(chunkSize * 2)
+        private var buffer = FloatArray(chunkSize * 2)
+        private var bufferSize = 0
 
         /**
          * Add samples to buffer and emit full chunks via callback.
@@ -483,11 +484,24 @@ class AudioDecoder @Inject constructor() {
             samples: FloatArray,
             emit: suspend (FloatArray) -> Unit
         ) {
-            for (sample in samples) {
-                buffer.addLast(sample)
-                if (buffer.size >= chunkSize) {
-                    emit(FloatArray(chunkSize) { buffer.removeFirst() })
+            if (bufferSize + samples.size > buffer.size) {
+                val newBuffer = FloatArray(maxOf(buffer.size * 2, bufferSize + samples.size))
+                System.arraycopy(buffer, 0, newBuffer, 0, bufferSize)
+                buffer = newBuffer
+            }
+            System.arraycopy(samples, 0, buffer, bufferSize, samples.size)
+            bufferSize += samples.size
+
+            while (bufferSize >= chunkSize) {
+                val chunk = FloatArray(chunkSize)
+                System.arraycopy(buffer, 0, chunk, 0, chunkSize)
+                emit(chunk)
+                
+                val remaining = bufferSize - chunkSize
+                if (remaining > 0) {
+                    System.arraycopy(buffer, chunkSize, buffer, 0, remaining)
                 }
+                bufferSize = remaining
             }
         }
 
@@ -495,8 +509,11 @@ class AudioDecoder @Inject constructor() {
          * Emit any remaining samples in the buffer.
          */
         suspend inline fun flush(emit: suspend (FloatArray) -> Unit) {
-            if (buffer.isNotEmpty()) {
-                emit(FloatArray(buffer.size) { buffer.removeFirst() })
+            if (bufferSize > 0) {
+                val chunk = FloatArray(bufferSize)
+                System.arraycopy(buffer, 0, chunk, 0, bufferSize)
+                bufferSize = 0
+                emit(chunk)
             }
         }
     }

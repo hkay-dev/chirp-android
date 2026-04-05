@@ -7,6 +7,8 @@ import android.content.Intent
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import android.content.pm.ServiceInfo
+import androidx.core.app.ServiceCompat
 
 internal object KeyboardForegroundNotification {
 
@@ -41,7 +43,7 @@ internal object KeyboardForegroundNotification {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
 
-        service.startForeground(notificationId, notification)
+        ServiceCompat.startForeground(service, notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
     }
 
     fun createChannel(

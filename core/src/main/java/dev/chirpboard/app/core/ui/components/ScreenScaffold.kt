@@ -22,12 +22,14 @@ import androidx.compose.ui.Modifier
 @Composable
 fun ScreenScaffold(
     title: String,
+    modifier: Modifier = Modifier,
     onNavigateBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
     floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit
 ) {
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = {

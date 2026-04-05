@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter
  */
 object MarkdownFormatter {
 
+    // Obsidian expects standard ISO-8601 formatting for date fields
     private val isoFormatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME
 
     /**
@@ -74,10 +75,17 @@ object MarkdownFormatter {
         val needsQuotes = value.any { it in listOf(':', '#', '[', ']', '{', '}', ',', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`') } ||
             value.startsWith(' ') ||
             value.endsWith(' ') ||
-            value.contains('\n')
+            value.contains('\n') ||
+            value.isEmpty()
 
         return if (needsQuotes) {
-            "\"${value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")}\""
+            // Strictly escape backslashes, quotes, and newlines. 
+            // If using a literal block scalar (e.g. `|`) we wouldn't need quotes, but inline JSON/YAML style is safer here.
+            val escaped = value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+            "\"$escaped\""
         } else {
             value
         }

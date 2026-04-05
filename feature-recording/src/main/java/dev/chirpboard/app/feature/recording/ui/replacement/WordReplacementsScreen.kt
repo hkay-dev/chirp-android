@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui.replacement
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -44,6 +45,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +66,7 @@ fun WordReplacementsScreen(
     viewModel: WordReplacementsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
 ) {
-    val replacements by viewModel.replacements.collectAsState()
+    val replacements by viewModel.replacements.collectAsStateWithLifecycle()
 
     var showEditorDialog by remember { mutableStateOf(false) }
     var editingReplacement by remember { mutableStateOf<WordReplacement?>(null) }

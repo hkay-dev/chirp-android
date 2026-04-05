@@ -42,6 +42,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +65,7 @@ fun TagManagementScreen(
     viewModel: TagsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
 ) {
-    val tags by viewModel.tags.collectAsState()
+    val tags by viewModel.tags.collectAsStateWithLifecycle()
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingTag by remember { mutableStateOf<Tag?>(null) }
@@ -224,7 +225,10 @@ private fun TagItemCard(
     onEdit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tagColor = tag.color?.let { parseColor(it) } ?: MaterialTheme.colorScheme.primary
+    val defaultColor = MaterialTheme.colorScheme.primary
+    val tagColor = remember(tag.color, defaultColor) {
+        tag.color?.let { parseColor(it) } ?: defaultColor
+    }
 
     Card(
         modifier = modifier.fillMaxWidth(),
