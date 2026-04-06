@@ -18,11 +18,11 @@ class ModelDownloaderTest {
 
     private val testModelFiles =
         listOf(
-            dev.chirpboard.app.download.model.ModelFile(
+            dev.chirpboard.app.core.transcription.model.ModelFile(
                 name = "test_model.onnx",
                 expectedSize = 12L,
                 expectedSha256 = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", // "hello world\n"
-            ),
+            )
         )
 
     @Before
@@ -103,6 +103,6 @@ class ModelDownloaderTest {
 
         val error = validateFileIntegrity(file, 12L, "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b")
         assertNotNull(error)
-        assertTrue(error!!.contains("Hash mismatch"))
+        assertTrue(error?.contains("Hash mismatch") == true)
     }
 }

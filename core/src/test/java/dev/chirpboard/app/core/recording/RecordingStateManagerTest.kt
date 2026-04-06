@@ -39,7 +39,7 @@ class RecordingStateManagerTest {
 
     @Test
     fun tryStartRecording_success() {
-        val result = manager.tryStartRecording(RecordingOrigin.APP) {}
+        val result = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         assertTrue(result is RecordingStartResult.Success)
         assertTrue(manager.state.value is RecordingState.Starting)
         assertFalse(manager.canStartRecording())
@@ -47,8 +47,8 @@ class RecordingStateManagerTest {
 
     @Test
     fun tryStartRecording_failsIfAlreadyRecording() {
-        manager.tryStartRecording(RecordingOrigin.APP) {}
-        val result2 = manager.tryStartRecording(RecordingOrigin.KEYBOARD) {}
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        val result2 = manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
         
         assertTrue(result2 is RecordingStartResult.AlreadyRecording)
         assertEquals(RecordingOrigin.APP, (result2 as RecordingStartResult.AlreadyRecording).currentOrigin)
@@ -56,8 +56,8 @@ class RecordingStateManagerTest {
 
     @Test
     fun onRecordingStarted_transitionsToRecording() {
-        manager.tryStartRecording(RecordingOrigin.APP) {}
-        manager.onRecordingStarted("path/to/file") {}
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path/to/file")
         
         val state = manager.state.value
         assertTrue(state is RecordingState.Recording)
@@ -66,8 +66,8 @@ class RecordingStateManagerTest {
 
     @Test
     fun pauseAndResumeRecording_updatesStateAndAccumulatedTime() {
-        manager.tryStartRecording(RecordingOrigin.APP) {}
-        manager.onRecordingStarted("path") {}
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path")
         
         manager.pauseRecording()
         var state = manager.state.value
@@ -80,7 +80,7 @@ class RecordingStateManagerTest {
 
     @Test
     fun onRecordingCompleted_returnsToIdle() {
-        manager.tryStartRecording(RecordingOrigin.APP) {}
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.beginStopRecording()
         manager.onRecordingCompleted(UUID.randomUUID())
         
@@ -90,25 +90,25 @@ class RecordingStateManagerTest {
 
     @Test
     fun onRecordingError_transitionsToErrorAndReleasesLock() {
-        manager.tryStartRecording(RecordingOrigin.APP) {}
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.onRecordingError("Test Error")
         assertTrue(manager.state.value is RecordingState.Error)
         
         // Lock should be released, so we can start again
         manager.clearError()
-        val result = manager.tryStartRecording(RecordingOrigin.APP) {}
+        val result = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         assertTrue(result is RecordingStartResult.Success)
     }
 
     @Test
     fun forceCancel_returnsToIdleAndReleasesLock() {
-        manager.tryStartRecording(RecordingOrigin.APP) {}
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.forceCancel()
         manager.clearError()
         
         assertTrue(manager.state.value is RecordingState.Idle)
         
-        val result = manager.tryStartRecording(RecordingOrigin.APP) {}
+        val result = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         assertTrue(result is RecordingStartResult.Success)
     }
     @Test

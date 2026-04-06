@@ -52,12 +52,12 @@ class ProcessingModeTest {
     @Test
     fun `presets list contains expected modes`() {
         val expectedPresets = listOf(
-            ProcessingMode.Smart,
             ProcessingMode.Proofread,
             ProcessingMode.Formal,
             ProcessingMode.Casual,
             ProcessingMode.Email,
-            ProcessingMode.Code
+            ProcessingMode.Code,
+            ProcessingMode.Smart
         )
         assertEquals(expectedPresets, ProcessingMode.presets)
     }

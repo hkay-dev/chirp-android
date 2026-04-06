@@ -305,7 +305,8 @@ fun ProcessingStudioScreen(
                         onWordClicked = viewModel::onWordClicked
                     )
                     1 -> SummaryTab(
-                        summaryMarkdown = state.summary
+                        summaryMarkdown = state.summary,
+                        status = state.status
                     )
                     2 -> ChatTab(
                         messages = state.chatMessages,

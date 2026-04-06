@@ -5,7 +5,8 @@ import dev.chirpboard.app.download.ModelReadinessGate
 import dev.chirpboard.app.download.ModelReadinessState
 import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import dev.chirpboard.app.download.ModelReadyResult
-import dev.chirpboard.app.download.ModelLocation
+import dev.chirpboard.app.download.ModelReadinessState.Checking
+import dev.chirpboard.app.download.ModelReadySource
 import dev.chirpboard.app.download.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.every
@@ -54,12 +55,14 @@ class HomeRecordEntryViewModelTest {
 
     @Test
     fun `onRecordTapped ignores tap when checking`() = runTest {
-        readinessStateFlow.value = ModelReadinessState.Checking
+        readinessStateFlow.value = Checking()
         viewModel.onRecordTapped()
         
         viewModel.events.test {
             expectNoEvents()
+            cancelAndIgnoreEvents()
         }
+
         coVerify(exactly = 0) { modelReadinessGate.ensureReady(any()) }
     }
 
@@ -72,18 +75,21 @@ class HomeRecordEntryViewModelTest {
         
         viewModel.events.test {
             assertEquals(HomeRecordEntryEvent.NavigateToRecord, awaitItem())
+            cancelAndIgnoreEvents()
         }
     }
 
     @Test
     fun `onRecordTapped emits ShowModelRequired when unavailable`() = runTest {
-        readinessStateFlow.value = ModelReadinessState.Unavailable(ModelReadinessUnavailableReason.MODEL_MISSING)
-        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Unavailable(ModelReadinessUnavailableReason.MODEL_MISSING)
+        readinessStateFlow.value = ModelReadinessState.Unavailable(ModelReadinessUnavailableReason.MODEL_MISSING_OR_CORRUPT)
+        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Unavailable(ModelReadinessUnavailableReason.MODEL_MISSING_OR_CORRUPT)
+
 
         viewModel.onRecordTapped()
 
         viewModel.events.test {
-            assertEquals(HomeRecordEntryEvent.ShowModelRequired(ModelReadinessUnavailableReason.MODEL_MISSING), awaitItem())
+            assertEquals(HomeRecordEntryEvent.ShowModelRequired(ModelReadinessUnavailableReason.MODEL_MISSING_OR_CORRUPT), awaitItem())
+            cancelAndIgnoreEvents()
         }
     }
 
@@ -96,6 +102,7 @@ class HomeRecordEntryViewModelTest {
 
         viewModel.events.test {
             assertEquals(HomeRecordEntryEvent.ShowError("Test error"), awaitItem())
+            cancelAndIgnoreEvents()
         }
     }
 }

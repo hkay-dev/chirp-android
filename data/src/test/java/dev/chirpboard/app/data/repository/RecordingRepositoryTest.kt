@@ -192,6 +192,9 @@ class RecordingRepositoryTest {
         val id = UUID.randomUUID()
         repository.updateRawText(id, "raw")
         coVerify(exactly = 1) { transcriptDao.updateRawText(id, "raw") }
+        coVerify(exactly = 1) { transcriptDao.updateRawText(id, "raw") }
+
+
     }
 
     @Test
@@ -199,6 +202,8 @@ class RecordingRepositoryTest {
         val id = UUID.randomUUID()
         repository.updateProcessedText(id, "processed", "mode")
         coVerify(exactly = 1) { transcriptDao.updateProcessedText(id, "processed", "mode") }
+
+
     }
 
     @Test
