@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.entity
 
+import androidx.annotation.Keep
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -14,6 +15,7 @@ import java.util.UUID
     tableName = "word_replacements",
     indices = [Index("original"), Index("enabled", "original")],
 )
+@Keep
 data class WordReplacement(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),

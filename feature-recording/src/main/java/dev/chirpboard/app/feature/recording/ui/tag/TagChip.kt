@@ -124,5 +124,6 @@ private fun parseColor(hexColor: String): Color =
     try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Color.Gray
     }

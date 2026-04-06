@@ -90,6 +90,7 @@ class ObsidianManager @Inject constructor(
             val vaultDir = DocumentFile.fromTreeUri(context, vaultUri)
             vaultDir?.canRead() == true && vaultDir.canWrite()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             false
         }
     }
@@ -104,6 +105,7 @@ class ObsidianManager @Inject constructor(
         return try {
             DocumentFile.fromTreeUri(context, vaultUri)?.name
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             null
         }
     }
@@ -174,6 +176,7 @@ class ObsidianManager @Inject constructor(
             return tempFile.uri
 
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // Clean up temp file on any failure
             try {
                 tempFile?.delete()

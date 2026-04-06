@@ -25,9 +25,9 @@ private val dateTimeFormat = object : ThreadLocal<SimpleDateFormat>() {
 }
 private val timeFormat = object : ThreadLocal<SimpleDateFormat>() {
     override fun initialValue() = SimpleDateFormat("h:mm a", Locale.getDefault())
-private val datePattern = Regex("""^[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{1,2}:\d{2}\s*[AaPp][Mm]$""")
-
 }
+
+private val datePattern = Regex("""^[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{1,2}:\d{2}\s*[AaPp][Mm]$""")
 
 /**
  * Format duration as "MM:SS" or "HH:MM:SS" for longer durations.

@@ -33,17 +33,22 @@ fun RecordButton(
             recordingState is RecordingState.Starting
 
     // Pulsing animation when recording
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (isRecording) 1.1f else 1f,
-        animationSpec =
-            infiniteRepeatable(
-                animation = tween(600, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-        label = "scale",
-    )
+    val scale = if (isRecording) {
+        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+        val animatedScale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.1f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(600, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+            label = "scale",
+        )
+        animatedScale
+    } else {
+        1f
+    }
 
     val backgroundColor by animateColorAsState(
         targetValue =
@@ -127,7 +132,7 @@ fun CompactRecordButton(
         modifier = modifier,
         containerColor = backgroundColor,
         contentColor = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
-    } {
+    ) {
         Icon(
             imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
             contentDescription = if (isRecording) stringResource(R.string.desc_stop_recording) else stringResource(R.string.desc_start_recording),

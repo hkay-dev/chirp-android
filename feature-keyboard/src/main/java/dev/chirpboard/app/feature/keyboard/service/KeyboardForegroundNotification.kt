@@ -10,6 +10,7 @@ import androidx.core.app.NotificationCompat
 import android.content.pm.ServiceInfo
 import androidx.core.app.ServiceCompat
 
+import dev.chirpboard.app.feature.keyboard.R
 internal object KeyboardForegroundNotification {
 
     fun start(
@@ -35,7 +36,7 @@ internal object KeyboardForegroundNotification {
 
         val notification = NotificationCompat.Builder(service, channelId)
             .setContentTitle("Chirp")
-            .setContentText(context.getString(R.string.keyboard_voice_model_loaded))
+            .setContentText(service.getString(R.string.keyboard_voice_model_loaded))
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pendingIntent)
             .setOngoing(true)

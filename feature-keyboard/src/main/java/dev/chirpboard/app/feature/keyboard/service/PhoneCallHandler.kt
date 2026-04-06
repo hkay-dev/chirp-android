@@ -66,6 +66,7 @@ class PhoneCallHandler(
             // READ_PHONE_STATE permission not granted
             Log.w(TAG, "Cannot register call handler: permission denied", e)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to register call handler", e)
         }
     }
@@ -86,6 +87,7 @@ class PhoneCallHandler(
             isRegistered = false
             Log.d(TAG, "Unregistered call handler")
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to unregister call handler", e)
         }
     }

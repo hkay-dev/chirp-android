@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.withContext
 import androidx.core.app.NotificationCompat
 import android.content.pm.ServiceInfo
 import androidx.core.app.ServiceCompat
@@ -224,6 +225,7 @@ class RecordingService : Service() {
             // Start amplitude collection for waveform visualization
             startAmplitudeCollection()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.RECORDING_START,
                 outcome = ReliabilityOutcome.FAILURE,
@@ -239,6 +241,7 @@ class RecordingService : Service() {
             currentRecordingFile = null
             stopSelf()
     }
+    }
 
     private fun pauseRecording() {
         try {
@@ -252,6 +255,7 @@ class RecordingService : Service() {
             recordingStateManager.updateAmplitude(0f)
             updateNotification()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             recordingStateManager.onRecordingError("Failed to pause recording: ${e.message}", e)
         }
     }
@@ -265,6 +269,7 @@ class RecordingService : Service() {
             startAmplitudeCollection()
             updateNotification()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             recordingStateManager.onRecordingError("Failed to resume recording: ${e.message}", e)
         }
     }
@@ -287,6 +292,7 @@ class RecordingService : Service() {
                 release()
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // MediaRecorder may throw if in an inconsistent state; just release
             try {
                 mediaRecorder?.release()
@@ -327,6 +333,7 @@ class RecordingService : Service() {
                 release()
             }
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             try {
                 mediaRecorder?.release()
             } catch (_: Exception) {
@@ -373,19 +380,23 @@ class RecordingService : Service() {
         try {
             releaseRecorderForStop(snapshot?.wasPaused == true)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to release recorder", e)
         }
         mediaRecorder = null
 
-        CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
+        serviceScope.launch {
             val result =
                 try {
                     if (snapshot == null) {
                         StopPersistenceResult.NoAudioFile
                     } else {
-                        stopOrchestrator.persistAndQueueRecording(snapshot)
+                        withContext(Dispatchers.IO) {
+                            stopOrchestrator.persistAndQueueRecording(snapshot)
+                        }
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
                 } finally {
                     timeoutJob?.cancel()
@@ -441,9 +452,9 @@ class RecordingService : Service() {
                     recordingStateManager.onRecordingCompleted()
                 }
             }
-        }
 
-        finishStopLifecycle()
+            finishStopLifecycle()
+        }
     }
 
     private fun captureStopSnapshot(): StopSnapshot? {
@@ -518,6 +529,7 @@ class RecordingService : Service() {
                         val normalized = (maxAmplitude / 32767f).coerceIn(0f, 1f)
                         recordingStateManager.updateAmplitude(normalized)
                     } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         // MediaRecorder may throw if not in a valid state
                         recordingStateManager.updateAmplitude(0f)
                     }

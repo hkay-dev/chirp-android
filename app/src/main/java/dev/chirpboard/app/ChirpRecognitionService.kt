@@ -41,6 +41,7 @@ class ChirpRecognitionService : RecognitionService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var recordingJob: Job? = null
+    private var amplitudesJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -111,20 +112,23 @@ class ChirpRecognitionService : RecognitionService() {
                         try {
                             recorder.collectSamples()
                         } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
                             Log.e(TAG, "Error collecting samples", e)
                         }
                     }
 
                 // Monitor amplitudes for RMS reporting
-                scope.launch {
-                    recorder.amplitudes.collect { amps ->
-                        if (amps.isNotEmpty()) {
-                            val rms = amps.average() * 100 // Scale 0-100
-                            listener.rmsChanged(rms.toFloat())
+                amplitudesJob =
+                    scope.launch {
+                        recorder.amplitudes.collect { amps ->
+                            if (amps.isNotEmpty()) {
+                                val rms = amps.average() * 100 // Scale 0-100
+                                listener.rmsChanged(rms.toFloat())
+                            }
                         }
                     }
-                }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error in onStartListening", e)
                 listener.error(ERROR_AUDIO)
             }
@@ -136,6 +140,7 @@ class ChirpRecognitionService : RecognitionService() {
 
         scope.launch {
             try {
+                amplitudesJob?.cancel()
                 recordingJob?.cancel()
                 val samples = recorder.stop()
                 listener.endOfSpeech()
@@ -195,6 +200,7 @@ class ChirpRecognitionService : RecognitionService() {
                     }
                 listener.results(results)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error in onStopListening", e)
                 listener.error(ERROR_AUDIO)
             }
@@ -203,6 +209,7 @@ class ChirpRecognitionService : RecognitionService() {
 
     override fun onCancel(listener: Callback) {
         Log.d(TAG, "onCancel")
+        amplitudesJob?.cancel()
         recordingJob?.cancel()
         recorder.stop()
         // Don't call listener - cancelled means no results
@@ -210,6 +217,7 @@ class ChirpRecognitionService : RecognitionService() {
 
     override fun onDestroy() {
         Log.d(TAG, "Service destroyed")
+        amplitudesJob?.cancel()
         recordingJob?.cancel()
         scope.cancel()
         super.onDestroy()

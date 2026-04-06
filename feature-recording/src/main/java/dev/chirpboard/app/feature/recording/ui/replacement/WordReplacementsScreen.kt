@@ -134,6 +134,7 @@ fun WordReplacementsScreen(
                     items(
                         items = replacements,
                         key = { it.id },
+                        contentType = { "replacement" },
                     ) { replacement ->
                         SwipeableReplacementItem(
                             replacement = replacement,

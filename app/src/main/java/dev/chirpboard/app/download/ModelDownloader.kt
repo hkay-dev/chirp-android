@@ -295,9 +295,11 @@ class ModelDownloader(
 
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed for ${file.name}", e)
-                if (tempFile.exists()) tempFile.delete()
                 emit(DownloadState.Error("Download failed: ${e.message}"))
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 return@flow
+            } finally {
+                if (tempFile.exists()) tempFile.delete()
             }
         }
 

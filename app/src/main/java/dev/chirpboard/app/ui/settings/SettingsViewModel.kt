@@ -16,7 +16,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
+    private val application: android.app.Application,
     private val obsidianPreferences: ObsidianPreferences
 ) : ViewModel() {
 
@@ -37,8 +37,8 @@ class SettingsViewModel @Inject constructor(
 
     private fun loadAppInfo() {
         try {
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            val appInfo = context.applicationInfo
+            val packageInfo = application.packageManager.getPackageInfo(application.packageName, 0)
+            val appInfo = application.applicationInfo
             val isDebug = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
             _uiState.update { state ->
                 state.copy(

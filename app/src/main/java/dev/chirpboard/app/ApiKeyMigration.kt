@@ -53,6 +53,7 @@ class ApiKeyMigration @Inject constructor(
             MigrationResult.SUCCESS
             
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Migration failed", e)
             MigrationResult.FAILED
         }

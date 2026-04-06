@@ -16,6 +16,7 @@ internal suspend fun persistRecognitionHistoryAtomically(
         persistAtomic(payload.recording, payload.transcript)
         Result.success(payload.recording.id)
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Result.failure(e)
     }
 }

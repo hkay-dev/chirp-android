@@ -14,6 +14,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.feature.recording.R
+import androidx.compose.ui.res.stringResource
 
 @Composable
 internal fun RecordingCardMenu(

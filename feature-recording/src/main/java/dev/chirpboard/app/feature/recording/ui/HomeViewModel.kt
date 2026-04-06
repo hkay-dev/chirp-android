@@ -85,7 +85,7 @@ class HomeViewModel
         private val transcriptionQueueManager: TranscriptionQueueManager,
         private val llmClient: LlmClient,
         private val savedStateHandle: SavedStateHandle,
-        @ApplicationContext private val context: Context,
+
     ) : ViewModel() {
         /** Search query */
         private val _searchQuery = savedStateHandle.getStateFlow("searchQuery", "")
@@ -146,7 +146,7 @@ class HomeViewModel
                 allDisplayItems,
                 _listFilter,
             ) { items, filter ->
-                if (filter == ListFilterMode.ALL) {
+                if (filter == ListFilterMode.ALL.name) {
                     items
                 } else {
                     items.filter { isProcessingOrStuckStatus(it.recording.status) }
@@ -200,7 +200,6 @@ class HomeViewModel
 
         fun onProcessingClick() {
             val newListFilter =
-            _listFilter.value =
                 if (_listFilter.value == ListFilterMode.PROCESSING.name) {
                     ListFilterMode.ALL.name
                 } else {
@@ -249,11 +248,13 @@ class HomeViewModel
                                 Log.w(TAG, "Failed to delete audio file: ${recording.audioPath}")
                             }
                         } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
                             // File deletion is non-fatal - log and continue
                             Log.w(TAG, "Error deleting audio file: ${recording.audioPath}", e)
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to delete recording: ${recording.id}", e)
                     _errorMessage.value = "Failed to delete recording"
                 }
@@ -275,7 +276,7 @@ class HomeViewModel
         /**
          * Share a recording (audio + transcript if available).
          */
-        fun shareRecording(recording: Recording) {
+        fun shareRecording(recording: Recording, context: Context) {
             viewModelScope.launch {
                 val file = File(recording.audioPath)
 
@@ -329,6 +330,7 @@ class HomeViewModel
                         },
                     )
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     _errorMessage.value = "Failed to share: ${e.message}"
                 }
             }

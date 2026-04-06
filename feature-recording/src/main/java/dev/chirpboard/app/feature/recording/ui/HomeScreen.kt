@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -111,6 +112,7 @@ fun HomeScreen(
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val listFilter by viewModel.listFilter.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
@@ -209,7 +211,7 @@ fun HomeScreen(
                                 onSearch = { searchActive = false },
                                 expanded = searchActive,
                                 onExpandedChange = { searchActive = it },
-                                placeholder = { Text(stringResource(dev.chirpboard.app.R.string.search_recordings)) },
+                                placeholder = { Text(stringResource(R.string.search_recordings)) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Search,
@@ -359,7 +361,7 @@ fun HomeScreen(
                 RecordingActionsSheet(
                     item = selectedItem!!,
                     onShare = {
-                        viewModel.shareRecording(selectedItem!!.recording)
+                        viewModel.shareRecording(selectedItem!!.recording, context)
                         scope.launch {
                             sheetState.hide()
                             selectedItem = null
@@ -721,18 +723,22 @@ fun BreathingExtendedFab(
     isChecking: Boolean,
     onClick: () -> Unit,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "breathing")
-    val animatedScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.03f,
-        animationSpec =
-            infiniteRepeatable(
-                animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-        label = "fab_scale",
-    )
-    val scale = if (isChecking) 1f else animatedScale
+    val scale = if (!isChecking) {
+        val infiniteTransition = rememberInfiniteTransition(label = "breathing")
+        val animatedScale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.03f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+            label = "fab_scale",
+        )
+        animatedScale
+    } else {
+        1f
+    }
 
     ExtendedFloatingActionButton(
         onClick = {

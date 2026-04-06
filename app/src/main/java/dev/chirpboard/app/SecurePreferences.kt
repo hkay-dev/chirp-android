@@ -32,6 +32,7 @@ class SecurePreferences @Inject constructor(
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
             null
         }

@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.entity
 
+import androidx.annotation.Keep
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -23,6 +24,7 @@ import java.util.UUID
     ],
     indices = [Index("recordingId", unique = true)],
 )
+@Keep
 data class Transcript(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),

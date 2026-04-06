@@ -43,22 +43,6 @@
     <string name="desc_select_mode">Select mode</string>
     <string name="desc_selected">Selected</string>
 
-    <!-- Debug / Settings -->
-    <string name="dev_menu_title">Developer Menu</string>
-    <string name="dev_gemini_key">Gemini API Key</string>
-    <string name="dev_gemini_placeholder">AIza...</string>
-    <string name="dev_save_key">Save Key</string>
-    <string name="dev_clear">Clear</string>
-    <string name="dev_add_5">Add 5</string>
-    <string name="dev_add_20">Add 20</string>
-    <string name="dev_clear_timeline">Clear Timeline</string>
-    <string name="dev_delete_all">Delete All Recordings</string>
-    <string name="about_title">About</string>
-    <string name="cancel">Cancel</string>
-    <string name="desc_back">Back</string>
-    <string name="desc_cancel">Cancel</string>
-    <string name="desc_select_mode">Select mode</string>
-    <string name="desc_selected">Selected</string>
 
     <string name="desc_start">Start</string>
     <string name="desc_stop">Stop</string>

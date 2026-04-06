@@ -30,6 +30,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import dev.chirpboard.app.R
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -53,7 +54,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.mergeDescendants
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -97,7 +97,7 @@ fun KeyboardSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(CardDefaults.shape)
-                    .semantics { mergeDescendants = true }
+                    .semantics(mergeDescendants = true) {}
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = ripple(),
@@ -136,7 +136,7 @@ fun KeyboardSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(CardDefaults.shape)
-                    .semantics { mergeDescendants = true }
+                    .semantics(mergeDescendants = true) {}
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = ripple(),
@@ -282,7 +282,7 @@ private fun ProcessingModeCard(
                 OutlinedCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .semantics { mergeDescendants = true }
+                        .semantics(mergeDescendants = true) {}
                         .clickable(enabled = enabled) { isDropdownExpanded = true }
                 ) {
                     Row(

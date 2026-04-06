@@ -32,6 +32,7 @@ private fun MediaFormat.getIntegerOrDefault(key: String, default: Int): Int {
     return try {
         if (containsKey(key)) getInteger(key) else default
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
         default
     }
@@ -44,6 +45,7 @@ private fun MediaFormat.getLongOrDefault(key: String, default: Long): Long {
     return try {
         if (containsKey(key)) getLong(key) else default
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
         default
     }
@@ -56,6 +58,7 @@ private fun MediaFormat.getStringOrNull(key: String): String? {
     return try {
         if (containsKey(key)) getString(key) else null
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key", e)
         null
     }
@@ -280,6 +283,7 @@ class AudioDecoder @Inject constructor() {
         } catch (e: AudioDecoderException) {
             throw e
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to decode audio: ${e.message}", e)
             throw AudioDecoderException("Failed to decode audio: ${e.message}", e)
         } finally {
@@ -287,11 +291,13 @@ class AudioDecoder @Inject constructor() {
                 codec?.stop()
                 codec?.release()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "Error releasing codec", e)
             }
             try {
                 extractor?.release()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "Error releasing extractor", e)
             }
         }
@@ -313,6 +319,7 @@ class AudioDecoder @Inject constructor() {
             }
             Log.d(TAG, "Flow completed: emitted $totalSamples samples")
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Flow error during decode", e)
             throw e
         } finally {
@@ -351,12 +358,14 @@ class AudioDecoder @Inject constructor() {
             if (durationUs < 0) -1 else durationUs / 1000 // Convert to milliseconds
 
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to get duration: ${e.message}", e)
             -1
         } finally {
             try {
                 extractor?.release()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w(TAG, "Error releasing extractor", e)
             }
         }

@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import dev.chirpboard.app.feature.obsidian.R
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.mergeDescendants
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -238,7 +237,7 @@ private fun AutoExportCard(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .semantics { mergeDescendants = true }
+                .semantics(mergeDescendants = true) {}
                 .clickable(enabled = hasAccess) { onToggle() },
     ) {
         Row(

@@ -50,6 +50,7 @@
     <string name="desc_more_options">More options</string>
     <string name="desc_close">Close</string>
     <string name="desc_search">Search</string>
+    <string name="search_recordings">Search recordings</string>
     <string name="desc_settings">Settings</string>
     <string name="desc_clear_search">Clear search</string>
     <string name="desc_skip_backward">Skip backward 10 seconds</string>
@@ -57,6 +58,16 @@
     <string name="desc_done">Done - save and transcribe</string>
     <string name="desc_cancel_recording">Cancel recording</string>
     <string name="desc_restart_recording">Restart recording</string>
+    <string name="discard_recording_title">Discard Recording?</string>
+    <string name="discard_recording_text">This recording will be permanently deleted.</string>
+    <string name="discard">Discard</string>
+    <string name="keep_recording">Keep Recording</string>
+    <string name="start_over_title">Start Over?</string>
+    <string name="start_over_text">Current recording will be discarded.</string>
+    <string name="start_over">Start Over</string>
+    <string name="recording_in_progress_title">Recording in Progress</string>
+    <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
+    <string name="save">Save</string>
     <string name="desc_add_profile">Add Profile</string>
 
     <string name="rec_profile_name_placeholder">e.g., Meeting Notes</string>

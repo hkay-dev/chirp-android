@@ -87,9 +87,7 @@ internal fun RecordingDetailTranscriptSection(
                                         Box {
                                             IconButton(
                                                 onClick = { showShareMenu = true },
-                                            ) {
-                                                onClick = { showShareMenu = true },
-                                                modifier = Modifier.size(36.dp),
+                                                // Removed modifier = Modifier.size(36.dp) since we want minimum touch target of 48.dp
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Share,
@@ -159,9 +157,7 @@ internal fun RecordingDetailTranscriptSection(
                                     }
                                 }
                             }
-                        } else {
-                            null
-                        },
+                        } else null,
                 ) {
                     val text = transcript?.processedText ?: transcript?.rawText ?: ""
                     Text(

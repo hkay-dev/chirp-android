@@ -121,6 +121,7 @@ class AudioEncoder {
             return true
             
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Encoding failed", e)
             // Clean up partial file
             try { File(outputPath).delete() } catch (_: Exception) {}

@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.mergeDescendants
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileItemState
 
@@ -45,7 +44,7 @@ fun ProfileCard(
         modifier =
             modifier
                 .fillMaxWidth()
-                .semantics { mergeDescendants = true }
+                .semantics(mergeDescendants = true) {}
                 .clickable(onClick = onClick),
         colors =
             CardDefaults.cardColors(
