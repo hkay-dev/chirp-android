@@ -22,6 +22,10 @@ data class ProcessingStudioState(
     val isPlaying: Boolean = false,
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
-    val isTyping: Boolean = false
-
+    val isTyping: Boolean = false,
+    val title: String = "",
+    val createdAt: Long = 0L,
+    val isEditingTitle: Boolean = false,
+    val editedTitle: String = "",
+    val audioPath: String = ""
 )

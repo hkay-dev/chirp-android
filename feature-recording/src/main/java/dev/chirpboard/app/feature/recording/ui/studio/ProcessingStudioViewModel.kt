@@ -8,6 +8,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 import kotlinx.collections.immutable.toImmutableList
+import android.content.Intent
+import androidx.core.content.FileProvider
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.util.Log
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -32,6 +38,15 @@ class ProcessingStudioViewModel @Inject constructor(
     private val repository: RecordingRepository,
     private val llmClient: LlmClient
 ) : ViewModel() {
+    private var currentRecordingId: UUID? = null
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun clearMessage() {
+        _message.value = null
+    }
+
     private val _uiState = MutableStateFlow(ProcessingStudioState())
     val uiState: StateFlow<ProcessingStudioState> = _uiState.asStateFlow()
 
@@ -52,6 +67,8 @@ class ProcessingStudioViewModel @Inject constructor(
 
     private fun loadRecording(id: UUID) {
         viewModelScope.launch {
+        currentRecordingId = id
+
             _uiState.value = _uiState.value.copy(isLoading = true)
             val recording = repository.getRecording(id)
             val transcript = repository.getTranscript(id)
@@ -75,7 +92,10 @@ class ProcessingStudioViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     transcriptWords = words.toImmutableList(),
-                    summary = transcript?.summary ?: ""
+                    summary = transcript?.summary ?: "",
+                    title = recording.title,
+                    createdAt = recording.createdAt.time,
+                    audioPath = recording.audioPath
                 )
 
                 initPlayer(recording.audioPath)
@@ -169,6 +189,158 @@ class ProcessingStudioViewModel @Inject constructor(
                 chatMessages = (_uiState.value.chatMessages + aiMsg).toImmutableList(),
                 isTyping = false
             )
+        }
+    }
+
+    fun startEditingTitle() {
+        _uiState.value = _uiState.value.copy(
+            isEditingTitle = true,
+            editedTitle = _uiState.value.title
+        )
+    }
+
+    fun updateEditedTitle(newTitle: String) {
+        _uiState.value = _uiState.value.copy(editedTitle = newTitle)
+    }
+
+    fun cancelEditingTitle() {
+        _uiState.value = _uiState.value.copy(isEditingTitle = false)
+    }
+
+    fun saveTitle() {
+        viewModelScope.launch {
+            val id = currentRecordingId ?: return@launch
+            val trimmedTitle = _uiState.value.editedTitle.trim()
+            if (trimmedTitle.isNotEmpty()) {
+                repository.updateTitle(id, trimmedTitle)
+                _uiState.value = _uiState.value.copy(title = trimmedTitle)
+            }
+            _uiState.value = _uiState.value.copy(isEditingTitle = false)
+        }
+    }
+
+    fun deleteRecording(onDeleted: () -> Unit) {
+        viewModelScope.launch {
+            val id = currentRecordingId ?: return@launch
+            val rec = repository.getRecording(id) ?: return@launch
+            player?.release()
+            player = null
+            try {
+                repository.delete(rec)
+                withContext(Dispatchers.IO) {
+                    try {
+                        val file = File(rec.audioPath)
+                        if (file.exists() && !file.delete()) {
+                            Log.w("ProcessingStudioVM", "Failed to delete audio file: ${rec.audioPath}")
+                        }
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.w("ProcessingStudioVM", "Error deleting audio file: ${rec.audioPath}", e)
+                    }
+                }
+                onDeleted()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e("ProcessingStudioVM", "Failed to delete recording: $id", e)
+                _message.value = "Failed to delete recording"
+            }
+        }
+    }
+
+    fun shareAudio(context: Context) {
+        viewModelScope.launch {
+            val path = _uiState.value.audioPath
+            if (path.isEmpty()) return@launch
+            val file = File(path)
+            val exists = withContext(Dispatchers.IO) { file.exists() }
+            if (!exists) {
+                _message.value = "Audio file not found"
+                return@launch
+            }
+            try {
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "audio/m4a"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, _uiState.value.title)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(Intent.createChooser(intent, "Share audio").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _message.value = "Failed to share: ${e.message}"
+            }
+        }
+    }
+
+    fun shareTranscript(context: Context) {
+        val text = buildString {
+            appendLine("# ${_uiState.value.title}")
+            appendLine()
+            if (_uiState.value.summary.isNotEmpty()) {
+                appendLine("## Summary")
+                appendLine(_uiState.value.summary)
+                appendLine()
+            }
+            appendLine("## Transcript")
+            appendLine(rawTranscript)
+        }
+        try {
+            val intent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, _uiState.value.title)
+                putExtra(Intent.EXTRA_TEXT, text)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(Intent.createChooser(intent, "Share transcript").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            _message.value = "Failed to share: ${e.message}"
+        }
+    }
+
+    fun shareBoth(context: Context) {
+        viewModelScope.launch {
+            val path = _uiState.value.audioPath
+            if (path.isEmpty()) return@launch
+            val file = File(path)
+            val exists = withContext(Dispatchers.IO) { file.exists() }
+            if (!exists) {
+                _message.value = "Audio file not found"
+                return@launch
+            }
+            try {
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                val text = buildString {
+                    appendLine("# ${_uiState.value.title}")
+                    appendLine()
+                    if (_uiState.value.summary.isNotEmpty()) {
+                        appendLine("## Summary")
+                        appendLine(_uiState.value.summary)
+                        appendLine()
+                    }
+                    appendLine("## Transcript")
+                    appendLine(rawTranscript)
+                }
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "audio/m4a"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, _uiState.value.title)
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(Intent.createChooser(intent, "Share recording").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _message.value = "Failed to share: ${e.message}"
+            }
         }
     }
 

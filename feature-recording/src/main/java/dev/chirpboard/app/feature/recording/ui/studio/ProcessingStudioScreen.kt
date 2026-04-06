@@ -12,6 +12,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import dev.chirpboard.app.core.util.formatForHeader
+import dev.chirpboard.app.core.util.formatAsDuration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -22,6 +24,31 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.unit.dp
+
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,14 +76,56 @@ fun ProcessingStudioScreen(
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
+    val context = LocalContext.current
+    var showOptionsMenu by remember { mutableStateOf(false) }
+    var showShareMenu by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Processing Studio") },
+                    title = { Text("Details") },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { showShareMenu = true }) {
+                                Icon(Icons.Default.Share, contentDescription = "Share")
+                            }
+                            DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Share Audio") },
+                                    onClick = { showShareMenu = false; viewModel.shareAudio(context) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share Transcript") },
+                                    onClick = { showShareMenu = false; viewModel.shareTranscript(context) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share Both") },
+                                    onClick = { showShareMenu = false; viewModel.shareBoth(context) }
+                                )
+                            }
+                        }
+                        Box {
+                            IconButton(onClick = { showOptionsMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                            }
+                            DropdownMenu(expanded = showOptionsMenu, onDismissRequest = { showOptionsMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit Title") },
+                                    onClick = { showOptionsMenu = false; viewModel.startEditingTitle() },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = { showOptionsMenu = false; viewModel.deleteRecording { onNavigateBack() } },
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                )
+                            }
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
@@ -81,7 +150,57 @@ fun ProcessingStudioScreen(
             }
         }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // Metadata Bar
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                if (state.isEditingTitle) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextField(
+                            value = state.editedTitle,
+                            onValueChange = viewModel::updateEditedTitle,
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            )
+                        )
+                        IconButton(onClick = viewModel::cancelEditingTitle) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel")
+                        }
+                        IconButton(onClick = viewModel::saveTitle) {
+                            Icon(Icons.Default.Check, contentDescription = "Save")
+                        }
+                    }
+                } else {
+                    Text(
+                        text = state.title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val dateStr = remember(state.createdAt) {
+                        java.util.Date(state.createdAt).formatForHeader()
+                    }
+                    val durationStr = remember(state.durationMs) {
+                        state.durationMs.formatAsDuration()
+                    }
+                    Text(
+                        text = dateStr,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = durationStr,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize()
