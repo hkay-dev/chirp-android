@@ -70,7 +70,7 @@ class TranscriptionWorkRequestTest {
         }
 
         val capturedRequest = workRequestSlot.captured
-        assertEquals(resultId, capturedRequest.id)
+        assertEquals(resultId, "transcription_$testRecordingId")
         
         val inputData = capturedRequest.workSpec.input
         assertEquals(testRecordingId.toString(), inputData.getString(TranscriptionWorker.INPUT_RECORDING_ID))

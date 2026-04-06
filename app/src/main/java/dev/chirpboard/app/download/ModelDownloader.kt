@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit
 class ModelDownloader(
     private val context: Context,
     private val modelFiles: List<ModelFile> = MODEL_FILES,
-    private val modelDirProvider: (Context) -> File = { getModelDir(it) },
+    private val modelDirProvider: (Context) -> File = { ensureModelDir(it) },
     private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") }
 ) {
     companion object {
@@ -71,7 +71,7 @@ class ModelDownloader(
          * on Android 11+, but is not touched by pm clear.
          * Falls back to internal storage if the persistent path is not writable.
          */
-        fun getModelDir(context: Context): File {
+        fun ensureModelDir(context: Context): File {
             val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
                 android.os.Environment.DIRECTORY_DOCUMENTS
             )

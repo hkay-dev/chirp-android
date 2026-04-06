@@ -110,7 +110,7 @@ class TranscriptionSettingsViewModel @Inject constructor(
     }
 
     private suspend fun downloadModelFiles() {
-        val modelDir = modelManager.getModelDir()
+        val modelDir = modelManager.ensureModelDir()
         modelDir.mkdirs()
         
         val files = listOf(
@@ -148,12 +148,14 @@ class TranscriptionSettingsViewModel @Inject constructor(
                 
                 val tempFile = File(modelDir, file.name + ".download")
                 try {
-                    FileOutputStream(tempFile).use { output ->
-                        body.byteStream().use { input ->
+                    val output = FileOutputStream(tempFile)
+                    output.use { o ->
+                        val input = body.byteStream()
+                        input.use { i ->
                             val buffer = ByteArray(8192)
                             var read: Int
-                            while (input.read(buffer).also { read = it } != -1) {
-                                output.write(buffer, 0, read)
+                            while (i.read(buffer).also { read = it } != -1) {
+                                o.write(buffer, 0, read)
                                 downloaded += read
                                 updateProgress(file.name, totalDownloaded + downloaded, totalSize)
                             }

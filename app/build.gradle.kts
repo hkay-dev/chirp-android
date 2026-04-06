@@ -108,6 +108,4 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("io.mockk:mockk-android:1.13.10")
 
-    // Encrypted SharedPreferences for secure API key storage
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }

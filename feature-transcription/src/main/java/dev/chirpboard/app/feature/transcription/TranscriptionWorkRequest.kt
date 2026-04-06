@@ -20,9 +20,6 @@ object TranscriptionWorkRequest {
 
     /**
      * Gets the unique work name for a recording's transcription.
-     *
-     * @param recordingId UUID of the recording
-     * @return Unique work name
      */
     fun workName(recordingId: UUID): String = "$WORK_NAME_PREFIX${recordingId}"
 
@@ -40,7 +37,7 @@ object TranscriptionWorkRequest {
         context: Context,
         recordingId: UUID,
         correlationId: String? = null
-    ): UUID {
+    ): String {
         val inputDataBuilder = Data.Builder()
             .putString(TranscriptionWorker.INPUT_RECORDING_ID, recordingId.toString())
 
@@ -68,14 +65,11 @@ object TranscriptionWorkRequest {
                 workRequest
             )
 
-        return workRequest.id
+        return workName(recordingId)
     }
 
     /**
      * Cancels any pending transcription work for the given recording.
-     *
-     * @param context Application context
-     * @param recordingId UUID of the recording
      */
     fun cancel(context: Context, recordingId: UUID) {
         WorkManager.getInstance(context).cancelUniqueWork(workName(recordingId))
@@ -83,8 +77,6 @@ object TranscriptionWorkRequest {
 
     /**
      * Cancels all pending transcription work.
-     *
-     * @param context Application context
      */
     fun cancelAll(context: Context) {
         WorkManager.getInstance(context).cancelAllWorkByTag(WORK_TAG_TRANSCRIPTION)

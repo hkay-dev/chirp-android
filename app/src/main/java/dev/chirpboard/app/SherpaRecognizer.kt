@@ -36,7 +36,7 @@ class SherpaRecognizer(
                 if (recognizer != null) return@withContext true
 
                 // Check persistent storage first, then fallback to legacy internal storage
-                val persistentPath = ModelDownloader.getModelDir(context)
+                val persistentPath = ModelDownloader.ensureModelDir(context)
                 val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
 
                 val modelPath =

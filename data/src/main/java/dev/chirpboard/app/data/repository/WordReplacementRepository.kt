@@ -18,16 +18,12 @@ class WordReplacementRepository
     constructor(
         private val wordReplacementDao: WordReplacementDao,
     ) {
-        /** Get all word replacements */
         fun getAllReplacements(): Flow<List<WordReplacement>> = wordReplacementDao.getAllReplacements()
 
-        /** Get only enabled replacements (for transcription processing) */
         suspend fun getEnabledReplacements(): List<WordReplacement> = wordReplacementDao.getEnabledReplacements()
 
-        /** Get a single replacement by ID */
         suspend fun getReplacement(id: UUID): WordReplacement? = wordReplacementDao.getReplacement(id)
 
-        /** Create a new word replacement */
         suspend fun createReplacement(
             original: String,
             replacement: String,
@@ -45,28 +41,21 @@ class WordReplacementRepository
             return wordReplacement
         }
 
-        /** Insert an existing word replacement */
         suspend fun insert(replacement: WordReplacement) = wordReplacementDao.insert(replacement)
 
-        /** Update a word replacement */
         suspend fun update(replacement: WordReplacement) = wordReplacementDao.update(replacement)
 
-        /** Toggle enabled state */
         suspend fun setEnabled(
             id: UUID,
             enabled: Boolean,
         ) = wordReplacementDao.setEnabled(id, enabled)
 
-        /** Delete a word replacement */
         suspend fun delete(replacement: WordReplacement) = wordReplacementDao.delete(replacement)
 
-        /** Delete a word replacement by ID */
         suspend fun deleteById(id: UUID) = wordReplacementDao.deleteById(id)
 
-        /** Get count of all replacements */
         suspend fun getCount(): Int = wordReplacementDao.getCount()
 
-        /** Get count of enabled replacements */
         suspend fun getEnabledCount(): Int = wordReplacementDao.getEnabledCount()
 
         /**

@@ -44,7 +44,7 @@ class TranscriptionQueueOrchestrationTest {
         every { WorkManager.getInstance(any()) } returns workManager
 
         mockkStatic(TranscriptionWorkRequest::class)
-        every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } just runs
+        every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } returns "test-work-id"
         every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(1)}" }
 
         mockkStatic(ReliabilityEventLogger::class)

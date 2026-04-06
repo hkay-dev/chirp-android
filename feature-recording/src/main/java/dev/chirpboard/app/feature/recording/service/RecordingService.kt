@@ -147,6 +147,12 @@ class RecordingService : Service() {
         origin: RecordingOrigin,
         profileId: UUID?,
     ) {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            recordingStateManager.onRecordingError("Permission denied: Microphone access is required.", SecurityException("RECORD_AUDIO permission missing"))
+            stopSelf()
+            return
+        }
+
         // Try to acquire recording lock
         when (val result = recordingStateManager.tryStartRecording(origin, profileId)) {
             is RecordingStartResult.AlreadyRecording -> {
@@ -181,11 +187,6 @@ class RecordingService : Service() {
             val outputDir = File(filesDir, "recordings").apply { mkdirs() }
             currentRecordingFile = File(outputDir, "recording_$timestamp.m4a")
 
-            if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                recordingStateManager.onRecordingError("Permission denied: Microphone access is required.", SecurityException("RECORD_AUDIO permission missing"))
-                stopSelf()
-                return
-            }
             // Initialize MediaRecorder
             val recorder =
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

@@ -395,6 +395,12 @@ class ChirpKeyboardService :
     private fun startRecording() {
         Log.d(TAG, "Starting recording")
 
+        // Check mic permission
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            _state.value = KeyboardState.Error("Microphone permission required")
+            return
+        }
+
         // Request audio focus first
         when (audioFocusManager.requestFocus()) {
             is AudioFocusManager.FocusResult.Denied -> {
