@@ -1,34 +1,35 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +40,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -50,35 +53,11 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.components.AudioWaveform
-import dev.chirpboard.app.feature.recording.ui.components.MainActionButton
-import dev.chirpboard.app.feature.recording.ui.components.RecordingGlowBackground
-import dev.chirpboard.app.feature.recording.ui.components.RecordingUiState
-import dev.chirpboard.app.feature.recording.ui.components.SecondaryButtonsRow
 import dev.chirpboard.app.feature.recording.ui.components.formatTimeMs
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 
-/**
- * Full-screen recording interface with real-time audio visualization.
- *
- * Features:
- * - Real-time waveform visualization
- * - Large timer display
- * - Background glow effects based on state
- * - Main action button (Stop when recording)
- * - Secondary controls (Done, Cancel, Restart)
- *
- * Button behaviors:
- * - Main button (during recording): STOP recording and save
- * - Done (checkmark): STOP recording and save, navigate back
- * - Cancel (X): Discard recording (with confirmation), navigate back
- * - Restart (refresh): Discard current recording and start fresh
- *
- * @param onNavigateBack Called when user exits the screen (cancel/discard)
- * @param onRecordingComplete Called with the recording ID when a recording is saved successfully
- * @param autoStart Whether to automatically start recording on screen entry
- * @param viewModel RecordViewModel instance
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordScreen(
     onNavigateBack: () -> Unit,
@@ -90,103 +69,68 @@ fun RecordScreen(
     val rawAmplitudeHistory by viewModel.amplitudeHistory.collectAsStateWithLifecycle()
     val amplitudeHistory = remember(rawAmplitudeHistory) { rawAmplitudeHistory.toImmutableList() }
     val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
-    // Track elapsed time for timer display
     var elapsedMs by remember { mutableLongStateOf(0L) }
     var showCancelDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
 
-    // Track if we had a recording session (to know when to navigate back)
     var hadRecordingSession by remember { mutableStateOf(false) }
-    // Track if user explicitly requested navigation back after save
     var pendingNavigateBack by remember { mutableStateOf(false) }
 
-    // Derive UI state from core recording state
-    val uiState =
-        when (recordingState) {
-            is RecordingState.Recording -> RecordingUiState.Recording
-
-            is RecordingState.Starting -> RecordingUiState.Recording
-
-            // Treat starting as recording for UI
-            is RecordingState.Paused -> RecordingUiState.Paused
-
-            is RecordingState.Stopping -> RecordingUiState.Recording
-
-            // Keep showing recording UI while stopping
-            else -> RecordingUiState.Idle
-        }
-
-    val isRecording = uiState is RecordingUiState.Recording
-    val isPaused = uiState is RecordingUiState.Paused
+    val isRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Starting || recordingState is RecordingState.Stopping
+    val isPaused = recordingState is RecordingState.Paused
     val isActive = isRecording || isPaused
 
-    // Mark that we've had a recording session when recording starts
     LaunchedEffect(recordingState) {
         if (recordingState is RecordingState.Recording) {
             hadRecordingSession = true
         }
     }
 
-    // Auto-start recording when screen opens
     LaunchedEffect(autoStart) {
         if (autoStart && recordingState is RecordingState.Idle) {
             viewModel.startRecording(context)
         }
     }
 
-    // Track accumulated time from previous recording segments (across pause/resume cycles)
     var previousSegmentsMs by remember { mutableLongStateOf(0L) }
 
-    // Timer update loop — accounts for pause/resume
     LaunchedEffect(recordingState) {
         when (val state = recordingState) {
             is RecordingState.Recording -> {
                 val segmentStart = state.startTimeMs
                 while (true) {
-                    withFrameMillis { frameTime ->
+                    withFrameMillis {
                         elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
                     }
                 }
             }
-
             is RecordingState.Paused -> {
-                // Freeze timer at accumulated time; store it for next resume
                 previousSegmentsMs = state.accumulatedMs
                 elapsedMs = state.accumulatedMs
             }
-
             is RecordingState.Idle -> {
-                // Reset for next recording session
                 previousSegmentsMs = 0L
             }
-
-            else -> {
-                // Starting, Stopping, Error — keep showing current elapsed
-            }
+            else -> {}
         }
     }
 
-    // Navigate to recording detail after recording completes.
-    // lastCompletedRecordingId becoming non-null is the definitive signal that a recording
-    // was saved (via Done, back-gesture Save, or notification Stop action).
     LaunchedEffect(lastCompletedRecordingId) {
         val recordingId = lastCompletedRecordingId
         if (recordingId != null) {
-            delay(200) // Brief delay for the "Saved" text to show
+            delay(200)
             onRecordingComplete(recordingId.toString())
-            viewModel.clearLastCompletedRecordingId() // Clear state last
+            viewModel.clearLastCompletedRecordingId()
         }
     }
 
-    // Handle back gesture
     BackHandler(enabled = isActive) {
         showBackDialog = true
     }
 
-    // Cancel confirmation dialog
     if (showCancelDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showCancelDialog = false },
@@ -211,7 +155,6 @@ fun RecordScreen(
         )
     }
 
-    // Restart confirmation dialog
     if (showRestartDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showRestartDialog = false },
@@ -237,7 +180,6 @@ fun RecordScreen(
         )
     }
 
-    // Back gesture dialog (during recording)
     if (showBackDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showBackDialog = false },
@@ -268,163 +210,122 @@ fun RecordScreen(
         )
     }
 
-    // Animate timer color between recording states
-    val timerColor by animateColorAsState(
-        targetValue =
-            when {
-                isRecording -> MaterialTheme.colorScheme.error
-                isPaused -> MaterialTheme.colorScheme.onSurfaceVariant
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-        animationSpec = tween(400, easing = FastOutSlowInEasing),
-        label = "timer_color",
+    val infiniteTransition = rememberInfiniteTransition(label = "glowTransition")
+    val glowColor by infiniteTransition.animateColor(
+        initialValue = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.0f),
+        targetValue = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowColor"
     )
 
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Background glow layer
-                RecordingGlowBackground(
-                    isRecording = isRecording,
-                    isPaused = isPaused,
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-                // Close button — subtle, top-start, semi-transparent
-                IconButton(
-                    onClick = {
+        topBar = {
+            TopAppBar(
+                title = { Text("New Recording") },
+                navigationIcon = {
+                    IconButton(onClick = {
                         if (isActive) {
-                            showBackDialog = true
+                            showCancelDialog = true
                         } else {
                             onNavigateBack()
                         }
-                    },
-                    modifier =
-                        Modifier
-                            .align(Alignment.TopStart)
-                            .padding(8.dp)
-                            .size(48.dp),
-                    colors =
-                        IconButtonDefaults.iconButtonColors(
-                            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                        ),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = stringResource(R.string.desc_close),
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-
-                // Main content
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
-                ) {
-                    Spacer(modifier = Modifier.weight(1f))
-
-                    // Timer display
-                    Text(
-                        text = formatTimeMs(elapsedMs),
-                        style =
-                            MaterialTheme.typography.displayLarge.copy(
-                                fontSize = 72.sp,
-                                fontWeight = FontWeight.Light,
-                                fontFamily = FontFamily.Monospace,
-                                letterSpacing = 2.sp,
-                            ),
-                        color = timerColor,
-                    )
-
-                    // Status text with animated color
-                    val statusTextColor by animateColorAsState(
-                        targetValue =
-                            when {
-                                recordingState is RecordingState.Recording -> MaterialTheme.colorScheme.error
-                                recordingState is RecordingState.Paused -> MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        animationSpec = tween(400, easing = FastOutSlowInEasing),
-                        label = "statusTextColor",
-                    )
-
-                    Crossfade(
-                        targetState =
-                            when {
-                                recordingState is RecordingState.Recording -> stringResource(R.string.rec_record_screen_status_recording)
-                                recordingState is RecordingState.Starting -> stringResource(R.string.rec_record_button_starting)
-                                recordingState is RecordingState.Paused -> stringResource(R.string.rec_record_button_paused)
-                                recordingState is RecordingState.Stopping -> stringResource(R.string.rec_record_screen_status_saving)
-                                hadRecordingSession -> stringResource(R.string.rec_record_screen_status_saved)
-                                else -> stringResource(R.string.rec_record_screen_status_ready)
-                            },
-                        animationSpec = tween(250, easing = FastOutSlowInEasing),
-                        label = "statusText",
-                    ) { text ->
-                        Text(
-                            text = text,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = statusTextColor,
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
+                    }) {
+                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_close))
                     }
+                }
+            )
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(32.dp))
 
-                    Spacer(modifier = Modifier.height(48.dp))
+            Text(
+                text = formatTimeMs(elapsedMs),
+                style = MaterialTheme.typography.displayLarge.copy(
+                    fontSize = 72.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Light,
+                    letterSpacing = 2.sp
+                ),
+                color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+            )
 
-                    // Audio waveform
+            Spacer(modifier = Modifier.height(48.dp))
+
+            OutlinedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(if (isRecording) glowColor else Color.Transparent),
+                    contentAlignment = Alignment.Center
+                ) {
                     AudioWaveform(
                         amplitudes = amplitudeHistory,
                         isActive = isRecording,
                         color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                        modifier = Modifier.padding(16.dp)
                     )
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-                    // Main action button
-                    // When recording: Shows STOP icon, stops and saves
-                    // When idle: Shows MIC icon, starts recording
-                    MainActionButton(
-                        state = uiState,
-                        recordingColor = MaterialTheme.colorScheme.error,
-                        onStartRecording = { viewModel.startRecording(context) },
-                        onPause = { viewModel.pauseRecording(context) },
-                        onResume = { viewModel.resumeRecording(context) },
-                    )
+            Row(
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = { showRestartDialog = true },
+                    enabled = isActive
+                ) {
+                    Text("Start Over")
+                }
 
-                    Spacer(modifier = Modifier.height(32.dp))
-
-                    // Secondary buttons (visible when recording)
-                    AnimatedVisibility(
-                        visible = isActive,
-                        enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
-                        exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 2 },
+                if (isPaused || !isActive) {
+                    FilledTonalButton(
+                        onClick = {
+                            if (isActive) {
+                                viewModel.resumeRecording(context)
+                            } else {
+                                viewModel.startRecording(context)
+                            }
+                        }
                     ) {
-                        SecondaryButtonsRow(
-                            onDone = {
-                                // Done = stop, save, and navigate to transcription
-                                pendingNavigateBack = true
-                                viewModel.stopRecording(context)
-                            },
-                            onCancel = {
-                                // Cancel = show confirmation dialog
-                                showCancelDialog = true
-                            },
-                            onRestart = {
-                                // Restart = show confirmation, then discard and start fresh
-                                showRestartDialog = true
-                            },
-                        )
+                        Text(if (isActive) "Resume" else "Record")
                     }
+                } else {
+                    FilledTonalButton(
+                        onClick = { viewModel.pauseRecording(context) }
+                    ) {
+                        Text("Pause")
+                    }
+                }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                Button(
+                    onClick = {
+                        pendingNavigateBack = true
+                        viewModel.stopRecording(context)
+                    },
+                    enabled = isActive
+                ) {
+                    Text("Done")
                 }
             }
         }

@@ -98,7 +98,7 @@ class RecordingStateManager @Inject constructor() {
         accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Starting")
-            RecordingState.Starting(origin, profileId)
+            RecordingState.Starting(origin)
         }
         return RecordingStartResult.Success
     }
@@ -201,7 +201,7 @@ class RecordingStateManager @Inject constructor() {
                             is RecordingState.Recording -> current.origin
                             is RecordingState.Paused -> current.origin
                             else -> RecordingOrigin.APP
-                        }
+                        },
                     )
                 }
                 else -> {
@@ -221,7 +221,7 @@ class RecordingStateManager @Inject constructor() {
                 if (current is RecordingState.Stopping) {
                     timedOut = true
                     Log.w(TAG, "Stopping state timed out after ${STOPPING_TIMEOUT_MS}ms, forcing to Idle")
-                    RecordingState.Idle
+                    RecordingState.Error("Failed to stop recording", current.activeOrigin ?: RecordingOrigin.APP)
                 } else {
                     current
                 }
@@ -279,7 +279,7 @@ class RecordingStateManager @Inject constructor() {
         _state.update { current ->
             val origin = current.activeOrigin ?: RecordingOrigin.APP
             Log.d(TAG, "State: ${current::class.simpleName} -> Error")
-            RecordingState.Error(origin, message, cause)
+            RecordingState.Error(message, origin, cause)
         }
         recordingLock.set(false)
     }
