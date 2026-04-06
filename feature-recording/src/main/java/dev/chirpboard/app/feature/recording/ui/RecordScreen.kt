@@ -14,11 +14,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -288,13 +295,15 @@ fun RecordScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp),
+                    .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(
                     onClick = { showRestartDialog = true },
                     enabled = isActive
                 ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text("Start Over")
                 }
 
@@ -308,12 +317,19 @@ fun RecordScreen(
                             }
                         }
                     ) {
+                        Icon(
+                            imageVector = if (isActive) Icons.Default.PlayArrow else Icons.Default.Mic,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(if (isActive) "Resume" else "Record")
                     }
                 } else {
                     FilledTonalButton(
                         onClick = { viewModel.pauseRecording(context) }
                     ) {
+                        Icon(Icons.Default.Pause, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Pause")
                     }
                 }
@@ -323,9 +339,12 @@ fun RecordScreen(
                         pendingNavigateBack = true
                         viewModel.stopRecording(context)
                     },
-                    enabled = isActive
+                    enabled = isActive,
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)
                 ) {
-                    Text("Done")
+                    Icon(Icons.Default.Check, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Done", style = MaterialTheme.typography.titleMedium)
                 }
             }
         }

@@ -73,7 +73,6 @@ internal class KeyboardTranscriptionPipeline(
                         errorMessage = "Recognizer not ready",
                     )
                     onStateChanged(KeyboardState.Error("Recognizer not ready"))
-                    onRecordingError("Recognizer not ready")
                 }
                 return
             }
@@ -116,7 +115,6 @@ internal class KeyboardTranscriptionPipeline(
                                 errorMessage = mappedOutcome.message,
                             )
                             onStateChanged(KeyboardState.Error(mappedOutcome.message))
-                            onRecordingError(mappedOutcome.message)
                         }
                         return
                     }
@@ -178,28 +176,28 @@ internal class KeyboardTranscriptionPipeline(
                                 commitText("$rawText ")
                                 handleTranscriptionComplete(rawText, null)
                                 onStateChanged(KeyboardState.LlmError("LLM failed: ${error.message}"))
-                            },
+                            }
                         )
-                    } else {
-                        Log.w(tag, "LLM timed out after 10s, using raw text")
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.ENHANCEMENT,
-                            outcome = ReliabilityOutcome.FAILURE,
-                            correlationId = correlationId,
-                            reasonCode = "keyboard_enhancement_timeout",
-                        )
+                        } else {
+                            Log.w(tag, "LLM timed out after 10s, using raw text")
+                            ReliabilityEventLogger.log(
+                                stage = ReliabilityStage.ENHANCEMENT,
+                                outcome = ReliabilityOutcome.FAILURE,
+                                correlationId = correlationId,
+                                reasonCode = "keyboard_enhancement_timeout",
+                            )
+                            commitText("$rawText ")
+                            handleTranscriptionComplete(rawText, null)
+                            onStateChanged(KeyboardState.Idle)
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
                         commitText("$rawText ")
                         handleTranscriptionComplete(rawText, null)
                         onStateChanged(KeyboardState.Idle)
                     }
                 }
-            } else {
-                withContext(Dispatchers.Main) {
-                    commitText("$rawText ")
-                    handleTranscriptionComplete(rawText, null)
-                    onStateChanged(KeyboardState.Idle)
-                }
-            }
         } catch (e: CancellationException) {
             Log.w(tag, "Transcription cancelled", e)
             withContext(NonCancellable + Dispatchers.Main) {
@@ -228,8 +226,8 @@ internal class KeyboardTranscriptionPipeline(
                     errorMessage = errorMessage,
                 )
                 onStateChanged(KeyboardState.Error(errorMessage))
-                onRecordingError(errorMessage)
             }
+            onRecordingError(errorMessage)
         }
     }
 

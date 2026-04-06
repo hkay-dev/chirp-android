@@ -100,7 +100,7 @@ class KeyboardTranscriptionPipelineTest {
         var stateEmitted: KeyboardState? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
+            currentMode = ProcessingMode.TRANSCRIPTION,
             llmEnabled = false,
             commitText = {},
             onStateChanged = { stateEmitted = it },
@@ -121,7 +121,7 @@ class KeyboardTranscriptionPipelineTest {
         var completed = false
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
+            currentMode = ProcessingMode.TRANSCRIPTION,
             llmEnabled = false,
             commitText = {},
             onStateChanged = { stateEmitted = it },
@@ -143,7 +143,7 @@ class KeyboardTranscriptionPipelineTest {
         var committedText: String? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
+            currentMode = ProcessingMode.TRANSCRIPTION,
             llmEnabled = false,
             commitText = { committedText = it },
             onStateChanged = { stateEmitted = it },
@@ -166,7 +166,7 @@ class KeyboardTranscriptionPipelineTest {
         var committedText: String? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
+            currentMode = ProcessingMode.TRANSCRIPTION,
             llmEnabled = true,
             commitText = { committedText = it },
             onStateChanged = { stateEmitted = it },

@@ -301,6 +301,7 @@ fun ProcessingStudioScreen(
                 when (page) {
                     0 -> TranscriptTab(
                         words = state.transcriptWords,
+                        status = state.status,
                         onWordClicked = viewModel::onWordClicked
                     )
                     1 -> SummaryTab(

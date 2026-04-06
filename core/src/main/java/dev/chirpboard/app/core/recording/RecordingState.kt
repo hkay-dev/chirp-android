@@ -53,8 +53,8 @@ sealed class RecordingState {
     
     /** Recording failed */
     data class Error(
-        val message: String,
         val origin: RecordingOrigin,
+        val message: String,
         val cause: Throwable? = null
     ) : RecordingState()
     

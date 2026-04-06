@@ -35,7 +35,7 @@ class RecordingRepositoryTest {
 
     @Test
     fun `getAllRecordings returns flow from dao`() = runTest {
-        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE))
+        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP))
         coEvery { recordingDao.getAllRecordings() } returns flowOf(expected)
         val result = repository.getAllRecordings().first()
         assertEquals(expected, result)
@@ -44,7 +44,7 @@ class RecordingRepositoryTest {
     @Test
     fun `getRecording returns correct recording`() = runTest {
         val id = UUID.randomUUID()
-        val expected = Recording(id = id, title = "Test", audioPath = "", source = RecordingSource.MICROPHONE)
+        val expected = Recording(id = id, title = "Test", audioPath = "", source = RecordingSource.APP)
         coEvery { recordingDao.getRecording(id) } returns expected
         val result = repository.getRecording(id)
         assertEquals(expected, result)
@@ -54,7 +54,7 @@ class RecordingRepositoryTest {
     @Test
     fun `getRecordingFlow returns flow from dao`() = runTest {
         val id = UUID.randomUUID()
-        val expected = Recording(id = id, title = "Test", audioPath = "", source = RecordingSource.MICROPHONE)
+        val expected = Recording(id = id, title = "Test", audioPath = "", source = RecordingSource.APP)
         coEvery { recordingDao.getRecordingFlow(id) } returns flowOf(expected)
         val result = repository.getRecordingFlow(id).first()
         assertEquals(expected, result)
@@ -62,15 +62,15 @@ class RecordingRepositoryTest {
 
     @Test
     fun `getRecordingsByStatus returns flow from dao`() = runTest {
-        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE))
-        coEvery { recordingDao.getRecordingsByStatus(RecordingStatus.DONE) } returns flowOf(expected)
-        val result = repository.getRecordingsByStatus(RecordingStatus.DONE).first()
+        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP))
+        coEvery { recordingDao.getRecordingsByStatus(RecordingStatus.COMPLETED) } returns flowOf(expected)
+        val result = repository.getRecordingsByStatus(RecordingStatus.COMPLETED).first()
         assertEquals(expected, result)
     }
 
     @Test
     fun `getPendingRecordings returns list from dao`() = runTest {
-        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE))
+        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP))
         coEvery { recordingDao.getRecordingsByStatuses(any()) } returns expected
         val result = repository.getPendingRecordings()
         assertEquals(expected, result)
@@ -78,7 +78,7 @@ class RecordingRepositoryTest {
 
     @Test
     fun `searchRecordings returns flow from dao`() = runTest {
-        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE))
+        val expected = listOf(Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP))
         coEvery { recordingDao.searchRecordings("Test") } returns flowOf(expected)
         val result = repository.searchRecordings("Test").first()
         assertEquals(expected, result)
@@ -89,7 +89,7 @@ class RecordingRepositoryTest {
         val result = repository.createRecording(
             title = "New Recording",
             audioPath = "/path/to/audio",
-            source = RecordingSource.MICROPHONE,
+            source = RecordingSource.APP,
             durationMs = 1000L
         )
         assertNotNull(result)
@@ -101,14 +101,14 @@ class RecordingRepositoryTest {
 
     @Test
     fun `insert delegates to dao`() = runTest {
-        val recording = Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE)
+        val recording = Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP)
         repository.insert(recording)
         coVerify(exactly = 1) { recordingDao.insert(recording) }
     }
 
     @Test
     fun `update delegates to dao`() = runTest {
-        val recording = Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE)
+        val recording = Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP)
         repository.update(recording)
         coVerify(exactly = 1) { recordingDao.update(recording) }
     }
@@ -116,8 +116,8 @@ class RecordingRepositoryTest {
     @Test
     fun `updateStatus delegates to dao`() = runTest {
         val id = UUID.randomUUID()
-        repository.updateStatus(id, RecordingStatus.DONE)
-        coVerify(exactly = 1) { recordingDao.updateStatus(id, RecordingStatus.DONE) }
+        repository.updateStatus(id, RecordingStatus.COMPLETED)
+        coVerify(exactly = 1) { recordingDao.updateStatus(id, RecordingStatus.COMPLETED) }
     }
 
     @Test
@@ -150,7 +150,7 @@ class RecordingRepositoryTest {
 
     @Test
     fun `delete delegates to dao`() = runTest {
-        val recording = Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.MICROPHONE)
+        val recording = Recording(id = UUID.randomUUID(), title = "Test", audioPath = "", source = RecordingSource.APP)
         repository.delete(recording)
         coVerify(exactly = 1) { recordingDao.delete(recording) }
     }

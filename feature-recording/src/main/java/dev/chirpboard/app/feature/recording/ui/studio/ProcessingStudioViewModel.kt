@@ -5,6 +5,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import javax.inject.Inject
 
 import kotlinx.collections.immutable.toImmutableList
@@ -70,38 +72,45 @@ class ProcessingStudioViewModel @Inject constructor(
         currentRecordingId = id
 
             _uiState.value = _uiState.value.copy(isLoading = true)
-            val recording = repository.getRecording(id)
-            val transcript = repository.getTranscript(id)
-            
-            if (recording != null) {
-                rawTranscript = transcript?.rawText ?: ""
-                val rawText = transcript?.rawText ?: ""
-                val tokens = rawText.split("\\s+".toRegex()).filter { it.isNotBlank() }
-                val duration = recording.durationMs
-                val words = tokens.mapIndexed { index, token ->
-                    val start = if (tokens.isNotEmpty()) (duration * index) / tokens.size else 0L
-                    val end = if (tokens.isNotEmpty()) (duration * (index + 1)) / tokens.size else 0L
-                    TranscriptWord(
-                        word = token,
-                        startTimestampMs = start,
-                        endTimestampMs = end,
-                        confidence = 1.0f
+            combine(
+                repository.getRecordingFlow(id),
+                repository.getTranscriptFlow(id)
+            ) { recording, transcript ->
+                Pair(recording, transcript)
+            }.collectLatest { (recording, transcript) ->
+                if (recording != null) {
+                    rawTranscript = transcript?.rawText ?: ""
+                    val rawText = transcript?.rawText ?: ""
+                    val tokens = rawText.split("\\s+".toRegex()).filter { it.isNotBlank() }
+                    val duration = recording.durationMs
+                    val words = tokens.mapIndexed { index, token ->
+                        val start = if (tokens.isNotEmpty()) (duration * index) / tokens.size else 0L
+                        val end = if (tokens.isNotEmpty()) (duration * (index + 1)) / tokens.size else 0L
+                        TranscriptWord(
+                            word = token,
+                            startTimestampMs = start,
+                            endTimestampMs = end,
+                            confidence = 1.0f
+                        )
+                    }
+
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        status = recording.status,
+                        transcriptWords = words.toImmutableList(),
+                        summary = transcript?.summary ?: "",
+                        title = recording.title,
+                        createdAt = recording.createdAt.time,
+                        audioPath = recording.audioPath,
+                        source = recording.source
                     )
+
+                    if (player == null) {
+                        initPlayer(recording.audioPath)
+                    }
+                } else {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
                 }
-
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    transcriptWords = words.toImmutableList(),
-                    summary = transcript?.summary ?: "",
-                    title = recording.title,
-                    createdAt = recording.createdAt.time,
-                    audioPath = recording.audioPath,
-                    source = recording.source
-                )
-
-                initPlayer(recording.audioPath)
-            } else {
-                _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
     }
