@@ -9,7 +9,6 @@ import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.compose.runtime.Recomposer
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.AndroidUiDispatcher
@@ -19,6 +18,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
@@ -32,8 +32,6 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
-import kotlinx.collections.immutable.toImmutableList
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
@@ -42,6 +40,7 @@ import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,6 +81,7 @@ class ChirpKeyboardService :
     @Inject lateinit var modeRepository: ProcessingModeRepository
 
     @Inject lateinit var obsidianManager: dev.chirpboard.app.feature.obsidian.ObsidianManager
+
     @Inject lateinit var obsidianPreferences: dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 
     @Inject lateinit var recognizerProvider: TranscriberProvider
@@ -93,10 +93,8 @@ class ChirpKeyboardService :
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
-    override fun onEvaluateFullscreenMode(): Boolean {
-        return false
-    }
 
+    override fun onEvaluateFullscreenMode(): Boolean = false
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -268,29 +266,31 @@ class ChirpKeyboardService :
     }
 
     override fun onCreateInputView(): View {
-        val view = ComposeView(this).apply {
-            // Set our custom recomposer so Compose doesn't look for ViewTreeLifecycleOwner
-            compositionContext = recomposer
-            setViewTreeLifecycleOwner(this@ChirpKeyboardService)
-            setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
-            setContent {
-                val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
-                val currentMode by _currentMode.collectAsStateWithLifecycle()
-                val state by state.collectAsStateWithLifecycle()
-                KeyboardUI(
-                    state = state,
-                    amplitudes = recorder.amplitudes,
-                    llmEnabled = llmEnabled,
-                    currentMode = currentMode,
-                    onTap = ::onTap,
-                    onToggleLlm = ::toggleLlm,
-                    onModeChange = ::changeMode,
-                    onBackspace = ::onBackspace,
-                    onSpace = ::onSpace,
-                    onMoveCursor = ::onMoveCursor,
-                )
+        composeView?.disposeComposition()
+        val view =
+            ComposeView(this).apply {
+                // Set our custom recomposer so Compose doesn't look for ViewTreeLifecycleOwner
+                compositionContext = recomposer
+                setViewTreeLifecycleOwner(this@ChirpKeyboardService)
+                setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
+                setContent {
+                    val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
+                    val currentMode by _currentMode.collectAsStateWithLifecycle()
+                    val state by state.collectAsStateWithLifecycle()
+                    KeyboardUI(
+                        state = state,
+                        amplitudes = recorder.amplitudes,
+                        llmEnabled = llmEnabled,
+                        currentMode = currentMode,
+                        onTap = ::onTap,
+                        onToggleLlm = ::toggleLlm,
+                        onModeChange = ::changeMode,
+                        onBackspace = ::onBackspace,
+                        onSpace = ::onSpace,
+                        onMoveCursor = ::onMoveCursor,
+                    )
+                }
             }
-        }
         composeView = view
         return view
     }

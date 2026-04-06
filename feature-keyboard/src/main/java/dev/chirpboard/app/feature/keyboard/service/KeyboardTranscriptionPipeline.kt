@@ -11,11 +11,11 @@ import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -211,6 +211,7 @@ internal class KeyboardTranscriptionPipeline(
             }
             throw e
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             Log.e(tag, "Transcription failed", e)
             val errorMessage = "Transcription failed: ${e.message}"
             ReliabilityEventLogger.log(
@@ -256,13 +257,14 @@ internal class KeyboardTranscriptionPipeline(
 
         val job =
             persistenceScope.launch {
-                val recording = saveKeyboardRecording(
-                    filesDir = filesDirProvider(),
-                    audioEncoder = audioEncoder,
-                    recordingRepository = recordingRepository,
-                    persistencePlan = persistencePlan,
-                    samples = sampleSnapshot,
-                )
+                val recording =
+                    saveKeyboardRecording(
+                        filesDir = filesDirProvider(),
+                        audioEncoder = audioEncoder,
+                        recordingRepository = recordingRepository,
+                        persistencePlan = persistencePlan,
+                        samples = sampleSnapshot,
+                    )
                 if (recording != null && rawText != null) {
                     val autoExport = obsidianPreferences.autoExportEnabled.first()
                     val vaultUriStr = obsidianPreferences.globalVaultUri.first()
@@ -273,9 +275,10 @@ internal class KeyboardTranscriptionPipeline(
                                 recording = recording,
                                 transcript = processedText ?: rawText,
                                 summary = null,
-                                vaultUri = uri
+                                vaultUri = uri,
                             )
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             Log.e(tag, "Failed to auto-export to Obsidian", e)
                         }
                     }

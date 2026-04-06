@@ -3,8 +3,9 @@ package dev.chirpboard.app.data.repository
 import androidx.room.withTransaction
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.entity.Profile
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,13 +20,28 @@ class ProfileRepository
         private val profileDao: ProfileDao,
         private val db: dev.chirpboard.app.data.db.AppDatabase,
     ) {
-        fun getAllProfiles(): Flow<List<Profile>> = profileDao.getAllProfiles().catch { emit(emptyList()) }
+        fun getAllProfiles(): Flow<List<Profile>> =
+            profileDao.getAllProfiles().catch {
+                if (it is CancellationException) throw it
+                emit(emptyList())
+            }
 
         suspend fun getAllProfilesList(): List<Profile> = profileDao.getAllProfilesList()
 
         suspend fun getProfile(id: UUID): Profile? = profileDao.getProfile(id)
 
-        fun getProfileFlow(id: UUID): Flow<Profile?> = profileDao.getProfileFlow(id).catch { emit(null) }
+        suspend fun getProfiles(ids: List<UUID>): Map<UUID, Profile> =
+            if (ids.isEmpty()) {
+                emptyMap()
+            } else {
+                profileDao.getProfiles(ids).associateBy { it.id }
+            }
+
+        fun getProfileFlow(id: UUID): Flow<Profile?> =
+            profileDao.getProfileFlow(id).catch {
+                if (it is CancellationException) throw it
+                emit(null)
+            }
 
         data class CreateProfileRequest(
             val name: String,
@@ -39,8 +55,8 @@ class ProfileRepository
             val defaultTagIds: List<UUID> = emptyList(),
         )
 
-        suspend fun createProfile(request: CreateProfileRequest): Profile {
-            return db.withTransaction {
+        suspend fun createProfile(request: CreateProfileRequest): Profile =
+            db.withTransaction {
                 val maxOrder = profileDao.getMaxSortOrder() ?: 0
                 val profile =
                     Profile(
@@ -57,7 +73,6 @@ class ProfileRepository
                 profileDao.insert(profile)
                 profile
             }
-        }
 
         suspend fun insert(profile: Profile) = profileDao.insert(profile)
 

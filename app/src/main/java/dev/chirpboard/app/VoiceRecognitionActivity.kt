@@ -8,13 +8,12 @@ import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
@@ -95,7 +94,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     private fun startRecording() {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (androidx.core.content.ContextCompat
+                .checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
             Log.e(TAG, "Recording permission missing")
             returnError(SpeechRecognizer.ERROR_AUDIO)
             return

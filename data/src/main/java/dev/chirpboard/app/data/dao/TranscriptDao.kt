@@ -12,6 +12,9 @@ import java.util.UUID
 
 @Dao
 interface TranscriptDao {
+    @Query("SELECT * FROM transcripts WHERE recordingId IN (:recordingIds)")
+    suspend fun getTranscripts(recordingIds: List<UUID>): List<Transcript>
+
     @Query("SELECT * FROM transcripts WHERE recordingId = :recordingId")
     suspend fun getTranscript(recordingId: UUID): Transcript?
 

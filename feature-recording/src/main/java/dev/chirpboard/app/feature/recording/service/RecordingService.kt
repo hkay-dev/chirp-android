@@ -7,14 +7,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.annotation.VisibleForTesting
-import kotlinx.coroutines.withContext
 import androidx.core.app.NotificationCompat
-import android.content.pm.ServiceInfo
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingOrigin
@@ -36,6 +35,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -147,8 +147,14 @@ class RecordingService : Service() {
         origin: RecordingOrigin,
         profileId: UUID?,
     ) {
-        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            recordingStateManager.onRecordingError("Permission denied: Microphone access is required.", SecurityException("RECORD_AUDIO permission missing"))
+        if (androidx.core.content.ContextCompat
+                .checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            recordingStateManager.onRecordingError(
+                "Permission denied: Microphone access is required.",
+                SecurityException("RECORD_AUDIO permission missing"),
+            )
             stopSelf()
             return
         }
@@ -197,15 +203,15 @@ class RecordingService : Service() {
                 }
             mediaRecorder = recorder
             recorder.apply {
-                    setAudioSource(MediaRecorder.AudioSource.MIC)
-                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                    setAudioEncodingBitRate(128000)
-                    setAudioSamplingRate(44100)
-                    setOutputFile(currentRecordingFile!!.absolutePath)
-                    prepare()
-                    start()
-                }
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128000)
+                setAudioSamplingRate(44100)
+                setOutputFile(currentRecordingFile!!.absolutePath)
+                prepare()
+                start()
+            }
             recordingStartTime = System.currentTimeMillis()
             accumulatedDurationMs = 0
             recordingStateManager.onRecordingStarted(currentRecordingFile!!.absolutePath)
@@ -227,6 +233,11 @@ class RecordingService : Service() {
             startAmplitudeCollection()
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
+            try {
+                mediaRecorder?.release()
+            } catch (_: Exception) {
+            }
+            mediaRecorder = null
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.RECORDING_START,
                 outcome = ReliabilityOutcome.FAILURE,
@@ -241,7 +252,7 @@ class RecordingService : Service() {
             }
             currentRecordingFile = null
             stopSelf()
-    }
+        }
     }
 
     private fun pauseRecording() {

@@ -17,49 +17,54 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class RecordingStopOrchestrator @Inject constructor(
-    private val recordingRepository: RecordingRepository,
-    private val transcriptionQueueManager: TranscriptionQueueManager
-) {
-    suspend fun persistAndQueueRecording(snapshot: StopSnapshot): StopPersistenceResult {
-        val audioPath = snapshot.audioFilePath ?: return StopPersistenceResult.NoAudioFile
-        val file = File(audioPath)
-        if (!file.exists()) {
-            return StopPersistenceResult.NoAudioFile
-        }
-
-        return withContext(Dispatchers.IO) {
-            val title = SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(snapshot.stoppedAtEpochMs))
-            val source = when (snapshot.origin) {
-                RecordingOrigin.APP -> RecordingSource.APP
-                RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
-                RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+class RecordingStopOrchestrator
+    @Inject
+    constructor(
+        private val recordingRepository: RecordingRepository,
+        private val transcriptionQueueManager: TranscriptionQueueManager,
+    ) {
+        suspend fun persistAndQueueRecording(snapshot: StopSnapshot): StopPersistenceResult {
+            val audioPath = snapshot.audioFilePath ?: return StopPersistenceResult.NoAudioFile
+            val file = File(audioPath)
+            if (!file.exists()) {
+                return StopPersistenceResult.NoAudioFile
             }
 
-            val recording = recordingRepository.createRecording(
-                title = title,
-                audioPath = audioPath,
-                source = source,
-                profileId = snapshot.profileId,
-                durationMs = snapshot.durationMs
-            )
+            return withContext(Dispatchers.IO) {
+                val title = SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(snapshot.stoppedAtEpochMs))
+                val source =
+                    when (snapshot.origin) {
+                        RecordingOrigin.APP -> RecordingSource.APP
+                        RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
+                        RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+                    }
 
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.PERSISTENCE_SAVE,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = snapshot.correlationId,
-                recordingId = recording.id,
-                reasonCode = "recording_saved"
-            )
+                val recording =
+                    recordingRepository.createRecording(
+                        title = title,
+                        audioPath = audioPath,
+                        source = source,
+                        profileId = snapshot.profileId,
+                        durationMs = snapshot.durationMs,
+                    )
 
-            try {
-                transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
-                StopPersistenceResult.SavedAndQueued(recording.id)
-            } catch (enqueueError: Exception) {
-                val reason = "Queue handoff failed during stop. Will retry automatically on startup."
-                transcriptionQueueManager.markPendingForQueueRecovery(recording.id, reason, enqueueError)
-                StopPersistenceResult.SavedPendingRecovery(recording.id, reason, enqueueError)
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.PERSISTENCE_SAVE,
+                    outcome = ReliabilityOutcome.SUCCESS,
+                    correlationId = snapshot.correlationId,
+                    recordingId = recording.id,
+                    reasonCode = "recording_saved",
+                )
+
+                try {
+                    transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
+                    StopPersistenceResult.SavedAndQueued(recording.id)
+                } catch (enqueueError: Exception) {
+                    if (enqueueError is kotlinx.coroutines.CancellationException) throw enqueueError
+                    val reason = "Queue handoff failed during stop. Will retry automatically on startup."
+                    transcriptionQueueManager.markPendingForQueueRecovery(recording.id, reason, enqueueError)
+                    StopPersistenceResult.SavedPendingRecovery(recording.id, reason, enqueueError)
+                }
             }
         }
     }
-}

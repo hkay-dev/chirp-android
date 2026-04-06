@@ -4,8 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.content.FileProvider
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -18,18 +18,16 @@ import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.persistentListOf
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.transcription.ManualRecoveryResult
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -41,8 +39,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 /**
@@ -85,14 +83,17 @@ class HomeViewModel
         private val transcriptionQueueManager: TranscriptionQueueManager,
         private val llmClient: LlmClient,
         private val savedStateHandle: SavedStateHandle,
-
     ) : ViewModel() {
         /** Search query */
         private val _searchQuery = savedStateHandle.getStateFlow("searchQuery", "")
         val searchQuery: StateFlow<String> = _searchQuery
 
         private val _listFilter = savedStateHandle.getStateFlow("listFilter", ListFilterMode.ALL.name)
-        val listFilter: StateFlow<ListFilterMode> = _listFilter.map { ListFilterMode.valueOf(it) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListFilterMode.ALL)
+        val listFilter: StateFlow<ListFilterMode> =
+            _listFilter
+                .map {
+                    ListFilterMode.valueOf(it)
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListFilterMode.ALL)
 
         /** Cached profiles for fast lookup */
         private val profileCache = ConcurrentHashMap<UUID, Profile?>()
@@ -108,36 +109,28 @@ class HomeViewModel
                     }
                 }.map { recordings ->
                     withContext(Dispatchers.IO) {
-                        // Pre-fetch all profiles IN PARALLEL (not sequentially)
-                        // This prevents blocking when displaying many recordings with different profiles
                         val profileIds = recordings.mapNotNull { it.profileId }.distinct()
-                        profileIds
-                            .map { id ->
-                                async {
-                                    if (!profileCache.containsKey(id)) {
-                                        profileCache[id] = profileRepository.getProfile(id)
-                                    }
-                                }
-                            }.awaitAll()
+                        val missingProfileIds = profileIds.filterNot(profileCache::containsKey)
+                        profileCache.putAll(profileRepository.getProfiles(missingProfileIds))
 
-                        // Load all recordings in parallel for faster enrichment
-                        recordings
-                            .map { recording ->
-                                async {
-                                    val tags = tagRepository.getTagsForRecordingList(recording.id)
-                                    val transcript = recordingRepository.getTranscript(recording.id)
-                                    val profile = recording.profileId?.let { profileCache[it] }
-                                    RecordingDisplayItem(
-                                        recording = recording,
-                                        tags = tags.toImmutableList(),
-                                        summary =
-                                            transcript?.summary ?: transcript?.processedText?.take(120)
-                                                ?: transcript?.rawText?.take(120),
-                                        profileName = profile?.name,
-                                        profileIcon = profile?.icon,
-                                    )
-                                }
-                            }.awaitAll()
+                        val recordingIds = recordings.map { it.id }
+                        val tagsByRecordingId = tagRepository.getTagsForRecordingIds(recordingIds)
+                        val transcriptsByRecordingId = recordingRepository.getTranscripts(recordingIds)
+
+                        recordings.map { recording ->
+                            val tags = tagsByRecordingId[recording.id].orEmpty()
+                            val transcript = transcriptsByRecordingId[recording.id]
+                            val profile = recording.profileId?.let { profileCache[it] }
+                            RecordingDisplayItem(
+                                recording = recording,
+                                tags = tags.toImmutableList(),
+                                summary =
+                                    transcript?.summary ?: transcript?.processedText?.take(120)
+                                        ?: transcript?.rawText?.take(120),
+                                profileName = profile?.name,
+                                profileIcon = profile?.icon,
+                            )
+                        }
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -276,7 +269,10 @@ class HomeViewModel
         /**
          * Share a recording (audio + transcript if available).
          */
-        fun shareRecording(recording: Recording, context: Context) {
+        fun shareRecording(
+            recording: Recording,
+            context: Context,
+        ) {
             viewModelScope.launch {
                 val file = File(recording.audioPath)
 

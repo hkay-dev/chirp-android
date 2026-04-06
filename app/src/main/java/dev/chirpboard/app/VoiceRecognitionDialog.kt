@@ -42,21 +42,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.BreathingPulse
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
@@ -118,20 +117,22 @@ fun VoiceRecognitionDialog(
         fadeIn(animationSpec = tween(200)) +
             slideInVertically(
                 initialOffsetY = { it },
-                animationSpec = spring(
-                    dampingRatio = 0.8f,
-                    stiffness = 400f
-                ),
+                animationSpec =
+                    spring(
+                        dampingRatio = 0.8f,
+                        stiffness = 400f,
+                    ),
             )
 
     val exitTransition =
         fadeOut(animationSpec = tween(150)) +
             slideOutVertically(
                 targetOffsetY = { it },
-                animationSpec = spring(
-                    dampingRatio = 0.9f,
-                    stiffness = 400f
-                ),
+                animationSpec =
+                    spring(
+                        dampingRatio = 0.9f,
+                        stiffness = 400f,
+                    ),
             )
 
     Box(
@@ -145,20 +146,21 @@ fun VoiceRecognitionDialog(
             exit = fadeOut(animationSpec = tween(250)),
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.15f))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {
-                            isVisible = false
-                            MainScope().launch {
-                                delay(250)
-                                onCancel()
-                            }
-                        }
-                    )
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.15f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {
+                                isVisible = false
+                                MainScope().launch {
+                                    delay(250)
+                                    onCancel()
+                                }
+                            },
+                        ),
             )
         }
 
@@ -217,16 +219,18 @@ private fun VoiceRecognitionDialogContent(
         shadowElevation = 16.dp,
     ) {
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding() // Ensures we draw above the system nav bar
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(), // Ensures we draw above the system nav bar
         ) {
             IconButton(
                 onClick = onCancel,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp)
-                    .size(48.dp),
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(48.dp),
             ) {
                 Icon(
                     Icons.Filled.Close,
@@ -236,30 +240,32 @@ private fun VoiceRecognitionDialogContent(
             }
 
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        top = 32.dp,
-                        bottom = 24.dp,
-                        start = 24.dp,
-                        end = 24.dp,
-                    ),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            top = 32.dp,
+                            bottom = 24.dp,
+                            start = 24.dp,
+                            end = 24.dp,
+                        ),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 // Transcript Area
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp)
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(80.dp)
+                            .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     AnimatedContent(
                         targetState = partialTranscript,
                         transitionSpec = {
                             fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
                         },
-                        label = "transcript_animation"
+                        label = "transcript_animation",
                     ) { text ->
                         if (text.isNotBlank()) {
                             Text(
@@ -283,8 +289,9 @@ private fun VoiceRecognitionDialogContent(
 
                 // Mic Button Area
                 Box(
-                    modifier = Modifier
-                        .size(120.dp),
+                    modifier =
+                        Modifier
+                            .size(120.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (recognitionState == RecognitionState.Listening) {
@@ -296,34 +303,37 @@ private fun VoiceRecognitionDialogContent(
                         )
                     }
 
-                    val buttonColor = if (recognitionState == RecognitionState.Listening) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    }
-                    val iconColor = if (recognitionState == RecognitionState.Listening) {
-                        MaterialTheme.colorScheme.onPrimary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                    val buttonColor =
+                        if (recognitionState == RecognitionState.Listening) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        }
+                    val iconColor =
+                        if (recognitionState == RecognitionState.Listening) {
+                            MaterialTheme.colorScheme.onPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
 
                     Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .background(buttonColor)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = ripple(bounded = false, radius = 56.dp),
-                                enabled = recognitionState != RecognitionState.Processing,
-                                onClick = {
-                                    if (recognitionState == RecognitionState.Listening) {
-                                        onStop()
-                                    } else {
-                                        onStart()
-                                    }
-                                }
-                            ),
+                        modifier =
+                            Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(buttonColor)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(bounded = false, radius = 56.dp),
+                                    enabled = recognitionState != RecognitionState.Processing,
+                                    onClick = {
+                                        if (recognitionState == RecognitionState.Listening) {
+                                            onStop()
+                                        } else {
+                                            onStart()
+                                        }
+                                    },
+                                ),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (recognitionState == RecognitionState.Processing) {
@@ -333,7 +343,14 @@ private fun VoiceRecognitionDialogContent(
                         } else {
                             Icon(
                                 imageVector = if (recognitionState == RecognitionState.Listening) Icons.Filled.Stop else Icons.Filled.Mic,
-                                contentDescription = if (recognitionState == RecognitionState.Listening) stringResource(R.string.desc_stop) else stringResource(R.string.desc_start),
+                                contentDescription =
+                                    if (recognitionState ==
+                                        RecognitionState.Listening
+                                    ) {
+                                        stringResource(R.string.desc_stop)
+                                    } else {
+                                        stringResource(R.string.desc_start)
+                                    },
                                 modifier = Modifier.size(32.dp),
                                 tint = iconColor,
                             )
@@ -368,17 +385,20 @@ private fun VoiceRecognitionLlmControlSection(
         label = {
             Text(
                 text = if (llmEnabled) "AI: ${currentMode.displayName}" else "Enhance with AI",
-                style = MaterialTheme.typography.labelLarge
+                style = MaterialTheme.typography.labelLarge,
             )
         },
-        leadingIcon = if (llmEnabled) {
-            {
-                Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(FilterChipDefaults.IconSize)
-                )
-            }
-        } else null,
+        leadingIcon =
+            if (llmEnabled) {
+                {
+                    Icon(
+                        imageVector = Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier.size(FilterChipDefaults.IconSize),
+                    )
+                }
+            } else {
+                null
+            },
     )
 }

@@ -42,8 +42,25 @@ class TagRepository
 
         suspend fun deleteById(id: UUID) = tagDao.deleteById(id)
 
-
         fun getTagsForRecording(recordingId: UUID): Flow<List<Tag>> = tagDao.getTagsForRecording(recordingId)
+
+        suspend fun getTagsForRecordingIds(recordingIds: List<UUID>): Map<UUID, List<Tag>> =
+            if (recordingIds.isEmpty()) {
+                emptyMap()
+            } else {
+                tagDao
+                    .getTagsForRecordingIds(recordingIds)
+                    .groupBy(
+                        keySelector = { it.recordingId },
+                        valueTransform = { row ->
+                            Tag(
+                                id = row.id,
+                                name = row.name,
+                                color = row.color,
+                            )
+                        },
+                    )
+            }
 
         suspend fun getTagsForRecordingList(recordingId: UUID): List<Tag> = tagDao.getTagsForRecordingList(recordingId)
 
