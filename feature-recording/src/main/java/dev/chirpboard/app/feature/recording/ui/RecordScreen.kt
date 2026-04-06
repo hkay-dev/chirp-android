@@ -25,38 +25,37 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import dev.chirpboard.app.feature.recording.R
-import androidx.compose.runtime.withFrameMillis
-import kotlinx.collections.immutable.toImmutableList
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.components.AudioWaveform
 import dev.chirpboard.app.feature.recording.ui.components.MainActionButton
 import dev.chirpboard.app.feature.recording.ui.components.RecordingGlowBackground
 import dev.chirpboard.app.feature.recording.ui.components.RecordingUiState
 import dev.chirpboard.app.feature.recording.ui.components.SecondaryButtonsRow
 import dev.chirpboard.app.feature.recording.ui.components.formatTimeMs
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 
 /**
@@ -286,148 +285,148 @@ fun RecordScreen(
         containerColor = MaterialTheme.colorScheme.surface,
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Background glow layer
-            RecordingGlowBackground(
-                isRecording = isRecording,
-                isPaused = isPaused,
-                modifier = Modifier.fillMaxSize(),
-            )
-
-            // Close button — subtle, top-start, semi-transparent
-            IconButton(
-                onClick = {
-                    if (isActive) {
-                        showBackDialog = true
-                    } else {
-                        onNavigateBack()
-                    }
-                },
-                modifier =
-                    Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp)
-                        .size(48.dp),
-                colors =
-                    IconButtonDefaults.iconButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    ),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = stringResource(R.string.desc_close),
-                    modifier = Modifier.size(24.dp),
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Background glow layer
+                RecordingGlowBackground(
+                    isRecording = isRecording,
+                    isPaused = isPaused,
+                    modifier = Modifier.fillMaxSize(),
                 )
-            }
 
-            // Main content
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Timer display
-                Text(
-                    text = formatTimeMs(elapsedMs),
-                    style =
-                        MaterialTheme.typography.displayLarge.copy(
-                            fontSize = 72.sp,
-                            fontWeight = FontWeight.Light,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 2.sp,
+                // Close button — subtle, top-start, semi-transparent
+                IconButton(
+                    onClick = {
+                        if (isActive) {
+                            showBackDialog = true
+                        } else {
+                            onNavigateBack()
+                        }
+                    },
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .size(48.dp),
+                    colors =
+                        IconButtonDefaults.iconButtonColors(
+                            contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                         ),
-                    color = timerColor,
-                )
-
-                // Status text with animated color
-                val statusTextColor by animateColorAsState(
-                    targetValue =
-                        when {
-                            recordingState is RecordingState.Recording -> MaterialTheme.colorScheme.error
-                            recordingState is RecordingState.Paused -> MaterialTheme.colorScheme.tertiary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    animationSpec = tween(400, easing = FastOutSlowInEasing),
-                    label = "statusTextColor",
-                )
-
-                Crossfade(
-                    targetState =
-                        when {
-                            recordingState is RecordingState.Recording -> "Recording"
-                            recordingState is RecordingState.Starting -> "Starting..."
-                            recordingState is RecordingState.Paused -> "Paused"
-                            recordingState is RecordingState.Stopping -> "Saving..."
-                            hadRecordingSession -> "Saved"
-                            else -> "Ready"
-                        },
-                    animationSpec = tween(250, easing = FastOutSlowInEasing),
-                    label = "statusText",
-                ) { text ->
-                    Text(
-                        text = text,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = statusTextColor,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                // Audio waveform
-                AudioWaveform(
-                    amplitudes = amplitudeHistory,
-                    isActive = isRecording,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                // Main action button
-                // When recording: Shows STOP icon, stops and saves
-                // When idle: Shows MIC icon, starts recording
-                MainActionButton(
-                    state = uiState,
-                    recordingColor = MaterialTheme.colorScheme.error,
-                    onStartRecording = { viewModel.startRecording(context) },
-                    onPause = { viewModel.pauseRecording(context) },
-                    onResume = { viewModel.resumeRecording(context) },
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Secondary buttons (visible when recording)
-                AnimatedVisibility(
-                    visible = isActive,
-                    enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
-                    exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 2 },
                 ) {
-                    SecondaryButtonsRow(
-                        onDone = {
-                            // Done = stop, save, and navigate to transcription
-                            pendingNavigateBack = true
-                            viewModel.stopRecording(context)
-                        },
-                        onCancel = {
-                            // Cancel = show confirmation dialog
-                            showCancelDialog = true
-                        },
-                        onRestart = {
-                            // Restart = show confirmation, then discard and start fresh
-                            showRestartDialog = true
-                        },
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = stringResource(R.string.desc_close),
+                        modifier = Modifier.size(24.dp),
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                // Main content
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    // Timer display
+                    Text(
+                        text = formatTimeMs(elapsedMs),
+                        style =
+                            MaterialTheme.typography.displayLarge.copy(
+                                fontSize = 72.sp,
+                                fontWeight = FontWeight.Light,
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 2.sp,
+                            ),
+                        color = timerColor,
+                    )
+
+                    // Status text with animated color
+                    val statusTextColor by animateColorAsState(
+                        targetValue =
+                            when {
+                                recordingState is RecordingState.Recording -> MaterialTheme.colorScheme.error
+                                recordingState is RecordingState.Paused -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        animationSpec = tween(400, easing = FastOutSlowInEasing),
+                        label = "statusTextColor",
+                    )
+
+                    Crossfade(
+                        targetState =
+                            when {
+                                recordingState is RecordingState.Recording -> "Recording"
+                                recordingState is RecordingState.Starting -> "Starting..."
+                                recordingState is RecordingState.Paused -> "Paused"
+                                recordingState is RecordingState.Stopping -> "Saving..."
+                                hadRecordingSession -> "Saved"
+                                else -> "Ready"
+                            },
+                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                        label = "statusText",
+                    ) { text ->
+                        Text(
+                            text = text,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = statusTextColor,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(48.dp))
+
+                    // Audio waveform
+                    AudioWaveform(
+                        amplitudes = amplitudeHistory,
+                        isActive = isRecording,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+
+                    Spacer(modifier = Modifier.height(48.dp))
+
+                    // Main action button
+                    // When recording: Shows STOP icon, stops and saves
+                    // When idle: Shows MIC icon, starts recording
+                    MainActionButton(
+                        state = uiState,
+                        recordingColor = MaterialTheme.colorScheme.error,
+                        onStartRecording = { viewModel.startRecording(context) },
+                        onPause = { viewModel.pauseRecording(context) },
+                        onResume = { viewModel.resumeRecording(context) },
+                    )
+
+                    Spacer(modifier = Modifier.height(32.dp))
+
+                    // Secondary buttons (visible when recording)
+                    AnimatedVisibility(
+                        visible = isActive,
+                        enter = fadeIn(tween(300)) + slideInVertically(tween(300)) { it / 2 },
+                        exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { it / 2 },
+                    ) {
+                        SecondaryButtonsRow(
+                            onDone = {
+                                // Done = stop, save, and navigate to transcription
+                                pendingNavigateBack = true
+                                viewModel.stopRecording(context)
+                            },
+                            onCancel = {
+                                // Cancel = show confirmation dialog
+                                showCancelDialog = true
+                            },
+                            onRestart = {
+                                // Restart = show confirmation, then discard and start fresh
+                                showRestartDialog = true
+                            },
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+                }
             }
         }
     }
-}
 }

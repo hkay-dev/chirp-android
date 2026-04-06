@@ -9,7 +9,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -34,32 +33,34 @@ fun BreathingPulse(
     modifier: Modifier = Modifier,
     baseSize: Dp = 72.dp,
     expandedSize: Dp = 96.dp,
-    color: Color = MaterialTheme.colorScheme.primary
+    color: Color = MaterialTheme.colorScheme.primary,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "breathing_pulse")
 
-    val progress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "pulse_progress"
-    )
+    val progress =
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(durationMillis = 1200),
+                    repeatMode = RepeatMode.Restart,
+                ),
+            label = "pulse_progress",
+        )
 
     if (isActive) {
-        val currentSize = baseSize + (expandedSize - baseSize) * progress
-        val alpha = 0.3f * (1f - progress)
-
         Canvas(
-            modifier = modifier.size(expandedSize)
+            modifier = modifier.size(expandedSize),
         ) {
+            val progressValue = progress.value
+            val currentSize = baseSize + (expandedSize - baseSize) * progressValue
+            val alpha = 0.3f * (1f - progressValue)
             val radius = currentSize.toPx() / 2
             drawCircle(
                 color = color.copy(alpha = alpha),
                 radius = radius,
-                style = Stroke(width = 2.dp.toPx())
+                style = Stroke(width = 2.dp.toPx()),
             )
         }
     }

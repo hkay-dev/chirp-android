@@ -49,8 +49,7 @@ sealed class PlaybackState {
 @Singleton
 class AudioPlayer
     @Inject
-    constructor(
-    ) {
+    constructor() {
         private var mediaPlayer: MediaPlayer? = null
         private var progressJob: Job? = null
         private val scope = CoroutineScope(Dispatchers.Main)
@@ -89,50 +88,53 @@ class AudioPlayer
                 val player = MediaPlayer()
                 mediaPlayer = player
                 player.apply {
-                        setDataSource(filePath)
-                        setOnPreparedListener { mp ->
-                            isPrepared = true
-                            val duration = mp.duration.toLong()
-                            _state.value = PlaybackState.Paused(filePath, 0, duration)
-                            if (autoPlay) {
-                                play()
-                            }
+                    setDataSource(filePath)
+                    setOnPreparedListener { mp ->
+                        isPrepared = true
+                        val duration = mp.duration.toLong()
+                        _state.value = PlaybackState.Paused(filePath, 0, duration)
+                        if (autoPlay) {
+                            play()
                         }
-                        setOnCompletionListener {
-                            val duration = if (isPrepared) it.duration.toLong() else 0
-                            _state.value = PlaybackState.Paused(filePath, duration, duration)
-                            progressJob?.cancel()
-                        }
-                        setOnErrorListener { _, what, extra ->
-                            isPrepared = false
-                            android.util.Log.e("AudioPlayer", "MediaPlayer error: what=$what extra=$extra path=$filePath")
-                            val errorMsg =
-                                when (what) {
-                                    MediaPlayer.MEDIA_ERROR_UNKNOWN -> {
-                                        // extra gives more detail for MEDIA_ERROR_UNKNOWN
-                                        when (extra) {
-                                            -2147483648 -> "Unsupported audio format"
-                                            -1004 -> "File not found"
-                                            -1007 -> "Connection timeout"
-                                            else -> "Unable to play audio"
-                                        }
-                                    }
-
-                                    MediaPlayer.MEDIA_ERROR_SERVER_DIED -> {
-                                        "Media server error"
-                                    }
-
-                                    else -> {
-                                        "Playback error"
+                    }
+                    setOnCompletionListener {
+                        val duration = if (isPrepared) it.duration.toLong() else 0
+                        _state.value = PlaybackState.Paused(filePath, duration, duration)
+                        progressJob?.cancel()
+                    }
+                    setOnErrorListener { _, what, extra ->
+                        isPrepared = false
+                        android.util.Log.e("AudioPlayer", "MediaPlayer error: what=$what extra=$extra path=$filePath")
+                        val errorMsg =
+                            when (what) {
+                                MediaPlayer.MEDIA_ERROR_UNKNOWN -> {
+                                    // extra gives more detail for MEDIA_ERROR_UNKNOWN
+                                    when (extra) {
+                                        -2147483648 -> "Unsupported audio format"
+                                        -1004 -> "File not found"
+                                        -1007 -> "Connection timeout"
+                                        else -> "Unable to play audio"
                                     }
                                 }
-                            _state.value = PlaybackState.Error(errorMsg)
-                            true
-                        }
-                        prepareAsync()
+
+                                MediaPlayer.MEDIA_ERROR_SERVER_DIED -> {
+                                    "Media server error"
+                                }
+
+                                else -> {
+                                    "Playback error"
+                                }
+                            }
+                        _state.value = PlaybackState.Error(errorMsg)
+                        true
                     }
+                    prepareAsync()
+                }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                mediaPlayer?.release()
+                mediaPlayer = null
+                isPrepared = false
                 android.util.Log.e("AudioPlayer", "Failed to load audio", e)
                 _state.value = PlaybackState.Error("Failed to load audio")
             }

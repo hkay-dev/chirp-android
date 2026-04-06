@@ -10,14 +10,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.util.formatAsDuration
+import dev.chirpboard.app.feature.recording.R
 
 /**
  * Large FAB-style record button with animation.
@@ -33,22 +32,22 @@ fun RecordButton(
             recordingState is RecordingState.Starting
 
     // Pulsing animation when recording
-    val scale = if (isRecording) {
-        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-        val animatedScale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.1f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(600, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "scale",
-        )
-        animatedScale
-    } else {
-        1f
-    }
+    val scaleAnimation =
+        if (isRecording) {
+            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+            infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.1f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(600, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "scale",
+            )
+        } else {
+            null
+        }
 
     val backgroundColor by animateColorAsState(
         targetValue =
@@ -78,13 +77,25 @@ fun RecordButton(
         // Record button
         LargeFloatingActionButton(
             onClick = onClick,
-            modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+            modifier =
+                Modifier.graphicsLayer {
+                    val scale = scaleAnimation?.value ?: 1f
+                    scaleX = scale
+                    scaleY = scale
+                },
             containerColor = backgroundColor,
             contentColor = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
         ) {
             Icon(
                 imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                contentDescription = if (isRecording) stringResource(R.string.desc_stop_recording) else stringResource(R.string.desc_start_recording),
+                contentDescription =
+                    if (isRecording) {
+                        stringResource(
+                            R.string.desc_stop_recording,
+                        )
+                    } else {
+                        stringResource(R.string.desc_start_recording)
+                    },
                 modifier = Modifier.size(36.dp),
             )
         }
@@ -135,7 +146,14 @@ fun CompactRecordButton(
     ) {
         Icon(
             imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-            contentDescription = if (isRecording) stringResource(R.string.desc_stop_recording) else stringResource(R.string.desc_start_recording),
+            contentDescription =
+                if (isRecording) {
+                    stringResource(
+                        R.string.desc_stop_recording,
+                    )
+                } else {
+                    stringResource(R.string.desc_start_recording)
+                },
         )
     }
 }

@@ -1,0 +1,58 @@
+{
+  "iterations": [
+    {
+      "iteration": 1,
+      "startedAt": "2026-04-06T18:29:38.759Z",
+      "endedAt": "2026-04-06T18:56:09.914Z",
+      "durationMs": 1584352,
+      "agent": "opencode",
+      "model": "",
+      "toolsUsed": {},
+      "filesModified": [
+        "app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt",
+        "app/src/main/java/dev/chirpboard/app/VoiceRecognitionDialog.kt",
+        "app/src/main/java/dev/chirpboard/app/debug/DevMenuScreen.kt",
+        "app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt",
+        "app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt",
+        "app/src/main/java/dev/chirpboard/app/navigation/AppNavigation.kt",
+        "check_cancellation.sh",
+        "core/src/main/java/dev/chirpboard/app/core/ui/components/BreathingPulse.kt",
+        "core/src/main/java/dev/chirpboard/app/core/ui/components/ThinkingDots.kt",
+        "core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt",
+        "data/src/main/java/dev/chirpboard/app/data/dao/ProfileDao.kt",
+        "data/src/main/java/dev/chirpboard/app/data/dao/TagDao.kt",
+        "data/src/main/java/dev/chirpboard/app/data/dao/TranscriptDao.kt",
+        "data/src/main/java/dev/chirpboard/app/data/repository/ProfileRepository.kt",
+        "data/src/main/java/dev/chirpboard/app/data/repository/RecordingRepository.kt",
+        "data/src/main/java/dev/chirpboard/app/data/repository/TagRepository.kt",
+        "feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt",
+        "feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/ChirpKeyboardService.kt",
+        "feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt",
+        "feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/ui/KeyboardUI.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingStopOrchestrator.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeScreen.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordButton.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordScreen.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/replacement/WordReplacementsScreen.kt",
+        "feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagManagementScreen.kt",
+        "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt",
+        "feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt",
+        ".ralph/",
+        "check_cancellations.py",
+        "exception_catches.txt"
+      ],
+      "exitCode": 0,
+      "completionDetected": false,
+      "errors": []
+    }
+  ],
+  "totalDurationMs": 1584352,
+  "struggleIndicators": {
+    "repeatedErrors": {},
+    "noProgressIterations": 0,
+    "shortIterations": 0
+  }
+}

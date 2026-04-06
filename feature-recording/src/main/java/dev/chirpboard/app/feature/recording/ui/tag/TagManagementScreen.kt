@@ -41,30 +41,31 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.feature.recording.R
 
 /**
  * Full screen for managing all tags.
  */
 @OptIn(ExperimentalMaterial3Api::class)
-
 @androidx.compose.runtime.Stable
-data class TagItemUiState(val tag: dev.chirpboard.app.data.entity.Tag)
+data class TagItemUiState(
+    val tag: dev.chirpboard.app.data.entity.Tag,
+)
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 fun TagManagementScreen(
@@ -235,9 +236,10 @@ private fun TagItemCard(
 ) {
     val tag = tagItem.tag
     val defaultColor = MaterialTheme.colorScheme.primary
-    val tagColor = remember(tag.color, defaultColor) {
-        tag.color?.let { parseColor(it) } ?: defaultColor
-    }
+    val tagColor =
+        remember(tag.color, defaultColor) {
+            tag.color?.let { parseColor(it) } ?: defaultColor
+        }
 
     Card(
         modifier = modifier.fillMaxWidth(),

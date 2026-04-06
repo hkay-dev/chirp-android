@@ -10,21 +10,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.R
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.debug.DevMenuScreen
 import dev.chirpboard.app.download.ModelReadinessState
@@ -272,7 +271,15 @@ fun AppNavHost(
                                 }
                             },
                         ) {
-                            Text(if (content?.openSettingsOnConfirm == true) stringResource(R.string.go_to_settings) else stringResource(R.string.dismiss))
+                            Text(
+                                if (content?.openSettingsOnConfirm ==
+                                    true
+                                ) {
+                                    stringResource(R.string.go_to_settings)
+                                } else {
+                                    stringResource(R.string.dismiss)
+                                },
+                            )
                         }
                     },
                     dismissButton = {

@@ -5,12 +5,19 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import androidx.room.Transaction
+import androidx.room.Update
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.Tag
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
+
+data class RecordingTagRow(
+    val recordingId: UUID,
+    val id: UUID,
+    val name: String,
+    val color: String?,
+)
 
 @Dao
 interface TagDao {
@@ -39,6 +46,17 @@ interface TagDao {
     suspend fun deleteById(id: UUID)
 
     // Recording-Tag relationships
+
+    @Query(
+        """
+        SELECT rt.recordingId AS recordingId, t.id AS id, t.name AS name, t.color AS color
+        FROM recording_tags rt
+        INNER JOIN tags t ON t.id = rt.tagId
+        WHERE rt.recordingId IN (:recordingIds)
+        ORDER BY rt.recordingId, t.name ASC
+    """,
+    )
+    suspend fun getTagsForRecordingIds(recordingIds: List<UUID>): List<RecordingTagRow>
 
     @Query(
         """

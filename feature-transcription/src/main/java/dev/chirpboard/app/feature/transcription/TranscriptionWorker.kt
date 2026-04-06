@@ -19,6 +19,7 @@ import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
+import kotlinx.coroutines.CancellationException
 import java.io.File
 import java.util.UUID
 
@@ -70,6 +71,7 @@ class TranscriptionWorker
             return try {
                 transcribeRecording(recordingId, correlationId)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 handleError(recordingId, correlationId, e)
             }
         }
@@ -195,6 +197,7 @@ class TranscriptionWorker
                 Log.e(TAG, "I/O error during decode/transcription (may be retried)", e)
                 throw e
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 Log.e(TAG, "Failed to decode/transcribe audio file", e)
                 throw e
             }
@@ -357,6 +360,7 @@ class TranscriptionWorker
                     errorMessage,
                 )
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 // If we can't update the status, just log and continue.
                 // The recording will remain in its previous state.
             }

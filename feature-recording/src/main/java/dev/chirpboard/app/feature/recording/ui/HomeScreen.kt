@@ -1,7 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui
 
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -49,7 +48,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,8 +64,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,17 +73,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.StatsPillRow
 import dev.chirpboard.app.core.util.formatAsDuration
@@ -95,6 +93,7 @@ import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -490,9 +489,10 @@ private fun RecordingListItem(
             Spacer(modifier = Modifier.height(2.dp))
 
             // Metadata line: "3h ago · 4:32"
-            val metadataText = remember(recording.createdAt, recording.durationMs) {
-                "${recording.createdAt.formatRelative()} · ${recording.durationMs.formatAsDuration()}"
-            }
+            val metadataText =
+                remember(recording.createdAt, recording.durationMs) {
+                    "${recording.createdAt.formatRelative()} · ${recording.durationMs.formatAsDuration()}"
+                }
             Text(
                 text = metadataText,
                 style = MaterialTheme.typography.labelMedium,
@@ -551,7 +551,10 @@ private fun RecordingListItem(
  * Compact tag chip for list items.
  */
 @Composable
-private fun CompactTagChip(name: String, colorHex: String?) {
+private fun CompactTagChip(
+    name: String,
+    colorHex: String?,
+) {
     // Memoize color parsing to avoid redundant computation during list scrolling
     // Color.parseColor is expensive and list items recompose frequently during scroll
     val defaultColor = MaterialTheme.colorScheme.tertiary
@@ -723,22 +726,22 @@ fun BreathingExtendedFab(
     isChecking: Boolean,
     onClick: () -> Unit,
 ) {
-    val scale = if (!isChecking) {
-        val infiniteTransition = rememberInfiniteTransition(label = "breathing")
-        val animatedScale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.03f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "fab_scale",
-        )
-        animatedScale
-    } else {
-        1f
-    }
+    val scaleAnimation =
+        if (!isChecking) {
+            val infiniteTransition = rememberInfiniteTransition(label = "breathing")
+            infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.03f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "fab_scale",
+            )
+        } else {
+            null
+        }
 
     ExtendedFloatingActionButton(
         onClick = {
@@ -768,10 +771,10 @@ fun BreathingExtendedFab(
         modifier =
             Modifier
                 .graphicsLayer {
+                    val scale = scaleAnimation?.value ?: 1f
                     scaleX = scale
                     scaleY = scale
-                }
-                .testTag(HomeScreenRecordEntryTestTags.RecordFab),
+                }.testTag(HomeScreenRecordEntryTestTags.RecordFab),
     )
 }
 
@@ -785,16 +788,17 @@ fun AnimatedEmptyState(
     modifier: Modifier = Modifier,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "floating")
-    val offsetY by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 8f,
-        animationSpec =
-            infiniteRepeatable(
-                animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse,
-            ),
-        label = "float_offset",
-    )
+    val offsetY =
+        infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 8f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+            label = "float_offset",
+        )
 
     Column(
         modifier =
@@ -811,7 +815,7 @@ fun AnimatedEmptyState(
             modifier =
                 Modifier
                     .size(80.dp)
-                    .graphicsLayer { translationY = -offsetY },
+                    .graphicsLayer { translationY = -offsetY.value },
             tint = MaterialTheme.colorScheme.primary,
         )
 

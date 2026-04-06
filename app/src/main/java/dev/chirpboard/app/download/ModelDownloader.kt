@@ -22,7 +22,7 @@ class ModelDownloader(
     private val context: Context,
     private val modelFiles: List<ModelFile> = MODEL_FILES,
     private val modelDirProvider: (Context) -> File = { ensureModelDir(it) },
-    private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") }
+    private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") },
 ) {
     companion object {
         private const val TAG = "ModelDownloader"
@@ -32,28 +32,29 @@ class ModelDownloader(
 
         private const val MIN_STORAGE_BUFFER_BYTES = 50L * 1024L * 1024L
 
-        private val MODEL_FILES = listOf(
-            ModelFile(
-                name = "encoder.int8.onnx",
-                expectedSize = 652_184_296L,
-                expectedSha256 = "a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab"
-            ),
-            ModelFile(
-                name = "decoder.int8.onnx",
-                expectedSize = 7_257_753L,
-                expectedSha256 = "b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e"
-            ),
-            ModelFile(
-                name = "joiner.int8.onnx",
-                expectedSize = 1_739_080L,
-                expectedSha256 = "7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2"
-            ),
-            ModelFile(
-                name = "tokens.txt",
-                expectedSize = 9_384L,
-                expectedSha256 = "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d"
+        private val MODEL_FILES =
+            listOf(
+                ModelFile(
+                    name = "encoder.int8.onnx",
+                    expectedSize = 652_184_296L,
+                    expectedSha256 = "a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab",
+                ),
+                ModelFile(
+                    name = "decoder.int8.onnx",
+                    expectedSize = 7_257_753L,
+                    expectedSha256 = "b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e",
+                ),
+                ModelFile(
+                    name = "joiner.int8.onnx",
+                    expectedSize = 1_739_080L,
+                    expectedSha256 = "7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2",
+                ),
+                ModelFile(
+                    name = "tokens.txt",
+                    expectedSize = 9_384L,
+                    expectedSha256 = "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+                ),
             )
-        )
 
         private val processVerificationCache = mutableMapOf<String, VerificationCacheEntry>()
         private val processCacheLock = Any()
@@ -64,7 +65,7 @@ class ModelDownloader(
                 processVerificationCache.clear()
             }
         }
-        
+
         /**
          * Get the persistent model directory that survives "Clear Data".
          * Uses Documents/.chirpboard/ in shared storage which requires MANAGE_EXTERNAL_STORAGE
@@ -72,16 +73,17 @@ class ModelDownloader(
          * Falls back to internal storage if the persistent path is not writable.
          */
         fun ensureModelDir(context: Context): File {
-            val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
-                android.os.Environment.DIRECTORY_DOCUMENTS
-            )
+            val docsDir =
+                android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOCUMENTS,
+                )
             val persistentDir = File(docsDir, ".chirpboard/models/$MODEL_DIR")
-            
+
             // Try to create and verify writable
             if (persistentDir.exists() || persistentDir.mkdirs()) {
                 return persistentDir
             }
-            
+
             // If we can't write to Documents, fall back to internal storage
             Log.w(TAG, "Cannot write to persistent path ${persistentDir.absolutePath}, falling back to internal")
             return File(context.filesDir, "models/$MODEL_DIR")
@@ -91,46 +93,54 @@ class ModelDownloader(
     data class ModelFile(
         val name: String,
         val expectedSize: Long,
-        val expectedSha256: String
+        val expectedSha256: String,
     )
 
     private data class VerificationCacheEntry(
         val size: Long,
         val lastModified: Long,
         val expectedSha256: String,
-        val valid: Boolean
+        val valid: Boolean,
     )
 
     private enum class FileValidationStatus {
         VALID,
         MISSING,
-        INVALID
+        INVALID,
     }
 
     private data class FileValidationResult(
         val status: FileValidationStatus,
-        val source: ModelReadinessVerificationSource? = null
+        val source: ModelReadinessVerificationSource? = null,
     )
 
     sealed interface DownloadState {
-        data class Progress(val file: String, val bytesDownloaded: Long, val totalBytes: Long) : DownloadState
+        data class Progress(
+            val file: String,
+            val bytesDownloaded: Long,
+            val totalBytes: Long,
+        ) : DownloadState
+
         data object Complete : DownloadState
-        data class Error(val message: String) : DownloadState
+
+        data class Error(
+            val message: String,
+        ) : DownloadState
     }
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(60, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .build()
+    private val client =
+        OkHttpClient
+            .Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .build()
 
     private val verificationPrefs by lazy {
         context.getSharedPreferences(VERIFICATION_PREFS_NAME, Context.MODE_PRIVATE)
     }
 
-    fun isModelDownloaded(): Boolean {
-        return evaluateModelReadiness().isReady
-    }
+    fun isModelDownloaded(): Boolean = evaluateModelReadiness().isReady
 
     internal fun evaluateModelReadiness(): ModelReadinessEvaluation {
         val modelPath = modelDirProvider(context)
@@ -147,17 +157,18 @@ class ModelDownloader(
             val persistentResult = validateModelCandidate(persistentFile, modelFile)
             val legacyResult = validateModelCandidate(legacyFile, modelFile)
 
-            val winner = when {
-                persistentResult.status == FileValidationStatus.VALID -> persistentResult
-                legacyResult.status == FileValidationStatus.VALID -> legacyResult
-                else -> null
-            }
+            val winner =
+                when {
+                    persistentResult.status == FileValidationStatus.VALID -> persistentResult
+                    legacyResult.status == FileValidationStatus.VALID -> legacyResult
+                    else -> null
+                }
 
             if (winner != null) {
                 winner.source?.let(sources::add)
                 Log.d(
                     TAG,
-                    "  ${modelFile.name}: valid via ${winner.source} (persistent=${persistentFile.exists()}, legacy=${legacyFile.exists()})"
+                    "  ${modelFile.name}: valid via ${winner.source} (persistent=${persistentFile.exists()}, legacy=${legacyFile.exists()})",
                 )
                 return@forEach
             }
@@ -173,144 +184,157 @@ class ModelDownloader(
 
             Log.d(
                 TAG,
-                "  ${modelFile.name}: unavailable (persistent=${persistentResult.status}, legacy=${legacyResult.status})"
+                "  ${modelFile.name}: unavailable (persistent=${persistentResult.status}, legacy=${legacyResult.status})",
             )
         }
 
         if (hasIntegrityMismatch || hasMissing) {
-            val reason = if (hasIntegrityMismatch) {
-                ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
-            } else {
-                ModelReadinessUnavailableReason.MISSING_MODEL_FILES
-            }
+            val reason =
+                if (hasIntegrityMismatch) {
+                    ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
+                } else {
+                    ModelReadinessUnavailableReason.MISSING_MODEL_FILES
+                }
             Log.d(TAG, "isModelDownloaded = false (reason=$reason)")
             return ModelReadinessEvaluation(
                 isReady = false,
-                unavailableReason = reason
+                unavailableReason = reason,
             )
         }
 
-        val source = when {
-            ModelReadinessVerificationSource.CHECKSUM_VERIFICATION in sources ->
-                ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+        val source =
+            when {
+                ModelReadinessVerificationSource.CHECKSUM_VERIFICATION in sources -> {
+                    ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+                }
 
-            ModelReadinessVerificationSource.PERSISTED_CACHE in sources ->
-                ModelReadinessVerificationSource.PERSISTED_CACHE
+                ModelReadinessVerificationSource.PERSISTED_CACHE in sources -> {
+                    ModelReadinessVerificationSource.PERSISTED_CACHE
+                }
 
-            else -> ModelReadinessVerificationSource.PROCESS_CACHE
-        }
+                else -> {
+                    ModelReadinessVerificationSource.PROCESS_CACHE
+                }
+            }
 
         Log.d(TAG, "isModelDownloaded = true (source=$source)")
         return ModelReadinessEvaluation(
             isReady = true,
-            verificationSource = source
+            verificationSource = source,
         )
     }
 
-    fun downloadModel(): Flow<DownloadState> = flow {
-        val modelPath = modelDirProvider(context)
-        modelPath.mkdirs()
+    fun downloadModel(): Flow<DownloadState> =
+        flow {
+            val modelPath = modelDirProvider(context)
+            modelPath.mkdirs()
 
-        var totalDownloaded = 0L
-        val totalSize = modelFiles.sumOf { it.expectedSize }
+            var totalDownloaded = 0L
+            val totalSize = modelFiles.sumOf { it.expectedSize }
 
-        val requiredDownloadBytes = modelFiles.sumOf { file ->
-            val existing = File(modelPath, file.name)
-            if (isValidDownloadedFile(existing, file)) 0L else file.expectedSize
-        }
-
-        val availableBytes = getAvailableBytes(modelPath)
-        val requiredWithBuffer = requiredDownloadBytes + MIN_STORAGE_BUFFER_BYTES
-        if (!hasSufficientStorage(availableBytes, requiredWithBuffer)) {
-            emit(
-                DownloadState.Error(
-                    "Insufficient storage. Need about ${requiredWithBuffer / (1024 * 1024)} MB free."
-                )
-            )
-            return@flow
-        }
-
-        for (file in modelFiles) {
-            val destFile = File(modelPath, file.name)
-            if (isValidDownloadedFile(destFile, file)) {
-                totalDownloaded += destFile.length()
-                emit(DownloadState.Progress(file.name, totalDownloaded, totalSize))
-                continue
-            }
-
-            if (destFile.exists()) {
-                destFile.delete()
-            }
-
-            val tempFile = File(modelPath, "${file.name}.download")
-            if (tempFile.exists()) {
-                tempFile.delete()
-            }
-
-            val url = "$BASE_URL/${file.name}"
-            Log.i(TAG, "Downloading $url")
-
-            try {
-                val request = Request.Builder().url(url).build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        emit(DownloadState.Error("Failed to download ${file.name}: ${response.code}"))
-                        return@flow
-                    }
-
-                    val body = response.body ?: run {
-                        emit(DownloadState.Error("Empty response for ${file.name}"))
-                        return@flow
-                    }
-
-                    val downloaded = body.byteStream().use { input ->
-                        writeInputStreamToTempFile(input, tempFile) { bytesRead ->
-                            emit(
-                                DownloadState.Progress(
-                                    file.name,
-                                    totalDownloaded + bytesRead,
-                                    totalSize
-                                )
-                            )
-                        }
-                    }
-
-                    if (!validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256)) {
-                        tempFile.delete()
-                        emit(DownloadState.Error("Checksum validation failed for ${file.name}"))
-                        return@flow
-                    }
-
-                    if (!promoteTempFileAtomically(tempFile, destFile)) {
-                        tempFile.delete()
-                        emit(DownloadState.Error("Failed to finalize ${file.name}"))
-                        return@flow
-                    }
-
-                    cacheValidationResult(destFile, file, valid = true)
-
-                    totalDownloaded += downloaded
-                    Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes")
+            val requiredDownloadBytes =
+                modelFiles.sumOf { file ->
+                    val existing = File(modelPath, file.name)
+                    if (isValidDownloadedFile(existing, file)) 0L else file.expectedSize
                 }
 
-            } catch (e: Exception) {
-                Log.e(TAG, "Download failed for ${file.name}", e)
-                emit(DownloadState.Error("Download failed: ${e.message}"))
-                if (e is kotlinx.coroutines.CancellationException) throw e
+            val availableBytes = getAvailableBytes(modelPath)
+            val requiredWithBuffer = requiredDownloadBytes + MIN_STORAGE_BUFFER_BYTES
+            if (!hasSufficientStorage(availableBytes, requiredWithBuffer)) {
+                emit(
+                    DownloadState.Error(
+                        "Insufficient storage. Need about ${requiredWithBuffer / (1024 * 1024)} MB free.",
+                    ),
+                )
                 return@flow
-            } finally {
-                if (tempFile.exists()) tempFile.delete()
             }
-        }
 
-        emit(DownloadState.Complete)
-    }.flowOn(Dispatchers.IO)
+            for (file in modelFiles) {
+                val destFile = File(modelPath, file.name)
+                if (isValidDownloadedFile(destFile, file)) {
+                    totalDownloaded += destFile.length()
+                    emit(DownloadState.Progress(file.name, totalDownloaded, totalSize))
+                    continue
+                }
 
-    private fun isValidDownloadedFile(file: File, modelFile: ModelFile): Boolean {
-        return validateModelCandidate(file, modelFile).status == FileValidationStatus.VALID
-    }
+                if (destFile.exists()) {
+                    destFile.delete()
+                }
 
-    private fun validateModelCandidate(file: File, modelFile: ModelFile): FileValidationResult {
+                val tempFile = File(modelPath, "${file.name}.download")
+                if (tempFile.exists()) {
+                    tempFile.delete()
+                }
+
+                val url = "$BASE_URL/${file.name}"
+                Log.i(TAG, "Downloading $url")
+
+                try {
+                    val request = Request.Builder().url(url).build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            emit(DownloadState.Error("Failed to download ${file.name}: ${response.code}"))
+                            return@flow
+                        }
+
+                        val body =
+                            response.body ?: run {
+                                emit(DownloadState.Error("Empty response for ${file.name}"))
+                                return@flow
+                            }
+
+                        val downloaded =
+                            body.byteStream().use { input ->
+                                writeInputStreamToTempFile(input, tempFile) { bytesRead ->
+                                    emit(
+                                        DownloadState.Progress(
+                                            file.name,
+                                            totalDownloaded + bytesRead,
+                                            totalSize,
+                                        ),
+                                    )
+                                }
+                            }
+
+                        if (!validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256)) {
+                            tempFile.delete()
+                            emit(DownloadState.Error("Checksum validation failed for ${file.name}"))
+                            return@flow
+                        }
+
+                        if (!promoteTempFileAtomically(tempFile, destFile)) {
+                            tempFile.delete()
+                            emit(DownloadState.Error("Failed to finalize ${file.name}"))
+                            return@flow
+                        }
+
+                        cacheValidationResult(destFile, file, valid = true)
+
+                        totalDownloaded += downloaded
+                        Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes")
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e(TAG, "Download failed for ${file.name}", e)
+                    emit(DownloadState.Error("Download failed: ${e.message}"))
+                    return@flow
+                } finally {
+                    if (tempFile.exists()) tempFile.delete()
+                }
+            }
+
+            emit(DownloadState.Complete)
+        }.flowOn(Dispatchers.IO)
+
+    private fun isValidDownloadedFile(
+        file: File,
+        modelFile: ModelFile,
+    ): Boolean = validateModelCandidate(file, modelFile).status == FileValidationStatus.VALID
+
+    private fun validateModelCandidate(
+        file: File,
+        modelFile: ModelFile,
+    ): FileValidationResult {
         if (!file.exists()) {
             clearCacheEntry(file.absolutePath)
             return FileValidationResult(FileValidationStatus.MISSING)
@@ -319,16 +343,17 @@ class ModelDownloader(
         val fileSize = file.length()
         val fileLastModified = file.lastModified()
 
-        val processEntry = synchronized(processCacheLock) {
-            processVerificationCache[file.absolutePath]
-        }
+        val processEntry =
+            synchronized(processCacheLock) {
+                processVerificationCache[file.absolutePath]
+            }
         if (
             processEntry != null &&
             !isCacheEntryUsable(
                 entry = processEntry,
                 size = fileSize,
                 lastModified = fileLastModified,
-                expectedSha256 = modelFile.expectedSha256
+                expectedSha256 = modelFile.expectedSha256,
             )
         ) {
             synchronized(processCacheLock) {
@@ -342,12 +367,12 @@ class ModelDownloader(
                 entry = processEntry,
                 size = fileSize,
                 lastModified = fileLastModified,
-                expectedSha256 = modelFile.expectedSha256
+                expectedSha256 = modelFile.expectedSha256,
             )
         ) {
             return FileValidationResult(
                 status = if (processEntry.valid) FileValidationStatus.VALID else FileValidationStatus.INVALID,
-                source = ModelReadinessVerificationSource.PROCESS_CACHE
+                source = ModelReadinessVerificationSource.PROCESS_CACHE,
             )
         }
 
@@ -358,7 +383,7 @@ class ModelDownloader(
                 entry = persistentEntry,
                 size = fileSize,
                 lastModified = fileLastModified,
-                expectedSha256 = modelFile.expectedSha256
+                expectedSha256 = modelFile.expectedSha256,
             )
         ) {
             synchronized(processCacheLock) {
@@ -366,7 +391,7 @@ class ModelDownloader(
             }
             return FileValidationResult(
                 status = if (persistentEntry.valid) FileValidationStatus.VALID else FileValidationStatus.INVALID,
-                source = ModelReadinessVerificationSource.PERSISTED_CACHE
+                source = ModelReadinessVerificationSource.PERSISTED_CACHE,
             )
         }
         if (persistentEntry != null) {
@@ -377,17 +402,22 @@ class ModelDownloader(
         cacheValidationResult(file, modelFile, valid)
         return FileValidationResult(
             status = if (valid) FileValidationStatus.VALID else FileValidationStatus.INVALID,
-            source = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+            source = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION,
         )
     }
 
-    private fun cacheValidationResult(file: File, modelFile: ModelFile, valid: Boolean) {
-        val cacheEntry = VerificationCacheEntry(
-            size = file.length(),
-            lastModified = file.lastModified(),
-            expectedSha256 = modelFile.expectedSha256,
-            valid = valid
-        )
+    private fun cacheValidationResult(
+        file: File,
+        modelFile: ModelFile,
+        valid: Boolean,
+    ) {
+        val cacheEntry =
+            VerificationCacheEntry(
+                size = file.length(),
+                lastModified = file.lastModified(),
+                expectedSha256 = modelFile.expectedSha256,
+                valid = valid,
+            )
 
         synchronized(processCacheLock) {
             processVerificationCache[file.absolutePath] = cacheEntry
@@ -399,12 +429,11 @@ class ModelDownloader(
         entry: VerificationCacheEntry,
         size: Long,
         lastModified: Long,
-        expectedSha256: String
-    ): Boolean {
-        return entry.size == size &&
+        expectedSha256: String,
+    ): Boolean =
+        entry.size == size &&
             entry.lastModified == lastModified &&
             entry.expectedSha256 == expectedSha256
-    }
 
     private fun readPersistentCacheEntry(filePath: String): VerificationCacheEntry? {
         val prefix = cacheKeyPrefix(filePath)
@@ -417,13 +446,17 @@ class ModelDownloader(
             size = verificationPrefs.getLong("$prefix:size", -1L),
             lastModified = verificationPrefs.getLong("$prefix:lastModified", -1L),
             expectedSha256 = verificationPrefs.getString("$prefix:expectedSha256", null).orEmpty(),
-            valid = verificationPrefs.getBoolean(validKey, false)
+            valid = verificationPrefs.getBoolean(validKey, false),
         )
     }
 
-    private fun writePersistentCacheEntry(filePath: String, entry: VerificationCacheEntry) {
+    private fun writePersistentCacheEntry(
+        filePath: String,
+        entry: VerificationCacheEntry,
+    ) {
         val prefix = cacheKeyPrefix(filePath)
-        verificationPrefs.edit()
+        verificationPrefs
+            .edit()
             .putLong("$prefix:size", entry.size)
             .putLong("$prefix:lastModified", entry.lastModified)
             .putString("$prefix:expectedSha256", entry.expectedSha256)
@@ -437,7 +470,8 @@ class ModelDownloader(
         }
 
         val prefix = cacheKeyPrefix(filePath)
-        verificationPrefs.edit()
+        verificationPrefs
+            .edit()
             .remove("$prefix:size")
             .remove("$prefix:lastModified")
             .remove("$prefix:expectedSha256")
@@ -446,31 +480,33 @@ class ModelDownloader(
     }
 
     private fun cacheKeyPrefix(filePath: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(filePath.toByteArray())
-            .joinToString("") { "%02x".format(it) }
+        val digest =
+            MessageDigest
+                .getInstance("SHA-256")
+                .digest(filePath.toByteArray())
+                .joinToString("") { "%02x".format(it) }
         return "verification:$digest"
     }
 
-    private fun getAvailableBytes(path: File): Long {
-        return try {
+    private fun getAvailableBytes(path: File): Long =
+        try {
             val target = if (path.exists()) path else path.parentFile ?: path
             StatFs(target.absolutePath).availableBytes
         } catch (e: Exception) {
             Log.w(TAG, "Failed to read free storage for ${path.absolutePath}", e)
             0L
         }
-    }
 }
 
-internal fun hasSufficientStorage(availableBytes: Long, requiredBytes: Long): Boolean {
-    return availableBytes >= requiredBytes
-}
+internal fun hasSufficientStorage(
+    availableBytes: Long,
+    requiredBytes: Long,
+): Boolean = availableBytes >= requiredBytes
 
 internal fun validateFileIntegrity(
     file: File,
     expectedSize: Long,
-    expectedSha256: String
+    expectedSha256: String,
 ): Boolean {
     if (!file.exists()) return false
     if (file.length() != expectedSize) return false
@@ -480,7 +516,7 @@ internal fun validateFileIntegrity(
 internal suspend fun writeInputStreamToTempFile(
     input: InputStream,
     tempFile: File,
-    onTotalBytesWritten: suspend (Long) -> Unit
+    onTotalBytesWritten: suspend (Long) -> Unit,
 ): Long {
     var downloaded = 0L
 
@@ -501,13 +537,16 @@ internal suspend fun writeInputStreamToTempFile(
     }
 }
 
-internal fun promoteTempFileAtomically(tempFile: File, destinationFile: File): Boolean {
+internal fun promoteTempFileAtomically(
+    tempFile: File,
+    destinationFile: File,
+): Boolean {
     return try {
         Files.move(
             tempFile.toPath(),
             destinationFile.toPath(),
             StandardCopyOption.REPLACE_EXISTING,
-            StandardCopyOption.ATOMIC_MOVE
+            StandardCopyOption.ATOMIC_MOVE,
         )
         true
     } catch (_: Exception) {

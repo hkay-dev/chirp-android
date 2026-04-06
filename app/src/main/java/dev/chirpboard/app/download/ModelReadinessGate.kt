@@ -23,24 +23,24 @@ fun interface ModelReadinessVerifier {
 data class ModelReadinessEvaluation(
     val isReady: Boolean,
     val verificationSource: ModelReadinessVerificationSource? = null,
-    val unavailableReason: ModelReadinessUnavailableReason? = null
+    val unavailableReason: ModelReadinessUnavailableReason? = null,
 )
 
 enum class ModelReadinessVerificationSource {
     PROCESS_CACHE,
     PERSISTED_CACHE,
-    CHECKSUM_VERIFICATION
+    CHECKSUM_VERIFICATION,
 }
 
 enum class ModelReadinessUnavailableReason {
     MISSING_MODEL_FILES,
-    INTEGRITY_MISMATCH
+    INTEGRITY_MISMATCH,
 }
 
 enum class VerificationTrigger {
     APP_STARTUP,
     HOME_VISIBLE,
-    HOME_RECORD_TAP
+    HOME_RECORD_TAP,
 }
 
 sealed interface ModelReadinessState {
@@ -48,34 +48,34 @@ sealed interface ModelReadinessState {
 
     data class Checking(
         val trigger: VerificationTrigger,
-        val startedAtEpochMs: Long
+        val startedAtEpochMs: Long,
     ) : ModelReadinessState
 
     data class Ready(
         val verifiedAtEpochMs: Long,
-        val source: ModelReadinessVerificationSource
+        val source: ModelReadinessVerificationSource,
     ) : ModelReadinessState
 
     data class Unavailable(
-        val reason: ModelReadinessUnavailableReason
+        val reason: ModelReadinessUnavailableReason,
     ) : ModelReadinessState
 
     data class Error(
-        val message: String
+        val message: String,
     ) : ModelReadinessState
 }
 
 sealed interface ModelReadyResult {
     data class Ready(
-        val source: ModelReadinessVerificationSource
+        val source: ModelReadinessVerificationSource,
     ) : ModelReadyResult
 
     data class Unavailable(
-        val reason: ModelReadinessUnavailableReason
+        val reason: ModelReadinessUnavailableReason,
     ) : ModelReadyResult
 
     data class Error(
-        val message: String
+        val message: String,
     ) : ModelReadyResult
 }
 
@@ -83,9 +83,8 @@ class ModelReadinessGate(
     private val verifier: ModelReadinessVerifier,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = { System.currentTimeMillis() },
-    private val gateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val gateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
-
     private val inFlightMutex = Mutex()
     private var inFlightVerification: Deferred<ModelReadyResult>? = null
 
@@ -107,18 +106,20 @@ class ModelReadinessGate(
             return ModelReadyResult.Ready(current.source)
         }
 
-        val verification = inFlightMutex.withLock {
-            val active = inFlightVerification
-            if (active != null && active.isActive) {
-                active
-            } else {
-                val startedAt = now()
-                _state.value = ModelReadinessState.Checking(trigger, startedAt)
-                gateScope.async(ioDispatcher) {
-                    verifyAndUpdateState(trigger)
-                }.also { inFlightVerification = it }
+        val verification =
+            inFlightMutex.withLock {
+                val active = inFlightVerification
+                if (active != null && active.isActive) {
+                    active
+                } else {
+                    val startedAt = now()
+                    _state.value = ModelReadinessState.Checking(trigger, startedAt)
+                    gateScope
+                        .async(ioDispatcher) {
+                            verifyAndUpdateState(trigger)
+                        }.also { inFlightVerification = it }
+                }
             }
-        }
 
         return try {
             verification.await()
@@ -137,22 +138,26 @@ class ModelReadinessGate(
             val evaluation = verifier.verify()
             val durationMs = (System.nanoTime() - startedNs) / 1_000_000
             if (evaluation.isReady) {
-                val source = evaluation.verificationSource
-                    ?: ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
-                _state.value = ModelReadinessState.Ready(
-                    verifiedAtEpochMs = now(),
-                    source = source
-                )
+                val source =
+                    evaluation.verificationSource
+                        ?: ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
+                _state.value =
+                    ModelReadinessState.Ready(
+                        verifiedAtEpochMs = now(),
+                        source = source,
+                    )
                 logDebug("Readiness verification passed in ${durationMs}ms (trigger=$trigger, source=$source)")
                 ModelReadyResult.Ready(source)
             } else {
-                val reason = evaluation.unavailableReason
-                    ?: ModelReadinessUnavailableReason.MISSING_MODEL_FILES
+                val reason =
+                    evaluation.unavailableReason
+                        ?: ModelReadinessUnavailableReason.MISSING_MODEL_FILES
                 _state.value = ModelReadinessState.Unavailable(reason)
                 logWarn("Readiness unavailable in ${durationMs}ms (trigger=$trigger, reason=$reason)")
                 ModelReadyResult.Unavailable(reason)
             }
         } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
             val durationMs = (System.nanoTime() - startedNs) / 1_000_000
             val message = error.message ?: "Unknown readiness verification error"
             _state.value = ModelReadinessState.Error(message)
@@ -169,7 +174,10 @@ class ModelReadinessGate(
         runCatching { Log.w(TAG, message) }
     }
 
-    private fun logError(message: String, error: Throwable) {
+    private fun logError(
+        message: String,
+        error: Throwable,
+    ) {
         runCatching { Log.e(TAG, message, error) }
     }
 

@@ -1,0 +1,457 @@
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                transcribeRecording(recordingId, correlationId)
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                if (e is CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                handleError(recordingId, correlationId, e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                if (e is CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                Log.e(TAG, "Failed to decode/transcribe audio file", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                )
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                ReliabilityEventLogger.log(
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                )
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                if (e is CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionWorker.kt-                // If we can't update the status, just log and continue.
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt-            stat.availableBytes / (1024 * 1024)
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt:        } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/WorkConstraintChecker.kt-            Log.e(TAG, "Failed to get storage info", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt-                modelManager.markDownloadComplete()
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/settings/TranscriptionSettingsViewModel.kt-                val message = e.message ?: "Download failed"
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt-                            }
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt:                        } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt-                            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt-                            Log.e(TAG, "Periodic queue reconciliation failed", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt-                return workId
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueManager.kt-                ReliabilityEventLogger.log(
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        if (containsKey(key)) getInteger(key) else default
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:    } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        if (containsKey(key)) getLong(key) else default
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:    } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        if (containsKey(key)) getString(key) else null
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:    } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:        } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            Log.e(TAG, "Failed to decode audio: ${e.message}", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                codec?.release()
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                Log.w(TAG, "Error releasing codec", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                extractor?.release()
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                Log.w(TAG, "Error releasing extractor", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            Log.d(TAG, "Flow completed: emitted $totalSamples samples")
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:        } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            Log.e(TAG, "Flow error during decode", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:        } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-            Log.e(TAG, "Failed to get duration: ${e.message}", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                extractor?.release()
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt:            } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/audio/AudioDecoder.kt-                Log.w(TAG, "Error releasing extractor", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt-                        }
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt:                    } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt-                        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt-                        Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
+--
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt-            if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt:        } catch (e: Exception) {
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-transcription/src/main/java/dev/chirpboard/app/feature/transcription/TranscriptionQueueReconciler.kt-            Log.e(TAG, "Failed to inspect queue ownership for $recordingId", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            startAmplitudeCollection()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            try {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                mediaRecorder?.release()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:            } catch (_: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            mediaRecorder = null
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            updateNotification()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            recordingStateManager.onRecordingError("Failed to pause recording: ${e.message}", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            updateNotification()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            recordingStateManager.onRecordingError("Failed to resume recording: ${e.message}", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            // MediaRecorder may throw if in an inconsistent state; just release
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                mediaRecorder?.release()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:            } catch (_: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-        }
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            try {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                mediaRecorder?.release()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:            } catch (_: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-        }
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            releaseRecorderForStop(snapshot?.wasPaused == true)
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-            Log.e(TAG, "Failed to release recorder", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                    }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                    StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                        recordingStateManager.updateAmplitude(normalized)
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt:                    } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingService.kt-                        // MediaRecorder may throw if not in a valid state
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingStopOrchestrator.kt-                    StopPersistenceResult.SavedAndQueued(recording.id)
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingStopOrchestrator.kt:                } catch (enqueueError: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingStopOrchestrator.kt-                    if (enqueueError is kotlinx.coroutines.CancellationException) throw enqueueError
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/service/RecordingStopOrchestrator.kt-                    val reason = "Queue handoff failed during stop. Will retry automatically on startup."
+--
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt-                            return@withContext Result.success(resultText.trim())
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt:                        } catch (e: Exception) {
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt-                            val shouldRetry = when (e) {
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt-                                is HttpException -> e.code() == 429 || e.code() == 503 || e.code() >= 500
+--
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt-                    Result.failure(finalException)
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt:                } catch (e: Exception) {
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/client/LlmClientImpl.kt-                    Log.e(TAG, "$operationName failed", e)
+--
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            vaultDir?.canRead() == true && vaultDir.canWrite()
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt:        } catch (e: Exception) {
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            false
+--
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            DocumentFile.fromTreeUri(context, vaultUri)?.name
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt:        } catch (e: Exception) {
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            null
+--
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt:        } catch (e: Exception) {
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            // Clean up temp file on any failure
+--
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-                tempFile?.delete()
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt:            } catch (cleanupError: Exception) {
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-                Log.w(TAG, "Failed to clean up temp file", cleanupError)
+feature-obsidian/src/main/java/dev/chirpboard/app/feature/obsidian/ObsidianManager.kt-            }
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardForegroundNotification.kt-            Intent().setClassName(service, mainActivityClass)
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardForegroundNotification.kt:        } catch (_: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardForegroundNotification.kt-            Intent()
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardForegroundNotification.kt-        }
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt:            } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                mediaPlayer?.release()
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                startProgressUpdates(path, mp.duration.toLong())
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt:            } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                _state.value = PlaybackState.Error("Failed to play: ${e.message}")
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                    )
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt:            } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                _state.value = PlaybackState.Error("Failed to pause: ${e.message}")
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt:            } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                _state.value = PlaybackState.Error("Failed to seek: ${e.message}")
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                    release()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/audio/AudioPlayer.kt-                    // Ignore
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt-            Log.w(TAG, "Cannot register call handler: permission denied", e)
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt:        } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt-            Log.e(TAG, "Failed to register call handler", e)
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt-            Log.d(TAG, "Unregistered call handler")
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt:        } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/PhoneCallHandler.kt-            Log.e(TAG, "Failed to unregister call handler", e)
+--
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmPreferences.kt-                )
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmPreferences.kt:            } catch (e: Exception) {
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmPreferences.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-llm/src/main/java/dev/chirpboard/app/feature/llm/settings/LlmPreferences.kt-                Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
+--
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt-                _uiState.update { it.copy(message = "Added $count dummy recordings") }
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt-                _uiState.update { it.copy(message = "Error: ${e.message}") }
+--
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt-                _uiState.update { it.copy(message = "All recordings deleted") }
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/debug/DevMenuViewModel.kt-                _uiState.update { it.copy(message = "Error: ${e.message}") }
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt-                Log.e(PERSISTENCE_TAG, "Failed to encode keyboard recording")
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt:                try { File(outputPath).delete() } catch (_: Exception) {}
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt-                return@withContext null
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt-            }
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt-        }
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt:    } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardRecordingPersistence.kt-        Log.e(PERSISTENCE_TAG, "Failed to save keyboard recording", e)
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt-            throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt:        } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt-            if (e is CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt-            Log.e(tag, "Transcription failed", e)
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt-                            )
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt:                        } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt-                            if (e is CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/service/KeyboardTranscriptionPipeline.kt-                            Log.e(tag, "Failed to auto-export to Obsidian", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagEditorDialog.kt-        Color(android.graphics.Color.parseColor(hexColor))
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagEditorDialog.kt:    } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagEditorDialog.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagEditorDialog.kt-        Color.Gray
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                            }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt:                        } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                            // File deletion is non-fatal - log and continue
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                    }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                    Log.e(TAG, "Failed to delete recording: ${recording.id}", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                    )
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeViewModel.kt-                    _errorMessage.value = "Failed to share: ${e.message}"
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagChip.kt-        Color(android.graphics.Color.parseColor(hexColor))
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagChip.kt:    } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagChip.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagChip.kt-        Color.Gray
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingCardContent.kt-                    Color(android.graphics.Color.parseColor(it))
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingCardContent.kt:                } catch (_: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingCardContent.kt-                    defaultColor
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingCardContent.kt-                }
+--
+app/src/main/java/dev/chirpboard/app/recognition/RecognitionHistoryPersistence.kt-        Result.success(payload.recording.id)
+app/src/main/java/dev/chirpboard/app/recognition/RecognitionHistoryPersistence.kt:    } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/recognition/RecognitionHistoryPersistence.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/recognition/RecognitionHistoryPersistence.kt-        Result.failure(e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagManagementScreen.kt-        Color(android.graphics.Color.parseColor(hexColor))
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagManagementScreen.kt:    } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagManagementScreen.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/tag/TagManagementScreen.kt-        Color.Gray
+--
+app/src/main/java/dev/chirpboard/app/ApiKeyMigration.kt-            
+app/src/main/java/dev/chirpboard/app/ApiKeyMigration.kt:        } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ApiKeyMigration.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ApiKeyMigration.kt-            Log.e(TAG, "Migration failed", e)
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-                    audioRecord = null
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt:                } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-                    initException = e
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-            true
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt:        } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-            Log.e(TAG, "Failed to start recording", e)
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-                recordingReady.await()
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt:            } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/VoiceRecorder.kt-                Log.e(TAG, "Recording failed to start", e)
+--
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-            
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt:        } catch (e: Exception) {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-            if (e is kotlinx.coroutines.CancellationException) throw e
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-            Log.e(TAG, "Encoding failed", e)
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-            // Clean up partial file
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt:            try { File(outputPath).delete() } catch (_: Exception) {}
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-            return false
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-        } finally {
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt:            try { codec?.stop() } catch (_: Exception) {}
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt:            try { codec?.release() } catch (_: Exception) {}
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt:            try { if (muxerStarted) muxer?.stop() } catch (_: Exception) {}
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt:            try { muxer?.release() } catch (_: Exception) {}
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-        }
+feature-keyboard/src/main/java/dev/chirpboard/app/feature/keyboard/recorder/AudioEncoder.kt-    }
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt-                    _uiState.update { it.copy(isLoading = false, isSaved = true) }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/profile/ProfileEditorViewModel.kt-                    _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to save") }
+--
+app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt-            }
+app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt:        } catch (error: Exception) {
+app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt-            if (error is kotlinx.coroutines.CancellationException) throw error
+app/src/main/java/dev/chirpboard/app/download/ModelReadinessGate.kt-            val durationMs = (System.nanoTime() - startedNs) / 1_000_000
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeScreen.kt-                    Color(android.graphics.Color.parseColor(it))
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeScreen.kt:                } catch (_: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeScreen.kt-                    defaultColor
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/HomeScreen.kt-                }
+--
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-                    }
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt:                } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-                    Log.e(TAG, "Download failed for ${file.name}", e)
+--
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-            StatFs(target.absolutePath).availableBytes
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt:        } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-            Log.w(TAG, "Failed to read free storage for ${path.absolutePath}", e)
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-            0L
+--
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-        return downloaded
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt:    } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-        tempFile.delete()
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-        throw e
+--
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-        true
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt:    } catch (_: Exception) {
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-        if (destinationFile.exists() && !destinationFile.delete()) {
+app/src/main/java/dev/chirpboard/app/download/ModelDownloader.kt-            return false
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                                }
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt:                            } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                                // File deletion is non-fatal - log and continue
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                        onDeleted()
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt:                    } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                        if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                        Log.e(TAG, "Failed to delete recording: ${rec.id}", e)
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                    )
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                    _message.value = "Failed to share: ${e.message}"
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                )
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt:            } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                _message.value = "Failed to share: ${e.message}"
+--
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                    )
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt:                } catch (e: Exception) {
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+feature-recording/src/main/java/dev/chirpboard/app/feature/recording/ui/RecordingDetailViewModel.kt-                    _message.value = "Failed to share: ${e.message}"
+--
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt-                transcriptionQueueManager.startContinuousReconciliation(applicationScope)
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt-                Log.e(TAG, "Failed to recover transcriptions on startup", e)
+--
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt-                modelReadinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ChirpApplication.kt-                Log.e(TAG, "Failed to warm model readiness on startup", e)
+--
+app/src/main/java/dev/chirpboard/app/ui/settings/AboutScreen.kt-        context.startActivity(intent)
+app/src/main/java/dev/chirpboard/app/ui/settings/AboutScreen.kt:    } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ui/settings/AboutScreen.kt-        if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ui/settings/AboutScreen.kt-        // Handle case where no browser is available
+--
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt-                    }
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt-                Log.e(TAG, "Error starting recording", e)
+--
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt-                }
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/VoiceRecognitionActivity.kt-                Log.e(TAG, "Error during recognition", e)
+--
+data/src/androidTest/java/dev/chirpboard/app/data/repository/RecordingRepositoryTransactionTest.kt-                repository.createRecordingWithTranscript(recording, invalidTranscript)
+data/src/androidTest/java/dev/chirpboard/app/data/repository/RecordingRepositoryTransactionTest.kt:            } catch (e: Exception) {
+data/src/androidTest/java/dev/chirpboard/app/data/repository/RecordingRepositoryTransactionTest.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+data/src/androidTest/java/dev/chirpboard/app/data/repository/RecordingRepositoryTransactionTest.kt-                threw = true
+--
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt-                    true
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt:                } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt-                    Log.e(TAG, "Failed to initialize recognizer", e)
+--
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt-                    }
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt:                } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt-                    if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/SherpaRecognizer.kt-                    Log.e(TAG, "Transcription failed", e)
+--
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                            recorder.collectSamples()
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt:                        } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                            if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                            Log.e(TAG, "Error collecting samples", e)
+--
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                    }
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                Log.e(TAG, "Error in onStartListening", e)
+--
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                listener.results(results)
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt:            } catch (e: Exception) {
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                if (e is kotlinx.coroutines.CancellationException) throw e
+app/src/main/java/dev/chirpboard/app/ChirpRecognitionService.kt-                Log.e(TAG, "Error in onStopListening", e)
+--
+core/src/main/java/dev/chirpboard/app/core/reliability/ReliabilityEvent.kt-            )
+core/src/main/java/dev/chirpboard/app/core/reliability/ReliabilityEvent.kt:        } catch (_: Throwable) {
+core/src/main/java/dev/chirpboard/app/core/reliability/ReliabilityEvent.kt-            // android.util.Log may be unavailable in local JVM tests.
+core/src/main/java/dev/chirpboard/app/core/reliability/ReliabilityEvent.kt-        }
+--
+core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt-        throw e
+core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt:    } catch (e: Exception) {
+core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt-        UiState.Error(e.message ?: "Unknown error", e)
+core/src/main/java/dev/chirpboard/app/core/util/CoroutineUtils.kt-    }

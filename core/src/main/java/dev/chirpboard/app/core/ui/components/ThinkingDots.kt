@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /**
  * 3-dot "thinking" animation for processing state.
@@ -35,37 +37,42 @@ fun ThinkingDots(
     modifier: Modifier = Modifier,
     dotSize: Dp = 6.dp,
     spacing: Dp = 8.dp,
-    color: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+    color: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "thinking_dots")
 
     val bounceHeight = 4.dp
+    val bounceHeightPx = with(LocalDensity.current) { bounceHeight.toPx() }
 
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(spacing),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(3) { index ->
             val delay = index * 200
 
-            val offsetY by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = -bounceHeight.value,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(
-                        durationMillis = 400,
-                        delayMillis = delay
-                    ),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "dot_bounce_$index"
-            )
+            val offsetY =
+                infiniteTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = -bounceHeightPx,
+                    animationSpec =
+                        infiniteRepeatable(
+                            animation =
+                                tween(
+                                    durationMillis = 400,
+                                    delayMillis = delay,
+                                ),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                    label = "dot_bounce_$index",
+                )
 
             Canvas(
-                modifier = Modifier
-                    .size(dotSize)
-                    .offset(y = offsetY.dp)
+                modifier =
+                    Modifier
+                        .size(dotSize)
+                        .offset { IntOffset(0, offsetY.value.roundToInt()) },
             ) {
                 drawCircle(color = color)
             }

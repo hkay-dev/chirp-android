@@ -1,7 +1,7 @@
 package dev.chirpboard.app.feature.keyboard.ui
 
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -53,26 +53,25 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.keyboard.R
-import kotlinx.collections.immutable.ImmutableList
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
+import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
@@ -89,8 +88,6 @@ fun KeyboardUI(
     onSpace: () -> Unit = {},
     onMoveCursor: (Int) -> Unit = {},
 ) {
-
-
     KeyboardTheme {
         Surface(
             modifier =
@@ -366,12 +363,13 @@ private fun RecordingContent(
     onTap: () -> Unit,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
-        label = "pulse",
-    )
+    val scale =
+        infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.1f,
+            animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
+            label = "pulse",
+        )
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Waveform visualization
         WaveformVisualizer(
@@ -382,7 +380,11 @@ private fun RecordingContent(
 
         LargeFloatingActionButton(
             onClick = onTap,
-            modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
+            modifier =
+                Modifier.graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
+                },
             containerColor = MaterialTheme.colorScheme.errorContainer,
             contentColor = MaterialTheme.colorScheme.onErrorContainer,
         ) {
