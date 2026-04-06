@@ -595,6 +595,7 @@ class RecordingService : Service() {
                 .Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notif_mic)
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setContentIntent(contentPendingIntent)
                 .setColorized(true)
                 .setColor(android.graphics.Color.parseColor("#D32F2F")) // Material Red 700
@@ -648,7 +649,7 @@ class RecordingService : Service() {
             NotificationChannel(
                 CHANNEL_ID,
                 "Recording",
-                NotificationManager.IMPORTANCE_HIGH,
+                NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = "Shows when recording is in progress"
                 setShowBadge(false)
@@ -675,7 +676,7 @@ class RecordingService : Service() {
 
     companion object {
         private const val TAG = "RecordingService"
-        private const val CHANNEL_ID = "recording_channel"
+        private const val CHANNEL_ID = "recording_channel_v2"
         private const val NOTIFICATION_ID = 1001
 
         const val ACTION_START_RECORDING = "dev.chirpboard.app.ACTION_START_RECORDING"

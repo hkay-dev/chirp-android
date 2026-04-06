@@ -47,13 +47,14 @@ sealed class RecordingState {
     /** Recording is stopping */
     data class Stopping(
         val origin: RecordingOrigin,
-        val profileId: UUID? = null
+        val profileId: UUID? = null,
+        val audioFilePath: String? = null
     ) : RecordingState()
     
     /** Recording failed */
     data class Error(
-        val origin: RecordingOrigin,
         val message: String,
+        val origin: RecordingOrigin,
         val cause: Throwable? = null
     ) : RecordingState()
     

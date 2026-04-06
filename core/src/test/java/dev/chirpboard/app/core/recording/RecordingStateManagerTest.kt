@@ -69,7 +69,7 @@ class RecordingStateManagerTest {
         manager.tryStartRecording(RecordingOrigin.APP)
         manager.onRecordingStarted("path")
         
-        manager.pauseRecording("test")
+        manager.pauseRecording()
         var state = manager.state.value
         assertTrue(state is RecordingState.Paused)
         
@@ -82,7 +82,7 @@ class RecordingStateManagerTest {
     fun onRecordingCompleted_returnsToIdle() {
         manager.tryStartRecording(RecordingOrigin.APP)
         manager.beginStopRecording()
-        manager.onRecordingCompleted(UUID.randomUUID(), "test")
+        manager.onRecordingCompleted(UUID.randomUUID())
         
         manager.clearError()
         assertTrue(manager.state.value is RecordingState.Idle)
@@ -91,8 +91,7 @@ class RecordingStateManagerTest {
     @Test
     fun onRecordingError_transitionsToErrorAndReleasesLock() {
         manager.tryStartRecording(RecordingOrigin.APP)
-        manager.onRecordingError("Test Error")
-        
+        manager.onRecordingError("Test Error", RecordingOrigin.APP)
         assertTrue(manager.state.value is RecordingState.Error)
         
         // Lock should be released, so we can start again
