@@ -361,8 +361,13 @@ class TranscriptionWorker
                 )
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                // If we can't update the status, just log and continue.
-                // The recording will remain in its previous state.
+                Log.e(TAG, "Failed to persist transcription error state", e)
+                runCatching {
+                    recordingRepository.updateStatus(recordingId, disposition.status)
+                }.onFailure { fallbackError ->
+                    if (fallbackError is CancellationException) throw fallbackError
+                    Log.e(TAG, "Failed to persist fallback transcription status", fallbackError)
+                }
             }
 
             return if (disposition.retry) {

@@ -19,7 +19,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.feature.recording.R
 
 @Composable
 internal fun RecordingDetailSummarySection(summary: String?) {
@@ -39,7 +41,7 @@ internal fun RecordingDetailSummarySection(summary: String?) {
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "Summary",
+                        text = stringResource(R.string.rec_summary),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )

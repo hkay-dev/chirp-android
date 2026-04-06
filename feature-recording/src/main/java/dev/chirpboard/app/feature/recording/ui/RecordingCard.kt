@@ -9,10 +9,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.data.model.RecordingStatus
+
+private val ProcessingRecordingStatuses =
+    setOf(
+        RecordingStatus.TRANSCRIBING,
+        RecordingStatus.ENHANCING,
+        RecordingStatus.PENDING_TRANSCRIPTION,
+        RecordingStatus.PENDING_ENHANCEMENT,
+    )
 
 @Composable
 fun RecordingCard(
@@ -26,14 +34,7 @@ fun RecordingCard(
     modifier: Modifier = Modifier,
 ) {
     val recording = item.recording
-    val isProcessing =
-        recording.status in
-            listOf(
-                RecordingStatus.TRANSCRIBING,
-                RecordingStatus.ENHANCING,
-                RecordingStatus.PENDING_TRANSCRIPTION,
-                RecordingStatus.PENDING_ENHANCEMENT,
-            )
+    val isProcessing = recording.status in ProcessingRecordingStatuses
 
     Card(
         modifier =

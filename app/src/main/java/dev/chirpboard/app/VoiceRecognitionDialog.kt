@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,7 +60,6 @@ import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.BreathingPulse
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -85,11 +85,11 @@ fun VoiceRecognitionDialog(
     onToggleLlm: (Boolean) -> Unit,
 ) {
     var isRecording by remember { mutableStateOf(false) }
-    val amplitudes by amplitudesFlow.collectAsStateWithLifecycle(emptyList())
     val isProcessing by isProcessingFlow.collectAsStateWithLifecycle(false)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
     var isVisible by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     val recognitionState =
         when {
@@ -155,7 +155,7 @@ fun VoiceRecognitionDialog(
                             indication = null,
                             onClick = {
                                 isVisible = false
-                                MainScope().launch {
+                                scope.launch {
                                     delay(250)
                                     onCancel()
                                 }
@@ -184,7 +184,7 @@ fun VoiceRecognitionDialog(
                 },
                 onCancel = {
                     isVisible = false
-                    MainScope().launch {
+                    scope.launch {
                         delay(250)
                         onCancel()
                     }
@@ -277,7 +277,7 @@ private fun VoiceRecognitionDialogContent(
                             )
                         } else if (recognitionState == RecognitionState.Listening) {
                             Text(
-                                text = "Listening...",
+                                text = stringResource(R.string.voice_recognition_listening),
                                 style = MaterialTheme.typography.titleLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                             )
@@ -384,7 +384,12 @@ private fun VoiceRecognitionLlmControlSection(
         onClick = { onToggleLlm(!llmEnabled) },
         label = {
             Text(
-                text = if (llmEnabled) "AI: ${currentMode.displayName}" else "Enhance with AI",
+                text =
+                    if (llmEnabled) {
+                        stringResource(R.string.voice_recognition_llm_mode, currentMode.displayName)
+                    } else {
+                        stringResource(R.string.voice_recognition_llm_enable)
+                    },
                 style = MaterialTheme.typography.labelLarge,
             )
         },

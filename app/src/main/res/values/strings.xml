@@ -25,6 +25,25 @@
     <string name="save">Save</string>
     <string name="search_recordings">Search recordings</string>
     <string name="keyboard_settings_title">Keyboard Settings</string>
+    <string name="voice_recognition_listening">Listening...</string>
+    <string name="voice_recognition_llm_enable">Enhance with AI</string>
+    <string name="voice_recognition_llm_mode">AI: %1$s</string>
+    <string name="keyboard_settings_save_recordings_title">Save Keyboard Recordings</string>
+    <string name="keyboard_settings_save_recordings_description">Save audio files from keyboard transcriptions to your recording history</string>
+    <string name="keyboard_settings_enable_llm_title">Enable LLM Processing</string>
+    <string name="keyboard_settings_enable_llm_description">Use AI to clean up and format transcriptions before inserting text</string>
+    <string name="keyboard_settings_system_title">System Keyboard Settings</string>
+    <string name="keyboard_settings_system_description">Enable and select Chirp as your keyboard</string>
+    <string name="keyboard_settings_processing_mode_title">Default Processing Mode</string>
+    <string name="keyboard_settings_processing_mode_description">Choose how keyboard transcriptions are processed</string>
+    <string name="keyboard_settings_processing_mode_disabled">Enable LLM processing to use this setting</string>
+    <string name="keyboard_settings_mode_global">Use Global Setting</string>
+    <string name="keyboard_settings_mode_proofread">Proofread</string>
+    <string name="keyboard_settings_mode_formal">Formal</string>
+    <string name="keyboard_settings_mode_casual">Casual</string>
+    <string name="keyboard_settings_mode_email">Email</string>
+    <string name="keyboard_settings_mode_code">Code</string>
+    <string name="keyboard_settings_mode_smart">Smart</string>
 
     <!-- Debug / Settings -->
     <string name="dev_menu_title">Developer Menu</string>

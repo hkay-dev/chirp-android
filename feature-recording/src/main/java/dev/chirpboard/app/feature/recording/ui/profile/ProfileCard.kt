@@ -20,13 +20,13 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.semantics.semantics
 import dev.chirpboard.app.data.entity.Profile
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileItemState
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -94,16 +94,16 @@ fun ProfileCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     if (profile.autoTranscribe) {
-                        FeatureChip(label = "Transcribe")
+                        FeatureChip(label = stringResource(R.string.rec_profile_chip_transcribe))
                     }
                     if (profile.autoTitle) {
-                        FeatureChip(label = "Auto Title")
+                        FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_title))
                     }
                     if (profile.autoSummary) {
-                        FeatureChip(label = "Auto Summary")
+                        FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_summary))
                     }
                     if (profile.autoExportToObsidian) {
-                        FeatureChip(label = "Obsidian")
+                        FeatureChip(label = stringResource(R.string.rec_profile_chip_obsidian))
                     }
                     val processingMode = profile.defaultProcessingMode
                     if (processingMode != null) {

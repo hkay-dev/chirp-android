@@ -15,21 +15,22 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.Stable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.feature.recording.R
 import java.util.UUID
 
-import androidx.compose.runtime.Stable
-
 @Stable
-data class ProfileItemState(val profile: dev.chirpboard.app.data.entity.Profile)
+data class ProfileItemState(
+    val profile: dev.chirpboard.app.data.entity.Profile,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,9 +113,9 @@ fun ProfileListScreen(
             if (isEmpty) {
                 EmptyState(
                     icon = Icons.Default.Person,
-                    title = "No profiles yet",
+                    title = stringResource(R.string.rec_no_profiles_yet),
                     description = "Create a profile to save your recording preferences",
-                    actionLabel = "Create Profile",
+                    actionLabel = stringResource(R.string.rec_create_profile),
                     onAction = onAddProfile,
                     modifier = Modifier.padding(paddingValues),
                 )

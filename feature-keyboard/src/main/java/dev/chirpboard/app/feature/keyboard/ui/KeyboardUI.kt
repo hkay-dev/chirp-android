@@ -179,7 +179,7 @@ private fun LlmToggle(
     FilterChip(
         selected = enabled,
         onClick = onClick,
-        label = { Text("LLM", style = MaterialTheme.typography.labelMedium) },
+        label = { Text(stringResource(R.string.keyboard_llm_label), style = MaterialTheme.typography.labelMedium) },
         leadingIcon =
             if (enabled) {
                 { Icon(Icons.Filled.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
@@ -214,9 +214,17 @@ private fun IdleContent(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ) {
-            Icon(Icons.Filled.Mic, "Start recording", Modifier.size(36.dp))
+            Icon(
+                Icons.Filled.Mic,
+                stringResource(R.string.keyboard_desc_start_recording),
+                Modifier.size(36.dp),
+            )
         }
-        Text("Tap to speak", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            stringResource(R.string.keyboard_tap_to_speak),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         // Keyboard controls
         KeyboardControls(
@@ -327,12 +335,12 @@ private fun ModeSelector(
                 .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
-        ModeChip("proofread", "Proofread", currentId, onModeChange)
-        ModeChip("formal", "Formal", currentId, onModeChange)
-        ModeChip("casual", "Casual", currentId, onModeChange)
-        ModeChip("email", "Email", currentId, onModeChange)
-        ModeChip("code", "Code", currentId, onModeChange)
-        ModeChip("smart", "Smart", currentId, onModeChange)
+        ModeChip("proofread", stringResource(R.string.keyboard_mode_proofread), currentId, onModeChange)
+        ModeChip("formal", stringResource(R.string.keyboard_mode_formal), currentId, onModeChange)
+        ModeChip("casual", stringResource(R.string.keyboard_mode_casual), currentId, onModeChange)
+        ModeChip("email", stringResource(R.string.keyboard_mode_email), currentId, onModeChange)
+        ModeChip("code", stringResource(R.string.keyboard_mode_code), currentId, onModeChange)
+        ModeChip("smart", stringResource(R.string.keyboard_mode_smart), currentId, onModeChange)
     }
 }
 
@@ -388,9 +396,13 @@ private fun RecordingContent(
             containerColor = MaterialTheme.colorScheme.errorContainer,
             contentColor = MaterialTheme.colorScheme.onErrorContainer,
         ) {
-            Icon(Icons.Filled.Stop, "Stop recording", Modifier.size(36.dp))
+            Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
         }
-        Text("Tap to stop", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+        Text(
+            stringResource(R.string.keyboard_tap_to_stop),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
     }
 }
 
@@ -421,7 +433,7 @@ private fun DownloadingContent(progress: Float) {
             trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         )
         Text(
-            "Downloading model... ${(progress * 100).toInt()}%",
+            stringResource(R.string.keyboard_downloading_model_progress, (progress * 100).toInt()),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -484,7 +496,15 @@ private fun LlmErrorContent(
 private fun ModelNotReadyContent() {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Icon(Icons.Filled.ErrorOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Model not ready", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-        Text("Open app to download", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            stringResource(R.string.keyboard_model_not_ready),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            stringResource(R.string.keyboard_open_app_to_download),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

@@ -18,65 +18,73 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.feature.llm.R
 
 @Composable
 internal fun LlmSettingsMasterToggleCard(
     uiState: LlmSettingsViewModel.UiState,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
 ) {
     val masterSwitchColor by animateColorAsState(
-        targetValue = if (uiState.llmEnabled) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        },
+        targetValue =
+            if (uiState.llmEnabled) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
         animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "master_switch_color"
+        label = "master_switch_color",
     )
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {}
-            .clickable(onClick = onToggle),
-        colors = CardDefaults.cardColors(containerColor = masterSwitchColor)
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {}
+                .clickable(onClick = onToggle),
+        colors = CardDefaults.cardColors(containerColor = masterSwitchColor),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Enable LLM Processing",
+                    text = stringResource(R.string.llm_enable_processing_title),
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (uiState.llmEnabled) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                    color =
+                        if (uiState.llmEnabled) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                 )
                 Text(
-                    text = if (uiState.llmEnabled) {
-                        "AI features are active"
-                    } else {
-                        "LLM features are disabled"
-                    },
+                    text =
+                        if (uiState.llmEnabled) {
+                            stringResource(R.string.llm_enable_processing_enabled)
+                        } else {
+                            stringResource(R.string.llm_enable_processing_disabled)
+                        },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (uiState.llmEnabled) {
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    }
+                    color =
+                        if (uiState.llmEnabled) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        },
                 )
             }
             Switch(
                 checked = uiState.llmEnabled,
-                onCheckedChange = null
+                onCheckedChange = null,
             )
         }
     }

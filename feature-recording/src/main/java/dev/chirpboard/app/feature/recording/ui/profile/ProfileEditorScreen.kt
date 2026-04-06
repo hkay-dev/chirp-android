@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.recording.ui.profile
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -10,14 +11,27 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.feature.recording.R
+
+private val ProfileProcessingModeIds = listOf(null, "enhance", "summarize", "meeting_notes", "action_items")
+
+@Composable
+private fun profileProcessingModeLabel(modeId: String?): String =
+    when (modeId) {
+        null -> stringResource(R.string.rec_profile_mode_none)
+        "enhance" -> stringResource(R.string.rec_profile_mode_enhance)
+        "summarize" -> stringResource(R.string.rec_profile_mode_summarize)
+        "meeting_notes" -> stringResource(R.string.rec_profile_mode_meeting_notes)
+        "action_items" -> stringResource(R.string.rec_profile_mode_action_items)
+        else -> stringResource(R.string.rec_profile_mode_none)
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,7 +64,11 @@ fun ProfileEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (viewModel.isEditing) stringResource(R.string.rec_edit_profile) else stringResource(R.string.rec_new_profile)) },
+                title = {
+                    Text(
+                        if (viewModel.isEditing) stringResource(R.string.rec_edit_profile) else stringResource(R.string.rec_new_profile),
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
@@ -128,31 +146,31 @@ fun ProfileEditorScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 Text(
-                    text = "Automation Settings",
+                    text = stringResource(R.string.rec_profile_automation_settings),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
 
                 // Auto Transcribe toggle
                 SettingToggle(
-                    title = "Auto Transcribe",
-                    description = "Automatically transcribe recordings when finished",
+                    title = stringResource(R.string.rec_profile_auto_transcribe_title),
+                    description = stringResource(R.string.rec_profile_auto_transcribe_description),
                     checked = uiState.autoTranscribe,
                     onCheckedChange = { viewModel.updateAutoTranscribe(it) },
                 )
 
                 // Auto Title toggle
                 SettingToggle(
-                    title = "Auto Title",
-                    description = "Generate title using AI after transcription",
+                    title = stringResource(R.string.rec_profile_auto_title_title),
+                    description = stringResource(R.string.rec_profile_auto_title_description),
                     checked = uiState.autoTitle,
                     onCheckedChange = { viewModel.updateAutoTitle(it) },
                 )
 
                 // Auto Summary toggle
                 SettingToggle(
-                    title = "Auto Summary",
-                    description = "Generate summary using AI after transcription",
+                    title = stringResource(R.string.rec_profile_auto_summary_title),
+                    description = stringResource(R.string.rec_profile_auto_summary_description),
                     checked = uiState.autoSummary,
                     onCheckedChange = { viewModel.updateAutoSummary(it) },
                 )
@@ -160,7 +178,7 @@ fun ProfileEditorScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 Text(
-                    text = "Processing",
+                    text = stringResource(R.string.rec_profile_processing_section),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -174,15 +192,15 @@ fun ProfileEditorScreen(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
                 Text(
-                    text = "Obsidian Integration",
+                    text = stringResource(R.string.rec_profile_obsidian_integration),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
 
                 // Auto Export to Obsidian toggle
                 SettingToggle(
-                    title = "Auto Export to Obsidian",
-                    description = "Automatically export processed recordings to Obsidian",
+                    title = stringResource(R.string.rec_profile_auto_export_title),
+                    description = stringResource(R.string.rec_profile_auto_export_description),
                     checked = uiState.autoExportToObsidian,
                     onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
                 )
@@ -223,6 +241,7 @@ private fun SettingToggle(
         modifier =
             modifier
                 .fillMaxWidth()
+                .defaultMinSize(minHeight = 48.dp)
                 .clickable { onCheckedChange(!checked) }
                 .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -255,22 +274,13 @@ private fun ProcessingModeDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    val processingModes =
-        listOf(
-            null to "None (No processing)",
-            "enhance" to "Enhance",
-            "summarize" to "Summarize",
-            "meeting_notes" to "Meeting Notes",
-            "action_items" to "Action Items",
-        )
-
     ExposedDropdownMenuBox(
         expanded = expanded,
         onExpandedChange = { expanded = it },
         modifier = modifier.fillMaxWidth(),
     ) {
         OutlinedTextField(
-            value = processingModes.find { it.first == selectedMode }?.second ?: "None",
+            value = profileProcessingModeLabel(selectedMode),
             onValueChange = {},
             readOnly = true,
             label = { Text(stringResource(R.string.rec_profile_mode)) },
@@ -285,9 +295,9 @@ private fun ProcessingModeDropdown(
             expanded = expanded,
             onDismissRequest = { expanded = false },
         ) {
-            processingModes.forEach { (mode, label) ->
+            ProfileProcessingModeIds.forEach { mode ->
                 DropdownMenuItem(
-                    text = { Text(label) },
+                    text = { Text(profileProcessingModeLabel(mode)) },
                     onClick = {
                         onModeSelected(mode)
                         expanded = false

@@ -19,10 +19,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import kotlinx.collections.immutable.ImmutableList
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.feature.recording.R
+import kotlinx.collections.immutable.ImmutableList
 import java.util.UUID
 
 /**
@@ -99,7 +101,7 @@ private fun AddTagChip(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "Add tag",
+                    text = stringResource(R.string.rec_add_tag_label),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
