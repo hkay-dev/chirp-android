@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.res.stringResource
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.feature.recording.ui.components.AudioWaveform
@@ -187,8 +189,8 @@ fun RecordScreen(
     if (showCancelDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showCancelDialog = false },
-            title = { Text("Discard Recording?") },
-            text = { Text("This recording will be permanently deleted.") },
+            title = { Text(stringResource(dev.chirpboard.app.R.string.discard_recording_title)) },
+            text = { Text(stringResource(dev.chirpboard.app.R.string.discard_recording_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -197,12 +199,12 @@ fun RecordScreen(
                         onNavigateBack()
                     },
                 ) {
-                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(dev.chirpboard.app.R.string.discard), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCancelDialog = false }) {
-                    Text("Keep Recording")
+                    Text(stringResource(dev.chirpboard.app.R.string.keep_recording))
                 }
             },
         )
@@ -212,8 +214,8 @@ fun RecordScreen(
     if (showRestartDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showRestartDialog = false },
-            title = { Text("Start Over?") },
-            text = { Text("Current recording will be discarded.") },
+            title = { Text(stringResource(dev.chirpboard.app.R.string.start_over_title)) },
+            text = { Text(stringResource(dev.chirpboard.app.R.string.start_over_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -223,12 +225,12 @@ fun RecordScreen(
                         viewModel.restartRecording()
                     },
                 ) {
-                    Text("Start Over", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(dev.chirpboard.app.R.string.start_over), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRestartDialog = false }) {
-                    Text("Keep Recording")
+                    Text(stringResource(dev.chirpboard.app.R.string.keep_recording))
                 }
             },
         )
@@ -238,8 +240,8 @@ fun RecordScreen(
     if (showBackDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showBackDialog = false },
-            title = { Text("Recording in Progress") },
-            text = { Text("Would you like to save or discard this recording?") },
+            title = { Text(stringResource(dev.chirpboard.app.R.string.recording_in_progress_title)) },
+            text = { Text(stringResource(dev.chirpboard.app.R.string.recording_in_progress_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -248,7 +250,7 @@ fun RecordScreen(
                         viewModel.stopRecording()
                     },
                 ) {
-                    Text("Save")
+                    Text(stringResource(dev.chirpboard.app.R.string.save))
                 }
             },
             dismissButton = {
@@ -259,7 +261,7 @@ fun RecordScreen(
                         onNavigateBack()
                     },
                 ) {
-                    Text("Discard", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(dev.chirpboard.app.R.string.discard), color = MaterialTheme.colorScheme.error)
                 }
             },
         )
@@ -277,10 +279,11 @@ fun RecordScreen(
         label = "timer_color",
     )
 
-    Surface(
+    Scaffold(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.surface,
-    ) {
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) { paddingValues ->
+        Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Background glow layer
             RecordingGlowBackground(
@@ -301,7 +304,6 @@ fun RecordScreen(
                 modifier =
                     Modifier
                         .align(Alignment.TopStart)
-                        .systemBarsPadding()
                         .padding(8.dp)
                         .size(48.dp),
                 colors =
@@ -311,7 +313,7 @@ fun RecordScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
+                    contentDescription = stringResource(R.string.desc_close),
                     modifier = Modifier.size(24.dp),
                 )
             }
@@ -321,7 +323,6 @@ fun RecordScreen(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .systemBarsPadding()
                         .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,

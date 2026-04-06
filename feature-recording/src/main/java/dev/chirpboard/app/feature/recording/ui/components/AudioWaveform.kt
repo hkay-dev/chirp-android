@@ -105,6 +105,13 @@ fun AudioWaveform(
         }
     }
 
+    val localDensity = androidx.compose.ui.platform.LocalDensity.current
+    val dashEffect = remember(localDensity) {
+        with(localDensity) {
+            PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 8.dp.toPx()), 0f)
+        }
+    }
+
     Canvas(
         modifier =
             modifier
@@ -130,11 +137,7 @@ fun AudioWaveform(
                 end = Offset(canvasWidth - barSpacing, centerY),
                 strokeWidth = 2.dp.toPx(),
                 cap = StrokeCap.Round,
-                pathEffect =
-                    PathEffect.dashPathEffect(
-                        floatArrayOf(6.dp.toPx(), 8.dp.toPx()),
-                        0f,
-                    ),
+                pathEffect = dashEffect,
             )
         }
 

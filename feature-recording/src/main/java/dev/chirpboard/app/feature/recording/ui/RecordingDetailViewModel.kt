@@ -31,7 +31,7 @@ import javax.inject.Inject
 class RecordingDetailViewModel
     @Inject
     constructor(
-        savedStateHandle: SavedStateHandle,
+        private val savedStateHandle: SavedStateHandle,
         private val recordingRepository: RecordingRepository,
         private val audioPlayer: AudioPlayer,
         private val transcriptionQueueManager: TranscriptionQueueManager,
@@ -67,11 +67,11 @@ class RecordingDetailViewModel
                 computeDetailRecoveryActions(null, RecoveryOwnershipState.MISSING_OR_TERMINAL),
             )
 
-        private val _isEditing = MutableStateFlow(false)
-        val isEditing: StateFlow<Boolean> = _isEditing.asStateFlow()
+        private val _isEditing = savedStateHandle.getStateFlow("isEditing", false)
+        val isEditing: StateFlow<Boolean> = _isEditing
 
-        private val _editedTitle = MutableStateFlow("")
-        val editedTitle: StateFlow<String> = _editedTitle.asStateFlow()
+        private val _editedTitle = savedStateHandle.getStateFlow("editedTitle", "")
+        val editedTitle: StateFlow<String> = _editedTitle
 
         private val _message = MutableStateFlow<String?>(null)
         val message: StateFlow<String?> = _message.asStateFlow()
@@ -96,16 +96,16 @@ class RecordingDetailViewModel
         }
 
         fun startEditing() {
-            _editedTitle.value = recording.value?.title ?: ""
-            _isEditing.value = true
+            savedStateHandle["editedTitle"] = recording.value?.title ?: ""
+            savedStateHandle["isEditing"] = true
         }
 
         fun cancelEditing() {
-            _isEditing.value = false
+            savedStateHandle["isEditing"] = false
         }
 
         fun updateTitle(newTitle: String) {
-            _editedTitle.value = newTitle
+            savedStateHandle["editedTitle"] = newTitle
         }
 
         fun saveTitle() {
@@ -114,7 +114,7 @@ class RecordingDetailViewModel
                 if (trimmedTitle.isNotEmpty()) {
                     recordingRepository.updateTitle(recordingId, trimmedTitle)
                 }
-                _isEditing.value = false
+                savedStateHandle["isEditing"] = false
             }
         }
 

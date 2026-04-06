@@ -48,6 +48,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.transcription.R
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -78,7 +80,7 @@ fun TranscriptionSettingsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.transcription_desc_back)
                         )
                     }
                 },
@@ -392,7 +394,7 @@ private fun ErrorCard(
                 modifier = Modifier.weight(1f)
             )
             TextButton(onClick = onDismiss) {
-                Text("Dismiss")
+                Text(stringResource(R.string.transcription_dismiss))
             }
         }
     }
@@ -430,7 +432,7 @@ private fun ModelActionsCard(
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Downloading...")
+                        Text(stringResource(R.string.transcription_downloading))
                     } else {
                         Icon(
                             imageVector = Icons.Default.CloudDownload,
@@ -438,7 +440,7 @@ private fun ModelActionsCard(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Download Model")
+                        Text(stringResource(R.string.transcription_download_model))
                     }
                 }
             } else {
@@ -455,7 +457,7 @@ private fun ModelActionsCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Delete Model")
+                    Text(stringResource(R.string.transcription_delete_model))
                 }
             }
         }
@@ -478,7 +480,7 @@ private fun DeleteConfirmationDialog(
             )
         },
         title = {
-            Text("Delete Model?")
+            Text(stringResource(R.string.transcription_delete_model_confirm))
         },
         text = {
             Text(
@@ -493,12 +495,12 @@ private fun DeleteConfirmationDialog(
                     containerColor = MaterialTheme.colorScheme.error
                 )
             ) {
-                Text("Delete")
+                Text(stringResource(R.string.transcription_delete))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.transcription_cancel))
             }
         }
     )

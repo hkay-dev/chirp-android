@@ -10,6 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -73,11 +75,11 @@ fun RecordButton(
             onClick = onClick,
             modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
             containerColor = backgroundColor,
-            contentColor = Color.White,
+            contentColor = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
         ) {
             Icon(
                 imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-                contentDescription = if (isRecording) "Stop recording" else "Start recording",
+                contentDescription = if (isRecording) stringResource(R.string.desc_stop_recording) else stringResource(R.string.desc_start_recording),
                 modifier = Modifier.size(36.dp),
             )
         }
@@ -124,11 +126,11 @@ fun CompactRecordButton(
         onClick = onClick,
         modifier = modifier,
         containerColor = backgroundColor,
-        contentColor = Color.White,
-    ) {
+        contentColor = if (isRecording) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+    } {
         Icon(
             imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
-            contentDescription = if (isRecording) "Stop recording" else "Start recording",
+            contentDescription = if (isRecording) stringResource(R.string.desc_stop_recording) else stringResource(R.string.desc_start_recording),
         )
     }
 }

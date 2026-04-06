@@ -21,6 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.R
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
@@ -57,7 +59,7 @@ fun StatsPillRow(
                 icon = {
                     Icon(
                         imageVector = Icons.Filled.AudioFile,
-                        contentDescription = "Recordings",
+                        contentDescription = stringResource(R.string.desc_recordings),
                         modifier = Modifier.size(18.dp)
                     )
                 },
@@ -77,7 +79,7 @@ fun StatsPillRow(
                 icon = {
                     Icon(
                         imageVector = Icons.Filled.Schedule,
-                        contentDescription = "Total duration",
+                        contentDescription = stringResource(R.string.desc_total_duration),
                         modifier = Modifier.size(18.dp)
                     )
                 },
@@ -112,7 +114,7 @@ fun StatsPillRow(
                 icon = {
                     Icon(
                         imageVector = Icons.Filled.Sync,
-                        contentDescription = "Processing",
+                        contentDescription = stringResource(R.string.desc_processing),
                         modifier = Modifier.size(18.dp)
                     )
                 },

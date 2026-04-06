@@ -85,39 +85,5 @@ class MigrationTest {
     }
 
     // Template for future migration tests:
-    /*
-    @Test
-    @Throws(IOException::class)
-    fun migrate1To2() {
-        // Create version 1 database with test data
-        helper.createDatabase(TEST_DB, 1).apply {
-            // Insert test data using raw SQL (must match v1 schema exactly)
-            execSQL("""
-                INSERT INTO recordings (id, title, audioPath, status, source, createdAt, durationMs)
-                VALUES ('550e8400-e29b-41d4-a716-446655440000', 'Test Recording', '/path/to/audio.m4a', 'COMPLETED', 'APP', 1704067200000, 60000)
-            """)
-            close()
-        }
-
-        // Run migration from 1 to 2
-        val db = helper.runMigrationsAndValidate(TEST_DB, 2, true, Migrations.MIGRATION_1_2)
-
-        // Verify data was preserved and new columns exist
-        val cursor = db.query("SELECT * FROM recordings WHERE id = '550e8400-e29b-41d4-a716-446655440000'")
-        assert(cursor.moveToFirst()) { "Test recording should exist after migration" }
-
-        // Verify existing columns preserved
-        val titleIndex = cursor.getColumnIndex("title")
-        assert(cursor.getString(titleIndex) == "Test Recording") { "Title should be preserved" }
-
-        // Verify new columns added by migration (example)
-        // val newFieldIndex = cursor.getColumnIndex("new_field")
-        // assert(newFieldIndex >= 0) { "new_field column should exist" }
-
-        cursor.close()
-        db.close()
-    }
-     */
-
     // Add new migration tests here as migrations are created...
 }

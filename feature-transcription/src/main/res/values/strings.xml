@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="transcription_dismiss">Dismiss</string>
+    <string name="transcription_downloading">Downloading...</string>
+    <string name="transcription_download_model">Download Model</string>
+    <string name="transcription_delete_model">Delete Model</string>
+    <string name="transcription_delete_model_confirm">Delete Model?</string>
+    <string name="transcription_delete">Delete</string>
+    <string name="transcription_cancel">Cancel</string>
+    <string name="transcription_desc_back">Back</string>
+</resources>

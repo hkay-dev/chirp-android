@@ -29,6 +29,7 @@ class ChunkedAudioProcessor(
     
     companion object {
         private const val TAG = "ChunkedAudioProcessor"
+        private val WHITESPACE_REGEX = "\\s+".toRegex()
     }
     
     init {
@@ -133,12 +134,12 @@ class ChunkedAudioProcessor(
         
         val result = StringBuilder(parts[0].trim())
         
-        var prevWords = parts[0].trim().split("\\s+".toRegex()).takeLast(3)
+        var prevWords = parts[0].trim().split(WHITESPACE_REGEX).takeLast(3)
         
         for (i in 1 until parts.size) {
             val currentPart = parts[i].trim()
             if (currentPart.isEmpty()) continue
-            val currentWords = currentPart.split("\\s+".toRegex())
+            val currentWords = currentPart.split(WHITESPACE_REGEX)
             
             // Find overlap - look for repeated words at boundary
             var skipWords = 0

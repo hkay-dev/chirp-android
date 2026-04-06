@@ -17,12 +17,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.EmptyState
 import java.util.UUID
+
+import androidx.compose.runtime.Stable
+
+@Stable
+data class ProfileItemState(val profile: dev.chirpboard.app.data.entity.Profile)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,8 +48,8 @@ fun ProfileListScreen(
     profileToDelete?.let { profile ->
         AnimatedAlertDialog(
             onDismissRequest = { profileToDelete = null },
-            title = { Text("Delete Profile") },
-            text = { Text("Are you sure you want to delete \"${profile.name}\"? This cannot be undone.") },
+            title = { Text(stringResource(R.string.rec_delete_profile)) },
+            text = { Text(stringResource(R.string.rec_delete_profile_confirm, profile.name)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -54,12 +61,12 @@ fun ProfileListScreen(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                 ) {
-                    Text("Delete")
+                    Text(stringResource(R.string.rec_delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { profileToDelete = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.rec_cancel))
                 }
             },
         )
@@ -69,12 +76,12 @@ fun ProfileListScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
-                title = { Text("Profiles") },
+                title = { Text(stringResource(R.string.rec_profiles)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.desc_back),
                         )
                     }
                 },
@@ -89,7 +96,7 @@ fun ProfileListScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add Profile",
+                    contentDescription = stringResource(R.string.desc_add_profile),
                 )
             }
         },
@@ -131,7 +138,7 @@ fun ProfileListScreen(
                         key = { it.id },
                     ) { profile ->
                         ProfileCard(
-                            profile = profile,
+                            profile = ProfileItemState(profile),
                             onClick = { onProfileClick(profile.id) },
                             onDelete = { profileToDelete = profile },
                             modifier = Modifier.animateItem(),

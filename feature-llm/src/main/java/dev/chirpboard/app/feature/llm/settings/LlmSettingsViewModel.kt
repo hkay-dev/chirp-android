@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.llm.settings
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.feature.llm.client.LlmClient
@@ -15,6 +16,7 @@ import javax.inject.Inject
 class LlmSettingsViewModel @Inject constructor(
     private val preferences: LlmPreferences,
     private val llmClient: LlmClient
+    private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     data class UiState(
@@ -42,10 +44,11 @@ class LlmSettingsViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferences.apiKey.collect { key ->
+                val input = savedStateHandle.get<String>("apiKeyInput") ?: key ?: ""
                 _uiState.update {
                     it.copy(
-                        apiKey = key ?: "",
-                        isKeyConfigured = !key.isNullOrBlank()
+                        apiKey = input,
+                        isKeyConfigured = input.isNotBlank()
                     )
                 }
             }
@@ -63,6 +66,7 @@ class LlmSettingsViewModel @Inject constructor(
     }
 
     fun updateApiKey(key: String) {
+        savedStateHandle["apiKeyInput"] = key
         _uiState.update { it.copy(apiKey = key, isKeyConfigured = key.isNotBlank()) }
     }
 

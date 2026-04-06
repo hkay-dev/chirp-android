@@ -16,6 +16,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.mergeDescendants
 
 @Composable
 internal fun LlmSettingsProcessingSection(
@@ -35,6 +37,7 @@ internal fun LlmSettingsProcessingSection(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .semantics { mergeDescendants = true }
             .clickable { onSetAutoTitle(!uiState.autoTitle) }
     ) {
         Row(
@@ -65,6 +68,7 @@ internal fun LlmSettingsProcessingSection(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .semantics { mergeDescendants = true }
             .clickable { onSetAutoSummary(!uiState.autoSummary) }
     ) {
         Row(

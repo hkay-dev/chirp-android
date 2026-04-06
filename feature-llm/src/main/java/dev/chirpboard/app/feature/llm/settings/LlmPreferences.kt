@@ -41,14 +41,15 @@ class LlmPreferences
             private const val DEFAULT_MODEL = "gemini-3.1-flash-lite-preview"
         }
 
-        private val appPrefs: SharedPreferences =
+        private val appPrefs: SharedPreferences by lazy {
             context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
+        }
 
         /**
          * Encrypted SharedPreferences for secure API key storage.
          * Returns null if encryption is unavailable (rare device-specific issues).
          */
-        private val securePrefs: SharedPreferences? =
+        private val securePrefs: SharedPreferences? by lazy {
             try {
                 val masterKey =
                     MasterKey
@@ -67,6 +68,7 @@ class LlmPreferences
                 Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
                 null
             }
+        }
 
         val llmEnabled: Flow<Boolean> =
             context.dataStore.data.map { preferences ->

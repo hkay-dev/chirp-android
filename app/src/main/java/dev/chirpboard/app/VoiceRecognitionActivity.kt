@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
@@ -71,7 +72,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         setContent {
             ChirpTheme {
                 val llmEnabled = remember { mutableStateOf(prefs.llmEnabled) }
-                val currentMode by modeRepository.currentMode.collectAsState(initial = ProcessingMode.Proofread)
+                val currentMode by modeRepository.currentMode.collectAsStateWithLifecycle(initial = ProcessingMode.Proofread)
 
                 VoiceRecognitionDialog(
                     amplitudesFlow = recorder.amplitudes,

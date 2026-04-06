@@ -41,6 +41,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.obsidian.R
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.mergeDescendants
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -81,12 +85,12 @@ fun ObsidianSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Obsidian Settings") },
+                title = { Text(stringResource(R.string.obsidian_settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.obsidian_desc_back),
                         )
                     }
                 },
@@ -197,10 +201,10 @@ private fun VaultConfigurationCard(
                             contentDescription = null,
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Change Vault")
+                        Text(stringResource(R.string.obsidian_change_vault))
                     }
                     OutlinedButton(onClick = onClearVault) {
-                        Text("Clear")
+                        Text(stringResource(R.string.obsidian_clear))
                     }
                 }
             } else {
@@ -217,7 +221,7 @@ private fun VaultConfigurationCard(
                         contentDescription = null,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text("Select Vault Folder")
+                    Text(stringResource(R.string.obsidian_select_vault_folder))
                 }
             }
         }
@@ -234,6 +238,7 @@ private fun AutoExportCard(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .semantics { mergeDescendants = true }
                 .clickable(enabled = hasAccess) { onToggle() },
     ) {
         Row(

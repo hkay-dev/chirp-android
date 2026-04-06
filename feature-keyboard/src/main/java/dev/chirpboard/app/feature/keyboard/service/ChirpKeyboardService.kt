@@ -81,6 +81,9 @@ class ChirpKeyboardService :
 
     @Inject lateinit var modeRepository: ProcessingModeRepository
 
+    @Inject lateinit var obsidianManager: dev.chirpboard.app.feature.obsidian.ObsidianManager
+    @Inject lateinit var obsidianPreferences: dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
+
     @Inject lateinit var recognizerProvider: TranscriberProvider
 
     @Inject lateinit var recordingRepository: RecordingRepository
@@ -122,6 +125,8 @@ class ChirpKeyboardService :
             recognizerProvider = recognizerProvider,
             textProcessor = textProcessor,
             keyboardPreferences = keyboardPreferences,
+            obsidianManager = obsidianManager,
+            obsidianPreferences = obsidianPreferences,
             persistenceScope = persistenceScope,
             filesDirProvider = { filesDir },
             audioEncoder = audioEncoder,
@@ -269,9 +274,9 @@ class ChirpKeyboardService :
             setViewTreeLifecycleOwner(this@ChirpKeyboardService)
             setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
             setContent {
-                val llmEnabled by _llmEnabled.collectAsState()
-                val currentMode by _currentMode.collectAsState()
-                val state by state.collectAsState()
+                val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
+                val currentMode by _currentMode.collectAsStateWithLifecycle()
+                val state by state.collectAsStateWithLifecycle()
                 KeyboardUI(
                     state = state,
                     amplitudes = recorder.amplitudes,

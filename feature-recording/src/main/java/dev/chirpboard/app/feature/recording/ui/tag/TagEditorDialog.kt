@@ -27,6 +27,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -85,7 +87,7 @@ fun TagEditorDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Tag name") },
+                    label = { Text(stringResource(R.string.rec_tag_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -126,12 +128,12 @@ fun TagEditorDialog(
                 },
                 enabled = name.isNotBlank(),
             ) {
-                Text("Save")
+                Text(stringResource(R.string.rec_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.rec_cancel))
             }
         },
     )
@@ -148,8 +150,14 @@ private fun ColorCircle(
     val checkColor = if (color.luminance() > 0.5f) Color.Black else Color.White
 
     Box(
-        modifier =
-            modifier
+        modifier = modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
                 .background(color)
@@ -158,20 +166,20 @@ private fun ColorCircle(
                         Modifier.border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
                     } else {
                         Modifier
-                    },
-                ).clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (isSelected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = checkColor,
-                modifier = Modifier.size(20.dp),
-            )
+                    }
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = stringResource(R.string.desc_selected),
+                    tint = checkColor,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
     }
-}
 
 private fun parseColor(hexColor: String): Color =
     try {

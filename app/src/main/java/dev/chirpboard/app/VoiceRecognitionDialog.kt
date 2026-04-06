@@ -50,6 +50,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.R
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -145,7 +147,7 @@ fun VoiceRecognitionDialog(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.15f))
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.15f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -228,7 +230,7 @@ private fun VoiceRecognitionDialogContent(
             ) {
                 Icon(
                     Icons.Filled.Close,
-                    contentDescription = "Cancel",
+                    contentDescription = stringResource(R.string.desc_cancel),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -331,7 +333,7 @@ private fun VoiceRecognitionDialogContent(
                         } else {
                             Icon(
                                 imageVector = if (recognitionState == RecognitionState.Listening) Icons.Filled.Stop else Icons.Filled.Mic,
-                                contentDescription = if (recognitionState == RecognitionState.Listening) "Stop" else "Start",
+                                contentDescription = if (recognitionState == RecognitionState.Listening) stringResource(R.string.desc_stop) else stringResource(R.string.desc_start),
                                 modifier = Modifier.size(32.dp),
                                 tint = iconColor,
                             )

@@ -3,6 +3,7 @@ package dev.chirpboard.app.data.repository
 import androidx.room.withTransaction
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.entity.Profile
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 import javax.inject.Inject
@@ -19,7 +20,7 @@ class ProfileRepository
         private val db: dev.chirpboard.app.data.db.AppDatabase,
     ) {
         /** Get all profiles ordered by sort order then name */
-        fun getAllProfiles(): Flow<List<Profile>> = profileDao.getAllProfiles()
+        fun getAllProfiles(): Flow<List<Profile>> = profileDao.getAllProfiles().catch { emit(emptyList()) }
 
         /** Get all profiles as a list */
         suspend fun getAllProfilesList(): List<Profile> = profileDao.getAllProfilesList()
@@ -28,7 +29,7 @@ class ProfileRepository
         suspend fun getProfile(id: UUID): Profile? = profileDao.getProfile(id)
 
         /** Get profile as Flow for reactive updates */
-        fun getProfileFlow(id: UUID): Flow<Profile?> = profileDao.getProfileFlow(id)
+        fun getProfileFlow(id: UUID): Flow<Profile?> = profileDao.getProfileFlow(id).catch { emit(null) }
 
         data class CreateProfileRequest(
             val name: String,

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -47,6 +48,7 @@ import javax.inject.Inject
 /**
  * UI model for a recording with all its associated data pre-loaded.
  */
+@androidx.compose.runtime.Stable
 data class RecordingDisplayItem(
     val recording: Recording,
     val tags: ImmutableList<Tag> = persistentListOf(),
@@ -58,6 +60,7 @@ data class RecordingDisplayItem(
 /**
  * Quick stats for the home screen header.
  */
+@androidx.compose.runtime.Stable
 data class HomeStats(
     val totalRecordings: Int = 0,
     val totalDurationMs: Long = 0L,
@@ -81,14 +84,15 @@ class HomeViewModel
         private val profileRepository: ProfileRepository,
         private val transcriptionQueueManager: TranscriptionQueueManager,
         private val llmClient: LlmClient,
+        private val savedStateHandle: SavedStateHandle,
         @ApplicationContext private val context: Context,
     ) : ViewModel() {
         /** Search query */
-        private val _searchQuery = MutableStateFlow("")
-        val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+        private val _searchQuery = savedStateHandle.getStateFlow("searchQuery", "")
+        val searchQuery: StateFlow<String> = _searchQuery
 
-        private val _listFilter = MutableStateFlow(ListFilterMode.ALL)
-        val listFilter: StateFlow<ListFilterMode> = _listFilter.asStateFlow()
+        private val _listFilter = savedStateHandle.getStateFlow("listFilter", ListFilterMode.ALL.name)
+        val listFilter: StateFlow<ListFilterMode> = _listFilter.map { ListFilterMode.valueOf(it) }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListFilterMode.ALL)
 
         /** Cached profiles for fast lookup */
         private val profileCache = ConcurrentHashMap<UUID, Profile?>()
@@ -191,16 +195,18 @@ class HomeViewModel
 
         /** Update search query */
         fun onSearchQueryChange(query: String) {
-            _searchQuery.value = query
+            savedStateHandle["searchQuery"] = query
         }
 
         fun onProcessingClick() {
+            val newListFilter =
             _listFilter.value =
-                if (_listFilter.value == ListFilterMode.PROCESSING) {
-                    ListFilterMode.ALL
+                if (_listFilter.value == ListFilterMode.PROCESSING.name) {
+                    ListFilterMode.ALL.name
                 } else {
-                    ListFilterMode.PROCESSING
+                    ListFilterMode.PROCESSING.name
                 }
+            savedStateHandle["listFilter"] = newListFilter
         }
 
         /**

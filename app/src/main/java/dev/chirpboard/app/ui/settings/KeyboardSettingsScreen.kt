@@ -48,9 +48,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.mergeDescendants
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -69,12 +72,12 @@ fun KeyboardSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Keyboard Settings") },
+                title = { Text(stringResource(dev.chirpboard.app.R.string.keyboard_settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.desc_back)
                         )
                     }
                 }
@@ -94,6 +97,7 @@ fun KeyboardSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(CardDefaults.shape)
+                    .semantics { mergeDescendants = true }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = ripple(),
@@ -132,6 +136,7 @@ fun KeyboardSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(CardDefaults.shape)
+                    .semantics { mergeDescendants = true }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = ripple(),
@@ -210,7 +215,7 @@ fun KeyboardSettingsScreen(
                                 }
                             }
                         ) {
-                            Text("Enable Keyboard")
+                            Text(stringResource(dev.chirpboard.app.R.string.enable_keyboard))
                         }
                         FilledTonalButton(
                             onClick = {
@@ -218,7 +223,7 @@ fun KeyboardSettingsScreen(
                                 imm.showInputMethodPicker()
                             }
                         ) {
-                            Text("Select Keyboard")
+                            Text(stringResource(dev.chirpboard.app.R.string.select_keyboard))
                         }
                     }
                 }
@@ -277,6 +282,7 @@ private fun ProcessingModeCard(
                 OutlinedCard(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .semantics { mergeDescendants = true }
                         .clickable(enabled = enabled) { isDropdownExpanded = true }
                 ) {
                     Row(
@@ -293,7 +299,7 @@ private fun ProcessingModeCard(
                         )
                         Icon(
                             imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = "Select mode",
+                            contentDescription = stringResource(R.string.desc_select_mode),
                             tint = iconTint
                         )
                     }
@@ -311,7 +317,7 @@ private fun ProcessingModeCard(
                                 isDropdownExpanded = false
                             },
                             trailingIcon = if (currentMode == modeId) {
-                                { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                                { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.desc_selected)) }
                             } else null
                         )
                     }

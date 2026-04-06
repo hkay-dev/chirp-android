@@ -252,49 +252,50 @@ class ModelDownloader(
 
             try {
                 val request = Request.Builder().url(url).build()
-                val response = client.newCall(request).execute()
-
-                if (!response.isSuccessful) {
-                    emit(DownloadState.Error("Failed to download ${file.name}: ${response.code}"))
-                    return@flow
-                }
-
-                val body = response.body ?: run {
-                    emit(DownloadState.Error("Empty response for ${file.name}"))
-                    return@flow
-                }
-
-                val downloaded = body.byteStream().use { input ->
-                    writeInputStreamToTempFile(input, tempFile) { bytesRead ->
-                        emit(
-                            DownloadState.Progress(
-                                file.name,
-                                totalDownloaded + bytesRead,
-                                totalSize
-                            )
-                        )
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        emit(DownloadState.Error("Failed to download ${file.name}: ${response.code}"))
+                        return@flow
                     }
+
+                    val body = response.body ?: run {
+                        emit(DownloadState.Error("Empty response for ${file.name}"))
+                        return@flow
+                    }
+
+                    val downloaded = body.byteStream().use { input ->
+                        writeInputStreamToTempFile(input, tempFile) { bytesRead ->
+                            emit(
+                                DownloadState.Progress(
+                                    file.name,
+                                    totalDownloaded + bytesRead,
+                                    totalSize
+                                )
+                            )
+                        }
+                    }
+
+                    if (!validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256)) {
+                        tempFile.delete()
+                        emit(DownloadState.Error("Checksum validation failed for ${file.name}"))
+                        return@flow
+                    }
+
+                    if (!promoteTempFileAtomically(tempFile, destFile)) {
+                        tempFile.delete()
+                        emit(DownloadState.Error("Failed to finalize ${file.name}"))
+                        return@flow
+                    }
+
+                    cacheValidationResult(destFile, file, valid = true)
+
+                    totalDownloaded += downloaded
+                    Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes")
                 }
-
-                if (!validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256)) {
-                    tempFile.delete()
-                    emit(DownloadState.Error("Checksum validation failed for ${file.name}"))
-                    return@flow
-                }
-
-                if (!promoteTempFileAtomically(tempFile, destFile)) {
-                    tempFile.delete()
-                    emit(DownloadState.Error("Failed to finalize ${file.name}"))
-                    return@flow
-                }
-
-                cacheValidationResult(destFile, file, valid = true)
-
-                totalDownloaded += downloaded
-                Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed for ${file.name}", e)
+                if (tempFile.exists()) tempFile.delete()
                 emit(DownloadState.Error("Download failed: ${e.message}"))
                 return@flow
             }

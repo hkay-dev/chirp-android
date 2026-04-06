@@ -15,6 +15,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -49,7 +51,7 @@ fun DoneButton(
         ) {
             Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = "Done - save and transcribe",
+                contentDescription = stringResource(R.string.desc_done),
                 modifier = Modifier.size(iconSize),
                 tint = contentColor,
             )
@@ -84,7 +86,7 @@ fun CancelButton(
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
-                contentDescription = "Cancel recording",
+                contentDescription = stringResource(R.string.desc_cancel_recording),
                 modifier = Modifier.size(iconSize),
                 tint = contentColor,
             )
@@ -119,7 +121,7 @@ fun RestartButton(
         ) {
             Icon(
                 imageVector = Icons.Default.Refresh,
-                contentDescription = "Restart recording",
+                contentDescription = stringResource(R.string.desc_restart_recording),
                 modifier = Modifier.size(iconSize),
                 tint = contentColor,
             )

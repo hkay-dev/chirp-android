@@ -35,7 +35,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -233,8 +232,12 @@ class RecordingService : Service() {
                 message = e.message,
             )
             recordingStateManager.onRecordingError("Failed to start recording: ${e.message}", e)
+            // Delete the audio file if it was created during setup
+            currentRecordingFile?.let { file ->
+                if (file.exists()) file.delete()
+            }
+            currentRecordingFile = null
             stopSelf()
-        }
     }
 
     private fun pauseRecording() {
@@ -570,7 +573,7 @@ class RecordingService : Service() {
                 .setOngoing(true)
                 .setContentIntent(contentPendingIntent)
                 .setColorized(true)
-                .setColor(0xFFD32F2F.toInt()) // Material Red 700
+                .setColor(android.graphics.Color.parseColor("#D32F2F")) // Material Red 700
 
         if (isPaused) {
             builder.setContentTitle("Recording paused")

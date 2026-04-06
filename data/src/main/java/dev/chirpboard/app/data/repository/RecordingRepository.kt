@@ -8,6 +8,7 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.Flow
 import java.util.Date
 import java.util.UUID
@@ -29,20 +30,20 @@ class RecordingRepository
         private val recordingDao: RecordingDao,
         private val transcriptDao: TranscriptDao,
     ) {
-        fun getAllRecordings(): Flow<List<Recording>> = recordingDao.getAllRecordings()
+        fun getAllRecordings(): Flow<List<Recording>> = recordingDao.getAllRecordings().catch { emit(emptyList()) }
 
         suspend fun getRecording(id: UUID): Recording? = recordingDao.getRecording(id)
 
-        fun getRecordingFlow(id: UUID): Flow<Recording?> = recordingDao.getRecordingFlow(id)
+        fun getRecordingFlow(id: UUID): Flow<Recording?> = recordingDao.getRecordingFlow(id).catch { emit(null) }
 
-        fun getRecordingsByStatus(status: RecordingStatus): Flow<List<Recording>> = recordingDao.getRecordingsByStatus(status)
+        fun getRecordingsByStatus(status: RecordingStatus): Flow<List<Recording>> = recordingDao.getRecordingsByStatus(status).catch { emit(emptyList()) }
 
         suspend fun getPendingRecordings(): List<Recording> =
             recordingDao.getRecordingsByStatuses(
                 listOf(RecordingStatus.PENDING_TRANSCRIPTION, RecordingStatus.PENDING_ENHANCEMENT),
             )
 
-        fun searchRecordings(query: String): Flow<List<Recording>> = recordingDao.searchRecordings(query)
+        fun searchRecordings(query: String): Flow<List<Recording>> = recordingDao.searchRecordings(query).catch { emit(emptyList()) }
 
         suspend fun createRecording(
             title: String,
@@ -101,7 +102,7 @@ class RecordingRepository
 
         suspend fun getTranscript(recordingId: UUID): Transcript? = transcriptDao.getTranscript(recordingId)
 
-        fun getTranscriptFlow(recordingId: UUID): Flow<Transcript?> = transcriptDao.getTranscriptFlow(recordingId)
+        fun getTranscriptFlow(recordingId: UUID): Flow<Transcript?> = transcriptDao.getTranscriptFlow(recordingId).catch { emit(null) }
 
         suspend fun saveTranscript(transcript: Transcript) = transcriptDao.insert(transcript)
 

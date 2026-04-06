@@ -31,7 +31,7 @@ internal fun RecordingCardMenu(
         onDismissRequest = onDismissRequest,
     ) {
         DropdownMenuItem(
-            text = { Text("Share") },
+            text = { Text(stringResource(R.string.rec_share)) },
             onClick = {
                 onDismissRequest()
                 onShare()
@@ -51,7 +51,7 @@ internal fun RecordingCardMenu(
 
             if (onGenerateTitle != null) {
                 DropdownMenuItem(
-                    text = { Text("Generate title") },
+                    text = { Text(stringResource(R.string.rec_gen_title)) },
                     onClick = {
                         onDismissRequest()
                         onGenerateTitle()
@@ -68,7 +68,7 @@ internal fun RecordingCardMenu(
 
             if (onGenerateSummary != null) {
                 DropdownMenuItem(
-                    text = { Text("Generate summary") },
+                    text = { Text(stringResource(R.string.rec_gen_summary)) },
                     onClick = {
                         onDismissRequest()
                         onGenerateSummary()
@@ -88,7 +88,7 @@ internal fun RecordingCardMenu(
             HorizontalDivider()
 
             DropdownMenuItem(
-                text = { Text("Retry transcription") },
+                text = { Text(stringResource(R.string.rec_retry_transcription)) },
                 onClick = {
                     onDismissRequest()
                     onRetryTranscription()
@@ -105,7 +105,7 @@ internal fun RecordingCardMenu(
         HorizontalDivider()
 
         DropdownMenuItem(
-            text = { Text("Delete") },
+            text = { Text(stringResource(R.string.rec_delete)) },
             onClick = {
                 onDismissRequest()
                 onDelete()

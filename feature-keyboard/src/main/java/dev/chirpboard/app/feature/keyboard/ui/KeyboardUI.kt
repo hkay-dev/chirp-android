@@ -60,6 +60,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.keyboard.R
 import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
@@ -264,7 +266,7 @@ private fun KeyboardControls(
         ) {
             Icon(
                 Icons.Filled.Backspace,
-                contentDescription = "Delete",
+                contentDescription = stringResource(R.string.keyboard_desc_delete),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
         }
@@ -303,11 +305,11 @@ private fun KeyboardControls(
         ) {
             Icon(
                 Icons.Filled.SpaceBar,
-                contentDescription = "Space",
+                contentDescription = stringResource(R.string.keyboard_desc_space),
                 modifier = Modifier.size(20.dp),
             )
             Spacer(Modifier.width(8.dp))
-            Text("Space", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.keyboard_desc_space), style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -446,7 +448,7 @@ private fun ErrorContent(
         ) {
             Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Retry")
+            Text(stringResource(R.string.keyboard_retry))
         }
     }
 }

@@ -20,7 +20,7 @@ class ProfileEditorViewModel
     @Inject
     constructor(
         private val profileRepository: ProfileRepository,
-        savedStateHandle: SavedStateHandle,
+        private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val profileId: UUID? =
             savedStateHandle
@@ -49,6 +49,19 @@ class ProfileEditorViewModel
         init {
             if (profileId != null) {
                 loadProfile(profileId)
+            } else {
+                _uiState.update {
+                    it.copy(
+                        name = savedStateHandle.get<String>("name") ?: "",
+                        icon = savedStateHandle.get<String>("icon") ?: "",
+                        autoTranscribe = savedStateHandle.get<Boolean>("autoTranscribe") ?: true,
+                        autoTitle = savedStateHandle.get<Boolean>("autoTitle") ?: false,
+                        autoSummary = savedStateHandle.get<Boolean>("autoSummary") ?: false,
+                        autoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian") ?: false,
+                        obsidianVaultPath = savedStateHandle.get<String>("obsidianVaultPath") ?: "",
+                        defaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode"),
+                    )
+                }
             }
         }
 
@@ -58,15 +71,23 @@ class ProfileEditorViewModel
                 val profile = profileRepository.getProfile(id)
                 if (profile != null) {
                     _uiState.update {
+                        val savedName = savedStateHandle.get<String>("name")
+                        val savedIcon = savedStateHandle.get<String>("icon")
+                        val savedAutoTranscribe = savedStateHandle.get<Boolean>("autoTranscribe")
+                        val savedAutoTitle = savedStateHandle.get<Boolean>("autoTitle")
+                        val savedAutoSummary = savedStateHandle.get<Boolean>("autoSummary")
+                        val savedAutoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian")
+                        val savedObsidianVaultPath = savedStateHandle.get<String>("obsidianVaultPath")
+                        val savedDefaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode")
                         it.copy(
-                            name = profile.name,
-                            icon = profile.icon ?: "",
-                            autoTranscribe = profile.autoTranscribe,
-                            autoTitle = profile.autoTitle,
-                            autoSummary = profile.autoSummary,
-                            autoExportToObsidian = profile.autoExportToObsidian,
-                            obsidianVaultPath = profile.obsidianVaultPath ?: "",
-                            defaultProcessingMode = profile.defaultProcessingMode,
+                            name = savedName ?: profile.name,
+                            icon = savedIcon ?: profile.icon ?: "",
+                            autoTranscribe = savedAutoTranscribe ?: profile.autoTranscribe,
+                            autoTitle = savedAutoTitle ?: profile.autoTitle,
+                            autoSummary = savedAutoSummary ?: profile.autoSummary,
+                            autoExportToObsidian = savedAutoExportToObsidian ?: profile.autoExportToObsidian,
+                            obsidianVaultPath = savedObsidianVaultPath ?: profile.obsidianVaultPath ?: "",
+                            defaultProcessingMode = savedDefaultProcessingMode ?: profile.defaultProcessingMode,
                             isLoading = false,
                         )
                     }
@@ -77,34 +98,42 @@ class ProfileEditorViewModel
         }
 
         fun updateName(name: String) {
+            savedStateHandle["name"] = name
             _uiState.update { it.copy(name = name) }
         }
 
         fun updateIcon(icon: String) {
+            savedStateHandle["icon"] = icon
             _uiState.update { it.copy(icon = icon) }
         }
 
         fun updateAutoTranscribe(enabled: Boolean) {
+            savedStateHandle["autoTranscribe"] = enabled
             _uiState.update { it.copy(autoTranscribe = enabled) }
         }
 
         fun updateAutoTitle(enabled: Boolean) {
+            savedStateHandle["autoTitle"] = enabled
             _uiState.update { it.copy(autoTitle = enabled) }
         }
 
         fun updateAutoSummary(enabled: Boolean) {
+            savedStateHandle["autoSummary"] = enabled
             _uiState.update { it.copy(autoSummary = enabled) }
         }
 
         fun updateAutoExportToObsidian(enabled: Boolean) {
+            savedStateHandle["autoExportToObsidian"] = enabled
             _uiState.update { it.copy(autoExportToObsidian = enabled) }
         }
 
         fun updateObsidianVaultPath(path: String) {
+            savedStateHandle["obsidianVaultPath"] = path
             _uiState.update { it.copy(obsidianVaultPath = path) }
         }
 
         fun updateDefaultProcessingMode(mode: String?) {
+            savedStateHandle["defaultProcessingMode"] = mode
             _uiState.update { it.copy(defaultProcessingMode = mode) }
         }
 

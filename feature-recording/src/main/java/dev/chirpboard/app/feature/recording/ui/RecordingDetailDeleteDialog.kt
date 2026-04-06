@@ -19,9 +19,9 @@ internal fun RecordingDetailDeleteDialog(
 
     AnimatedAlertDialog(
         onDismissRequest = onDismissRequest,
-        title = { Text("Delete recording?") },
+        title = { Text(stringResource(R.string.rec_delete_recording)) },
         text = {
-            Text("This action cannot be undone. The audio file and any transcription will be permanently deleted.")
+            Text(stringResource(R.string.rec_delete_recording_desc))
         },
         confirmButton = {
             TextButton(
@@ -31,12 +31,12 @@ internal fun RecordingDetailDeleteDialog(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
             ) {
-                Text("Delete")
+                Text(stringResource(R.string.rec_delete))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismissRequest) {
-                Text("Cancel")
+                Text(stringResource(R.string.rec_cancel))
             }
         },
     )

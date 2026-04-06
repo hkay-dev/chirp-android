@@ -82,6 +82,9 @@ object ReliabilityEventLogger {
     }
 }
 
+private val PATH_REGEX = Regex("""(/[\w.\-]+)+""")
+private val TOKEN_REGEX = Regex("""[A-Za-z0-9_\-]{24,}""")
+
 internal fun redactReason(reason: String?): String? {
     return reason?.take(120)
 }
@@ -89,7 +92,7 @@ internal fun redactReason(reason: String?): String? {
 internal fun redactMessage(message: String?): String? {
     if (message == null) return null
 
-    val scrubbedPath = message.replace(Regex("""(/[\w.\-]+)+"""), "[path]")
-    val scrubbedToken = scrubbedPath.replace(Regex("""[A-Za-z0-9_\-]{24,}"""), "[redacted]")
+    val scrubbedPath = message.replace(PATH_REGEX, "[path]")
+    val scrubbedToken = scrubbedPath.replace(TOKEN_REGEX, "[redacted]")
     return scrubbedToken.take(200)
 }

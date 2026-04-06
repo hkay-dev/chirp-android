@@ -27,6 +27,8 @@ internal class KeyboardTranscriptionPipeline(
     private val recognizerProvider: TranscriberProvider,
     private val textProcessor: TextProcessor,
     private val keyboardPreferences: KeyboardPreferences,
+    private val obsidianManager: dev.chirpboard.app.feature.obsidian.ObsidianManager,
+    private val obsidianPreferences: dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences,
     private val persistenceScope: CoroutineScope,
     private val filesDirProvider: () -> File,
     private val audioEncoder: AudioEncoder,
@@ -254,13 +256,30 @@ internal class KeyboardTranscriptionPipeline(
 
         val job =
             persistenceScope.launch {
-                saveKeyboardRecording(
+                val recording = saveKeyboardRecording(
                     filesDir = filesDirProvider(),
                     audioEncoder = audioEncoder,
                     recordingRepository = recordingRepository,
                     persistencePlan = persistencePlan,
                     samples = sampleSnapshot,
                 )
+                if (recording != null && rawText != null) {
+                    val autoExport = obsidianPreferences.autoExportEnabled.first()
+                    val vaultUriStr = obsidianPreferences.globalVaultUri.first()
+                    if (autoExport && vaultUriStr != null) {
+                        try {
+                            val uri = android.net.Uri.parse(vaultUriStr)
+                            obsidianManager.export(
+                                recording = recording,
+                                transcript = processedText ?: rawText,
+                                summary = null,
+                                vaultUri = uri
+                            )
+                        } catch (e: Exception) {
+                            Log.e(tag, "Failed to auto-export to Obsidian", e)
+                        }
+                    }
+                }
             }
         setPersistenceJob(job)
 

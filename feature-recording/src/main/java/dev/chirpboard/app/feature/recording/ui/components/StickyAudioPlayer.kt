@@ -36,6 +36,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.PointerEventType
@@ -155,7 +157,7 @@ fun StickyAudioPlayer(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Replay10,
-                        contentDescription = "Skip backward 10 seconds",
+                        contentDescription = stringResource(R.string.desc_skip_backward),
                         modifier = Modifier.size(28.dp),
                     )
                 }
@@ -189,7 +191,7 @@ fun StickyAudioPlayer(
                         isError -> {
                             Icon(
                                 imageVector = Icons.Filled.Error,
-                                contentDescription = "Playback error",
+                                contentDescription = stringResource(R.string.desc_playback_error),
                                 modifier = Modifier.size(32.dp),
                             )
                         }
@@ -202,7 +204,7 @@ fun StickyAudioPlayer(
                             ) { playing ->
                                 Icon(
                                     imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                    contentDescription = if (playing) "Pause" else "Play",
+                                    contentDescription = if (playing) stringResource(R.string.desc_pause) else stringResource(R.string.desc_play),
                                     modifier = Modifier.size(32.dp),
                                 )
                             }
@@ -235,7 +237,7 @@ fun StickyAudioPlayer(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Forward10,
-                        contentDescription = "Skip forward 10 seconds",
+                        contentDescription = stringResource(R.string.desc_skip_forward),
                         modifier = Modifier.size(28.dp),
                     )
                 }

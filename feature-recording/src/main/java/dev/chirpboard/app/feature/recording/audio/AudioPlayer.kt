@@ -50,7 +50,6 @@ sealed class PlaybackState {
 class AudioPlayer
     @Inject
     constructor(
-        @ApplicationContext private val context: Context,
     ) {
         private var mediaPlayer: MediaPlayer? = null
         private var progressJob: Job? = null

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rec_word_replacements">Word Replacements</string>
+    <string name="rec_tag_name">Tag name</string>
+    <string name="rec_save">Save</string>
+    <string name="rec_cancel">Cancel</string>
+    <string name="rec_original_word">Original word/phrase</string>
+    <string name="rec_original_word_desc">The word or phrase to find</string>
+    <string name="rec_replacement">Replacement</string>
+    <string name="rec_replacement_desc">What to replace it with (leave empty to remove)</string>
+    <string name="rec_tags">Tags</string>
+    <string name="rec_share">Share</string>
+    <string name="rec_gen_title">Generate title</string>
+    <string name="rec_gen_summary">Generate summary</string>
+    <string name="rec_retry_transcription">Retry transcription</string>
+    <string name="rec_retry_transcription_cap">Retry Transcription</string>
+    <string name="rec_delete">Delete</string>
+    <string name="rec_loading_audio">Loading audio...</string>
+    <string name="rec_edit_title">Edit title</string>
+    <string name="rec_share_audio">Share audio</string>
+    <string name="rec_share_transcript">Share transcript</string>
+    <string name="rec_share_both">Share both</string>
+    <string name="rec_recover_queue">Recover Queue</string>
+    <string name="rec_recover_stuck">Recover stuck (%1$d)</string>
+    <string name="rec_profile_name">Name *</string>
+    <string name="rec_profile_icon">Icon (emoji)</string>
+    <string name="rec_profile_icon_desc">Optional emoji to identify this profile</string>
+    <string name="rec_profile_vault">Obsidian Vault Path</string>
+    <string name="rec_profile_vault_desc">Leave empty to use global setting</string>
+    <string name="rec_profile_vault_support">Override the global Obsidian vault path for this profile</string>
+    <string name="rec_profile_mode">Default Processing Mode</string>
+    <string name="rec_delete_recording">Delete recording?</string>
+    <string name="rec_delete_recording_desc">This action cannot be undone. The audio file and any transcription will be permanently deleted.</string>
+    <string name="rec_delete_profile">Delete Profile</string>
+    <string name="rec_profiles">Profiles</string>
+    
+    <string name="desc_selected">Selected</string>
+    <string name="desc_remove_tag">Remove tag</string>
+    <string name="desc_back">Back</string>
+    <string name="desc_add_replacement">Add replacement</string>
+    <string name="desc_delete">Delete</string>
+    <string name="desc_edit">Edit</string>
+    <string name="desc_add_tag">Add tag</string>
+    <string name="desc_edit_tag">Edit tag</string>
+    <string name="desc_skip_back">Skip back 10 seconds</string>
+    <string name="desc_skip_forward">Skip forward 10 seconds</string>
+    <string name="desc_share">Share</string>
+    <string name="desc_cancel">Cancel</string>
+    <string name="desc_save">Save</string>
+    <string name="desc_more_options">More options</string>
+    <string name="desc_close">Close</string>
+    <string name="desc_search">Search</string>
+    <string name="desc_settings">Settings</string>
+    <string name="desc_clear_search">Clear search</string>
+    <string name="desc_skip_backward">Skip backward 10 seconds</string>
+    <string name="desc_playback_error">Playback error</string>
+    <string name="desc_done">Done - save and transcribe</string>
+    <string name="desc_cancel_recording">Cancel recording</string>
+    <string name="desc_restart_recording">Restart recording</string>
+    <string name="desc_add_profile">Add Profile</string>
+
+    <string name="rec_profile_name_placeholder">e.g., Meeting Notes</string>
+    <string name="rec_profile_icon_placeholder">e.g., 🎤</string>
+
+
+    <string name="desc_play">Play</string>
+    <string name="desc_pause">Pause</string>
+    <string name="desc_start_recording">Start recording</string>
+    <string name="desc_stop_recording">Stop recording</string>
+
+
+    <string name="rec_edit_profile">Edit Profile</string>
+    <string name="rec_new_profile">New Profile</string>
+
+
+    <string name="rec_delete_profile_confirm">Are you sure you want to delete "%1$s"? This cannot be undone.</string>
+
+</resources>

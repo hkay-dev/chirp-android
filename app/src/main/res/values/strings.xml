@@ -13,6 +13,58 @@
     <string name="select_keyboard">Select Keyboard</string>
     <string name="grant_permission">Grant Microphone Permission</string>
     <string name="setup_complete">Setup Complete</string>
-    <string name="widget_name">Chirp Recording</string>
-    <string name="widget_description">Quick access to start and stop voice recordings</string>
+    <string name="discard_recording_title">Discard Recording?</string>
+    <string name="discard_recording_text">This recording will be permanently deleted.</string>
+    <string name="discard">Discard</string>
+    <string name="keep_recording">Keep Recording</string>
+    <string name="start_over_title">Start Over?</string>
+    <string name="start_over_text">Current recording will be discarded.</string>
+    <string name="start_over">Start Over</string>
+    <string name="recording_in_progress_title">Recording in Progress</string>
+    <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
+    <string name="save">Save</string>
+    <string name="search_recordings">Search recordings</string>
+    <string name="keyboard_settings_title">Keyboard Settings</string>
+
+    <!-- Debug / Settings -->
+    <string name="dev_menu_title">Developer Menu</string>
+    <string name="dev_gemini_key">Gemini API Key</string>
+    <string name="dev_gemini_placeholder">AIza...</string>
+    <string name="dev_save_key">Save Key</string>
+    <string name="dev_clear">Clear</string>
+    <string name="dev_add_5">Add 5</string>
+    <string name="dev_add_20">Add 20</string>
+    <string name="dev_clear_timeline">Clear Timeline</string>
+    <string name="dev_delete_all">Delete All Recordings</string>
+    <string name="about_title">About</string>
+    <string name="cancel">Cancel</string>
+    <string name="desc_back">Back</string>
+    <string name="desc_cancel">Cancel</string>
+    <string name="desc_select_mode">Select mode</string>
+    <string name="desc_selected">Selected</string>
+
+    <!-- Debug / Settings -->
+    <string name="dev_menu_title">Developer Menu</string>
+    <string name="dev_gemini_key">Gemini API Key</string>
+    <string name="dev_gemini_placeholder">AIza...</string>
+    <string name="dev_save_key">Save Key</string>
+    <string name="dev_clear">Clear</string>
+    <string name="dev_add_5">Add 5</string>
+    <string name="dev_add_20">Add 20</string>
+    <string name="dev_clear_timeline">Clear Timeline</string>
+    <string name="dev_delete_all">Delete All Recordings</string>
+    <string name="about_title">About</string>
+    <string name="cancel">Cancel</string>
+    <string name="desc_back">Back</string>
+    <string name="desc_cancel">Cancel</string>
+    <string name="desc_select_mode">Select mode</string>
+    <string name="desc_selected">Selected</string>
+
+    <string name="desc_start">Start</string>
+    <string name="desc_stop">Stop</string>
+
+
+    <string name="go_to_settings">Go to Settings</string>
+    <string name="dismiss">Dismiss</string>
+
 </resources>
