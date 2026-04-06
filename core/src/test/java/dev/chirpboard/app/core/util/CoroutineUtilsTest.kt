@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -81,7 +82,7 @@ class CoroutineUtilsTest {
         )
         
         // Let coroutines run
-        kotlinx.coroutines.test.runCurrent()
+        kotlinx.coroutines.yield()
         
         assertEquals(2, emittedStates.size)
         assertTrue(emittedStates[0] is UiState.Loading)

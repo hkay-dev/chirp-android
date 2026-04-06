@@ -5,7 +5,7 @@ import dev.chirpboard.app.download.ModelReadinessGate
 import dev.chirpboard.app.download.ModelReadinessState
 import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import dev.chirpboard.app.download.ModelReadyResult
-import dev.chirpboard.app.download.ModelReadySource
+import dev.chirpboard.app.download.ModelLocation
 import dev.chirpboard.app.download.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.every

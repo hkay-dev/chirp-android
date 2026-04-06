@@ -26,6 +26,6 @@ class SherpaRecognizerProviderTest {
         val provider = SherpaRecognizerProvider(mockContext)
         val outcome = provider.transcribe(FloatArray(10), 16000)
         assertTrue(outcome is TranscriptionOutcome.ModelUnavailable)
-        assertEquals("Recognizer is not initialized", (outcome as TranscriptionOutcome.ModelUnavailable).message)
+        assertEquals("Recognizer is not initialized", (outcome as TranscriptionOutcome.ModelUnavailable).reason)
     }
 }

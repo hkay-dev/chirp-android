@@ -8,7 +8,8 @@ import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.llm.TextProcessor
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
+import dev.chirpboard.app.feature.obsidian.sync.ObsidianManager
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -43,6 +44,8 @@ class KeyboardTranscriptionPipelineTest {
     private lateinit var filesDirProvider: () -> File
     private lateinit var audioEncoder: AudioEncoder
     private lateinit var recordingRepository: RecordingRepository
+    private lateinit var obsidianPreferences: ObsidianPreferences
+    private lateinit var obsidianManager: ObsidianManager
     private lateinit var pipeline: KeyboardTranscriptionPipeline
 
     private var bufferedSamples: FloatArray? = FloatArray(10) { it.toFloat() }
@@ -58,7 +61,8 @@ class KeyboardTranscriptionPipelineTest {
         filesDirProvider = { File("/dev/null") }
         audioEncoder = mockk(relaxed = true)
         recordingRepository = mockk(relaxed = true)
-
+        obsidianPreferences = mockk(relaxed = true)
+        obsidianManager = mockk(relaxed = true)
         mockkStatic(ReliabilityEventLogger::class)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
@@ -74,6 +78,8 @@ class KeyboardTranscriptionPipelineTest {
             filesDirProvider = filesDirProvider,
             audioEncoder = audioEncoder,
             recordingRepository = recordingRepository,
+            obsidianPreferences = obsidianPreferences,
+            obsidianManager = obsidianManager,
             getBufferedSamples = { bufferedSamples },
             setBufferedSamples = { bufferedSamples = it },
             getPersistenceJob = { persistenceJob },
@@ -94,7 +100,7 @@ class KeyboardTranscriptionPipelineTest {
         var stateEmitted: KeyboardState? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
             llmEnabled = false,
             commitText = {},
             onStateChanged = { stateEmitted = it },
@@ -102,7 +108,7 @@ class KeyboardTranscriptionPipelineTest {
             onRecordingError = {}
         )
         
-        assertEquals(KeyboardState.Error("Recognizer not ready"), stateEmitted)
+        assertEquals(KeyboardState.Error("Recognizer not ready", dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD), stateEmitted)
         assertEquals(null, bufferedSamples) // Cleared after persistence
     }
 
@@ -115,7 +121,7 @@ class KeyboardTranscriptionPipelineTest {
         var completed = false
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
             llmEnabled = false,
             commitText = {},
             onStateChanged = { stateEmitted = it },
@@ -137,7 +143,7 @@ class KeyboardTranscriptionPipelineTest {
         var committedText: String? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
             llmEnabled = false,
             commitText = { committedText = it },
             onStateChanged = { stateEmitted = it },
@@ -160,7 +166,7 @@ class KeyboardTranscriptionPipelineTest {
         var committedText: String? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD,
             llmEnabled = true,
             commitText = { committedText = it },
             onStateChanged = { stateEmitted = it },

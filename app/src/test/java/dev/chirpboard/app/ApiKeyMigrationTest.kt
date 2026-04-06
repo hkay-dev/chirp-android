@@ -7,9 +7,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
+import kotlinx.coroutines.test.runTest
+import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import dev.chirpboard.app.feature.llm.settings.LlmSecurePreferences
+import dev.chirpboard.app.feature.llm.client.ApiKeyMigration
 class ApiKeyMigrationTest {
-    private lateinit var preferences: Preferences
-    private lateinit var securePreferences: SecurePreferences
+    private lateinit var preferences: LlmPreferences
+    private lateinit var securePreferences: LlmSecurePreferences
     private lateinit var migration: ApiKeyMigration
 
     @Before

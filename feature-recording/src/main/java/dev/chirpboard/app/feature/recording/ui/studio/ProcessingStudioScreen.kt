@@ -70,6 +70,8 @@ import dev.chirpboard.app.core.ui.components.LoadingState
 import dev.chirpboard.app.feature.recording.ui.studio.tabs.ChatTab
 import dev.chirpboard.app.feature.recording.ui.studio.tabs.SummaryTab
 import dev.chirpboard.app.feature.recording.ui.studio.tabs.TranscriptTab
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -86,7 +88,7 @@ fun ProcessingStudioScreen(
         return
     }
 
-    val tabs = listOf("Transcript", "Summary", "Chat")
+    val tabs = listOf(stringResource(R.string.rec_transcript), stringResource(R.string.rec_summary), stringResource(R.string.rec_chat))
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val coroutineScope = rememberCoroutineScope()
 
@@ -98,46 +100,46 @@ fun ProcessingStudioScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("Details") },
+                    title = { Text(stringResource(R.string.rec_details)) },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.desc_back))
                         }
                     },
                     actions = {
                         Box {
                             IconButton(onClick = { showShareMenu = true }) {
-                                Icon(Icons.Default.Share, contentDescription = "Share")
+                                Icon(Icons.Default.Share, contentDescription = stringResource(R.string.desc_share))
                             }
                             DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Share Audio") },
+                                    text = { Text(stringResource(R.string.rec_share_audio)) },
                                     onClick = { showShareMenu = false; viewModel.shareAudio(context) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Share Transcript") },
+                                    text = { Text(stringResource(R.string.rec_share_transcript)) },
                                     onClick = { showShareMenu = false; viewModel.shareTranscript(context) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Share Both") },
+                                    text = { Text(stringResource(R.string.rec_share_both)) },
                                     onClick = { showShareMenu = false; viewModel.shareBoth(context) }
                                 )
                             }
                         }
                         Box {
                             IconButton(onClick = { showOptionsMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                                Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.desc_more_options))
                             }
                             DropdownMenu(expanded = showOptionsMenu, onDismissRequest = { showOptionsMenu = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Edit Title") },
+                                    text = { Text(stringResource(R.string.rec_edit_title)) },
                                     onClick = { showOptionsMenu = false; viewModel.startEditingTitle() },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.desc_edit)) }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Delete") },
+                                    text = { Text(stringResource(R.string.rec_delete)) },
                                     onClick = { showOptionsMenu = false; viewModel.deleteRecording { onNavigateBack() } },
-                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.desc_delete), tint = MaterialTheme.colorScheme.error) }
                                 )
                             }
                         }
@@ -180,10 +182,10 @@ fun ProcessingStudioScreen(
                             )
                         )
                         IconButton(onClick = viewModel::cancelEditingTitle) {
-                            Icon(Icons.Default.Close, contentDescription = "Cancel")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_cancel))
                         }
                         IconButton(onClick = viewModel::saveTitle) {
-                            Icon(Icons.Default.Check, contentDescription = "Save")
+                            Icon(Icons.Default.Check, contentDescription = stringResource(R.string.desc_save))
                         }
                     }
                 } else {
@@ -248,21 +250,25 @@ fun ProcessingStudioScreen(
                             )
                         }
                     }
-                    if (state.source != null) {
-                        val sourceIcon = when (state.source) {
-                            RecordingSource.APP -> Icons.Default.Mic
-                            RecordingSource.KEYBOARD -> Icons.Default.Keyboard
-                            RecordingSource.WIDGET -> Icons.Default.Widgets
-                            RecordingSource.IMPORTED -> Icons.Default.AudioFile
-                            else -> Icons.Default.Mic
+                    val source = state.source
+                    if (source != null) {
+                        val sourceIcon = remember(source) {
+                            when (source) {
+                                RecordingSource.APP -> Icons.Default.Mic
+                                RecordingSource.KEYBOARD -> Icons.Default.Keyboard
+                                RecordingSource.WIDGET -> Icons.Default.Widgets
+                                RecordingSource.IMPORTED -> Icons.Default.AudioFile
+                            }
                         }
-                        val sourceText = when (state.source) {
-                            RecordingSource.APP -> "App"
-                            RecordingSource.KEYBOARD -> "Keyboard"
-                            RecordingSource.WIDGET -> "Widget"
-                            RecordingSource.IMPORTED -> "Imported"
-                            else -> "Unknown"
+                        val sourceTextRes = remember(source) {
+                            when (source) {
+                                RecordingSource.APP -> R.string.rec_source_app
+                                RecordingSource.KEYBOARD -> R.string.rec_source_keyboard
+                                RecordingSource.WIDGET -> R.string.rec_source_widget
+                                RecordingSource.IMPORTED -> R.string.rec_source_imported
+                            }
                         }
+                        val sourceText = stringResource(sourceTextRes)
                         Surface(
                             shape = RoundedCornerShape(8.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,

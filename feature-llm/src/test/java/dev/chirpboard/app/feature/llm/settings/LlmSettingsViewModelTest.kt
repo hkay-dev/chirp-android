@@ -37,7 +37,7 @@ class LlmSettingsViewModelTest {
             coEvery { autoSummary } returns flowOf(true)
         }
         llmClient = mockk()
-        viewModel = LlmSettingsViewModel(preferences, llmClient)
+        viewModel = LlmSettingsViewModel(preferences, llmClient, mockk(relaxed=true))
     }
 
     @After
