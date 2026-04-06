@@ -41,15 +41,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.components.ContentSection
 import java.util.Date
 
@@ -78,7 +78,7 @@ internal fun RecordingDetailTranscriptSection(
         when {
             hasText -> {
                 ContentSection(
-                    title = "Transcript",
+                    title = stringResource(R.string.rec_transcript),
                     action =
                         if (status == RecordingStatus.COMPLETED || status == RecordingStatus.ENHANCING) {
                             {
@@ -144,7 +144,7 @@ internal fun RecordingDetailTranscriptSection(
                                                 modifier = Modifier.size(16.dp),
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Re-run", style = MaterialTheme.typography.labelMedium)
+                                            Text(stringResource(R.string.rec_rerun), style = MaterialTheme.typography.labelMedium)
                                         }
                                     }
 
@@ -157,7 +157,9 @@ internal fun RecordingDetailTranscriptSection(
                                     }
                                 }
                             }
-                        } else null,
+                        } else {
+                            null
+                        },
                 ) {
                     val text = transcript?.processedText ?: transcript?.rawText ?: ""
                     Text(
@@ -196,9 +198,9 @@ internal fun RecordingDetailTranscriptSection(
                         Text(
                             text =
                                 if (status == RecordingStatus.TRANSCRIBING) {
-                                    "Transcribing..."
+                                    stringResource(R.string.rec_transcribing)
                                 } else {
-                                    "Waiting for transcription..."
+                                    stringResource(R.string.rec_waiting_for_transcription)
                                 },
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -244,7 +246,7 @@ internal fun RecordingDetailTranscriptSection(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Text(
-                        text = "Transcription failed",
+                        text = stringResource(R.string.rec_transcription_failed),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -289,7 +291,7 @@ internal fun RecordingDetailTranscriptSection(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "No transcript available",
+                        text = stringResource(R.string.rec_no_transcript_available),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -323,7 +325,7 @@ internal fun EnhancingRecoveryActions(
             modifier = Modifier.size(16.dp),
         )
         Spacer(modifier = Modifier.width(4.dp))
-        Text("Recover", style = MaterialTheme.typography.labelMedium)
+        Text(stringResource(R.string.rec_recover), style = MaterialTheme.typography.labelMedium)
     }
     TextButton(
         onClick = onRetranscribe,
@@ -337,7 +339,7 @@ internal fun EnhancingRecoveryActions(
             modifier = Modifier.size(16.dp),
         )
         Spacer(modifier = Modifier.width(4.dp))
-        Text("Re-transcribe", style = MaterialTheme.typography.labelMedium)
+        Text(stringResource(R.string.rec_retranscribe), style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -379,27 +381,33 @@ private fun RecoveryDiagnosticsSection(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
-            text = "Latest reason: ${diagnostics.latestReason ?: "No reason available"}",
+            text =
+                stringResource(
+                    R.string.rec_recovery_latest_reason,
+                    diagnostics.latestReason ?: stringResource(R.string.rec_recovery_no_reason),
+                ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        val attempt = diagnostics.lastAttemptEpochMs?.let { Date(it).formatRelative() } ?: "Unknown"
+        val attempt =
+            diagnostics.lastAttemptEpochMs?.let { Date(it).formatRelative() }
+                ?: stringResource(R.string.rec_recovery_unknown)
         Text(
-            text = "Last attempt: $attempt",
+            text = stringResource(R.string.rec_recovery_last_attempt, attempt),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Text(
-            text = "Ownership: ${diagnostics.ownership.name}",
+            text = stringResource(R.string.rec_recovery_ownership, diagnostics.ownership.name),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         if (!actionsEnabled) {
             Text(
-                text = "Recovery actions are disabled while work is active or ownership check timed out",
+                text = stringResource(R.string.rec_recovery_actions_disabled),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )

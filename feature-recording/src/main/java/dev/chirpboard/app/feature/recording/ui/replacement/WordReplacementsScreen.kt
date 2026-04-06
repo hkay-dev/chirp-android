@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -111,7 +112,7 @@ fun WordReplacementsScreen(
             if (isEmpty) {
                 EmptyState(
                     icon = Icons.Default.SwapHoriz,
-                    title = "No word replacements",
+                    title = stringResource(R.string.rec_word_replacements_empty_title),
                     description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
                     modifier = Modifier.padding(paddingValues),
                 )
@@ -298,6 +299,7 @@ private fun ReplacementItemCard(
                 modifier =
                     Modifier
                         .weight(1f)
+                        .defaultMinSize(minHeight = 48.dp)
                         .clickable { onToggleEnabled() },
                 verticalAlignment = Alignment.CenterVertically,
             ) {

@@ -27,15 +27,15 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.feature.recording.R
 
 /**
  * Preset colors for tag color picker.
@@ -95,7 +95,7 @@ fun TagEditorDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Color",
+                    text = stringResource(R.string.rec_color),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -150,24 +150,26 @@ private fun ColorCircle(
     val checkColor = if (color.luminance() > 0.5f) Color.Black else Color.White
 
     Box(
-        modifier = modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onClick),
+        modifier =
+            modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(color)
-                .then(
-                    if (isSelected) {
-                        Modifier.border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                    } else {
-                        Modifier
-                    }
-                ),
+            modifier =
+                Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(color)
+                    .then(
+                        if (isSelected) {
+                            Modifier.border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    ),
             contentAlignment = Alignment.Center,
         ) {
             if (isSelected) {

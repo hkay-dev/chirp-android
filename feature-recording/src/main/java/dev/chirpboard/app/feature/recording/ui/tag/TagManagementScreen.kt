@@ -113,7 +113,7 @@ fun TagManagementScreen(
             if (isEmpty) {
                 EmptyState(
                     icon = Icons.AutoMirrored.Filled.Label,
-                    title = "No tags yet",
+                    title = stringResource(R.string.rec_no_tags_yet),
                     description = "Create tags to organize your recordings",
                     modifier = Modifier.padding(paddingValues),
                 )

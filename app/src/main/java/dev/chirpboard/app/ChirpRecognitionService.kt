@@ -1,10 +1,12 @@
 package dev.chirpboard.app
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
@@ -89,6 +91,12 @@ class ChirpRecognitionService : RecognitionService() {
         if (recorder.isRecording()) {
             Log.w(TAG, "Recorder already busy")
             listener.error(ERROR_RECOGNIZER_BUSY)
+            return
+        }
+
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Log.w(TAG, "RECORD_AUDIO permission not granted")
+            listener.error(SpeechRecognizer.ERROR_CLIENT)
             return
         }
 
