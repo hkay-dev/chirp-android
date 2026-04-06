@@ -6,6 +6,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import dev.chirpboard.app.feature.recording.R
+import androidx.compose.ui.res.stringResource
 
 @Composable
 internal fun RecordingDetailDeleteDialog(

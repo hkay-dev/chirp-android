@@ -40,6 +40,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.runtime.withFrameMillis
 import kotlinx.collections.immutable.toImmutableList
 import androidx.compose.ui.text.font.FontFamily
@@ -90,6 +91,7 @@ fun RecordScreen(
     val rawAmplitudeHistory by viewModel.amplitudeHistory.collectAsStateWithLifecycle()
     val amplitudeHistory = remember(rawAmplitudeHistory) { rawAmplitudeHistory.toImmutableList() }
     val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     // Track elapsed time for timer display
     var elapsedMs by remember { mutableLongStateOf(0L) }
@@ -132,7 +134,7 @@ fun RecordScreen(
     // Auto-start recording when screen opens
     LaunchedEffect(autoStart) {
         if (autoStart && recordingState is RecordingState.Idle) {
-            viewModel.startRecording()
+            viewModel.startRecording(context)
         }
     }
 
@@ -189,22 +191,22 @@ fun RecordScreen(
     if (showCancelDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showCancelDialog = false },
-            title = { Text(stringResource(dev.chirpboard.app.R.string.discard_recording_title)) },
-            text = { Text(stringResource(dev.chirpboard.app.R.string.discard_recording_text)) },
+            title = { Text(stringResource(R.string.discard_recording_title)) },
+            text = { Text(stringResource(R.string.discard_recording_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showCancelDialog = false
-                        viewModel.cancelRecording()
+                        viewModel.cancelRecording(context)
                         onNavigateBack()
                     },
                 ) {
-                    Text(stringResource(dev.chirpboard.app.R.string.discard), color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.discard), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showCancelDialog = false }) {
-                    Text(stringResource(dev.chirpboard.app.R.string.keep_recording))
+                    Text(stringResource(R.string.keep_recording))
                 }
             },
         )
@@ -214,23 +216,23 @@ fun RecordScreen(
     if (showRestartDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showRestartDialog = false },
-            title = { Text(stringResource(dev.chirpboard.app.R.string.start_over_title)) },
-            text = { Text(stringResource(dev.chirpboard.app.R.string.start_over_text)) },
+            title = { Text(stringResource(R.string.start_over_title)) },
+            text = { Text(stringResource(R.string.start_over_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showRestartDialog = false
                         previousSegmentsMs = 0L
                         elapsedMs = 0L
-                        viewModel.restartRecording()
+                        viewModel.restartRecording(context)
                     },
                 ) {
-                    Text(stringResource(dev.chirpboard.app.R.string.start_over), color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.start_over), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRestartDialog = false }) {
-                    Text(stringResource(dev.chirpboard.app.R.string.keep_recording))
+                    Text(stringResource(R.string.keep_recording))
                 }
             },
         )
@@ -240,28 +242,28 @@ fun RecordScreen(
     if (showBackDialog) {
         AnimatedAlertDialog(
             onDismissRequest = { showBackDialog = false },
-            title = { Text(stringResource(dev.chirpboard.app.R.string.recording_in_progress_title)) },
-            text = { Text(stringResource(dev.chirpboard.app.R.string.recording_in_progress_text)) },
+            title = { Text(stringResource(R.string.recording_in_progress_title)) },
+            text = { Text(stringResource(R.string.recording_in_progress_text)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         showBackDialog = false
                         pendingNavigateBack = true
-                        viewModel.stopRecording()
+                        viewModel.stopRecording(context)
                     },
                 ) {
-                    Text(stringResource(dev.chirpboard.app.R.string.save))
+                    Text(stringResource(R.string.save))
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = {
                         showBackDialog = false
-                        viewModel.cancelRecording()
+                        viewModel.cancelRecording(context)
                         onNavigateBack()
                     },
                 ) {
-                    Text(stringResource(dev.chirpboard.app.R.string.discard), color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.discard), color = MaterialTheme.colorScheme.error)
                 }
             },
         )
@@ -393,9 +395,9 @@ fun RecordScreen(
                 MainActionButton(
                     state = uiState,
                     recordingColor = MaterialTheme.colorScheme.error,
-                    onStartRecording = { viewModel.startRecording() },
-                    onPause = { viewModel.pauseRecording() },
-                    onResume = { viewModel.resumeRecording() },
+                    onStartRecording = { viewModel.startRecording(context) },
+                    onPause = { viewModel.pauseRecording(context) },
+                    onResume = { viewModel.resumeRecording(context) },
                 )
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -410,7 +412,7 @@ fun RecordScreen(
                         onDone = {
                             // Done = stop, save, and navigate to transcription
                             pendingNavigateBack = true
-                            viewModel.stopRecording()
+                            viewModel.stopRecording(context)
                         },
                         onCancel = {
                             // Cancel = show confirmation dialog
@@ -427,4 +429,5 @@ fun RecordScreen(
             }
         }
     }
+}
 }

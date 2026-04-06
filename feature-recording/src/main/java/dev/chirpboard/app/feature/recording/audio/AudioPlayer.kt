@@ -132,6 +132,7 @@ class AudioPlayer
                         prepareAsync()
                     }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 android.util.Log.e("AudioPlayer", "Failed to load audio", e)
                 _state.value = PlaybackState.Error("Failed to load audio")
             }
@@ -153,6 +154,7 @@ class AudioPlayer
                 mp.start()
                 startProgressUpdates(path, mp.duration.toLong())
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _state.value = PlaybackState.Error("Failed to play: ${e.message}")
             }
         }
@@ -176,6 +178,7 @@ class AudioPlayer
                         durationMs = mp.duration.toLong(),
                     )
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _state.value = PlaybackState.Error("Failed to pause: ${e.message}")
             }
         }
@@ -233,6 +236,7 @@ class AudioPlayer
                     else -> {}
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _state.value = PlaybackState.Error("Failed to seek: ${e.message}")
             }
         }
@@ -268,6 +272,7 @@ class AudioPlayer
                     if (isPlaying) stop()
                     release()
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     // Ignore
                 }
             }

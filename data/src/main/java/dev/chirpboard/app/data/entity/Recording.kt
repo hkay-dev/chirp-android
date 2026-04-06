@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.entity
 
+import androidx.annotation.Keep
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -31,6 +32,7 @@ import java.util.UUID
         Index("profileId", "createdAt"),
     ],
 )
+@Keep
 data class Recording(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),

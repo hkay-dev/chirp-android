@@ -153,6 +153,7 @@ class DevMenuViewModel @Inject constructor(
                 
                 _uiState.update { it.copy(message = "Added $count dummy recordings") }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.update { it.copy(message = "Error: ${e.message}") }
             } finally {
                 _uiState.update { it.copy(isGenerating = false) }
@@ -243,6 +244,7 @@ class DevMenuViewModel @Inject constructor(
                 recordingRepository.deleteAll()
                 _uiState.update { it.copy(message = "All recordings deleted") }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _uiState.update { it.copy(message = "Error: ${e.message}") }
             } finally {
                 _uiState.update { it.copy(isGenerating = false) }

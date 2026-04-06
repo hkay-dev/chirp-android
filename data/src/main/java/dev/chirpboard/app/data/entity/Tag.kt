@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.entity
 
+import androidx.annotation.Keep
 import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -14,6 +15,7 @@ import java.util.UUID
     tableName = "tags",
     indices = [Index("name")]
 )
+@Keep
 data class Tag(
     @PrimaryKey
     val id: UUID = UUID.randomUUID(),
@@ -45,6 +47,7 @@ data class Tag(
     ],
     indices = [Index("tagId")],
 )
+@Keep
 data class RecordingTag(
     val recordingId: UUID,
     val tagId: UUID,

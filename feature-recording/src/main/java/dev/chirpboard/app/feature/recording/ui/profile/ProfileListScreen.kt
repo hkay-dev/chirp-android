@@ -136,9 +136,10 @@ fun ProfileListScreen(
                     items(
                         items = profiles,
                         key = { it.id },
+                        contentType = { "profile" },
                     ) { profile ->
                         ProfileCard(
-                            profile = ProfileItemState(profile),
+                            profileItem = ProfileItemState(profile),
                             onClick = { onProfileClick(profile.id) },
                             onDelete = { profileToDelete = profile },
                             modifier = Modifier.animateItem(),

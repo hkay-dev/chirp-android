@@ -93,6 +93,7 @@ class RecordingRepositoryTransactionTest {
             try {
                 repository.createRecordingWithTranscript(recording, invalidTranscript)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 threw = true
             }
 

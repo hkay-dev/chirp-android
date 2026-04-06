@@ -31,6 +31,7 @@ android {
 dependencies {
     // Internal modules
     implementation(project(":core"))
+    implementation(project(":feature-obsidian"))
     implementation(project(":data"))
     implementation(project(":feature-transcription"))
     implementation(project(":feature-llm"))
@@ -40,6 +41,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 

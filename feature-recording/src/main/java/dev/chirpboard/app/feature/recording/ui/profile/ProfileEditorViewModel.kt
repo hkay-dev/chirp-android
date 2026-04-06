@@ -184,6 +184,7 @@ class ProfileEditorViewModel
 
                     _uiState.update { it.copy(isLoading = false, isSaved = true) }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to save") }
                 }
             }

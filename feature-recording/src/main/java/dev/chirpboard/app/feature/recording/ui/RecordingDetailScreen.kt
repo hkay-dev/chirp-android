@@ -38,6 +38,7 @@ fun RecordingDetailScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val recoveryDiagnostics by viewModel.recoveryDiagnostics.collectAsStateWithLifecycle()
     val recoveryActions by viewModel.recoveryActions.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -138,9 +139,9 @@ fun RecordingDetailScreen(
                 transcript = transcript,
                 recoveryDiagnostics = recoveryDiagnostics,
                 recoveryActions = recoveryActions,
-                onShareAudio = remember { { viewModel.shareAudio() } },
-                onShareTranscript = remember { { viewModel.shareTranscript() } },
-                onShareBoth = remember { { viewModel.shareBoth() } },
+                onShareAudio = { viewModel.shareAudio(context) },
+                onShareTranscript = { viewModel.shareTranscript(context) },
+                onShareBoth = { viewModel.shareBoth(context) },
                 onRetryTranscription = remember { { viewModel.retryTranscription() } },
                 onRecoverEnhancing = remember { { viewModel.recoverEnhancing() } },
                 onRetranscribe = remember { { viewModel.retranscribeFromEnhancing() } },

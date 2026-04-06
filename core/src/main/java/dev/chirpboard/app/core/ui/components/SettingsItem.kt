@@ -32,7 +32,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.mergeDescendants
 
 /**
  * Badge types for settings items.
@@ -76,7 +75,7 @@ fun SettingsItem(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier
             .scale(scale)
-            .semantics { mergeDescendants = true }
+            .semantics(mergeDescendants = true) {}
             .clickable(
                 interactionSource = interactionSource,
                 indication = ripple(),

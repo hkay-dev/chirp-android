@@ -143,6 +143,7 @@ internal class TranscriptionQueueReconciler(
                             clearPendingError(recording)
                         }
                     } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
                         ReliabilityEventLogger.log(
                             stage = ReliabilityStage.QUEUE_ENQUEUE,
@@ -181,6 +182,7 @@ internal class TranscriptionQueueReconciler(
 
             if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to inspect queue ownership for $recordingId", e)
             QueueOwnership.INSPECTION_TIMEOUT
         }

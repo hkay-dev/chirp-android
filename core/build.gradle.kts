@@ -39,7 +39,7 @@ dependencies {
 
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
+    api("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
     
     // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")

@@ -72,7 +72,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         setContent {
             ChirpTheme {
                 val llmEnabled = remember { mutableStateOf(prefs.llmEnabled) }
-                val currentMode by modeRepository.currentMode.collectAsStateWithLifecycle(initial = ProcessingMode.Proofread)
+                val currentMode by modeRepository.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
 
                 VoiceRecognitionDialog(
                     amplitudesFlow = recorder.amplitudes,
@@ -112,6 +112,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         recorder.collectSamples()
                     }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error starting recording", e)
                 returnError(SpeechRecognizer.ERROR_AUDIO)
             }
@@ -158,6 +159,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     }
                 }
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error during recognition", e)
                 returnError(android.speech.SpeechRecognizer.ERROR_CLIENT)
             }

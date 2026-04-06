@@ -15,7 +15,7 @@ import javax.inject.Inject
 @HiltViewModel
 class LlmSettingsViewModel @Inject constructor(
     private val preferences: LlmPreferences,
-    private val llmClient: LlmClient
+    private val llmClient: LlmClient,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 

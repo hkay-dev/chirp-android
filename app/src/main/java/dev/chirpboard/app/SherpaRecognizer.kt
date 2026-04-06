@@ -109,6 +109,7 @@ class SherpaRecognizer(
                     Log.i(TAG, "Recognizer initialized successfully")
                     true
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to initialize recognizer", e)
                     false
                 }
@@ -142,6 +143,7 @@ class SherpaRecognizer(
                         stream.release()
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Transcription failed", e)
                     TranscriptionOutcome.EngineError(
                         reason = e.message ?: "Transcription failed",

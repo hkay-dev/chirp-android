@@ -127,6 +127,7 @@ class VoiceRecorder(private val context: Context) : Closeable {
                     audioRecord?.release()
                     audioRecord = null
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     initException = e
                     audioRecord?.release()
                     audioRecord = null
@@ -157,6 +158,7 @@ class VoiceRecorder(private val context: Context) : Closeable {
             
             true
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to start recording", e)
             recordingReady.completeExceptionally(e)
             false
@@ -168,6 +170,7 @@ class VoiceRecorder(private val context: Context) : Closeable {
         try {
             recordingReady.await()
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Recording failed to start", e)
             return@withContext
         }

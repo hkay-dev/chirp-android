@@ -48,6 +48,7 @@ class ChirpApplication : Application(), Configuration.Provider {
                 transcriptionQueueManager.processPendingOnStartup()
                 transcriptionQueueManager.startContinuousReconciliation(applicationScope)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to recover transcriptions on startup", e)
             }
         }
@@ -56,6 +57,7 @@ class ChirpApplication : Application(), Configuration.Provider {
             try {
                 modelReadinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to warm model readiness on startup", e)
             }
         }

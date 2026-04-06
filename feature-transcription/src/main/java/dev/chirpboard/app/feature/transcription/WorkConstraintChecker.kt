@@ -84,6 +84,7 @@ class WorkConstraintChecker @Inject constructor(
             val stat = StatFs(Environment.getDataDirectory().path)
             stat.availableBytes / (1024 * 1024)
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to get storage info", e)
             Long.MAX_VALUE // Assume OK if unknown
         }

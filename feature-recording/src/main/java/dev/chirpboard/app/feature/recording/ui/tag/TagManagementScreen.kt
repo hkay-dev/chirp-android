@@ -66,6 +66,7 @@ import dev.chirpboard.app.data.entity.Tag
 @androidx.compose.runtime.Stable
 data class TagItemUiState(val tag: dev.chirpboard.app.data.entity.Tag)
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun TagManagementScreen(
     viewModel: TagsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
@@ -129,10 +130,10 @@ fun TagManagementScreen(
                     items(
                         items = tags,
                         key = { it.id },
+                        contentType = { "tag" },
                     ) { tag ->
                         SwipeableTagItem(
                             tagItem = TagItemUiState(tag),
-                            tag = tag,
                             onEdit = { editingTag = tag },
                             onDelete = { viewModel.deleteTag(tag) },
                             modifier = Modifier.animateItem(),
@@ -177,7 +178,6 @@ private fun SwipeableTagItem(
     modifier: Modifier = Modifier,
 ) {
     val tag = tagItem.tag
-) {
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
@@ -234,7 +234,6 @@ private fun TagItemCard(
     modifier: Modifier = Modifier,
 ) {
     val tag = tagItem.tag
-) {
     val defaultColor = MaterialTheme.colorScheme.primary
     val tagColor = remember(tag.color, defaultColor) {
         tag.color?.let { parseColor(it) } ?: defaultColor
@@ -288,5 +287,6 @@ private fun parseColor(hexColor: String): Color =
     try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Color.Gray
     }

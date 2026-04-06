@@ -78,17 +78,22 @@ fun MainActionButton(
     val isActive = isRecording || isPaused
 
     // Pulsing animation for recording state
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = if (isRecording) 1.06f else 1f,
-        animationSpec =
-            infiniteRepeatable(
-                animation = tween(900, easing = EaseInOut),
-                repeatMode = RepeatMode.Reverse,
-            ),
-        label = "pulseScale",
-    )
+    val pulseScale = if (isRecording) {
+        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+        val animatedScale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.06f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(900, easing = EaseInOut),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+            label = "pulseScale",
+        )
+        animatedScale
+    } else {
+        1f
+    }
 
     // Smooth color transitions
     val idleColor = MaterialTheme.colorScheme.primaryContainer

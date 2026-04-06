@@ -35,7 +35,6 @@ class RecordingDetailViewModel
         private val recordingRepository: RecordingRepository,
         private val audioPlayer: AudioPlayer,
         private val transcriptionQueueManager: TranscriptionQueueManager,
-        @ApplicationContext private val context: Context,
     ) : ViewModel() {
         private val recordingId: UUID =
             savedStateHandle
@@ -144,6 +143,7 @@ class RecordingDetailViewModel
                                     Log.w(TAG, "Failed to delete audio file: ${rec.audioPath}")
                                 }
                             } catch (e: Exception) {
+                                if (e is kotlinx.coroutines.CancellationException) throw e
                                 // File deletion is non-fatal - log and continue
                                 Log.w(TAG, "Error deleting audio file: ${rec.audioPath}", e)
                             }
@@ -151,6 +151,7 @@ class RecordingDetailViewModel
 
                         onDeleted()
                     } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.e(TAG, "Failed to delete recording: ${rec.id}", e)
                         _message.value = "Failed to delete recording"
                     }
@@ -167,7 +168,7 @@ class RecordingDetailViewModel
         /**
          * Share the audio file using Android's share sheet.
          */
-        fun shareAudio() {
+        fun shareAudio(context: Context) {
             val rec = recording.value ?: return
 
             viewModelScope.launch {
@@ -203,6 +204,7 @@ class RecordingDetailViewModel
                         },
                     )
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     _message.value = "Failed to share: ${e.message}"
                 }
             }
@@ -211,7 +213,7 @@ class RecordingDetailViewModel
         /**
          * Share the transcript text using Android's share sheet.
          */
-        fun shareTranscript() {
+        fun shareTranscript(context: Context) {
             val rec = recording.value ?: return
             val trans = transcript.value
 
@@ -251,6 +253,7 @@ class RecordingDetailViewModel
                     },
                 )
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 _message.value = "Failed to share: ${e.message}"
             }
         }
@@ -258,7 +261,7 @@ class RecordingDetailViewModel
         /**
          * Share both audio and transcript together.
          */
-        fun shareBoth() {
+        fun shareBoth(context: Context) {
             val rec = recording.value ?: return
             val trans = transcript.value
 
@@ -313,6 +316,7 @@ class RecordingDetailViewModel
                         },
                     )
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     _message.value = "Failed to share: ${e.message}"
                 }
             }

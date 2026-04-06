@@ -171,7 +171,7 @@ class WhisperModelManager @Inject constructor(
     /**
      * Get the persistent model directory.
      */
-    private fun getModelDir(): File {
+    fun getModelDir(): File {
         val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
             android.os.Environment.DIRECTORY_DOCUMENTS
         )

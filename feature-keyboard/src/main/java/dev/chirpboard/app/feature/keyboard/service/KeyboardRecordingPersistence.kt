@@ -51,7 +51,7 @@ internal suspend fun saveKeyboardRecording(
     persistencePlan: KeyboardPersistencePlan,
     samples: FloatArray
 ): Recording? {
-    try {
+    return try {
         withContext(NonCancellable) {
             val filename = "keyboard_${System.currentTimeMillis()}.m4a"
             val recordingsDir = File(filesDir, "recordings")
@@ -95,6 +95,7 @@ internal suspend fun saveKeyboardRecording(
             recording
         }
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.e(PERSISTENCE_TAG, "Failed to save keyboard recording", e)
         null
     }

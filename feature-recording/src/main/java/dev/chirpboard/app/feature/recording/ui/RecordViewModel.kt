@@ -21,7 +21,7 @@ import javax.inject.Inject
 class RecordViewModel
     @Inject
     constructor(
-        @ApplicationContext private val context: Context,
+
         private val recordingStateManager: RecordingStateManager,
     ) : ViewModel() {
         /** Current recording state */
@@ -41,7 +41,7 @@ class RecordViewModel
          *
          * @param profileId Optional profile ID for recording settings
          */
-        fun startRecording(profileId: UUID? = null) {
+        fun startRecording(context: Context, profileId: UUID? = null) {
             RecordingService.startRecording(
                 context = context,
                 origin = RecordingOrigin.APP,
@@ -52,21 +52,21 @@ class RecordViewModel
         /**
          * Pause the current recording.
          */
-        fun pauseRecording() {
+        fun pauseRecording(context: Context) {
             RecordingService.pauseRecording(context)
         }
 
         /**
          * Resume a paused recording.
          */
-        fun resumeRecording() {
+        fun resumeRecording(context: Context) {
             RecordingService.resumeRecording(context)
         }
 
         /**
          * Stop the current recording and save it.
          */
-        fun stopRecording() {
+        fun stopRecording(context: Context) {
             RecordingService.stopRecording(context)
         }
 
@@ -81,7 +81,7 @@ class RecordViewModel
          * Cancel the current recording without saving.
          * Releases MediaRecorder, deletes the audio file, no database entry.
          */
-        fun cancelRecording() {
+        fun cancelRecording(context: Context) {
             RecordingService.cancelRecording(context)
         }
 
@@ -89,7 +89,7 @@ class RecordViewModel
          * Atomic restart: cancel current recording and immediately start a new one.
          * Handles cleanup and re-start within a single service call to avoid race conditions.
          */
-        fun restartRecording(profileId: UUID? = null) {
+        fun restartRecording(context: Context, profileId: UUID? = null) {
             RecordingService.restartRecording(
                 context = context,
                 origin = RecordingOrigin.APP,

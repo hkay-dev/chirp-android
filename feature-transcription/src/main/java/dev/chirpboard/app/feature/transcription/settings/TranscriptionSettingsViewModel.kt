@@ -1,10 +1,8 @@
 package dev.chirpboard.app.feature.transcription.settings
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.feature.transcription.WhisperModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +20,6 @@ import javax.inject.Inject
 
 @HiltViewModel
 class TranscriptionSettingsViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val modelManager: WhisperModelManager
 ) : ViewModel() {
 
@@ -104,6 +101,7 @@ class TranscriptionSettingsViewModel @Inject constructor(
                 }
                 modelManager.markDownloadComplete()
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 val message = e.message ?: "Download failed"
                 modelManager.markDownloadError(message)
                 _uiState.update { it.copy(errorMessage = message) }
@@ -112,7 +110,7 @@ class TranscriptionSettingsViewModel @Inject constructor(
     }
 
     private suspend fun downloadModelFiles() {
-        val modelDir = getModelDir()
+        val modelDir = modelManager.getModelDir()
         modelDir.mkdirs()
         
         val files = listOf(
@@ -181,18 +179,6 @@ class TranscriptionSettingsViewModel @Inject constructor(
         _uiState.update { it.copy(currentFile = file, downloadProgress = progress) }
     }
     
-    private fun getModelDir(): File {
-        val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
-            android.os.Environment.DIRECTORY_DOCUMENTS
-        )
-        val persistentDir = File(docsDir, ".chirpboard/models/parakeet-tdt-0.6b-v2")
-        
-        if (persistentDir.exists() || persistentDir.mkdirs()) {
-            return persistentDir
-        }
-        
-        return File(context.filesDir, "models/parakeet-tdt-0.6b-v2")
-    }
 
     fun showDeleteConfirmation() {
         _uiState.update { it.copy(showDeleteConfirmation = true) }
