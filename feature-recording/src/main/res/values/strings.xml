@@ -21,6 +21,7 @@
     <string name="rec_source_keyboard">Keyboard</string>
     <string name="rec_source_widget">Widget</string>
     <string name="rec_source_imported">Imported</string>
+    <string name="rec_source_unknown">Unknown</string>
     <string name="rec_import_audio">Import audio</string>
     <string name="rec_edit_title">Edit title</string>
     <string name="rec_share_audio">Share audio</string>
@@ -111,6 +112,8 @@
     <string name="rec_word_replacements_empty_title">No word replacements</string>
     <string name="rec_summary">Summary</string>
     <string name="rec_transcript">Transcript</string>
+    <string name="rec_chat">Chat</string>
+    <string name="rec_details">Details</string>
     <string name="rec_rerun">Re-run</string>
     <string name="rec_transcribing">Transcribing...</string>
     <string name="rec_processing">Processing...</string>

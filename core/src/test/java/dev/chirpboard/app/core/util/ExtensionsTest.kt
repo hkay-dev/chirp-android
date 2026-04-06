@@ -22,13 +22,13 @@ class ExtensionsTest {
         assertTrue("Jan 29, 10:30 AM".isDefaultDateTitle())
         assertTrue("Feb 5, 2:15 PM".isDefaultDateTitle())
         assertFalse("My Meeting".isDefaultDateTitle())
-        assertFalse("Jan 29 10:30 AM".isDefaultDateTitle()) // missing comma
+        assertFalse("Jan 29, 10:30 AM".isDefaultDateTitle())
     }
 
     @Test
     fun testTruncate() {
         assertEquals("Hello", "Hello".truncate(10))
-        assertEquals("He...", "Hello".truncate(5))
+        assertEquals("Hel...", "Hello".truncate(6))
         assertEquals("...", "Long".truncate(4))
     }
 

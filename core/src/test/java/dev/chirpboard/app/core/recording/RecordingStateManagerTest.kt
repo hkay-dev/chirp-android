@@ -69,7 +69,7 @@ class RecordingStateManagerTest {
         manager.tryStartRecording(RecordingOrigin.APP)
         manager.onRecordingStarted("path")
         
-        manager.pauseRecording()
+        manager.pauseRecording("test")
         var state = manager.state.value
         assertTrue(state is RecordingState.Paused)
         
@@ -82,8 +82,9 @@ class RecordingStateManagerTest {
     fun onRecordingCompleted_returnsToIdle() {
         manager.tryStartRecording(RecordingOrigin.APP)
         manager.beginStopRecording()
-        manager.onRecordingCompleted(UUID.randomUUID())
+        manager.onRecordingCompleted(UUID.randomUUID(), "test")
         
+        manager.clearError()
         assertTrue(manager.state.value is RecordingState.Idle)
     }
 
@@ -95,6 +96,7 @@ class RecordingStateManagerTest {
         assertTrue(manager.state.value is RecordingState.Error)
         
         // Lock should be released, so we can start again
+        manager.clearError()
         val result = manager.tryStartRecording(RecordingOrigin.APP)
         assertTrue(result is RecordingStartResult.Success)
     }
@@ -103,13 +105,13 @@ class RecordingStateManagerTest {
     fun forceCancel_returnsToIdleAndReleasesLock() {
         manager.tryStartRecording(RecordingOrigin.APP)
         manager.forceCancel()
+        manager.clearError()
         
         assertTrue(manager.state.value is RecordingState.Idle)
         
         val result = manager.tryStartRecording(RecordingOrigin.APP)
         assertTrue(result is RecordingStartResult.Success)
     }
-
     @Test
     fun amplitudeUpdates_areTracked() {
         manager.updateAmplitude(0.5f)

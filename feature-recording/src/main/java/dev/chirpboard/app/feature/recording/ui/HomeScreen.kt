@@ -271,15 +271,20 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                SmallFloatingActionButton(
-                    onClick = { launcher.launch("audio/*") },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                Box(
+                    modifier = Modifier.size(48.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.AudioFile,
-                        contentDescription = stringResource(R.string.rec_import_audio)
-                    )
+                    SmallFloatingActionButton(
+                        onClick = { launcher.launch("audio/*") },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AudioFile,
+                            contentDescription = stringResource(R.string.rec_import_audio)
+                        )
+                    }
                 }
                 BreathingExtendedFab(
                     expanded = fabExpanded,
@@ -288,7 +293,7 @@ fun HomeScreen(
                 )
             }
         },
-        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButtonPosition = FabPosition.End,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(

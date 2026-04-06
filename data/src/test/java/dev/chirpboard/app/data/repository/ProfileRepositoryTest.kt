@@ -21,7 +21,7 @@ class ProfileRepositoryTest {
     @Before
     fun setup() {
         profileDao = mockk(relaxed = true)
-        repository = ProfileRepository(profileDao)
+        repository = ProfileRepository(mockk(relaxed = true), profileDao)
     }
 
     @Test

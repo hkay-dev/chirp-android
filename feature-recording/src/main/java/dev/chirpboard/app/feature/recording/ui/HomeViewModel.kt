@@ -185,6 +185,9 @@ class HomeViewModel
         /** Current recording state */
         val recordingState: StateFlow<RecordingState> = recordingManager.state
 
+        private val _isImporting = MutableStateFlow(false)
+        val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
+
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
@@ -437,39 +440,57 @@ class HomeViewModel
             }
         }
         fun importAudio(uri: Uri, context: Context) {
+            _isImporting.value = true
             viewModelScope.launch(Dispatchers.IO) {
-                _errorMessage.value = "Importing audio..."
                 try {
                     val outputDir = File(context.filesDir, "recordings").apply { mkdirs() }
                     val outputFile = File(outputDir, "imported_${System.currentTimeMillis()}.m4a")
                     
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        outputFile.outputStream().use { output ->
-                            input.copyTo(output)
+                    try {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            outputFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
                         }
+
+                        val durationMs = try {
+                            val mmr = MediaMetadataRetriever()
+                            try {
+                                mmr.setDataSource(context, uri)
+                                val durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                                durationStr?.toLongOrNull() ?: 0L
+                            } finally {
+                                mmr.release()
+                            }
+                        } catch (e: Exception) {
+                            0L
+                        }
+
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            val recording = dev.chirpboard.app.data.entity.Recording(
+                                title = "Imported Audio",
+                                audioPath = outputFile.absolutePath,
+                                source = dev.chirpboard.app.data.model.RecordingSource.IMPORTED,
+                                durationMs = durationMs
+                            )
+
+                            recordingRepository.insert(recording)
+                            transcriptionQueueManager.enqueue(recording.id, UUID.randomUUID().toString())
+                        }
+                    } catch (e: Exception) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            if (outputFile.exists()) {
+                                outputFile.delete()
+                            }
+                        }
+                        throw e
                     }
-
-                    val mmr = MediaMetadataRetriever()
-                    mmr.setDataSource(context, uri)
-                    val durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    val durationMs = durationStr?.toLongOrNull() ?: 0L
-                    mmr.release()
-
-                    val recording = dev.chirpboard.app.data.entity.Recording(
-                        title = "Imported Audio",
-                        audioPath = outputFile.absolutePath,
-                        source = dev.chirpboard.app.data.model.RecordingSource.IMPORTED,
-                        durationMs = durationMs
-                    )
-
-                    recordingRepository.insert(recording)
-                    transcriptionQueueManager.enqueue(recording.id, UUID.randomUUID().toString())
-
-                    _errorMessage.value = "Audio imported successfully"
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to import audio", e)
                     _errorMessage.value = "Failed to import audio: ${e.message}"
+                } finally {
+                    _isImporting.value = false
                 }
             }
         }

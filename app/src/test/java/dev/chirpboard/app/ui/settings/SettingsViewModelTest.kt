@@ -56,7 +56,7 @@ class SettingsViewModelTest {
         val vaultUriFlow = MutableStateFlow<String?>("content://test")
         every { obsidianPreferences.globalVaultUri } returns vaultUriFlow
 
-        val viewModel = SettingsViewModel(context, obsidianPreferences)
+        val viewModel = SettingsViewModel(mockk(relaxed=true), obsidianPreferences)
 
         val state = viewModel.uiState.value
         assertEquals("1.0.0", state.appVersion)
