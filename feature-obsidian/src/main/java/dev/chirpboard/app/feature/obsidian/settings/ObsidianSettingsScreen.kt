@@ -41,13 +41,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.obsidian.R
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.feature.obsidian.R
 
 /**
  * Settings screen for configuring Obsidian vault integration.
@@ -143,7 +143,7 @@ private fun VaultConfigurationCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = "Obsidian Vault",
+                text = stringResource(R.string.obsidian_vault_title),
                 style = MaterialTheme.typography.titleMedium,
             )
 
@@ -179,11 +179,18 @@ private fun VaultConfigurationCard(
                     Spacer(Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = vaultName ?: "Unknown folder",
+                            text = vaultName ?: stringResource(R.string.obsidian_unknown_folder),
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            text = if (hasAccess) "Access granted" else "Access lost - please re-select",
+                            text =
+                                if (hasAccess) {
+                                    stringResource(
+                                        R.string.obsidian_access_granted,
+                                    )
+                                } else {
+                                    stringResource(R.string.obsidian_access_lost)
+                                },
                             style = MaterialTheme.typography.bodySmall,
                             color = accessTextColor,
                         )
@@ -209,7 +216,7 @@ private fun VaultConfigurationCard(
             } else {
                 // Show not configured state
                 Text(
-                    text = "No vault configured",
+                    text = stringResource(R.string.obsidian_no_vault_configured),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -250,12 +257,12 @@ private fun AutoExportCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Auto-export",
+                    text = stringResource(R.string.obsidian_auto_export_title),
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "Automatically export recordings to Obsidian after transcription completes",
+                    text = stringResource(R.string.obsidian_auto_export_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -284,21 +291,19 @@ private fun HelpCard() {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text(
-                text = "About Obsidian Integration",
+                text = stringResource(R.string.obsidian_help_title),
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
                 text =
-                    "Select a folder inside your Obsidian vault to export recordings as Markdown files. " +
-                        "Each recording will be saved with YAML frontmatter containing metadata like title, date, duration, and tags.",
+                    stringResource(R.string.obsidian_help_body),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 text =
-                    "Note: This app uses Android's Storage Access Framework (SAF) for secure file access. " +
-                        "Permission is requested only for the specific folder you choose.",
+                    stringResource(R.string.obsidian_help_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -106,12 +106,12 @@ fun RecordButton(
         Text(
             text =
                 when (recordingState) {
-                    is RecordingState.Idle -> "Tap to record"
-                    is RecordingState.Starting -> "Starting..."
-                    is RecordingState.Recording -> "Recording"
-                    is RecordingState.Paused -> "Paused"
-                    is RecordingState.Stopping -> "Stopping..."
-                    is RecordingState.Error -> "Error"
+                    is RecordingState.Idle -> stringResource(R.string.rec_record_button_idle)
+                    is RecordingState.Starting -> stringResource(R.string.rec_record_button_starting)
+                    is RecordingState.Recording -> stringResource(R.string.rec_record_button_recording)
+                    is RecordingState.Paused -> stringResource(R.string.rec_record_button_paused)
+                    is RecordingState.Stopping -> stringResource(R.string.rec_record_button_stopping)
+                    is RecordingState.Error -> stringResource(R.string.rec_record_button_error)
                 },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -29,9 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.semantics.semantics
+import dev.chirpboard.app.core.R
 
 /**
  * Badge types for settings items.
@@ -40,7 +42,7 @@ enum class SettingsBadge {
     NEW,
     BETA,
     CONNECTED,
-    PRO
+    PRO,
 }
 
 /**
@@ -61,43 +63,44 @@ fun SettingsItem(
     subtitle: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    badge: SettingsBadge? = null
+    badge: SettingsBadge? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
-        label = "itemScale"
+        label = "itemScale",
     )
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .scale(scale)
-            .semantics(mergeDescendants = true) {}
-            .clickable(
-                interactionSource = interactionSource,
-                indication = ripple(),
-                onClick = onClick
-            )
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+        modifier =
+            modifier
+                .scale(scale)
+                .semantics(mergeDescendants = true) {}
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    onClick = onClick,
+                ).padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         // Leading circular icon container
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(40.dp)
-                .background(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                    shape = CircleShape
-                )
+            modifier =
+                Modifier
+                    .size(40.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                        shape = CircleShape,
+                    ),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(22.dp),
             )
         }
 
@@ -110,7 +113,7 @@ fun SettingsItem(
                     text = title,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 if (badge != null) {
                     Spacer(modifier = Modifier.width(8.dp))
@@ -120,7 +123,7 @@ fun SettingsItem(
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -129,7 +132,7 @@ fun SettingsItem(
             imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(20.dp),
         )
     }
 }
@@ -141,47 +144,59 @@ fun SettingsItem(
  */
 @Composable
 fun StatusBadge(badge: SettingsBadge) {
-    val (containerColor, contentColor, text, showCheckmark) = when (badge) {
-        SettingsBadge.NEW -> BadgeColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            text = "NEW",
-            showCheckmark = false
-        )
-        SettingsBadge.BETA -> BadgeColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            text = "BETA",
-            showCheckmark = false
-        )
-        SettingsBadge.CONNECTED -> BadgeColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.primary,
-            text = "CONNECTED",
-            showCheckmark = true
-        )
-        SettingsBadge.PRO -> BadgeColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.primary,
-            text = "PRO",
-            showCheckmark = false
-        )
-    }
+    val (containerColor, contentColor, text, showCheckmark) =
+        when (badge) {
+            SettingsBadge.NEW -> {
+                BadgeColors(
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    text = stringResource(R.string.settings_badge_new),
+                    showCheckmark = false,
+                )
+            }
+
+            SettingsBadge.BETA -> {
+                BadgeColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    text = stringResource(R.string.settings_badge_beta),
+                    showCheckmark = false,
+                )
+            }
+
+            SettingsBadge.CONNECTED -> {
+                BadgeColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    text = stringResource(R.string.settings_badge_connected),
+                    showCheckmark = true,
+                )
+            }
+
+            SettingsBadge.PRO -> {
+                BadgeColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.primary,
+                    text = stringResource(R.string.settings_badge_pro),
+                    showCheckmark = false,
+                )
+            }
+        }
 
     Surface(
         color = containerColor,
-        shape = MaterialTheme.shapes.extraSmall
+        shape = MaterialTheme.shapes.extraSmall,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
         ) {
             if (showCheckmark) {
                 Icon(
                     imageVector = Icons.Filled.Check,
                     contentDescription = null,
                     tint = contentColor,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(12.dp),
                 )
                 Spacer(modifier = Modifier.width(2.dp))
             }
@@ -189,7 +204,7 @@ fun StatusBadge(badge: SettingsBadge) {
                 text = text,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
-                color = contentColor
+                color = contentColor,
             )
         }
     }
@@ -199,5 +214,5 @@ private data class BadgeColors(
     val containerColor: androidx.compose.ui.graphics.Color,
     val contentColor: androidx.compose.ui.graphics.Color,
     val text: String,
-    val showCheckmark: Boolean
+    val showCheckmark: Boolean,
 )

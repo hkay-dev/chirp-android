@@ -26,4 +26,12 @@ interface LlmClient {
      * @return Result containing the generated summary or error
      */
     suspend fun generateSummary(transcript: String): Result<String>
+    /**
+     * Generate a chat response based on the transcript and previous messages.
+     * @param transcript The transcript to reference
+     * @param messages The chat history
+     * @return Result containing the generated response or error
+     */
+    suspend fun generateChatResponse(transcript: String, messages: List<dev.chirpboard.app.feature.llm.model.ChatMessage>): Result<String>
+
 }

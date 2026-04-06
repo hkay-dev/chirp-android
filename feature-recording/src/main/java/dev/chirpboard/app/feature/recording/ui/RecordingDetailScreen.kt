@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -15,12 +14,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.LoadingState
 import dev.chirpboard.app.core.util.formatForHeader
 import dev.chirpboard.app.core.util.isDefaultDateTitle
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.components.MetadataPillRow
 import dev.chirpboard.app.feature.recording.ui.components.StickyAudioPlayer
 
@@ -70,7 +72,7 @@ fun RecordingDetailScreen(
 
     val rec = recording!!
     // Determine display title - show "Voice Memo" if title is just a date
-    val displayTitle = if (rec.title.isDefaultDateTitle()) "Voice Memo" else rec.title
+    val displayTitle = if (rec.title.isDefaultDateTitle()) stringResource(R.string.rec_default_voice_memo_title) else rec.title
     val dateTimeText = rec.createdAt.formatForHeader()
 
     Scaffold(
@@ -155,9 +157,12 @@ fun RecordingDetailScreen(
     RecordingDetailDeleteDialog(
         visible = showDeleteDialog,
         onDismissRequest = { showDeleteDialog = false },
-        onDeleteConfirmed = remember { {
-            showDeleteDialog = false
-            viewModel.deleteRecording(onBackClick)
-        } },
+        onDeleteConfirmed =
+            remember {
+                {
+                    showDeleteDialog = false
+                    viewModel.deleteRecording(onBackClick)
+                }
+            },
     )
 }

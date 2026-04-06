@@ -11,4 +11,14 @@
     <string name="llm_enable_processing_title">Enable LLM Processing</string>
     <string name="llm_enable_processing_enabled">AI features are active</string>
     <string name="llm_enable_processing_disabled">LLM features are disabled</string>
+    <string name="llm_api_key_configured">API Key Configured</string>
+    <string name="llm_api_key_not_set">API Key Not Set</string>
+    <string name="llm_connection_success">Connection successful!</string>
+    <string name="llm_connection_error">Error: %1$s</string>
+    <string name="llm_api_key_help">Get your API key from Google AI Studio (aistudio.google.com)</string>
+    <string name="llm_processing_title">Automatic Processing</string>
+    <string name="llm_auto_title_title">Auto-generate titles</string>
+    <string name="llm_auto_title_subtitle">Automatically create descriptive titles after transcription</string>
+    <string name="llm_auto_summary_title">Auto-generate summaries</string>
+    <string name="llm_auto_summary_subtitle">Automatically create brief summaries for the home screen</string>
 </resources>

@@ -28,9 +28,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.llm.R
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.feature.llm.R
 
 @Composable
 internal fun LlmSettingsApiKeySection(
@@ -38,39 +38,42 @@ internal fun LlmSettingsApiKeySection(
     onApiKeyChanged: (String) -> Unit,
     onSave: () -> Unit,
     onTestConnection: () -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             val keyStatusTint by animateColorAsState(
-                targetValue = if (uiState.isKeyConfigured) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
+                targetValue =
+                    if (uiState.isKeyConfigured) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
                 animationSpec = tween(300, easing = FastOutSlowInEasing),
-                label = "key_status_tint"
+                label = "key_status_tint",
             )
             Icon(
-                imageVector = if (uiState.isKeyConfigured) {
-                    Icons.Default.CheckCircle
-                } else {
-                    Icons.Default.Warning
-                },
+                imageVector =
+                    if (uiState.isKeyConfigured) {
+                        Icons.Default.CheckCircle
+                    } else {
+                        Icons.Default.Warning
+                    },
                 contentDescription = null,
-                tint = keyStatusTint
+                tint = keyStatusTint,
             )
             Spacer(Modifier.width(12.dp))
             Text(
-                text = if (uiState.isKeyConfigured) {
-                    "API Key Configured"
-                } else {
-                    "API Key Not Set"
-                },
-                style = MaterialTheme.typography.bodyLarge
+                text =
+                    if (uiState.isKeyConfigured) {
+                        stringResource(R.string.llm_api_key_configured)
+                    } else {
+                        stringResource(R.string.llm_api_key_not_set)
+                    },
+                style = MaterialTheme.typography.bodyLarge,
             )
         }
     }
@@ -84,25 +87,25 @@ internal fun LlmSettingsApiKeySection(
         visualTransformation = PasswordVisualTransformation(),
         supportingText = {
             Text(stringResource(R.string.llm_enter_api_key))
-        }
+        },
     )
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = onSave,
-            enabled = uiState.apiKey.isNotBlank()
+            enabled = uiState.apiKey.isNotBlank(),
         ) {
             Text(stringResource(R.string.llm_save))
         }
 
         OutlinedButton(
             onClick = onTestConnection,
-            enabled = uiState.apiKey.isNotBlank() && !uiState.isTestingConnection
+            enabled = uiState.apiKey.isNotBlank() && !uiState.isTestingConnection,
         ) {
             if (uiState.isTestingConnection) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.llm_testing))
@@ -121,58 +124,80 @@ internal fun LlmSettingsApiKeySection(
     uiState.connectionTestResult?.let { result ->
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = when (result) {
-                    is LlmSettingsViewModel.ConnectionTestResult.Success ->
-                        MaterialTheme.colorScheme.primaryContainer
-                    is LlmSettingsViewModel.ConnectionTestResult.Error ->
-                        MaterialTheme.colorScheme.errorContainer
-                }
-            )
+            colors =
+                CardDefaults.cardColors(
+                    containerColor =
+                        when (result) {
+                            is LlmSettingsViewModel.ConnectionTestResult.Success -> {
+                                MaterialTheme.colorScheme.primaryContainer
+                            }
+
+                            is LlmSettingsViewModel.ConnectionTestResult.Error -> {
+                                MaterialTheme.colorScheme.errorContainer
+                            }
+                        },
+                ),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = when (result) {
-                        is LlmSettingsViewModel.ConnectionTestResult.Success ->
-                            Icons.Default.CheckCircle
-                        is LlmSettingsViewModel.ConnectionTestResult.Error ->
-                            Icons.Default.Warning
-                    },
+                    imageVector =
+                        when (result) {
+                            is LlmSettingsViewModel.ConnectionTestResult.Success -> {
+                                Icons.Default.CheckCircle
+                            }
+
+                            is LlmSettingsViewModel.ConnectionTestResult.Error -> {
+                                Icons.Default.Warning
+                            }
+                        },
                     contentDescription = null,
-                    tint = when (result) {
-                        is LlmSettingsViewModel.ConnectionTestResult.Success ->
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        is LlmSettingsViewModel.ConnectionTestResult.Error ->
-                            MaterialTheme.colorScheme.onErrorContainer
-                    }
+                    tint =
+                        when (result) {
+                            is LlmSettingsViewModel.ConnectionTestResult.Success -> {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            }
+
+                            is LlmSettingsViewModel.ConnectionTestResult.Error -> {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            }
+                        },
                 )
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = when (result) {
-                        is LlmSettingsViewModel.ConnectionTestResult.Success ->
-                            "Connection successful!"
-                        is LlmSettingsViewModel.ConnectionTestResult.Error ->
-                            "Error: ${result.message}"
-                    },
-                    color = when (result) {
-                        is LlmSettingsViewModel.ConnectionTestResult.Success ->
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        is LlmSettingsViewModel.ConnectionTestResult.Error ->
-                            MaterialTheme.colorScheme.onErrorContainer
-                    }
+                    text =
+                        when (result) {
+                            is LlmSettingsViewModel.ConnectionTestResult.Success -> {
+                                stringResource(R.string.llm_connection_success)
+                            }
+
+                            is LlmSettingsViewModel.ConnectionTestResult.Error -> {
+                                stringResource(R.string.llm_connection_error, result.message)
+                            }
+                        },
+                    color =
+                        when (result) {
+                            is LlmSettingsViewModel.ConnectionTestResult.Success -> {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            }
+
+                            is LlmSettingsViewModel.ConnectionTestResult.Error -> {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            }
+                        },
                 )
             }
         }
     }
 
     Text(
-        text = "Get your API key from Google AI Studio (aistudio.google.com)",
+        text = stringResource(R.string.llm_api_key_help),
         style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

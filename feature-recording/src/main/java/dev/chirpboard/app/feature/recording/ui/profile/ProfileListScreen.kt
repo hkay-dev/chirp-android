@@ -114,7 +114,7 @@ fun ProfileListScreen(
                 EmptyState(
                     icon = Icons.Default.Person,
                     title = stringResource(R.string.rec_no_profiles_yet),
-                    description = "Create a profile to save your recording preferences",
+                    description = stringResource(R.string.rec_empty_profiles_description),
                     actionLabel = stringResource(R.string.rec_create_profile),
                     onAction = onAddProfile,
                     modifier = Modifier.padding(paddingValues),

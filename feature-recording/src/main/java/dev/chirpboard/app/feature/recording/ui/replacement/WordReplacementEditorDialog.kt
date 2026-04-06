@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -36,7 +37,7 @@ fun WordReplacementEditorDialog(
     var caseSensitive by remember { mutableStateOf(replacement?.caseSensitive ?: false) }
 
     val isEditing = replacement != null
-    val title = if (isEditing) "Edit Replacement" else "Add Replacement"
+    val title = if (isEditing) stringResource(R.string.rec_edit_replacement) else stringResource(R.string.rec_add_replacement_title)
     val canSave = original.isNotBlank()
 
     AnimatedAlertDialog(
@@ -72,12 +73,19 @@ fun WordReplacementEditorDialog(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .toggleable(
+                            value = caseSensitive,
+                            onValueChange = { caseSensitive = it },
+                            role = androidx.compose.ui.semantics.Role.Checkbox
+                        )
+                        .padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Checkbox(
                         checked = caseSensitive,
-                        onCheckedChange = { caseSensitive = it },
+                        onCheckedChange = null,
                     )
                     Text(
                         text = stringResource(R.string.rec_case_sensitive),

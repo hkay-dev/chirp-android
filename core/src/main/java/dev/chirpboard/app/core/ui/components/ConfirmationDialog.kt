@@ -2,6 +2,7 @@ package dev.chirpboard.app.core.ui.components
 
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 
 /**
  * Reusable confirmation dialog with consistent styling.
@@ -19,51 +20,55 @@ import androidx.compose.runtime.Composable
 fun ConfirmationDialog(
     title: String,
     message: String,
-    confirmLabel: String = "Confirm",
-    dismissLabel: String = "Cancel",
+    confirmLabel: String? = null,
+    dismissLabel: String? = null,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    isDestructive: Boolean = false
+    isDestructive: Boolean = false,
 ) {
+    val resolvedConfirmLabel = confirmLabel ?: stringResource(android.R.string.ok)
+    val resolvedDismissLabel = dismissLabel ?: stringResource(android.R.string.cancel)
+
     AnimatedAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
             )
         },
         text = {
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },
         confirmButton = {
             if (isDestructive) {
                 TextButton(
                     onClick = onConfirm,
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
+                    colors =
+                        ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                 ) {
-                    Text(confirmLabel)
+                    Text(resolvedConfirmLabel)
                 }
             } else {
                 TextButton(onClick = onConfirm) {
-                    Text(confirmLabel)
+                    Text(resolvedConfirmLabel)
                 }
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(dismissLabel)
+                Text(resolvedDismissLabel)
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
-        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }

@@ -27,8 +27,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.feature.recording.R
 
 private val MainButtonSize = 120.dp
 private val MainIconSize = 48.dp
@@ -78,22 +80,23 @@ fun MainActionButton(
     val isActive = isRecording || isPaused
 
     // Pulsing animation for recording state
-    val pulseScale = if (isRecording) {
-        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-        val animatedScale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.06f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(900, easing = EaseInOut),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "pulseScale",
-        )
-        animatedScale
-    } else {
-        1f
-    }
+    val pulseScale =
+        if (isRecording) {
+            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+            val animatedScale by infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.06f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(900, easing = EaseInOut),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "pulseScale",
+            )
+            animatedScale
+        } else {
+            1f
+        }
 
     // Smooth color transitions
     val idleColor = MaterialTheme.colorScheme.primaryContainer
@@ -151,9 +154,9 @@ fun MainActionButton(
             ) { stateClass ->
                 val (icon, description) =
                     when (stateClass) {
-                        RecordingUiState.Recording::class -> Icons.Default.Pause to "Pause Recording"
-                        RecordingUiState.Paused::class -> Icons.Default.PlayArrow to "Resume Recording"
-                        else -> Icons.Default.Mic to "Start Recording"
+                        RecordingUiState.Recording::class -> Icons.Default.Pause to stringResource(R.string.rec_desc_pause_recording)
+                        RecordingUiState.Paused::class -> Icons.Default.PlayArrow to stringResource(R.string.rec_desc_resume_recording)
+                        else -> Icons.Default.Mic to stringResource(R.string.rec_desc_start_recording_action)
                     }
 
                 Icon(

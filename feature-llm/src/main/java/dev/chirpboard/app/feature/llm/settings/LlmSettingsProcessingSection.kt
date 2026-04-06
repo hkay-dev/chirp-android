@@ -15,82 +15,88 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.feature.llm.R
 
 @Composable
 internal fun LlmSettingsProcessingSection(
     uiState: LlmSettingsViewModel.UiState,
     onSetAutoTitle: (Boolean) -> Unit,
-    onSetAutoSummary: (Boolean) -> Unit
+    onSetAutoSummary: (Boolean) -> Unit,
 ) {
     Spacer(Modifier.padding(vertical = 8.dp))
     HorizontalDivider()
     Spacer(Modifier.padding(vertical = 8.dp))
 
     Text(
-        text = "Automatic Processing",
-        style = MaterialTheme.typography.titleMedium
+        text = stringResource(R.string.llm_processing_title),
+        style = MaterialTheme.typography.titleMedium,
     )
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {}
-            .clickable { onSetAutoTitle(!uiState.autoTitle) }
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {}
+                .clickable { onSetAutoTitle(!uiState.autoTitle) },
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Auto-generate titles",
-                    style = MaterialTheme.typography.bodyLarge
+                    text = stringResource(R.string.llm_auto_title_title),
+                    style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
-                    text = "Automatically create descriptive titles after transcription",
+                    text = stringResource(R.string.llm_auto_title_subtitle),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(
                 checked = uiState.autoTitle,
-                onCheckedChange = null
+                onCheckedChange = null,
             )
         }
     }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics(mergeDescendants = true) {}
-            .clickable { onSetAutoSummary(!uiState.autoSummary) }
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {}
+                .clickable { onSetAutoSummary(!uiState.autoSummary) },
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Auto-generate summaries",
-                    style = MaterialTheme.typography.bodyLarge
+                    text = stringResource(R.string.llm_auto_summary_title),
+                    style = MaterialTheme.typography.bodyLarge,
                 )
                 Text(
-                    text = "Automatically create brief summaries for the home screen",
+                    text = stringResource(R.string.llm_auto_summary_subtitle),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Switch(
                 checked = uiState.autoSummary,
-                onCheckedChange = null
+                onCheckedChange = null,
             )
         }
     }

@@ -1,6 +1,5 @@
 package dev.chirpboard.app.feature.recording.ui.tag
 
-import androidx.compose.runtime.remember
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -17,18 +16,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.feature.recording.R
 
 /**
  * Reusable tag display component.
@@ -47,9 +49,10 @@ fun TagChip(
     modifier: Modifier = Modifier,
 ) {
     val defaultColor = MaterialTheme.colorScheme.primary
-    val tagColor = remember(tag.color, defaultColor) {
-        tag.color?.let { parseColor(it) } ?: defaultColor
-    }
+    val tagColor =
+        remember(tag.color, defaultColor) {
+            tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
+        }
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) tagColor else Color.Transparent,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
@@ -71,7 +74,9 @@ fun TagChip(
     Box(
         modifier =
             modifier
+                .minimumInteractiveComponentSize()
                 .clip(shape)
+                .semantics(mergeDescendants = onRemove == null) {}
                 .then(
                     if (selected) {
                         Modifier.background(backgroundColor)
@@ -103,7 +108,7 @@ fun TagChip(
             if (onRemove != null) {
                 IconButton(
                     onClick = onRemove,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.minimumInteractiveComponentSize().size(20.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
@@ -120,10 +125,13 @@ fun TagChip(
 /**
  * Parse a hex color string to a Compose Color.
  */
-private fun parseColor(hexColor: String): Color =
+private fun parseColor(
+    hexColor: String,
+    fallbackColor: Color,
+): Color =
     try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
-        Color.Gray
+        fallbackColor
     }
