@@ -84,7 +84,8 @@ class RecordingStateManager @Inject constructor() {
      */
     fun tryStartRecording(
         origin: RecordingOrigin,
-        profileId: UUID? = null
+        profileId: UUID? = null,
+        onTransition: (RecordingState) -> Unit = {}
     ): RecordingStartResult {
         // Atomic check-and-set: only one caller can acquire the lock
         if (!recordingLock.compareAndSet(false, true)) {
@@ -98,7 +99,7 @@ class RecordingStateManager @Inject constructor() {
         accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Starting")
-            RecordingState.Starting(origin)
+            RecordingState.Starting(origin).also(onTransition)
         }
         return RecordingStartResult.Success
     }
@@ -109,7 +110,7 @@ class RecordingStateManager @Inject constructor() {
      * 
      * @param audioFilePath Path where audio is being recorded
      */
-    fun onRecordingStarted(audioFilePath: String) {
+    fun onRecordingStarted(audioFilePath: String, onTransition: (RecordingState) -> Unit = {}) {
         _state.update { current ->
             when (current) {
                 is RecordingState.Starting -> {
@@ -118,7 +119,11 @@ class RecordingStateManager @Inject constructor() {
                         origin = current.origin,
                         profileId = current.profileId,
                         audioFilePath = audioFilePath
-                    )
+                    ).also(onTransition)
+
+
+
+
                 }
                 else -> {
                     Log.w(TAG, "onRecordingStarted called in wrong state: ${current::class.simpleName}")

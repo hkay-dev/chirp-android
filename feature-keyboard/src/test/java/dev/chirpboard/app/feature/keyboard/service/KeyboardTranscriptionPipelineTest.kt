@@ -9,13 +9,14 @@ import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
-import dev.chirpboard.app.feature.obsidian.sync.ObsidianManager
+import dev.chirpboard.app.feature.obsidian.ObsidianManager
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.CoroutineScope
@@ -65,7 +66,7 @@ class KeyboardTranscriptionPipelineTest {
         obsidianManager = mockk(relaxed = true)
         mockkStatic(ReliabilityEventLogger::class)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
-        every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
+        every { ReliabilityEventLogger.log(any(), any(), any(), any(), any()) } just runs
 
         coEvery { keyboardPreferences.saveKeyboardRecordings } returns flowOf(true)
 
@@ -108,7 +109,7 @@ class KeyboardTranscriptionPipelineTest {
             onRecordingError = {}
         )
         
-        assertEquals(KeyboardState.Error("Recognizer not ready", dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD), stateEmitted)
+        assertEquals(KeyboardState.Error("Recognizer not ready"), stateEmitted)
         assertEquals(null, bufferedSamples) // Cleared after persistence
     }
 

@@ -51,6 +51,8 @@ class LlmSettingsViewModelTest {
         val state = viewModel.uiState.value
         assertTrue(state.llmEnabled)
         assertEquals("initial-key", state.apiKey)
+        assertTrue(state.isKeyConfigured)
+        assertFalse(state.autoTitle)
         assertFalse(state.autoTitle)
         assertTrue(state.autoSummary)
     }
@@ -60,6 +62,10 @@ class LlmSettingsViewModelTest {
         viewModel.updateApiKey("new-key")
         
         val state = viewModel.uiState.value
+        assertEquals("new-key", state.apiKey)
+        assertTrue(state.isKeyConfigured)
+        
+        coVerify(exactly = 0) { preferences.setApiKey(any()) }
         assertEquals("new-key", state.apiKey)
         
         coVerify(exactly = 0) { preferences.setApiKey(any()) }
