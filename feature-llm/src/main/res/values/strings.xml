@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="llm_settings_title">LLM Settings</string>
+    <string name="llm_gemini_api_key">Gemini API Key</string>
+    <string name="llm_enter_api_key">Enter your Google AI Studio API key</string>
+    <string name="llm_save">Save</string>
+    <string name="llm_testing">Testing...</string>
+    <string name="llm_test_connection">Test Connection</string>
+    <string name="llm_clear">Clear</string>
+    <string name="llm_desc_back">Back</string>
+</resources>

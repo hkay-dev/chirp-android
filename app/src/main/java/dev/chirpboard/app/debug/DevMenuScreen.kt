@@ -48,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.R
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -79,12 +81,12 @@ fun DevMenuScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
-                title = { Text("Developer Menu") },
+                title = { Text(stringResource(R.string.dev_menu_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.desc_back),
                         )
                     }
                 },
@@ -114,8 +116,8 @@ fun DevMenuScreen(
                     OutlinedTextField(
                         value = uiState.apiKeyInput,
                         onValueChange = viewModel::onApiKeyChange,
-                        label = { Text("Gemini API Key") },
-                        placeholder = { Text("AIza...") },
+                        label = { Text(stringResource(R.string.dev_gemini_key)) },
+                        placeholder = { Text(stringResource(R.string.dev_gemini_placeholder)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -134,12 +136,12 @@ fun DevMenuScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Save Key")
+                            Text(stringResource(R.string.dev_save_key))
                         }
 
                         if (uiState.hasApiKey) {
                             OutlinedButton(onClick = viewModel::clearApiKey) {
-                                Text("Clear")
+                                Text(stringResource(R.string.dev_clear))
                             }
                         }
                     }
@@ -184,7 +186,7 @@ fun DevMenuScreen(
                                     strokeWidth = 2.dp,
                                 )
                             } else {
-                                Text("Add 5")
+                                Text(stringResource(R.string.dev_add_5))
                             }
                         }
 
@@ -193,7 +195,7 @@ fun DevMenuScreen(
                             enabled = !uiState.isGenerating,
                             modifier = Modifier.weight(1f),
                         ) {
-                            Text("Add 20")
+                            Text(stringResource(R.string.dev_add_20))
                         }
                     }
 
@@ -272,7 +274,7 @@ fun DevMenuScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedButton(onClick = { ReliabilityEventLogger.clear() }) {
-                        Text("Clear Timeline")
+                        Text(stringResource(R.string.dev_clear_timeline))
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -326,7 +328,7 @@ fun DevMenuScreen(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Delete All Recordings")
+                        Text(stringResource(R.string.dev_delete_all))
                     }
                 }
             }

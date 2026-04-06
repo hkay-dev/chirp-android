@@ -12,6 +12,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -48,12 +50,12 @@ fun ProfileEditorScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (viewModel.isEditing) "Edit Profile" else "New Profile") },
+                title = { Text(if (viewModel.isEditing) stringResource(R.string.rec_edit_profile) else stringResource(R.string.rec_new_profile)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.desc_back),
                         )
                     }
                 },
@@ -64,7 +66,7 @@ fun ProfileEditorScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = "Save",
+                            contentDescription = stringResource(R.string.desc_save),
                         )
                     }
                 },
@@ -97,8 +99,8 @@ fun ProfileEditorScreen(
                 OutlinedTextField(
                     value = uiState.name,
                     onValueChange = { viewModel.updateName(it) },
-                    label = { Text("Name *") },
-                    placeholder = { Text("e.g., Meeting Notes") },
+                    label = { Text(stringResource(R.string.rec_profile_name)) },
+                    placeholder = { Text(stringResource(R.string.rec_profile_name_placeholder)) },
                     singleLine = true,
                     keyboardOptions =
                         KeyboardOptions(
@@ -112,15 +114,15 @@ fun ProfileEditorScreen(
                 OutlinedTextField(
                     value = uiState.icon,
                     onValueChange = { viewModel.updateIcon(it) },
-                    label = { Text("Icon (emoji)") },
-                    placeholder = { Text("e.g., \uD83C\uDFA4") },
+                    label = { Text(stringResource(R.string.rec_profile_icon)) },
+                    placeholder = { Text(stringResource(R.string.rec_profile_icon_placeholder)) },
                     singleLine = true,
                     keyboardOptions =
                         KeyboardOptions(
                             imeAction = ImeAction.Next,
                         ),
                     modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text("Optional emoji to identify this profile") },
+                    supportingText = { Text(stringResource(R.string.rec_profile_icon_desc)) },
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -190,15 +192,15 @@ fun ProfileEditorScreen(
                     OutlinedTextField(
                         value = uiState.obsidianVaultPath,
                         onValueChange = { viewModel.updateObsidianVaultPath(it) },
-                        label = { Text("Obsidian Vault Path") },
-                        placeholder = { Text("Leave empty to use global setting") },
+                        label = { Text(stringResource(R.string.rec_profile_vault)) },
+                        placeholder = { Text(stringResource(R.string.rec_profile_vault_desc)) },
                         singleLine = true,
                         keyboardOptions =
                             KeyboardOptions(
                                 imeAction = ImeAction.Done,
                             ),
                         modifier = Modifier.fillMaxWidth(),
-                        supportingText = { Text("Override the global Obsidian vault path for this profile") },
+                        supportingText = { Text(stringResource(R.string.rec_profile_vault_support)) },
                     )
                 }
 
@@ -253,7 +255,6 @@ private fun ProcessingModeDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
 
-    // TODO: These should come from a central place or API
     val processingModes =
         listOf(
             null to "None (No processing)",
@@ -272,7 +273,7 @@ private fun ProcessingModeDropdown(
             value = processingModes.find { it.first == selectedMode }?.second ?: "None",
             onValueChange = {},
             readOnly = true,
-            label = { Text("Default Processing Mode") },
+            label = { Text(stringResource(R.string.rec_profile_mode)) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             modifier =
                 Modifier

@@ -18,6 +18,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
@@ -48,22 +50,22 @@ fun WordReplacementEditorDialog(
                 OutlinedTextField(
                     value = original,
                     onValueChange = { original = it },
-                    label = { Text("Original word/phrase") },
+                    label = { Text(stringResource(R.string.rec_original_word)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     supportingText = {
-                        Text("The word or phrase to find")
+                        Text(stringResource(R.string.rec_original_word_desc))
                     },
                 )
 
                 OutlinedTextField(
                     value = replacementText,
                     onValueChange = { replacementText = it },
-                    label = { Text("Replacement") },
+                    label = { Text(stringResource(R.string.rec_replacement)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     supportingText = {
-                        Text("What to replace it with (leave empty to remove)")
+                        Text(stringResource(R.string.rec_replacement_desc))
                     },
                 )
 
@@ -90,12 +92,12 @@ fun WordReplacementEditorDialog(
                 onClick = { onSave(original, replacementText, caseSensitive) },
                 enabled = canSave,
             ) {
-                Text("Save")
+                Text(stringResource(R.string.rec_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.rec_cancel))
             }
         },
     )

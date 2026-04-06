@@ -50,7 +50,7 @@ internal suspend fun saveKeyboardRecording(
     recordingRepository: RecordingRepository,
     persistencePlan: KeyboardPersistencePlan,
     samples: FloatArray
-) {
+): Recording? {
     try {
         withContext(NonCancellable) {
             val filename = "keyboard_${System.currentTimeMillis()}.m4a"
@@ -61,7 +61,8 @@ internal suspend fun saveKeyboardRecording(
             val success = audioEncoder.encodeToM4a(samples, VoiceRecorder.SAMPLE_RATE, outputPath)
             if (!success) {
                 Log.e(PERSISTENCE_TAG, "Failed to encode keyboard recording")
-                return@withContext
+                try { File(outputPath).delete() } catch (_: Exception) {}
+                return@withContext null
             }
 
             val durationMs = (samples.size * 1000L) / VoiceRecorder.SAMPLE_RATE
@@ -91,8 +92,10 @@ internal suspend fun saveKeyboardRecording(
             }
 
             Log.i(PERSISTENCE_TAG, "Saved keyboard recording: ${recording.id}")
+            recording
         }
     } catch (e: Exception) {
         Log.e(PERSISTENCE_TAG, "Failed to save keyboard recording", e)
+        null
     }
 }

@@ -48,6 +48,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -60,6 +62,9 @@ import dev.chirpboard.app.data.entity.Tag
  * Full screen for managing all tags.
  */
 @OptIn(ExperimentalMaterial3Api::class)
+
+@androidx.compose.runtime.Stable
+data class TagItemUiState(val tag: dev.chirpboard.app.data.entity.Tag)
 @Composable
 fun TagManagementScreen(
     viewModel: TagsViewModel = hiltViewModel(),
@@ -73,12 +78,12 @@ fun TagManagementScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Tags") },
+                title = { Text(stringResource(R.string.rec_tags)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.desc_back),
                         )
                     }
                 },
@@ -90,7 +95,7 @@ fun TagManagementScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add tag",
+                    contentDescription = stringResource(R.string.desc_add_tag),
                 )
             }
         },
@@ -126,6 +131,7 @@ fun TagManagementScreen(
                         key = { it.id },
                     ) { tag ->
                         SwipeableTagItem(
+                            tagItem = TagItemUiState(tag),
                             tag = tag,
                             onEdit = { editingTag = tag },
                             onDelete = { viewModel.deleteTag(tag) },
@@ -165,10 +171,12 @@ fun TagManagementScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeableTagItem(
-    tag: Tag,
+    tagItem: TagItemUiState,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+) {
+    val tag = tagItem.tag
 ) {
     val dismissState =
         rememberSwipeToDismissBoxState(
@@ -205,7 +213,7 @@ private fun SwipeableTagItem(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
+                    contentDescription = stringResource(R.string.desc_delete),
                     tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
@@ -213,7 +221,7 @@ private fun SwipeableTagItem(
         enableDismissFromStartToEnd = false,
     ) {
         TagItemCard(
-            tag = tag,
+            tagItem = tagItem,
             onEdit = onEdit,
         )
     }
@@ -221,9 +229,11 @@ private fun SwipeableTagItem(
 
 @Composable
 private fun TagItemCard(
-    tag: Tag,
+    tagItem: TagItemUiState,
     onEdit: () -> Unit,
     modifier: Modifier = Modifier,
+) {
+    val tag = tagItem.tag
 ) {
     val defaultColor = MaterialTheme.colorScheme.primary
     val tagColor = remember(tag.color, defaultColor) {
@@ -266,7 +276,7 @@ private fun TagItemCard(
             IconButton(onClick = onEdit) {
                 Icon(
                     imageVector = Icons.Default.Edit,
-                    contentDescription = "Edit tag",
+                    contentDescription = stringResource(R.string.desc_edit_tag),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

@@ -140,28 +140,38 @@ class TranscriptionSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(currentFile = file.name) }
             
             val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-            
-            if (!response.isSuccessful) {
-                throw Exception("Failed to download ${file.name}: ${response.code}")
-            }
-            
-            val body = response.body ?: throw Exception("Empty response for ${file.name}")
-            var downloaded = 0L
-            
-            FileOutputStream(destFile).use { output ->
-                body.byteStream().use { input ->
-                    val buffer = ByteArray(8192)
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        output.write(buffer, 0, read)
-                        downloaded += read
-                        updateProgress(file.name, totalDownloaded + downloaded, totalSize)
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to download ${file.name}: ${response.code}")
+                }
+                
+                val body = response.body ?: throw Exception("Empty response for ${file.name}")
+                var downloaded = 0L
+                
+                val tempFile = File(modelDir, file.name + ".download")
+                try {
+                    FileOutputStream(tempFile).use { output ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(8192)
+                            var read: Int
+                            while (input.read(buffer).also { read = it } != -1) {
+                                output.write(buffer, 0, read)
+                                downloaded += read
+                                updateProgress(file.name, totalDownloaded + downloaded, totalSize)
+                            }
+                        }
+                    }
+                    if (!tempFile.renameTo(destFile)) {
+                        throw Exception("Failed to rename temp file to ${file.name}")
+                    }
+                } finally {
+                    if (tempFile.exists()) {
+                        tempFile.delete()
                     }
                 }
+                
+                totalDownloaded += downloaded
             }
-            
-            totalDownloaded += downloaded
         }
     }
     

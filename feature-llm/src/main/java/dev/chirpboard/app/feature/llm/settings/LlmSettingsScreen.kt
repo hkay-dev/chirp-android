@@ -20,6 +20,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.llm.R
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,11 +37,11 @@ fun LlmSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("LLM Settings") },
+                title = { Text(stringResource(R.string.llm_settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back"
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.llm_desc_back)
                         )
                     }
                 }

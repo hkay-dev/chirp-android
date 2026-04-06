@@ -7,6 +7,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.R
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
@@ -47,7 +49,7 @@ fun ErrorView(
             Spacer(modifier = Modifier.height(24.dp))
             
             Button(onClick = onRetry) {
-                Text("Retry")
+                Text(stringResource(R.string.core_retry))
             }
         }
     }

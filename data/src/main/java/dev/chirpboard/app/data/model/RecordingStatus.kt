@@ -3,6 +3,9 @@ package dev.chirpboard.app.data.model
 /**
  * Status of a recording in the processing pipeline.
  */
+import androidx.annotation.Keep
+
+@Keep
 enum class RecordingStatus {
     /** Audio capture in progress */
     RECORDING,

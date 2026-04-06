@@ -41,6 +41,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -85,11 +87,13 @@ internal fun RecordingDetailTranscriptSection(
                                         Box {
                                             IconButton(
                                                 onClick = { showShareMenu = true },
+                                            ) {
+                                                onClick = { showShareMenu = true },
                                                 modifier = Modifier.size(36.dp),
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Share,
-                                                    contentDescription = "Share",
+                                                    contentDescription = stringResource(R.string.desc_share),
                                                     modifier = Modifier.size(20.dp),
                                                     tint = MaterialTheme.colorScheme.primary,
                                                 )
@@ -100,7 +104,7 @@ internal fun RecordingDetailTranscriptSection(
                                                 onDismissRequest = { showShareMenu = false },
                                             ) {
                                                 DropdownMenuItem(
-                                                    text = { Text("Share audio") },
+                                                    text = { Text(stringResource(R.string.rec_share_audio)) },
                                                     onClick = {
                                                         showShareMenu = false
                                                         onShareAudio()
@@ -110,7 +114,7 @@ internal fun RecordingDetailTranscriptSection(
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text("Share transcript") },
+                                                    text = { Text(stringResource(R.string.rec_share_transcript)) },
                                                     onClick = {
                                                         showShareMenu = false
                                                         onShareTranscript()
@@ -120,7 +124,7 @@ internal fun RecordingDetailTranscriptSection(
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text("Share both") },
+                                                    text = { Text(stringResource(R.string.rec_share_both)) },
                                                     onClick = {
                                                         showShareMenu = false
                                                         onShareBoth()
@@ -275,7 +279,7 @@ internal fun RecordingDetailTranscriptSection(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Retry Transcription")
+                        Text(stringResource(R.string.rec_retry_transcription_cap))
                     }
                 }
             }
@@ -359,7 +363,7 @@ internal fun PendingRecoveryAffordance(
             modifier = Modifier.size(18.dp),
         )
         Spacer(modifier = Modifier.width(6.dp))
-        Text("Recover Queue")
+        Text(stringResource(R.string.rec_recover_queue))
     }
 
     Spacer(modifier = Modifier.height(12.dp))

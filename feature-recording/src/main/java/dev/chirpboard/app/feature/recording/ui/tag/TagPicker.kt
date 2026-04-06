@@ -79,7 +79,8 @@ private fun AddTagChip(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier.clickable(onClick = onClick),
+        onClick = onClick,
+        modifier = modifier,
         shape = ChirpShapes.Large,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {

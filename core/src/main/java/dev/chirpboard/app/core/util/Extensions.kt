@@ -25,6 +25,8 @@ private val dateTimeFormat = object : ThreadLocal<SimpleDateFormat>() {
 }
 private val timeFormat = object : ThreadLocal<SimpleDateFormat>() {
     override fun initialValue() = SimpleDateFormat("h:mm a", Locale.getDefault())
+private val datePattern = Regex("""^[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{1,2}:\d{2}\s*[AaPp][Mm]$""")
+
 }
 
 /**
@@ -110,7 +112,6 @@ fun Date.formatForHeader(): String {
  */
 fun String.isDefaultDateTitle(): Boolean {
     // Pattern matches: "Jan 29, 10:30 AM" or similar date formats
-    val datePattern = Regex("""^[A-Z][a-z]{2}\s+\d{1,2},?\s+\d{1,2}:\d{2}\s*[AaPp][Mm]$""")
     return datePattern.matches(this.trim())
 }
 

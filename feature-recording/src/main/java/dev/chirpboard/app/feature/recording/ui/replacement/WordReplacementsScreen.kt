@@ -51,6 +51,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextDecoration
@@ -74,12 +76,12 @@ fun WordReplacementsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Word Replacements") },
+                title = { Text(stringResource(R.string.rec_word_replacements)) },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
+                            contentDescription = stringResource(R.string.desc_back),
                         )
                     }
                 },
@@ -94,7 +96,7 @@ fun WordReplacementsScreen(
             ) {
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "Add replacement",
+                    contentDescription = stringResource(R.string.desc_add_replacement),
                 )
             }
         },
@@ -225,7 +227,7 @@ private fun SwipeableReplacementItem(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Delete",
+                    contentDescription = stringResource(R.string.desc_delete),
                     tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
@@ -355,7 +357,7 @@ private fun ReplacementItemCard(
             IconButton(onClick = onEdit) {
                 Icon(
                     imageVector = Icons.Default.Edit,
-                    contentDescription = "Edit",
+                    contentDescription = stringResource(R.string.desc_edit),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

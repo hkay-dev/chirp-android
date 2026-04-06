@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,21 +66,25 @@ class WhisperModelManager @Inject constructor(
      * Check and update current model status.
      */
     fun refreshStatus() {
-        _modelStatus.value = if (isModelDownloaded()) {
-            ModelStatus.Ready
-        } else {
-            ModelStatus.NotDownloaded
+        // Offload disk I/O to IO thread to prevent main thread blocking
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val status = if (isModelDownloaded()) {
+                ModelStatus.Ready
+            } else {
+                ModelStatus.NotDownloaded
+            }
+            _modelStatus.value = status
         }
     }
     
     /**
      * Whether all model files are downloaded.
      */
-    fun isModelDownloaded(): Boolean {
+    suspend fun isModelDownloaded(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val modelPath = getModelDir()
         val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
         
-        return MODEL_FILES.all { file ->
+        MODEL_FILES.all { file ->
             val persistent = File(modelPath, file.name)
             val legacy = File(legacyPath, file.name)
             val persistentOk = persistent.exists() && persistent.length() > file.expectedSize * 0.9
@@ -91,11 +96,11 @@ class WhisperModelManager @Inject constructor(
     /**
      * Get the actual downloaded model size in bytes.
      */
-    fun getDownloadedSize(): Long {
+    suspend fun getDownloadedSize(): Long = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val modelPath = getModelDir()
         val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
         
-        return MODEL_FILES.sumOf { file ->
+        MODEL_FILES.sumOf { file ->
             val persistent = File(modelPath, file.name)
             val legacy = File(legacyPath, file.name)
             when {
@@ -110,7 +115,7 @@ class WhisperModelManager @Inject constructor(
      * Delete the downloaded model files.
      * @return true if deletion was successful
      */
-    fun deleteModel(): Boolean {
+    suspend fun deleteModel(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         var success = true
         
         // Delete from persistent storage
@@ -126,7 +131,7 @@ class WhisperModelManager @Inject constructor(
         }
         
         refreshStatus()
-        return success
+        success
     }
     
     /**

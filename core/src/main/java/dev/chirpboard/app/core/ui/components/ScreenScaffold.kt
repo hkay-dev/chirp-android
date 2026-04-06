@@ -7,6 +7,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.R
 
 /**
  * Consistent screen wrapper with TopAppBar, optional navigation, and FAB support.
@@ -43,7 +45,7 @@ fun ScreenScaffold(
                         IconButton(onClick = onNavigateBack) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Navigate back"
+                                contentDescription = stringResource(R.string.desc_navigate_back)
                             )
                         }
                     }

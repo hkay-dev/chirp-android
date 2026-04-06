@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="keyboard_voice_model_loaded">Voice model loaded in memory</string>
+    <string name="keyboard_retry">Retry</string>
+    <string name="keyboard_desc_delete">Delete</string>
+    <string name="keyboard_desc_space">Space</string>
+</resources>

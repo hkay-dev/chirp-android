@@ -10,10 +10,11 @@ import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import dev.chirpboard.app.download.ModelReadyResult
 import dev.chirpboard.app.download.VerificationTrigger
 import javax.inject.Inject
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
+
 import kotlinx.coroutines.launch
 
 @HiltViewModel
@@ -23,8 +24,8 @@ class HomeRecordEntryViewModel @Inject constructor(
 
     val readinessState: StateFlow<ModelReadinessState> = modelReadinessGate.state
 
-    private val _events = MutableSharedFlow<HomeRecordEntryEvent>(extraBufferCapacity = 1)
-    val events: SharedFlow<HomeRecordEntryEvent> = _events.asSharedFlow()
+    private val _events = Channel<HomeRecordEntryEvent>(Channel.BUFFERED)
+    val events: Flow<HomeRecordEntryEvent> = _events.receiveAsFlow()
 
     fun warmupOnHomeVisible() {
         modelReadinessGate.warmupIfNeeded(VerificationTrigger.HOME_VISIBLE)
@@ -43,19 +44,19 @@ class HomeRecordEntryViewModel @Inject constructor(
                 is ModelReadyResult.Ready -> {
                     val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
                     Log.d(TAG, "record_navigation_allowed in ${elapsedMs}ms (source=${result.source})")
-                    _events.emit(HomeRecordEntryEvent.NavigateToRecord)
+                    _events.send(HomeRecordEntryEvent.NavigateToRecord)
                 }
 
                 is ModelReadyResult.Unavailable -> {
                     val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
                     Log.w(TAG, "record_navigation_blocked in ${elapsedMs}ms (reason=${result.reason})")
-                    _events.emit(HomeRecordEntryEvent.ShowModelRequired(result.reason))
+                    _events.send(HomeRecordEntryEvent.ShowModelRequired(result.reason))
                 }
 
                 is ModelReadyResult.Error -> {
                     val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
                     Log.e(TAG, "record_navigation_error in ${elapsedMs}ms")
-                    _events.emit(HomeRecordEntryEvent.ShowError(result.message))
+                    _events.send(HomeRecordEntryEvent.ShowError(result.message))
                 }
             }
         }

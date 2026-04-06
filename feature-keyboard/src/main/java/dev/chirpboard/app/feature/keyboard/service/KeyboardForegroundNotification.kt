@@ -35,7 +35,7 @@ internal object KeyboardForegroundNotification {
 
         val notification = NotificationCompat.Builder(service, channelId)
             .setContentTitle("Chirp")
-            .setContentText("Voice model loaded in memory")
+            .setContentText(context.getString(R.string.keyboard_voice_model_loaded))
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pendingIntent)
             .setOngoing(true)

@@ -48,6 +48,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -176,14 +177,14 @@ fun HomeScreen(
                             IconButton(onClick = { searchActive = true }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
-                                    contentDescription = "Search",
+                                    contentDescription = stringResource(R.string.desc_search),
                                 )
                             }
                         }
                         IconButton(onClick = onSettingsClick) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
+                                contentDescription = stringResource(R.string.desc_settings),
                             )
                         }
                     },
@@ -208,11 +209,11 @@ fun HomeScreen(
                                 onSearch = { searchActive = false },
                                 expanded = searchActive,
                                 onExpandedChange = { searchActive = it },
-                                placeholder = { Text("Search recordings") },
+                                placeholder = { Text(stringResource(dev.chirpboard.app.R.string.search_recordings)) },
                                 leadingIcon = {
                                     Icon(
                                         imageVector = Icons.Default.Search,
-                                        contentDescription = "Search",
+                                        contentDescription = stringResource(R.string.desc_search),
                                     )
                                 },
                                 trailingIcon = {
@@ -223,7 +224,7 @@ fun HomeScreen(
                                         }) {
                                             Icon(
                                                 imageVector = Icons.Default.Close,
-                                                contentDescription = "Clear search",
+                                                contentDescription = stringResource(R.string.desc_clear_search),
                                             )
                                         }
                                     }
@@ -253,6 +254,7 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
+            modifier = Modifier.padding(paddingValues),
             targetState = displayItems.isEmpty() && searchQuery.isBlank(),
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
@@ -264,14 +266,11 @@ fun HomeScreen(
                 AnimatedEmptyState(
                     onRecordClick = onRecordClick,
                     isRecordEntryChecking = isRecordEntryChecking,
-                    modifier = Modifier.padding(paddingValues),
+                    modifier = Modifier.fillMaxSize(),
                 )
             } else {
                 LazyColumn(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues),
+                    modifier = Modifier.fillMaxSize(),
                     state = listState,
                     contentPadding = PaddingValues(bottom = 96.dp),
                 ) {
@@ -307,7 +306,7 @@ fun HomeScreen(
                                             modifier = Modifier.size(18.dp),
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Recover stuck ($stuckCount)")
+                                        Text(stringResource(R.string.rec_recover_stuck, stuckCount))
                                     }
                                 }
                             }
@@ -531,7 +530,7 @@ private fun RecordingListItem(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     item.tags.take(3).forEach { tag ->
-                        CompactTagChip(tag = tag)
+                        CompactTagChip(name = tag.name, colorHex = tag.color)
                     }
                     if (item.tags.size > 3) {
                         Text(
@@ -550,13 +549,13 @@ private fun RecordingListItem(
  * Compact tag chip for list items.
  */
 @Composable
-private fun CompactTagChip(tag: Tag) {
+private fun CompactTagChip(name: String, colorHex: String?) {
     // Memoize color parsing to avoid redundant computation during list scrolling
     // Color.parseColor is expensive and list items recompose frequently during scroll
     val defaultColor = MaterialTheme.colorScheme.tertiary
     val tagColor =
-        remember(tag.color, defaultColor) {
-            tag.color?.let {
+        remember(colorHex, defaultColor) {
+            colorHex?.let {
                 try {
                     Color(android.graphics.Color.parseColor(it))
                 } catch (_: Exception) {
@@ -583,7 +582,7 @@ private fun CompactTagChip(tag: Tag) {
                     .background(tagColor),
         )
         Text(
-            text = tag.name,
+            text = name,
             style = MaterialTheme.typography.labelSmall,
             color = tagColor,
             maxLines = 1,

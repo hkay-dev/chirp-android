@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="obsidian_settings_title">Obsidian Settings</string>
+    <string name="obsidian_change_vault">Change Vault</string>
+    <string name="obsidian_clear">Clear</string>
+    <string name="obsidian_select_vault_folder">Select Vault Folder</string>
+    <string name="obsidian_desc_back">Back</string>
+</resources>

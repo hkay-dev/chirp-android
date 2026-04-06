@@ -102,7 +102,7 @@ fun MainActionButton(
     )
 
     val contentColor by animateColorAsState(
-        targetValue = if (isActive) Color.White else idleContentColor,
+        targetValue = if (isActive) MaterialTheme.colorScheme.onError else idleContentColor,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "contentColor",
     )

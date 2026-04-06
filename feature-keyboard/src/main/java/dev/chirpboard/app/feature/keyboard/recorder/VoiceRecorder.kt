@@ -108,18 +108,38 @@ class VoiceRecorder(private val context: Context) : Closeable {
         }
 
         return try {
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                SAMPLE_RATE,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                bufferSize * 2
-            )
+            var retryCount = 0
+            val maxRetries = 3
+            var initException: Exception? = null
+            
+            while (retryCount < maxRetries) {
+                try {
+                    audioRecord = AudioRecord(
+                        MediaRecorder.AudioSource.MIC,
+                        SAMPLE_RATE,
+                        CHANNEL_CONFIG,
+                        AUDIO_FORMAT,
+                        bufferSize * 2
+                    )
+                    if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
+                        break
+                    }
+                    audioRecord?.release()
+                    audioRecord = null
+                } catch (e: Exception) {
+                    initException = e
+                    audioRecord?.release()
+                    audioRecord = null
+                }
+                
+                retryCount++
+                if (retryCount < maxRetries) {
+                    Thread.sleep(150)
+                }
+            }
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                audioRecord?.release()
-                audioRecord = null
-                recordingReady.completeExceptionally(IllegalStateException("AudioRecord not initialized"))
+                recordingReady.completeExceptionally(initException ?: IllegalStateException("AudioRecord not initialized after retries"))
                 return false
             }
 

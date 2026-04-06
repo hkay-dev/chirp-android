@@ -17,6 +17,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -270,12 +272,12 @@ fun AppNavHost(
                                 }
                             },
                         ) {
-                            Text(if (content?.openSettingsOnConfirm == true) "Go to Settings" else "Dismiss")
+                            Text(if (content?.openSettingsOnConfirm == true) stringResource(R.string.go_to_settings) else stringResource(R.string.dismiss))
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { dialogContent = null }) {
-                            Text("Cancel")
+                            Text(stringResource(R.string.cancel))
                         }
                     },
                 )

@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import org.junit.After
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -69,13 +70,13 @@ class WhisperModelManagerTest {
     }
 
     @Test
-    fun `isModelDownloaded returns false when no files exist`() {
+    fun `isModelDownloaded returns false when no files exist`() = runTest {
         assertFalse(classUnderTest.isModelDownloaded())
         assertEquals(WhisperModelManager.ModelStatus.NotDownloaded, classUnderTest.modelStatus.value)
     }
 
     @Test
-    fun `isModelDownloaded returns true when persistent files are complete`() {
+    fun `isModelDownloaded returns true when persistent files are complete`() = runTest {
         setFileLength(persistentDir, 1.0f)
         classUnderTest.refreshStatus()
         assertTrue(classUnderTest.isModelDownloaded())
@@ -83,28 +84,28 @@ class WhisperModelManagerTest {
     }
 
     @Test
-    fun `isModelDownloaded returns false when files are too small`() {
+    fun `isModelDownloaded returns false when files are too small`() = runTest {
         setFileLength(persistentDir, 0.5f)
         classUnderTest.refreshStatus()
         assertFalse(classUnderTest.isModelDownloaded())
     }
 
     @Test
-    fun `isModelDownloaded returns true when legacy files are complete`() {
+    fun `isModelDownloaded returns true when legacy files are complete`() = runTest {
         setFileLength(legacyDir, 1.0f)
         classUnderTest.refreshStatus()
         assertTrue(classUnderTest.isModelDownloaded())
     }
 
     @Test
-    fun `getDownloadedSize returns total size`() {
+    fun `getDownloadedSize returns total size`() = runTest {
         setFileLength(persistentDir, 1.0f)
         val expectedTotal = 650_000_000L + 7_000_000L + 1_700_000L + 9_000L
         assertEquals(expectedTotal, classUnderTest.getDownloadedSize())
     }
 
     @Test
-    fun `deleteModel removes all model directories and updates status`() {
+    fun `deleteModel removes all model directories and updates status`() = runTest {
         setFileLength(persistentDir, 1.0f)
         setFileLength(legacyDir, 1.0f)
         

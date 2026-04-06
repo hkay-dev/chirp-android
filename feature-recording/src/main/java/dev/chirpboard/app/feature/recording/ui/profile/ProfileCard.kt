@@ -20,25 +20,32 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.mergeDescendants
 import dev.chirpboard.app.data.entity.Profile
+import dev.chirpboard.app.feature.recording.ui.profile.ProfileItemState
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProfileCard(
-    profile: Profile,
+    profileItem: ProfileItemState,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val profile = profileItem.profile
 
     Card(
         modifier =
             modifier
                 .fillMaxWidth()
+                .semantics { mergeDescendants = true }
                 .clickable(onClick = onClick),
         colors =
             CardDefaults.cardColors(
@@ -111,7 +118,7 @@ fun ProfileCard(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More options",
+                        contentDescription = stringResource(R.string.desc_more_options),
                     )
                 }
 
@@ -120,7 +127,7 @@ fun ProfileCard(
                     onDismissRequest = { showMenu = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text("Delete") },
+                        text = { Text(stringResource(R.string.rec_delete)) },
                         onClick = {
                             showMenu = false
                             onDelete()

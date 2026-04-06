@@ -96,9 +96,15 @@ Transcript:
                             }
 
                             return@withContext Result.success(resultText.trim())
-                        } catch (e: HttpException) {
-                            if (e.code() == 429 || e.code() == 503) {
-                                Log.w(TAG, "Rate limited or service unavailable (${e.code()}) for $operationName, attempt $attempt. Retrying in ${currentDelay}ms")
+                        } catch (e: Exception) {
+                            val shouldRetry = when (e) {
+                                is HttpException -> e.code() == 429 || e.code() == 503 || e.code() >= 500
+                                is java.io.IOException -> true // Network errors like timeout, unknown host
+                                else -> false
+                            }
+                            
+                            if (shouldRetry) {
+                                Log.w(TAG, "Network or server error for $operationName, attempt $attempt. Retrying in ${currentDelay}ms", e)
                                 lastException = e
                                 if (attempt < 3) {
                                     delay(currentDelay)

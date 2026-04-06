@@ -3,6 +3,9 @@ package dev.chirpboard.app.data.model
 /**
  * Source of a recording.
  */
+import androidx.annotation.Keep
+
+@Keep
 enum class RecordingSource {
     /** Created from app FAB or profile shortcut */
     APP,

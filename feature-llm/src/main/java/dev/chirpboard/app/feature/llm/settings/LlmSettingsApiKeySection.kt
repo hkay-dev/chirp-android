@@ -27,6 +27,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.feature.llm.R
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
@@ -76,12 +78,12 @@ internal fun LlmSettingsApiKeySection(
     OutlinedTextField(
         value = uiState.apiKey,
         onValueChange = onApiKeyChanged,
-        label = { Text("Gemini API Key") },
+        label = { Text(stringResource(R.string.llm_gemini_api_key)) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         supportingText = {
-            Text("Enter your Google AI Studio API key")
+            Text(stringResource(R.string.llm_enter_api_key))
         }
     )
 
@@ -90,7 +92,7 @@ internal fun LlmSettingsApiKeySection(
             onClick = onSave,
             enabled = uiState.apiKey.isNotBlank()
         ) {
-            Text("Save")
+            Text(stringResource(R.string.llm_save))
         }
 
         OutlinedButton(
@@ -103,15 +105,15 @@ internal fun LlmSettingsApiKeySection(
                     strokeWidth = 2.dp
                 )
                 Spacer(Modifier.width(8.dp))
-                Text("Testing...")
+                Text(stringResource(R.string.llm_testing))
             } else {
-                Text("Test Connection")
+                Text(stringResource(R.string.llm_test_connection))
             }
         }
 
         if (uiState.isKeyConfigured) {
             TextButton(onClick = onClear) {
-                Text("Clear")
+                Text(stringResource(R.string.llm_clear))
             }
         }
     }
