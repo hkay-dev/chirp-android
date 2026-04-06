@@ -6,11 +6,11 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.audio.PlaybackState
 
 @Composable
@@ -31,7 +31,7 @@ fun AudioPlayerCard(
             when (playbackState) {
                 is PlaybackState.Idle -> {
                     Text(
-                        text = "No audio loaded",
+                        text = stringResource(R.string.rec_no_audio_loaded),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -135,7 +135,14 @@ fun AudioPlayerCard(
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) stringResource(R.string.desc_pause) else stringResource(R.string.desc_play),
+                                contentDescription =
+                                    if (isPlaying) {
+                                        stringResource(
+                                            R.string.desc_pause,
+                                        )
+                                    } else {
+                                        stringResource(R.string.desc_play)
+                                    },
                                 modifier = Modifier.size(32.dp),
                             )
                         }

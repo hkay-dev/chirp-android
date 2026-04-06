@@ -114,7 +114,7 @@ fun TagManagementScreen(
                 EmptyState(
                     icon = Icons.AutoMirrored.Filled.Label,
                     title = stringResource(R.string.rec_no_tags_yet),
-                    description = "Create tags to organize your recordings",
+                    description = stringResource(R.string.rec_empty_tags_description),
                     modifier = Modifier.padding(paddingValues),
                 )
             } else {
@@ -238,7 +238,7 @@ private fun TagItemCard(
     val defaultColor = MaterialTheme.colorScheme.primary
     val tagColor =
         remember(tag.color, defaultColor) {
-            tag.color?.let { parseColor(it) } ?: defaultColor
+            tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
         }
 
     Card(
@@ -285,10 +285,13 @@ private fun TagItemCard(
     }
 }
 
-private fun parseColor(hexColor: String): Color =
+private fun parseColor(
+    hexColor: String,
+    fallbackColor: Color,
+): Color =
     try {
         Color(android.graphics.Color.parseColor(hexColor))
     } catch (e: Exception) {
         if (e is kotlinx.coroutines.CancellationException) throw e
-        Color.Gray
+        fallbackColor
     }

@@ -16,6 +16,10 @@
     <string name="rec_retry_transcription_cap">Retry Transcription</string>
     <string name="rec_delete">Delete</string>
     <string name="rec_loading_audio">Loading audio...</string>
+    <string name="rec_no_audio_loaded">No audio loaded</string>
+    <string name="rec_source_app">App</string>
+    <string name="rec_source_keyboard">Keyboard</string>
+    <string name="rec_source_widget">Widget</string>
     <string name="rec_edit_title">Edit title</string>
     <string name="rec_share_audio">Share audio</string>
     <string name="rec_share_transcript">Share transcript</string>
@@ -107,6 +111,14 @@
     <string name="rec_transcript">Transcript</string>
     <string name="rec_rerun">Re-run</string>
     <string name="rec_transcribing">Transcribing...</string>
+    <string name="rec_processing">Processing...</string>
+    <string name="rec_waiting_to_transcribe">Waiting to transcribe...</string>
+    <string name="rec_waiting_to_process">Waiting to process...</string>
+    <string name="rec_status_transcribing_short">Transcribing</string>
+    <string name="rec_status_enhancing">Enhancing</string>
+    <string name="rec_status_pending">Pending</string>
+    <string name="rec_status_completed">Completed</string>
+    <string name="rec_status_failed">Failed</string>
     <string name="rec_waiting_for_transcription">Waiting for transcription...</string>
     <string name="rec_transcription_failed">Transcription failed</string>
     <string name="rec_no_transcript_available">No transcript available</string>
@@ -119,13 +131,50 @@
     <string name="rec_recovery_ownership">Ownership: %1$s</string>
     <string name="rec_recovery_actions_disabled">Recovery actions are disabled while work is active or ownership check timed out</string>
     <string name="rec_case_sensitive">Case sensitive</string>
+    <string name="rec_recordings_title_collapsed">Recordings</string>
+    <string name="rec_recordings_title_expanded">Your Recordings</string>
+    <string name="rec_record_fab_checking">Checking...</string>
+    <string name="rec_record_fab_default">Record</string>
+    <string name="rec_empty_state_record_checking">Checking model...</string>
+    <string name="rec_empty_state_record_default">Record now</string>
+    <string name="rec_recover_stuck_processing">Recover stuck processing</string>
+    <string name="rec_stuck_recovery_message">Stuck in %1$s. Long-press for recovery.</string>
+    <string name="rec_empty_state_title">Your stage awaits</string>
+    <string name="rec_empty_state_subtitle">Tap Record to capture your first brilliant idea</string>
+    <string name="rec_record_button_idle">Tap to record</string>
+    <string name="rec_record_button_starting">Starting...</string>
+    <string name="rec_record_button_recording">Recording</string>
+    <string name="rec_record_button_paused">Paused</string>
+    <string name="rec_record_button_stopping">Stopping...</string>
+    <string name="rec_record_button_error">Error</string>
+    <string name="rec_desc_pause_recording">Pause Recording</string>
+    <string name="rec_desc_resume_recording">Resume Recording</string>
+    <string name="rec_desc_start_recording_action">Start Recording</string>
+    <string name="rec_record_screen_status_recording">Recording</string>
+    <string name="rec_record_screen_status_saving">Saving...</string>
+    <string name="rec_record_screen_status_saved">Saved</string>
+    <string name="rec_record_screen_status_ready">Ready</string>
+    <string name="rec_default_voice_memo_title">Voice Memo</string>
     <string name="rec_color">Color</string>
     <string name="rec_no_tags_yet">No tags yet</string>
     <string name="rec_add_tag_label">Add tag</string>
     <string name="rec_no_profiles_yet">No profiles yet</string>
     <string name="rec_create_profile">Create Profile</string>
+    <string name="rec_empty_profiles_description">Create a profile to save your recording preferences</string>
+    <string name="rec_empty_replacements_description">Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.</string>
+    <string name="rec_replacement_remove">(remove)</string>
+    <string name="rec_edit_replacement">Edit Replacement</string>
+    <string name="rec_add_replacement_title">Add Replacement</string>
+    <string name="rec_edit_tag_title">Edit Tag</string>
+    <string name="rec_create_tag_title">Create Tag</string>
+    <string name="rec_empty_tags_description">Create tags to organize your recordings</string>
 
 
     <string name="rec_delete_profile_confirm">Are you sure you want to delete "%1$s"? This cannot be undone.</string>
+
+    <plurals name="rec_search_results_count">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
 
 </resources>

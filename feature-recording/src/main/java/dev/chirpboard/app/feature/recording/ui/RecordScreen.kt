@@ -175,9 +175,9 @@ fun RecordScreen(
     LaunchedEffect(lastCompletedRecordingId) {
         val recordingId = lastCompletedRecordingId
         if (recordingId != null) {
-            viewModel.clearLastCompletedRecordingId()
-            delay(200) // Brief delay for state to settle
+            delay(200) // Brief delay for the "Saved" text to show
             onRecordingComplete(recordingId.toString())
+            viewModel.clearLastCompletedRecordingId() // Clear state last
         }
     }
 
@@ -358,12 +358,12 @@ fun RecordScreen(
                     Crossfade(
                         targetState =
                             when {
-                                recordingState is RecordingState.Recording -> "Recording"
-                                recordingState is RecordingState.Starting -> "Starting..."
-                                recordingState is RecordingState.Paused -> "Paused"
-                                recordingState is RecordingState.Stopping -> "Saving..."
-                                hadRecordingSession -> "Saved"
-                                else -> "Ready"
+                                recordingState is RecordingState.Recording -> stringResource(R.string.rec_record_screen_status_recording)
+                                recordingState is RecordingState.Starting -> stringResource(R.string.rec_record_button_starting)
+                                recordingState is RecordingState.Paused -> stringResource(R.string.rec_record_button_paused)
+                                recordingState is RecordingState.Stopping -> stringResource(R.string.rec_record_screen_status_saving)
+                                hadRecordingSession -> stringResource(R.string.rec_record_screen_status_saved)
+                                else -> stringResource(R.string.rec_record_screen_status_ready)
                             },
                         animationSpec = tween(250, easing = FastOutSlowInEasing),
                         label = "statusText",

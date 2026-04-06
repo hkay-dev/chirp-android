@@ -18,6 +18,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 4. Write tests in MigrationTest.kt
  */
 object Migrations {
+    val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_recordings_status_createdAt` ON `recordings` (`status`, `createdAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_recordings_profileId_createdAt` ON `recordings` (`profileId`, `createdAt`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_profiles_sortOrder_name` ON `profiles` (`sortOrder`, `name`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_tags_name` ON `tags` (`name`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_word_replacements_enabled_original` ON `word_replacements` (`enabled`, `original`)")
+        }
+    }
+
     /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
@@ -25,7 +35,7 @@ object Migrations {
     val ALL: Array<Migration> =
         arrayOf(
             // Add migrations here as they're created, e.g.:
-            // MIGRATION_1_2,
+            MIGRATION_1_2,
             // MIGRATION_2_3,
         )
 

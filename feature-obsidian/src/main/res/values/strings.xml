@@ -5,4 +5,14 @@
     <string name="obsidian_clear">Clear</string>
     <string name="obsidian_select_vault_folder">Select Vault Folder</string>
     <string name="obsidian_desc_back">Back</string>
+    <string name="obsidian_vault_title">Obsidian Vault</string>
+    <string name="obsidian_unknown_folder">Unknown folder</string>
+    <string name="obsidian_access_granted">Access granted</string>
+    <string name="obsidian_access_lost">Access lost. Please re-select.</string>
+    <string name="obsidian_no_vault_configured">No vault configured</string>
+    <string name="obsidian_auto_export_title">Auto-export</string>
+    <string name="obsidian_auto_export_subtitle">Automatically export recordings to Obsidian after transcription completes</string>
+    <string name="obsidian_help_title">About Obsidian Integration</string>
+    <string name="obsidian_help_body">Select a folder inside your Obsidian vault to export recordings as Markdown files. Each recording will be saved with YAML frontmatter containing metadata like title, date, duration, and tags.</string>
+    <string name="obsidian_help_note">Note: This app uses the Android Storage Access Framework (SAF) for secure file access. Permission is requested only for the specific folder you choose.</string>
 </resources>

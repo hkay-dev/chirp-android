@@ -48,20 +48,20 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.feature.transcription.R
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.feature.transcription.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptionSettingsScreen(
     viewModel: TranscriptionSettingsViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -72,104 +72,107 @@ fun TranscriptionSettingsScreen(
             LargeTopAppBar(
                 title = {
                     Text(
-                        text = "Transcription",
-                        fontWeight = FontWeight.Bold
+                        text = stringResource(R.string.transcription_title),
+                        fontWeight = FontWeight.Bold,
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.transcription_desc_back)
+                            contentDescription = stringResource(R.string.transcription_desc_back),
                         )
                     }
                 },
                 scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.largeTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                )
+                colors =
+                    TopAppBarDefaults.largeTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
             )
-        }
+        },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             // Model Status Section
             SettingsSectionHeader(
-                title = "Speech Recognition Model",
-                modifier = Modifier.padding(horizontal = 0.dp)
+                title = stringResource(R.string.transcription_section_model),
+                modifier = Modifier.padding(horizontal = 0.dp),
             )
-            
+
             ModelStatusCard(
                 modelName = uiState.modelName,
                 modelSizeMb = uiState.modelSizeMb,
                 isDownloaded = uiState.isDownloaded,
-                isLoading = uiState.isLoading
+                isLoading = uiState.isLoading,
             )
-            
+
             // Download Progress
             if (uiState.isLoading) {
                 DownloadProgressCard(
                     progress = uiState.downloadProgress,
-                    currentFile = uiState.currentFile
+                    currentFile = uiState.currentFile,
                 )
             }
-            
+
             // Error Message
             uiState.errorMessage?.let { error ->
                 ErrorCard(
                     message = error,
-                    onDismiss = viewModel::dismissError
+                    onDismiss = viewModel::dismissError,
                 )
             }
-            
+
             // Model Actions Section
             Spacer(modifier = Modifier.height(8.dp))
             SettingsSectionHeader(
-                title = "Model Actions",
-                modifier = Modifier.padding(horizontal = 0.dp)
+                title = stringResource(R.string.transcription_section_actions),
+                modifier = Modifier.padding(horizontal = 0.dp),
             )
-            
+
             ModelActionsCard(
                 isDownloaded = uiState.isDownloaded,
                 isLoading = uiState.isLoading,
                 onDownload = viewModel::downloadModel,
-                onDelete = viewModel::showDeleteConfirmation
+                onDelete = viewModel::showDeleteConfirmation,
             )
-            
+
             // Help text
             Text(
-                text = "The speech recognition model is required for transcribing voice recordings. " +
-                        "It runs entirely on your device for privacy.",
+                text = stringResource(R.string.transcription_model_help),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier.padding(top = 8.dp),
             )
-            
+
             Spacer(modifier = Modifier.height(24.dp))
         }
     }
-    
+
     // Delete Confirmation Dialog
     AnimatedVisibility(
         visible = uiState.showDeleteConfirmation,
-        enter = fadeIn(tween(200, easing = FastOutSlowInEasing)) +
+        enter =
+            fadeIn(tween(200, easing = FastOutSlowInEasing)) +
                 scaleIn(tween(200), initialScale = 0.85f),
-        exit = fadeOut(tween(200)) +
-                scaleOut(tween(200), targetScale = 0.85f)
+        exit =
+            fadeOut(tween(200)) +
+                scaleOut(tween(200), targetScale = 0.85f),
     ) {
         DeleteConfirmationDialog(
             modelName = uiState.modelName,
             onConfirm = viewModel::deleteModel,
-            onDismiss = viewModel::dismissDeleteConfirmation
+            onDismiss = viewModel::dismissDeleteConfirmation,
         )
     }
 }
@@ -179,134 +182,141 @@ private fun ModelStatusCard(
     modelName: String,
     modelSizeMb: Int,
     isDownloaded: Boolean,
-    isLoading: Boolean
+    isLoading: Boolean,
 ) {
-    val statusTint = animateColorAsState(
-        targetValue = when {
-            isLoading -> MaterialTheme.colorScheme.tertiary
-            isDownloaded -> MaterialTheme.colorScheme.primary
-            else -> MaterialTheme.colorScheme.outline
-        },
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "status_tint"
-    ).value
-    
+    val statusTint =
+        animateColorAsState(
+            targetValue =
+                when {
+                    isLoading -> MaterialTheme.colorScheme.tertiary
+                    isDownloaded -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.outline
+                },
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "status_tint",
+        ).value
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // Model name row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Model",
+                    text = stringResource(R.string.transcription_model_label),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = modelName,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
                 )
             }
-            
+
             // Model size row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Size",
+                    text = stringResource(R.string.transcription_size_label),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = "$modelSizeMb MB",
-                    style = MaterialTheme.typography.bodyLarge
+                    text = stringResource(R.string.transcription_size_value, modelSizeMb),
+                    style = MaterialTheme.typography.bodyLarge,
                 )
             }
-            
+
             // Status row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Status",
+                    text = stringResource(R.string.transcription_status_label),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     AnimatedContent(
-                        targetState = when {
-                            isLoading -> "loading"
-                            isDownloaded -> "downloaded"
-                            else -> "not_downloaded"
-                        },
+                        targetState =
+                            when {
+                                isLoading -> "loading"
+                                isDownloaded -> "downloaded"
+                                else -> "not_downloaded"
+                            },
                         transitionSpec = {
                             fadeIn(tween(200)) + scaleIn(tween(200), initialScale = 0.9f) togetherWith
                                 fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.9f)
                         },
-                        label = "statusIconTransition"
+                        label = "statusIconTransition",
                     ) { state ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             when (state) {
                                 "loading" -> {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(16.dp),
                                         strokeWidth = 2.dp,
-                                        color = statusTint
+                                        color = statusTint,
                                     )
                                     Text(
-                                        text = "Downloading",
+                                        text = stringResource(R.string.transcription_status_downloading),
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = statusTint
+                                        color = statusTint,
                                     )
                                 }
+
                                 "downloaded" -> {
                                     Icon(
                                         imageVector = Icons.Default.CheckCircle,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
-                                        tint = statusTint
+                                        tint = statusTint,
                                     )
                                     Text(
-                                        text = "Ready",
+                                        text = stringResource(R.string.transcription_status_ready),
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = statusTint,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
                                     )
                                 }
+
                                 else -> {
                                     Icon(
                                         imageVector = Icons.Default.Warning,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
-                                        tint = statusTint
+                                        tint = statusTint,
                                     )
                                     Text(
-                                        text = "Not Downloaded",
+                                        text = stringResource(R.string.transcription_status_not_downloaded),
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = statusTint
+                                        color = statusTint,
                                     )
                                 }
                             }
@@ -321,44 +331,55 @@ private fun ModelStatusCard(
 @Composable
 private fun DownloadProgressCard(
     progress: Float,
-    currentFile: String
+    currentFile: String,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
+            ),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (currentFile.isNotEmpty()) "Downloading $currentFile" else "Downloading...",
-                    style = MaterialTheme.typography.bodyMedium
+                    text =
+                        if (currentFile.isNotEmpty()) {
+                            stringResource(
+                                R.string.transcription_downloading_file,
+                                currentFile,
+                            )
+                        } else {
+                            stringResource(R.string.transcription_downloading)
+                        },
+                    style = MaterialTheme.typography.bodyMedium,
                 )
                 Text(
                     text = "${(progress * 100).toInt()}%",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.tertiary
+                    color = MaterialTheme.colorScheme.tertiary,
                 )
             }
-            
+
             LinearProgressIndicator(
                 progress = { progress },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(8.dp),
                 color = MaterialTheme.colorScheme.tertiary,
-                trackColor = MaterialTheme.colorScheme.tertiaryContainer
+                trackColor = MaterialTheme.colorScheme.tertiaryContainer,
             )
         }
     }
@@ -367,31 +388,33 @@ private fun DownloadProgressCard(
 @Composable
 private fun ErrorCard(
     message: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+            ),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = Icons.Default.Warning,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer
+                tint = MaterialTheme.colorScheme.onErrorContainer,
             )
             Spacer(Modifier.width(12.dp))
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.transcription_dismiss))
@@ -405,31 +428,33 @@ private fun ModelActionsCard(
     isDownloaded: Boolean,
     isLoading: Boolean,
     onDownload: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (!isDownloaded) {
                 Button(
                     onClick = onDownload,
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading
+                    enabled = !isLoading,
                 ) {
                     if (isLoading) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.transcription_downloading))
@@ -437,7 +462,7 @@ private fun ModelActionsCard(
                         Icon(
                             imageVector = Icons.Default.CloudDownload,
                             contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.transcription_download_model))
@@ -447,14 +472,15 @@ private fun ModelActionsCard(
                 OutlinedButton(
                     onClick = onDelete,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
+                    colors =
+                        ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.transcription_delete_model))
@@ -468,7 +494,7 @@ private fun ModelActionsCard(
 private fun DeleteConfirmationDialog(
     modelName: String,
     onConfirm: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -476,24 +502,22 @@ private fun DeleteConfirmationDialog(
             Icon(
                 imageVector = Icons.Default.Warning,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.error
+                tint = MaterialTheme.colorScheme.error,
             )
         },
         title = {
             Text(stringResource(R.string.transcription_delete_model_confirm))
         },
         text = {
-            Text(
-                "This will delete the $modelName model from your device. " +
-                        "You will need to download it again to use transcription."
-            )
+            Text(stringResource(R.string.transcription_delete_model_message, modelName))
         },
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                    ),
             ) {
                 Text(stringResource(R.string.transcription_delete))
             }
@@ -502,6 +526,6 @@ private fun DeleteConfirmationDialog(
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.transcription_cancel))
             }
-        }
+        },
     )
 }

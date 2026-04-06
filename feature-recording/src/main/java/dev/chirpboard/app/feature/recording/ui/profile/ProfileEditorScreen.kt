@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
@@ -242,6 +243,7 @@ private fun SettingToggle(
             modifier
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 48.dp)
+                .semantics(mergeDescendants = true) {}
                 .clickable { onCheckedChange(!checked) }
                 .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

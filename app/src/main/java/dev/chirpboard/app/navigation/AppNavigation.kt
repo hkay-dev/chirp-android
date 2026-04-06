@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -30,6 +31,7 @@ import dev.chirpboard.app.download.ModelReadinessState
 import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import dev.chirpboard.app.feature.llm.settings.LlmSettingsScreen
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianSettingsScreen
+import dev.chirpboard.app.feature.recording.ui.studio.ProcessingStudioScreen
 import dev.chirpboard.app.feature.recording.ui.HomeScreen
 import dev.chirpboard.app.feature.recording.ui.RecordScreen
 import dev.chirpboard.app.feature.recording.ui.RecordingDetailScreen
@@ -104,6 +106,10 @@ sealed class Screen(
     object About : Screen("about")
 
     object DevMenu : Screen("dev-menu")
+
+    object ProcessingStudio : Screen("processing_studio/{recordingId}") {
+        fun createRoute(recordingId: String) = "processing_studio/$recordingId"
+    }
 }
 
 /**
@@ -196,6 +202,7 @@ fun AppNavHost(
         composable(Screen.Home.route) {
             val recordEntryViewModel: HomeRecordEntryViewModel = hiltViewModel()
             val readinessState by recordEntryViewModel.readinessState.collectAsStateWithLifecycle()
+            val context = LocalContext.current
             var dialogContent by remember { mutableStateOf<RecordEntryDialogContent?>(null) }
 
             LaunchedEffect(recordEntryViewModel) {
@@ -214,16 +221,16 @@ fun AppNavHost(
                                 when (event.reason) {
                                     ModelReadinessUnavailableReason.MISSING_MODEL_FILES -> {
                                         RecordEntryDialogContent(
-                                            title = "Model Required",
-                                            message = "The transcription model must be downloaded before you can record. Go to Settings to download it.",
+                                            title = context.getString(R.string.record_entry_model_required_title),
+                                            message = context.getString(R.string.record_entry_model_required_message),
                                             openSettingsOnConfirm = true,
                                         )
                                     }
 
                                     ModelReadinessUnavailableReason.INTEGRITY_MISMATCH -> {
                                         RecordEntryDialogContent(
-                                            title = "Model Integrity Check Failed",
-                                            message = "The local model files look corrupted. Re-download the model from Settings before recording.",
+                                            title = context.getString(R.string.record_entry_model_integrity_failed_title),
+                                            message = context.getString(R.string.record_entry_model_integrity_failed_message),
                                             openSettingsOnConfirm = true,
                                         )
                                     }
@@ -233,8 +240,8 @@ fun AppNavHost(
                         is HomeRecordEntryEvent.ShowError -> {
                             dialogContent =
                                 RecordEntryDialogContent(
-                                    title = "Model Check Error",
-                                    message = "Could not verify model readiness. ${event.message}",
+                                    title = context.getString(R.string.record_entry_model_check_error_title),
+                                    message = context.getString(R.string.record_entry_model_check_error_message, event.message),
                                     openSettingsOnConfirm = false,
                                 )
                         }
@@ -244,7 +251,7 @@ fun AppNavHost(
 
             HomeScreen(
                 onRecordingClick = { recording ->
-                    navController.navigate(Screen.RecordingDetail.createRoute(recording.id.toString()))
+                    navController.navigate(Screen.ProcessingStudio.createRoute(recording.id.toString()))
                 },
                 onRecordClick = {
                     recordEntryViewModel.onRecordTapped()
@@ -306,9 +313,9 @@ fun AppNavHost(
             RecordScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onRecordingComplete = { recordingId ->
-                    // Pop the Record screen and navigate to the recording's detail/transcribe screen
+                    // Pop the Record screen and navigate to the recording's processing studio
                     navController.popBackStack()
-                    navController.navigate(Screen.RecordingDetail.createRoute(recordingId))
+                    navController.navigate(Screen.ProcessingStudio.createRoute(recordingId))
                 },
                 autoStart = autoStart,
             )
@@ -324,6 +331,20 @@ fun AppNavHost(
         ) {
             RecordingDetailScreen(
                 onBackClick = { navController.popBackStack() },
+            )
+        }
+
+        // Processing Studio Screen
+        composable(
+            route = Screen.ProcessingStudio.route,
+            arguments = listOf(
+                navArgument("recordingId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val recordingId = backStackEntry.arguments?.getString("recordingId") ?: ""
+            ProcessingStudioScreen(
+                recordingId = recordingId,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

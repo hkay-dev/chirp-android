@@ -28,13 +28,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.R
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
 /**
@@ -45,7 +45,7 @@ import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 @Composable
 fun AudioSettingsScreen(
     viewModel: AudioSettingsViewModel = hiltViewModel(),
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
 ) {
     val microphoneGain by viewModel.microphoneGain.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -56,136 +56,143 @@ fun AudioSettingsScreen(
             LargeTopAppBar(
                 title = {
                     Text(
-                        text = "Audio",
-                        fontWeight = FontWeight.Bold
+                        text = stringResource(R.string.audio_settings_title),
+                        fontWeight = FontWeight.Bold,
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back)
+                            contentDescription = stringResource(R.string.desc_back),
                         )
                     }
                 },
                 scrollBehavior = scrollBehavior,
-                colors = TopAppBarDefaults.largeTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                )
+                colors =
+                    TopAppBarDefaults.largeTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
             )
-        }
+        },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Input Section
             Spacer(modifier = Modifier.height(8.dp))
-            SettingsSectionHeader(title = "Input")
+            SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_input))
 
             // Microphone Gain
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     val displayedGain by animateFloatAsState(
                         targetValue = microphoneGain,
                         animationSpec = tween(200),
-                        label = "gainDisplay"
+                        label = "gainDisplay",
                     )
                     Text(
-                        text = "Microphone Gain: ${String.format("%.1f", displayedGain)}x",
-                        style = MaterialTheme.typography.titleMedium
+                        text = stringResource(R.string.audio_settings_microphone_gain_value, displayedGain),
+                        style = MaterialTheme.typography.titleMedium,
                     )
                     Slider(
                         value = microphoneGain,
                         onValueChange = viewModel::setMicrophoneGain,
                         valueRange = 1.0f..5.0f,
-                        steps = 39
+                        steps = 39,
                     )
                     Text(
-                        text = "Affects all microphone recording in the app. Increase for quieter environments. Values above 2.0x may introduce distortion.",
+                        text = stringResource(R.string.audio_settings_microphone_gain_help),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
             // Output Section
             Spacer(modifier = Modifier.height(8.dp))
-            SettingsSectionHeader(title = "Output")
+            SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_output))
 
             // Recording Quality (placeholder)
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Recording Quality",
+                            text = stringResource(R.string.audio_settings_recording_quality),
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                         )
                         Text(
-                            text = "Coming soon",
+                            text = stringResource(R.string.audio_settings_coming_soon),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         )
                     }
                     Text(
-                        text = "High (default)",
+                        text = stringResource(R.string.audio_settings_quality_default),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                     )
                 }
             }
 
             // Output Format (placeholder)
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Output Format",
+                            text = stringResource(R.string.audio_settings_output_format),
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                         )
                         Text(
-                            text = "Coming soon",
+                            text = stringResource(R.string.audio_settings_coming_soon),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         )
                     }
                     Text(
-                        text = "WAV",
+                        text = stringResource(R.string.audio_settings_output_format_default),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                     )
                 }
             }

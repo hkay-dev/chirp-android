@@ -18,4 +18,6 @@
     <string name="keyboard_mode_email">Email</string>
     <string name="keyboard_mode_code">Code</string>
     <string name="keyboard_mode_smart">Smart</string>
+    <string name="keyboard_transcribing">Transcribing...</string>
+    <string name="keyboard_polishing">Polishing...</string>
 </resources>

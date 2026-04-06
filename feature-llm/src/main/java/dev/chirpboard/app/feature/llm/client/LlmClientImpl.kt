@@ -143,6 +143,64 @@ Transcript:
             val fullPrompt = SUMMARY_PROMPT + transcript
             return executeRequest(fullPrompt, "summary")
         }
+        override suspend fun generateChatResponse(
+            transcript: String,
+            messages: List<dev.chirpboard.app.feature.llm.model.ChatMessage>
+        ): Result<String> {
+            val apiKey = preferences.apiKey.first()
+            val modelName = preferences.getModelName()
+            if (apiKey.isNullOrBlank()) {
+                return Result.failure(Exception("API key not configured"))
+            }
+            
+            val systemPrompt = "You are a helpful assistant analyzing a voice recording transcript. " +
+                    "Answer the user's questions about this transcript. Keep answers concise.\n\n" +
+                    "Transcript:\n$transcript"
+            
+            val contents = mutableListOf<GeminiRequest.Content>()
+            // Gemini system instructions can sometimes be passed differently, but as a simple hack 
+            // we can just put it as the first user message or a developer role if supported. 
+            // Or just prepend it to the first user message.
+            
+            var firstUser = true
+            for (msg in messages) {
+                val role = if (msg.isFromUser) "user" else "model"
+                val text = if (firstUser && msg.isFromUser) {
+                    firstUser = false
+                    systemPrompt + "\n\nUser Question:\n" + msg.text
+                } else {
+                    msg.text
+                }
+                contents.add(
+                    GeminiRequest.Content(
+                        role = role,
+                        parts = listOf(GeminiRequest.Part(text = text))
+                    )
+                )
+            }
+            
+            val request = GeminiRequest(contents = contents)
+            val url = "v1beta/models/$modelName:generateContent"
+            
+            return withContext(Dispatchers.IO) {
+                try {
+                    val response = api.generate(url, apiKey, request)
+                    if (response.error != null) {
+                        Result.failure(Exception(response.error.message ?: "API error"))
+                    } else {
+                        val resultText = response.extractText()
+                        if (resultText.isNullOrBlank()) {
+                            Result.failure(Exception("Empty response"))
+                        } else {
+                            Result.success(resultText.trim())
+                        }
+                    }
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+            }
+        }
+
 
         private interface GeminiApi {
             @POST

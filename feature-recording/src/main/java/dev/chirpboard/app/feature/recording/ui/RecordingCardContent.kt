@@ -26,10 +26,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
@@ -38,6 +37,9 @@ import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.feature.recording.R
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun RecordingCardContent(
@@ -117,8 +119,8 @@ internal fun RecordingCardMetadata(
             Text(
                 text =
                     when (recording.source) {
-                        RecordingSource.KEYBOARD -> "Keyboard"
-                        RecordingSource.WIDGET -> "Widget"
+                        RecordingSource.KEYBOARD -> stringResource(R.string.rec_source_keyboard)
+                        RecordingSource.WIDGET -> stringResource(R.string.rec_source_widget)
                         else -> ""
                     },
                 style = MaterialTheme.typography.bodySmall,
@@ -190,7 +192,7 @@ internal fun RecordingErrorMessage(errorMessage: String?) {
             tint = MaterialTheme.colorScheme.error,
         )
         Text(
-            text = errorMessage ?: "Failed",
+            text = errorMessage ?: stringResource(R.string.rec_status_failed),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
             maxLines = 1,
@@ -264,10 +266,10 @@ internal fun SmallTagChip(tag: Tag) {
 internal fun ProcessingIndicator(status: RecordingStatus) {
     val label =
         when (status) {
-            RecordingStatus.PENDING_TRANSCRIPTION -> "Waiting to transcribe..."
-            RecordingStatus.TRANSCRIBING -> "Transcribing..."
-            RecordingStatus.PENDING_ENHANCEMENT -> "Waiting to process..."
-            RecordingStatus.ENHANCING -> "Processing..."
+            RecordingStatus.PENDING_TRANSCRIPTION -> stringResource(R.string.rec_waiting_to_transcribe)
+            RecordingStatus.TRANSCRIBING -> stringResource(R.string.rec_transcribing)
+            RecordingStatus.PENDING_ENHANCEMENT -> stringResource(R.string.rec_waiting_to_process)
+            RecordingStatus.ENHANCING -> stringResource(R.string.rec_processing)
             else -> ""
         }
 

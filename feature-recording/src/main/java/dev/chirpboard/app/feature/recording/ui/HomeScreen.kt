@@ -79,7 +79,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -162,7 +164,14 @@ fun HomeScreen(
                         // Animated title based on collapse state
                         val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
                         Text(
-                            text = if (collapsed) "Recordings" else "Your Recordings",
+                            text =
+                                if (collapsed) {
+                                    stringResource(
+                                        R.string.rec_recordings_title_collapsed,
+                                    )
+                                } else {
+                                    stringResource(R.string.rec_recordings_title_expanded)
+                                },
                             style =
                                 if (collapsed) {
                                     MaterialTheme.typography.titleLarge
@@ -318,7 +327,7 @@ fun HomeScreen(
                     if (searchQuery.isNotBlank()) {
                         item(key = "search_results", contentType = "search_results") {
                             Text(
-                                text = "${displayItems.size} result${if (displayItems.size != 1) "s" else ""}",
+                                text = pluralStringResource(R.plurals.rec_search_results_count, displayItems.size, displayItems.size),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier =
@@ -444,6 +453,7 @@ private fun RecordingListItem(
         modifier =
             modifier
                 .fillMaxWidth()
+                .semantics(mergeDescendants = true) {}
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick,
@@ -516,7 +526,12 @@ private fun RecordingListItem(
                 Text(
                     text =
                         recording.errorMessage
-                            ?: "Stuck in ${recording.status.name.lowercase().replace('_', ' ')}. Long-press for recovery.",
+                            ?: stringResource(
+                                R.string.rec_stuck_recovery_message,
+                                recording.status.name
+                                    .lowercase()
+                                    .replace('_', ' '),
+                            ),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -629,7 +644,7 @@ private fun RecordingActionsSheet(
         // Share
         SheetActionItem(
             icon = Icons.Default.Share,
-            text = "Share",
+            text = stringResource(R.string.rec_share),
             onClick = onShare,
         )
 
@@ -640,7 +655,7 @@ private fun RecordingActionsSheet(
             if (onGenerateTitle != null) {
                 SheetActionItem(
                     icon = Icons.Default.Title,
-                    text = "Generate title",
+                    text = stringResource(R.string.rec_gen_title),
                     onClick = onGenerateTitle,
                     tint = MaterialTheme.colorScheme.tertiary,
                 )
@@ -649,7 +664,7 @@ private fun RecordingActionsSheet(
             if (onGenerateSummary != null) {
                 SheetActionItem(
                     icon = Icons.Default.Summarize,
-                    text = "Generate summary",
+                    text = stringResource(R.string.rec_gen_summary),
                     onClick = onGenerateSummary,
                     tint = MaterialTheme.colorScheme.tertiary,
                 )
@@ -661,7 +676,7 @@ private fun RecordingActionsSheet(
             HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
             SheetActionItem(
                 icon = Icons.Default.Refresh,
-                text = "Retry transcription",
+                text = stringResource(R.string.rec_retry_transcription),
                 onClick = onRetryTranscription,
             )
         }
@@ -670,7 +685,7 @@ private fun RecordingActionsSheet(
             HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
             SheetActionItem(
                 icon = Icons.Default.Refresh,
-                text = "Recover stuck processing",
+                text = stringResource(R.string.rec_recover_stuck_processing),
                 onClick = onRecoverStuck,
             )
         }
@@ -680,7 +695,7 @@ private fun RecordingActionsSheet(
         // Delete
         SheetActionItem(
             icon = Icons.Default.Delete,
-            text = "Delete",
+            text = stringResource(R.string.rec_delete),
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error,
         )
@@ -699,6 +714,7 @@ private fun SheetActionItem(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .semantics(mergeDescendants = true) {}
                 .combinedClickable(onClick = onClick)
                 .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -822,7 +838,7 @@ fun AnimatedEmptyState(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Your stage awaits",
+            text = stringResource(R.string.rec_empty_state_title),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Medium,
         )
@@ -830,7 +846,7 @@ fun AnimatedEmptyState(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "Tap Record to capture your first brilliant idea",
+            text = stringResource(R.string.rec_empty_state_subtitle),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -863,9 +879,21 @@ internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean =
 
 internal fun isRecordEntryActionEnabled(isChecking: Boolean): Boolean = !isChecking
 
-internal fun recordFabLabel(isChecking: Boolean): String = if (isChecking) "Checking..." else "Record"
+@Composable
+internal fun recordFabLabel(isChecking: Boolean): String =
+    if (isChecking) {
+        stringResource(R.string.rec_record_fab_checking)
+    } else {
+        stringResource(R.string.rec_record_fab_default)
+    }
 
-internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String = if (isChecking) "Checking model..." else "Record now"
+@Composable
+internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String =
+    if (isChecking) {
+        stringResource(R.string.rec_empty_state_record_checking)
+    } else {
+        stringResource(R.string.rec_empty_state_record_default)
+    }
 
 object HomeScreenRecordEntryTestTags {
     const val RecordFab = "home_record_fab"

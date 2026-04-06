@@ -22,10 +22,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.feature.recording.R
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -58,9 +60,9 @@ fun MetadataPillRow(
             label = {
                 Text(
                     when (source) {
-                        RecordingSource.APP -> "App"
-                        RecordingSource.KEYBOARD -> "Keyboard"
-                        RecordingSource.WIDGET -> "Widget"
+                        RecordingSource.APP -> stringResource(R.string.rec_source_app)
+                        RecordingSource.KEYBOARD -> stringResource(R.string.rec_source_keyboard)
+                        RecordingSource.WIDGET -> stringResource(R.string.rec_source_widget)
                     },
                 )
             },
@@ -92,7 +94,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     iconContent = { StatusIcon(Icons.Filled.CheckCircle) },
-                    labelText = "Completed",
+                    labelText = stringResource(R.string.rec_status_completed),
                 )
             }
 
@@ -101,7 +103,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     labelColor = MaterialTheme.colorScheme.onErrorContainer,
                     iconContent = { StatusIcon(Icons.Filled.ErrorOutline) },
-                    labelText = "Failed",
+                    labelText = stringResource(R.string.rec_status_failed),
                 )
             }
 
@@ -110,7 +112,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     iconContent = { SmallProgressIndicator() },
-                    labelText = "Recording",
+                    labelText = stringResource(R.string.rec_record_button_recording),
                 )
             }
 
@@ -119,7 +121,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     iconContent = { SmallProgressIndicator() },
-                    labelText = "Transcribing",
+                    labelText = stringResource(R.string.rec_status_transcribing_short),
                 )
             }
 
@@ -128,7 +130,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     iconContent = { SmallProgressIndicator() },
-                    labelText = "Enhancing",
+                    labelText = stringResource(R.string.rec_status_enhancing),
                 )
             }
 
@@ -137,7 +139,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     iconContent = { StatusIcon(Icons.Filled.Schedule) },
-                    labelText = "Pending",
+                    labelText = stringResource(R.string.rec_status_pending),
                 )
             }
 
@@ -146,7 +148,7 @@ private fun StatusChip(status: RecordingStatus) {
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
                     iconContent = { StatusIcon(Icons.Filled.Schedule) },
-                    labelText = "Pending",
+                    labelText = stringResource(R.string.rec_status_pending),
                 )
             }
         }

@@ -5,4 +5,8 @@
     <string name="desc_total_duration">Total duration</string>
     <string name="desc_processing">Processing</string>
     <string name="desc_navigate_back">Navigate back</string>
+    <string name="settings_badge_new">NEW</string>
+    <string name="settings_badge_beta">BETA</string>
+    <string name="settings_badge_connected">CONNECTED</string>
+    <string name="settings_badge_pro">PRO</string>
 </resources>

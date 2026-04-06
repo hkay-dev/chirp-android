@@ -9,6 +9,8 @@ data class GeminiRequest(
 ) {
     @Keep
     data class Content(
+        @SerializedName("role")
+        val role: String? = null,
         @SerializedName("parts")
         val parts: List<Part>
     )

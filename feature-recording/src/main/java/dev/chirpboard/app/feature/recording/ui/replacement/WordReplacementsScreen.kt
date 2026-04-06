@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -113,7 +114,7 @@ fun WordReplacementsScreen(
                 EmptyState(
                     icon = Icons.Default.SwapHoriz,
                     title = stringResource(R.string.rec_word_replacements_empty_title),
-                    description = "Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.",
+                    description = stringResource(R.string.rec_empty_replacements_description),
                     modifier = Modifier.padding(paddingValues),
                 )
             } else {
@@ -300,6 +301,7 @@ private fun ReplacementItemCard(
                     Modifier
                         .weight(1f)
                         .defaultMinSize(minHeight = 48.dp)
+                        .semantics(mergeDescendants = true) {}
                         .clickable { onToggleEnabled() },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -336,7 +338,7 @@ private fun ReplacementItemCard(
                         )
 
                         Text(
-                            text = replacement.replacement.ifEmpty { "(remove)" },
+                            text = replacement.replacement.ifEmpty { stringResource(R.string.rec_replacement_remove) },
                             style = MaterialTheme.typography.bodyLarge,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -347,7 +349,7 @@ private fun ReplacementItemCard(
                     // Show case sensitivity badge if enabled
                     if (replacement.caseSensitive) {
                         Text(
-                            text = "Case sensitive",
+                            text = stringResource(R.string.rec_case_sensitive),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

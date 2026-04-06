@@ -20,8 +20,9 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *
  * Schema Version History:
  * - Version 1: Initial schema
+ * - Version 2: Added composite indices to fix N+1 queries
  *
- * Current Schema (v1):
+ * Current Schema (v2):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -88,7 +89,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
         RecordingTag::class,
         WordReplacement::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

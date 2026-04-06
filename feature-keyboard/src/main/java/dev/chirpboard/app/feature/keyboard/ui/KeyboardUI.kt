@@ -51,6 +51,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -64,6 +65,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
@@ -140,11 +142,11 @@ fun KeyboardUI(
                             }
 
                             is KeyboardState.Transcribing -> {
-                                ProcessingContent("Transcribing...")
+                                ProcessingContent(stringResource(R.string.keyboard_transcribing))
                             }
 
                             is KeyboardState.Polishing -> {
-                                ProcessingContent("Polishing...")
+                                ProcessingContent(stringResource(R.string.keyboard_polishing))
                             }
 
                             is KeyboardState.Downloading -> {
@@ -480,8 +482,10 @@ private fun LlmErrorContent(
         modifier =
             Modifier
                 .padding(horizontal = 24.dp)
+                .minimumInteractiveComponentSize()
                 .clip(MaterialTheme.shapes.small)
                 .background(MaterialTheme.colorScheme.errorContainer)
+                .semantics(mergeDescendants = true) {}
                 .clickable { onDismiss() }
                 .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
