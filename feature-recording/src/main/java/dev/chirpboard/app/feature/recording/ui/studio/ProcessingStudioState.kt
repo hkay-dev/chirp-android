@@ -4,6 +4,7 @@ import androidx.compose.runtime.Stable
 import dev.chirpboard.app.feature.llm.model.ChatMessage
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import dev.chirpboard.app.data.model.RecordingSource
 
 @Stable
 data class TranscriptWord(
@@ -27,5 +28,6 @@ data class ProcessingStudioState(
     val createdAt: Long = 0L,
     val isEditingTitle: Boolean = false,
     val editedTitle: String = "",
-    val audioPath: String = ""
+    val audioPath: String = "",
+    val source: RecordingSource? = null
 )

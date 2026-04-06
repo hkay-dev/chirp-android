@@ -95,7 +95,8 @@ class ProcessingStudioViewModel @Inject constructor(
                     summary = transcript?.summary ?: "",
                     title = recording.title,
                     createdAt = recording.createdAt.time,
-                    audioPath = recording.audioPath
+                    audioPath = recording.audioPath,
+                    source = recording.source
                 )
 
                 initPlayer(recording.audioPath)

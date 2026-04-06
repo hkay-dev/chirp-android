@@ -1,5 +1,8 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
@@ -33,6 +36,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
@@ -62,6 +67,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -106,6 +112,7 @@ fun HomeScreen(
     onRecordingClick: (Recording) -> Unit,
     onRecordClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onImportAudio: (Uri) -> Unit = {},
     isRecordEntryChecking: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -117,6 +124,12 @@ fun HomeScreen(
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            onImportAudio(uri)
+        }
+    }
 
     var searchActive by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -254,11 +267,26 @@ fun HomeScreen(
             }
         },
         floatingActionButton = {
-            BreathingExtendedFab(
-                expanded = fabExpanded,
-                isChecking = isRecordEntryChecking,
-                onClick = onRecordClick,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SmallFloatingActionButton(
+                    onClick = { launcher.launch("audio/*") },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AudioFile,
+                        contentDescription = stringResource(R.string.rec_import_audio)
+                    )
+                }
+                BreathingExtendedFab(
+                    expanded = fabExpanded,
+                    isChecking = isRecordEntryChecking,
+                    onClick = onRecordClick,
+                )
+            }
         },
         floatingActionButtonPosition = FabPosition.Center,
         snackbarHost = { SnackbarHost(snackbarHostState) },

@@ -1,5 +1,6 @@
 package dev.chirpboard.app.navigation
 
+import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -31,6 +32,7 @@ import dev.chirpboard.app.download.ModelReadinessState
 import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import dev.chirpboard.app.feature.llm.settings.LlmSettingsScreen
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianSettingsScreen
+import dev.chirpboard.app.feature.recording.ui.HomeViewModel
 import dev.chirpboard.app.feature.recording.ui.studio.ProcessingStudioScreen
 import dev.chirpboard.app.feature.recording.ui.HomeScreen
 import dev.chirpboard.app.feature.recording.ui.RecordScreen
@@ -201,6 +203,7 @@ fun AppNavHost(
         // Home Screen
         composable(Screen.Home.route) {
             val recordEntryViewModel: HomeRecordEntryViewModel = hiltViewModel()
+            val homeViewModel: HomeViewModel = hiltViewModel()
             val readinessState by recordEntryViewModel.readinessState.collectAsStateWithLifecycle()
             val context = LocalContext.current
             var dialogContent by remember { mutableStateOf<RecordEntryDialogContent?>(null) }
@@ -255,6 +258,9 @@ fun AppNavHost(
                 },
                 onRecordClick = {
                     recordEntryViewModel.onRecordTapped()
+                },
+                onImportAudio = { uri ->
+                    homeViewModel.importAudio(uri, context)
                 },
                 isRecordEntryChecking = readinessState is ModelReadinessState.Checking,
                 onSettingsClick = {

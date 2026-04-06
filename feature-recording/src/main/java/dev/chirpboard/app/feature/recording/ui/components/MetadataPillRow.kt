@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Keyboard
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +65,7 @@ fun MetadataPillRow(
                         RecordingSource.APP -> stringResource(R.string.rec_source_app)
                         RecordingSource.KEYBOARD -> stringResource(R.string.rec_source_keyboard)
                         RecordingSource.WIDGET -> stringResource(R.string.rec_source_widget)
+                        RecordingSource.IMPORTED -> stringResource(R.string.rec_source_imported)
                     },
                 )
             },
@@ -70,10 +73,12 @@ fun MetadataPillRow(
                 Icon(
                     imageVector =
                         when (source) {
-                            RecordingSource.APP -> Icons.Filled.PhoneAndroid
-                            RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
-                            RecordingSource.WIDGET -> Icons.Filled.Widgets
-                        },
+                        RecordingSource.APP -> Icons.Filled.PhoneAndroid
+                        RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
+                        RecordingSource.WIDGET -> Icons.Filled.Widgets
+                        RecordingSource.IMPORTED -> Icons.Filled.FileOpen
+                        }
+                    ,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
