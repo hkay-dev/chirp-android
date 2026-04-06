@@ -40,7 +40,7 @@ class TranscriptionQueueManagerTest {
         every { WorkManager.getInstance(any()) } returns workManager
 
         mockkObject(TranscriptionWorkRequest.Companion)
-        every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } just runs
+        every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } returns "test-work-id"
         every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(0)}" }
 
         mockkObject(ReliabilityEventLogger.Companion)
@@ -55,7 +55,7 @@ class TranscriptionQueueManagerTest {
 
     @After
     fun tearDown() {
-        unio.mockk.mockkStatic(WorkManager::class)
+        io.mockk.unmockkStatic(WorkManager::class)
         unmockkObject(TranscriptionWorkRequest.Companion)
         unmockkObject(ReliabilityEventLogger.Companion)
     }

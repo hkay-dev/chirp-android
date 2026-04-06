@@ -10,7 +10,7 @@ import javax.inject.Singleton
 @Singleton
 class ApiKeyMigration @Inject constructor(
     private val preferences: Preferences,
-    private val securePreferences: SecurePreferences
+    private val llmPreferences: dev.chirpboard.app.feature.llm.settings.LlmPreferences
 ) {
     enum class MigrationResult {
         SUCCESS,
@@ -20,16 +20,16 @@ class ApiKeyMigration @Inject constructor(
         FAILED
     }
     
-    fun migrate(): MigrationResult {
+    suspend fun migrate(): MigrationResult {
         return try {
             // Check if encryption is available
-            if (!securePreferences.isAvailable()) {
+            if (!llmPreferences.isSecureStorageAvailable()) {
                 Log.w(TAG, "Secure storage unavailable, skipping migration")
                 return MigrationResult.ENCRYPTION_UNAVAILABLE
             }
             
             // Already migrated?
-            if (securePreferences.hasApiKey()) {
+            if (llmPreferences.hasApiKey()) {
                 Log.d(TAG, "API key already in secure storage")
                 return MigrationResult.ALREADY_MIGRATED
             }
@@ -44,7 +44,7 @@ class ApiKeyMigration @Inject constructor(
             }
             
             // Migrate to secure storage
-            securePreferences.geminiApiKey = oldKey
+            llmPreferences.setApiKey(oldKey)
             
             // Clear from old storage
             preferences.clearGeminiApiKey()

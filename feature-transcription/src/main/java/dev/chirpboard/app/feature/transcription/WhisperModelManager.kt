@@ -81,7 +81,7 @@ class WhisperModelManager @Inject constructor(
      * Whether all model files are downloaded.
      */
     suspend fun isModelDownloaded(): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val modelPath = getModelDir()
+        val modelPath = ensureModelDir()
         val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
         
         MODEL_FILES.all { file ->
@@ -97,7 +97,7 @@ class WhisperModelManager @Inject constructor(
      * Get the actual downloaded model size in bytes.
      */
     suspend fun getDownloadedSize(): Long = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        val modelPath = getModelDir()
+        val modelPath = ensureModelDir()
         val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
         
         MODEL_FILES.sumOf { file ->
@@ -119,7 +119,7 @@ class WhisperModelManager @Inject constructor(
         var success = true
         
         // Delete from persistent storage
-        val modelPath = getModelDir()
+        val modelPath = ensureModelDir()
         if (modelPath.exists()) {
             success = modelPath.deleteRecursively() && success
         }
@@ -171,7 +171,7 @@ class WhisperModelManager @Inject constructor(
     /**
      * Get the persistent model directory.
      */
-    fun getModelDir(): File {
+    fun ensureModelDir(): File {
         val docsDir = android.os.Environment.getExternalStoragePublicDirectory(
             android.os.Environment.DIRECTORY_DOCUMENTS
         )

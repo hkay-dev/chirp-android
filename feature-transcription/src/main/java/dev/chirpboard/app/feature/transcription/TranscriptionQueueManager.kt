@@ -126,7 +126,7 @@ class TranscriptionQueueManager @Inject constructor(
      * 
      * @param recordingId The UUID of the recording to transcribe
      */
-    suspend fun enqueue(recordingId: UUID, correlationId: String? = null): UUID {
+    suspend fun enqueue(recordingId: UUID, correlationId: String? = null): String {
         val corrId = correlationId ?: ReliabilityEventLogger.newCorrelationId("queue")
 
         ReliabilityEventLogger.log(

@@ -19,16 +19,12 @@ class ProfileRepository
         private val profileDao: ProfileDao,
         private val db: dev.chirpboard.app.data.db.AppDatabase,
     ) {
-        /** Get all profiles ordered by sort order then name */
         fun getAllProfiles(): Flow<List<Profile>> = profileDao.getAllProfiles().catch { emit(emptyList()) }
 
-        /** Get all profiles as a list */
         suspend fun getAllProfilesList(): List<Profile> = profileDao.getAllProfilesList()
 
-        /** Get a single profile by ID */
         suspend fun getProfile(id: UUID): Profile? = profileDao.getProfile(id)
 
-        /** Get profile as Flow for reactive updates */
         fun getProfileFlow(id: UUID): Flow<Profile?> = profileDao.getProfileFlow(id).catch { emit(null) }
 
         data class CreateProfileRequest(
@@ -43,7 +39,6 @@ class ProfileRepository
             val defaultTagIds: List<UUID> = emptyList(),
         )
 
-        /** Create a new profile */
         suspend fun createProfile(request: CreateProfileRequest): Profile {
             return db.withTransaction {
                 val maxOrder = profileDao.getMaxSortOrder() ?: 0
@@ -64,18 +59,13 @@ class ProfileRepository
             }
         }
 
-        /** Insert an existing profile */
         suspend fun insert(profile: Profile) = profileDao.insert(profile)
 
-        /** Update a profile */
         suspend fun update(profile: Profile) = profileDao.update(profile)
 
-        /** Delete a profile */
         suspend fun delete(profile: Profile) = profileDao.delete(profile)
 
-        /** Delete a profile by ID */
         suspend fun deleteById(id: UUID) = profileDao.deleteById(id)
 
-        /** Get profile count */
         suspend fun getCount(): Int = profileDao.getCount()
     }

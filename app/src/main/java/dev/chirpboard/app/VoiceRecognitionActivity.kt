@@ -95,6 +95,11 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     private fun startRecording() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "Recording permission missing")
+            returnError(SpeechRecognizer.ERROR_AUDIO)
+            return
+        }
         lifecycleScope.launch {
             try {
                 // Set microphone gain before recording
