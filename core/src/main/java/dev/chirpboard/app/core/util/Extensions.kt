@@ -49,6 +49,18 @@ fun Duration.formatDuration(): String {
  * Format milliseconds as duration string.
  */
 fun Long.formatAsDuration(): String = this.milliseconds.formatDuration()
+fun Long.formatAsHumanReadableDuration(): String {
+    val totalSeconds = this / 1000
+    val minutes = totalSeconds / 60
+    val hours = minutes / 60
+    val remainingMinutes = minutes % 60
+    val remainingSeconds = totalSeconds % 60
+    return when {
+        hours > 0 -> "${hours}h ${remainingMinutes}m ${remainingSeconds}s"
+        minutes > 0 -> "${minutes}m ${remainingSeconds}s"
+        else -> "${remainingSeconds}s"
+    }
+}
 
 /**
  * Format date relative to now (Today, Yesterday, or date).
