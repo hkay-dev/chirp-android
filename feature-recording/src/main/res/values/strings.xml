@@ -20,6 +20,8 @@
     <string name="rec_source_app">App</string>
     <string name="rec_source_keyboard">Keyboard</string>
     <string name="rec_source_widget">Widget</string>
+    <string name="rec_source_imported">Imported</string>
+    <string name="rec_import_audio">Import audio</string>
     <string name="rec_edit_title">Edit title</string>
     <string name="rec_share_audio">Share audio</string>
     <string name="rec_share_transcript">Share transcript</string>

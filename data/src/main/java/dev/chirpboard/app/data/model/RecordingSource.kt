@@ -15,4 +15,7 @@ enum class RecordingSource {
 
     /** Created from home screen widget */
     WIDGET,
+
+    /** Imported from device storage */
+    IMPORTED
 }

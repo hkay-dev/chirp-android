@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +46,11 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.filled.FileOpen
+import dev.chirpboard.app.data.model.RecordingSource
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextField
@@ -240,6 +246,43 @@ fun ProcessingStudioScreen(
                                 text = durationStr,
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
                             )
+                        }
+                    }
+                    if (state.source != null) {
+                        val sourceIcon = when (state.source) {
+                            RecordingSource.APP -> Icons.Default.Mic
+                            RecordingSource.KEYBOARD -> Icons.Default.Keyboard
+                            RecordingSource.WIDGET -> Icons.Default.Widgets
+                            RecordingSource.IMPORTED -> Icons.Default.AudioFile
+                            else -> Icons.Default.Mic
+                        }
+                        val sourceText = when (state.source) {
+                            RecordingSource.APP -> "App"
+                            RecordingSource.KEYBOARD -> "Keyboard"
+                            RecordingSource.WIDGET -> "Widget"
+                            RecordingSource.IMPORTED -> "Imported"
+                            else -> "Unknown"
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = sourceIcon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = sourceText,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                            }
                         }
                     }
                 }
