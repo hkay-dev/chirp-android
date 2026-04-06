@@ -5,6 +5,7 @@ import dev.chirpboard.app.feature.llm.model.ChatMessage
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingStatus
 
 @Stable
 data class TranscriptWord(
@@ -17,6 +18,7 @@ data class TranscriptWord(
 @Stable
 data class ProcessingStudioState(
     val isLoading: Boolean = false,
+    val status: RecordingStatus? = null,
     val transcriptWords: ImmutableList<TranscriptWord> = persistentListOf(),
     val summary: String = "",
     val chatMessages: ImmutableList<ChatMessage> = persistentListOf(),

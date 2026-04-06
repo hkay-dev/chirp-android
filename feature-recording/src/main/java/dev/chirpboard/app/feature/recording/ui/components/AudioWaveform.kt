@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui.components
 
+import kotlin.math.pow
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
@@ -48,9 +49,9 @@ fun AudioWaveform(
     isActive: Boolean,
     color: Color,
     modifier: Modifier = Modifier,
-    barCount: Int = 50,
+    barCount: Int = 42,
     minBarHeight: Dp = 4.dp,
-    maxBarHeight: Dp = 64.dp,
+    maxBarHeight: Dp = 120.dp,
 ) {
     // Animate color changes smoothly
     val animatedColor by animateColorAsState(
@@ -123,7 +124,7 @@ fun AudioWaveform(
         val canvasHeight = size.height
         val centerY = canvasHeight / 2
 
-        val barWidth = 3.dp.toPx()
+        val barWidth = 5.dp.toPx()
         val barSpacing = (canvasWidth - (barCount * barWidth)) / (barCount + 1)
         val minHeightPx = minBarHeight.toPx()
         val maxHeightPx = maxBarHeight.toPx()
@@ -146,8 +147,9 @@ fun AudioWaveform(
             animatables.forEachIndexed { index, animatable ->
                 // Scale amplitude by activeAlpha for smooth fade in/out
                 val scaledAmplitude = animatable.value * activeAlpha
+                val boostedAmplitude = (scaledAmplitude.pow(0.7f) * 1.5f)
                 val barHeight =
-                    (minHeightPx + (scaledAmplitude * (maxHeightPx - minHeightPx)))
+                    (minHeightPx + (boostedAmplitude * (maxHeightPx - minHeightPx)))
                         .coerceIn(minHeightPx, maxHeightPx)
 
                 val x = barSpacing + (index * (barWidth + barSpacing)) + barWidth / 2

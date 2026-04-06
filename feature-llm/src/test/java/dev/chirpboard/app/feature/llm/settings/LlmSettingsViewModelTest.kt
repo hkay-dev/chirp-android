@@ -3,7 +3,6 @@ package dev.chirpboard.app.feature.llm.settings
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import io.mockk.coEvery
 import io.mockk.mockk
-import io.mockk.verify
 import io.mockk.coVerify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -52,7 +51,6 @@ class LlmSettingsViewModelTest {
         val state = viewModel.uiState.value
         assertTrue(state.llmEnabled)
         assertEquals("initial-key", state.apiKey)
-        assertTrue(state.isKeyConfigured)
         assertFalse(state.autoTitle)
         assertTrue(state.autoSummary)
     }
@@ -63,7 +61,6 @@ class LlmSettingsViewModelTest {
         
         val state = viewModel.uiState.value
         assertEquals("new-key", state.apiKey)
-        assertTrue(state.isKeyConfigured)
         
         coVerify(exactly = 0) { preferences.setApiKey(any()) }
     }

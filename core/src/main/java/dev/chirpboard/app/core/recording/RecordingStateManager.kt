@@ -221,7 +221,7 @@ class RecordingStateManager @Inject constructor() {
                 if (current is RecordingState.Stopping) {
                     timedOut = true
                     Log.w(TAG, "Stopping state timed out after ${STOPPING_TIMEOUT_MS}ms, forcing to Idle")
-                    RecordingState.Error("Failed to stop recording", current.activeOrigin ?: RecordingOrigin.APP)
+                    RecordingState.Error(current.activeOrigin ?: RecordingOrigin.APP, "Failed to stop recording")
                 } else {
                     current
                 }
@@ -279,7 +279,7 @@ class RecordingStateManager @Inject constructor() {
         _state.update { current ->
             val origin = current.activeOrigin ?: RecordingOrigin.APP
             Log.d(TAG, "State: ${current::class.simpleName} -> Error")
-            RecordingState.Error(message, origin, cause)
+            RecordingState.Error(origin, message, cause)
         }
         recordingLock.set(false)
     }
