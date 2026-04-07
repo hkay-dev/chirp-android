@@ -86,7 +86,7 @@ fun AudioSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             // Input Section
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_input))
 
             // Microphone Gain

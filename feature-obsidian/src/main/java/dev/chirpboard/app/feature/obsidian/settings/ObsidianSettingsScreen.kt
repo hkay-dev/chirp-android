@@ -107,6 +107,7 @@ fun ObsidianSettingsScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
             // Vault configuration card
             VaultConfigurationCard(
                 vaultName = uiState.vaultName,

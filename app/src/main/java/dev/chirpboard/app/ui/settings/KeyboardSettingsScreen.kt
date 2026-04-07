@@ -107,6 +107,7 @@ fun KeyboardSettingsScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
             // Save recordings toggle - entire card is clickable
             Card(
                 modifier =
