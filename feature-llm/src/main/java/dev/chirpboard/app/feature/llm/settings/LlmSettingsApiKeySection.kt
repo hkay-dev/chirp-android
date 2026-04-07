@@ -17,6 +17,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -40,11 +43,21 @@ internal fun LlmSettingsApiKeySection(
     onTestConnection: () -> Unit,
     onClear: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    ListItem(
+        modifier = Modifier.fillMaxWidth(),
+        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+        headlineContent = {
+            Text(
+                text =
+                    if (uiState.isKeyConfigured) {
+                        stringResource(R.string.llm_api_key_configured)
+                    } else {
+                        stringResource(R.string.llm_api_key_not_set)
+                    },
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        },
+        leadingContent = {
             val keyStatusTint by animateColorAsState(
                 targetValue =
                     if (uiState.isKeyConfigured) {
@@ -65,18 +78,8 @@ internal fun LlmSettingsApiKeySection(
                 contentDescription = null,
                 tint = keyStatusTint,
             )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text =
-                    if (uiState.isKeyConfigured) {
-                        stringResource(R.string.llm_api_key_configured)
-                    } else {
-                        stringResource(R.string.llm_api_key_not_set)
-                    },
-                style = MaterialTheme.typography.bodyLarge,
-            )
         }
-    }
+    )
 
     OutlinedTextField(
         value = uiState.apiKey,
@@ -122,21 +125,19 @@ internal fun LlmSettingsApiKeySection(
     }
 
     uiState.connectionTestResult?.let { result ->
-        Card(
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            colors =
-                CardDefaults.cardColors(
-                    containerColor =
-                        when (result) {
-                            is LlmSettingsViewModel.ConnectionTestResult.Success -> {
-                                MaterialTheme.colorScheme.primaryContainer
-                            }
+            shape = MaterialTheme.shapes.medium,
+            color =
+                when (result) {
+                    is LlmSettingsViewModel.ConnectionTestResult.Success -> {
+                        MaterialTheme.colorScheme.primaryContainer
+                    }
 
-                            is LlmSettingsViewModel.ConnectionTestResult.Error -> {
-                                MaterialTheme.colorScheme.errorContainer
-                            }
-                        },
-                ),
+                    is LlmSettingsViewModel.ConnectionTestResult.Error -> {
+                        MaterialTheme.colorScheme.errorContainer
+                    }
+                },
         ) {
             Row(
                 modifier =
