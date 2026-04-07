@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,7 +29,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -220,9 +225,9 @@ fun RecordScreen(
     val infiniteTransition = rememberInfiniteTransition(label = "glowTransition")
     val glowColor by infiniteTransition.animateColor(
         initialValue = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.0f),
-        targetValue = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        targetValue = MaterialTheme.colorScheme.error.copy(alpha = 0.35f),
         animationSpec = infiniteRepeatable(
-            animation = tween(1000),
+            animation = tween(1200, easing = androidx.compose.animation.core.EaseInOut),
             repeatMode = RepeatMode.Reverse
         ),
         label = "glowColor"
@@ -246,13 +251,54 @@ fun RecordScreen(
             )
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (isRecording) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                colors = listOf(
+                                    glowColor.copy(alpha = 0.45f),
+                                    glowColor.copy(alpha = 0.18f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(
+                                    x = androidx.compose.ui.platform.LocalDensity.current.run { 180.dp.toPx() },
+                                    y = androidx.compose.ui.platform.LocalDensity.current.run { 360.dp.toPx() }
+                                ),
+                                radius = androidx.compose.ui.platform.LocalDensity.current.run { 440.dp.toPx() }
+                            )
+                        )
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                                colors = listOf(
+                                    glowColor.copy(alpha = 0.35f),
+                                    glowColor.copy(alpha = 0.12f),
+                                    Color.Transparent
+                                ),
+                                center = Offset(
+                                    x = androidx.compose.ui.platform.LocalDensity.current.run { 840.dp.toPx() },
+                                    y = androidx.compose.ui.platform.LocalDensity.current.run { 520.dp.toPx() }
+                                ),
+                                radius = androidx.compose.ui.platform.LocalDensity.current.run { 380.dp.toPx() }
+                            )
+                        )
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
             Spacer(modifier = Modifier.height(32.dp))
 
             Text(
@@ -268,85 +314,78 @@ fun RecordScreen(
 
             Spacer(modifier = Modifier.height(48.dp))
 
-            OutlinedCard(
+            AudioWaveform(
+                amplitudes = amplitudeHistory,
+                isActive = isRecording,
+                color = MaterialTheme.colorScheme.error,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(if (isRecording) glowColor else Color.Transparent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AudioWaveform(
-                        amplitudes = amplitudeHistory,
-                        isActive = isRecording,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(16.dp)
-                    )
-                }
-            }
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
+            )
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.SpaceEvenly,
+            // BOTTOM CONTROLS
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 16.dp, vertical = 32.dp)
             ) {
-                TextButton(
-                    onClick = { showRestartDialog = true },
-                    enabled = isActive
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Start Over")
-                }
-
-                if (isPaused || !isActive) {
-                    FilledTonalButton(
-                        onClick = {
-                            if (isActive) {
-                                viewModel.resumeRecording(context)
-                            } else {
-                                viewModel.startRecording(context)
-                            }
+                // LEFT: Pause/Resume
+                FilledTonalIconButton(
+                    onClick = {
+                        if (isPaused || !isActive) {
+                            if (isActive) viewModel.resumeRecording(context) else viewModel.startRecording(context)
+                        } else {
+                            viewModel.pauseRecording(context)
                         }
-                    ) {
-                        Icon(
-                            imageVector = if (isActive) Icons.Default.PlayArrow else Icons.Default.Mic,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(if (isActive) "Resume" else "Record")
-                    }
-                } else {
-                    FilledTonalButton(
-                        onClick = { viewModel.pauseRecording(context) }
-                    ) {
-                        Icon(Icons.Default.Pause, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Pause")
-                    }
+                    },
+                    modifier = Modifier
+                        .size(64.dp)
+                        .align(Alignment.CenterStart)
+                ) {
+                    Icon(
+                        imageVector = if (isPaused || !isActive) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
 
+                // CENTER: Massive Done Button
                 Button(
                     onClick = {
                         pendingNavigateBack = true
                         viewModel.stopRecording(context)
                     },
                     enabled = isActive,
-                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp)
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .width(160.dp)
+                        .height(80.dp),
+                    shape = RoundedCornerShape(28.dp)
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Done", style = MaterialTheme.typography.titleMedium)
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(32.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Done", style = MaterialTheme.typography.titleLarge)
+                }
+
+                // RIGHT: Start Over
+                FilledTonalIconButton(
+                    onClick = { showRestartDialog = true },
+                    enabled = isActive,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .align(Alignment.CenterEnd),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(32.dp))
                 }
             }
         }
     }
+}
 }

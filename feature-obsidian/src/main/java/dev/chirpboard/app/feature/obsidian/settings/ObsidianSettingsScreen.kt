@@ -35,6 +35,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -137,98 +140,107 @@ private fun VaultConfigurationCard(
     onSelectVault: () -> Unit,
     onClearVault: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.obsidian_vault_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.obsidian_vault_title),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+        )
 
-            val accessIconTint by animateColorAsState(
-                targetValue =
-                    if (hasAccess) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                animationSpec = tween(300, easing = FastOutSlowInEasing),
-                label = "access_icon_tint",
-            )
-            val accessTextColor by animateColorAsState(
-                targetValue =
-                    if (hasAccess) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                animationSpec = tween(300, easing = FastOutSlowInEasing),
-                label = "access_text_color",
-            )
+        val accessIconTint by animateColorAsState(
+            targetValue =
+                if (hasAccess) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "access_icon_tint",
+        )
+        val accessTextColor by animateColorAsState(
+            targetValue =
+                if (hasAccess) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "access_text_color",
+        )
 
-            if (isConfigured) {
-                // Show configured vault status
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        if (isConfigured) {
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                headlineContent = {
+                    Text(
+                        text = vaultName ?: stringResource(R.string.obsidian_unknown_folder),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                },
+                supportingContent = {
+                    Text(
+                        text =
+                            if (hasAccess) {
+                                stringResource(R.string.obsidian_access_granted)
+                            } else {
+                                stringResource(R.string.obsidian_access_lost)
+                            },
+                        color = accessTextColor,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                leadingContent = {
                     Icon(
                         imageVector = if (hasAccess) Icons.Default.CheckCircle else Icons.Default.Warning,
                         contentDescription = null,
                         tint = accessIconTint,
                     )
-                    Spacer(Modifier.width(12.dp))
-                    Column {
-                        Text(
-                            text = vaultName ?: stringResource(R.string.obsidian_unknown_folder),
-                            style = MaterialTheme.typography.bodyLarge,
-                        )
-                        Text(
-                            text =
-                                if (hasAccess) {
-                                    stringResource(
-                                        R.string.obsidian_access_granted,
-                                    )
-                                } else {
-                                    stringResource(R.string.obsidian_access_lost)
-                                },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = accessTextColor,
-                        )
-                    }
                 }
+            )
 
-                // Buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Button(onClick = onSelectVault) {
-                        Icon(
-                            imageVector = Icons.Default.Folder,
-                            contentDescription = null,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.obsidian_change_vault))
-                    }
-                    OutlinedButton(onClick = onClearVault) {
-                        Text(stringResource(R.string.obsidian_clear))
-                    }
-                }
-            } else {
-                // Show not configured state
-                Text(
-                    text = stringResource(R.string.obsidian_no_vault_configured),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(onClick = onSelectVault) {
                     Icon(
                         imageVector = Icons.Default.Folder,
                         contentDescription = null,
                     )
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.obsidian_select_vault_folder))
+                    Text(stringResource(R.string.obsidian_change_vault))
                 }
+                OutlinedButton(onClick = onClearVault) {
+                    Text(stringResource(R.string.obsidian_clear))
+                }
+            }
+        } else {
+            ListItem(
+                modifier = Modifier.fillMaxWidth(),
+                colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                headlineContent = {
+                    Text(
+                        text = stringResource(R.string.obsidian_no_vault_configured),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            )
+
+            Button(
+                onClick = onSelectVault,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = null,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.obsidian_select_vault_folder))
             }
         }
     }
@@ -240,51 +252,40 @@ private fun AutoExportCard(
     hasAccess: Boolean,
     onToggle: () -> Unit,
 ) {
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .semantics(mergeDescendants = true) {}
-                .clickable(enabled = hasAccess) { onToggle() },
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.obsidian_auto_export_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.obsidian_auto_export_subtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(16.dp))
+    ListItem(
+        headlineContent = {
+            Text(
+                text = stringResource(R.string.obsidian_auto_export_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = stringResource(R.string.obsidian_auto_export_subtitle),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = {
             Switch(
                 checked = enabled,
-                onCheckedChange = null, // Handled by card click
+                onCheckedChange = null,
                 enabled = hasAccess,
             )
-        }
-    }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = hasAccess) { onToggle() },
+        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
+    )
 }
 
 @Composable
 private fun HelpCard() {
-    Card(
+    Surface(
         modifier = Modifier.fillMaxWidth(),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-            ),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
