@@ -101,8 +101,7 @@ fun TranscriptionSettingsScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
+                    .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -110,7 +109,6 @@ fun TranscriptionSettingsScreen(
             // Model Status Section
             SettingsSectionHeader(
                 title = stringResource(R.string.transcription_section_model),
-                modifier = Modifier.padding(horizontal = 0.dp),
             )
 
             ModelStatusCard(
@@ -140,7 +138,6 @@ fun TranscriptionSettingsScreen(
             Spacer(modifier = Modifier.height(8.dp))
             SettingsSectionHeader(
                 title = stringResource(R.string.transcription_section_actions),
-                modifier = Modifier.padding(horizontal = 0.dp),
             )
 
             ModelActionsCard(
@@ -155,7 +152,7 @@ fun TranscriptionSettingsScreen(
                 text = stringResource(R.string.transcription_model_help),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp),
             )
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -199,7 +196,7 @@ private fun ModelStatusCard(
             label = "status_tint",
         ).value
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
             headlineContent = {
@@ -323,7 +320,7 @@ private fun DownloadProgressCard(
     currentFile: String,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
     ) {
@@ -378,7 +375,7 @@ private fun ErrorCard(
     onDismiss: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.errorContainer,
     ) {

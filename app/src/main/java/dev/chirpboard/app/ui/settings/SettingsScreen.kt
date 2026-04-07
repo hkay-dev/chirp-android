@@ -140,20 +140,6 @@ fun SettingsScreen(
                 )
             }
 
-            // Audio Section
-            item {
-                Spacer(modifier = Modifier.height(24.dp))
-                SettingsSectionHeader(title = stringResource(R.string.settings_section_audio))
-            }
-            item {
-                SettingsItem(
-                    icon = Icons.Rounded.Tune,
-                    title = stringResource(R.string.settings_audio_title),
-                    subtitle = stringResource(R.string.settings_audio_subtitle),
-                    onClick = onNavigateToAudioSettings,
-                )
-            }
-
             // Keyboard Section
             item {
                 Spacer(modifier = Modifier.height(24.dp))
@@ -168,6 +154,19 @@ fun SettingsScreen(
                 )
             }
 
+            // Audio Section
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_audio))
+            }
+            item {
+                SettingsItem(
+                    icon = Icons.Rounded.Tune,
+                    title = stringResource(R.string.settings_audio_title),
+                    subtitle = stringResource(R.string.settings_audio_subtitle),
+                    onClick = onNavigateToAudioSettings,
+                )
+            }
             // Organization Section
             item {
                 Spacer(modifier = Modifier.height(24.dp))
@@ -229,11 +228,8 @@ fun SettingsScreen(
             // Developer Menu (debug builds only)
             if (uiState.isDebugBuild) {
                 item {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(start = 72.dp),
-                        thickness = 0.5.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SettingsSectionHeader(title = stringResource(R.string.settings_section_developer))
                 }
                 item {
                     SettingsItem(

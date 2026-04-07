@@ -104,7 +104,6 @@ fun ObsidianSettingsScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(16.dp)
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -141,7 +140,7 @@ private fun VaultConfigurationCard(
     onClearVault: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -203,7 +202,7 @@ private fun VaultConfigurationCard(
             )
 
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp),
+                modifier = Modifier,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(onClick = onSelectVault) {
@@ -233,7 +232,7 @@ private fun VaultConfigurationCard(
 
             Button(
                 onClick = onSelectVault,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier
             ) {
                 Icon(
                     imageVector = Icons.Default.Folder,
@@ -275,6 +274,7 @@ private fun AutoExportCard(
         },
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 16.dp)
             .clickable(enabled = hasAccess) { onToggle() },
         colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
     )
@@ -283,7 +283,7 @@ private fun AutoExportCard(
 @Composable
 private fun HelpCard() {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
     ) {

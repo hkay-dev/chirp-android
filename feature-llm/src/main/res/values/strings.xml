@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="llm_settings_title">LLM Settings</string>
+    <string name="llm_settings_title">AI Processing</string>
     <string name="llm_gemini_api_key">Gemini API Key</string>
     <string name="llm_enter_api_key">Enter your Google AI Studio API key</string>
     <string name="llm_save">Save</string>
@@ -8,14 +8,14 @@
     <string name="llm_test_connection">Test Connection</string>
     <string name="llm_clear">Clear</string>
     <string name="llm_desc_back">Back</string>
-    <string name="llm_enable_processing_title">Enable LLM Processing</string>
-    <string name="llm_enable_processing_enabled">AI features are active</string>
-    <string name="llm_enable_processing_disabled">LLM features are disabled</string>
+    <string name="llm_enable_processing_title">Enable AI</string>
+    <string name="llm_enable_processing_enabled">AI features are active.</string>
+    <string name="llm_enable_processing_disabled">AI features are disabled.</string>
     <string name="llm_api_key_configured">API Key Configured</string>
     <string name="llm_api_key_not_set">API Key Not Set</string>
     <string name="llm_connection_success">Connection successful!</string>
     <string name="llm_connection_error">Error: %1$s</string>
-    <string name="llm_api_key_help">Get your API key from Google AI Studio (aistudio.google.com)</string>
+    <string name="llm_api_key_help">Get your API key from aistudio.google.com</string>
     <string name="llm_processing_title">Automatic Processing</string>
     <string name="llm_auto_title_title">Auto-generate titles</string>
     <string name="llm_auto_title_subtitle">Automatically create descriptive titles after transcription</string>
