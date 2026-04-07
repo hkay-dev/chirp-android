@@ -104,7 +104,6 @@ fun KeyboardSettingsScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .padding(16.dp)
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -113,6 +112,7 @@ fun KeyboardSettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
                         .clip(CardDefaults.shape)
                         .semantics(mergeDescendants = true) {}
                         .clickable(
@@ -153,6 +153,7 @@ fun KeyboardSettingsScreen(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
                         .clip(CardDefaults.shape)
                         .semantics(mergeDescendants = true) {}
                         .clickable(
@@ -196,7 +197,7 @@ fun KeyboardSettingsScreen(
             )
 
             // System keyboard settings link
-            Card(modifier = Modifier.fillMaxWidth()) {
+            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -260,7 +261,7 @@ private fun ProcessingModeCard(
 
     val currentModeName = keyboardProcessingModeLabel(currentMode)
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),

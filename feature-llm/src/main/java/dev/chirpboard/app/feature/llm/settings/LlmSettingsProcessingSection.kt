@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.feature.llm.R
+import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
 @Composable
 internal fun LlmSettingsProcessingSection(
@@ -26,19 +27,11 @@ internal fun LlmSettingsProcessingSection(
     onSetAutoTitle: (Boolean) -> Unit,
     onSetAutoSummary: (Boolean) -> Unit,
 ) {
-    Spacer(Modifier.padding(vertical = 8.dp))
-    HorizontalDivider()
-    Spacer(Modifier.padding(vertical = 8.dp))
-
-    Text(
-        text = stringResource(R.string.llm_processing_title),
-        style = MaterialTheme.typography.titleMedium,
-    )
+    SettingsSectionHeader(title = stringResource(R.string.llm_processing_title))
 
     Card(
         modifier =
-            Modifier
-                .fillMaxWidth()
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 .semantics(mergeDescendants = true) {}
                 .clickable { onSetAutoTitle(!uiState.autoTitle) },
     ) {
@@ -70,8 +63,7 @@ internal fun LlmSettingsProcessingSection(
 
     Card(
         modifier =
-            Modifier
-                .fillMaxWidth()
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 .semantics(mergeDescendants = true) {}
                 .clickable { onSetAutoSummary(!uiState.autoSummary) },
     ) {

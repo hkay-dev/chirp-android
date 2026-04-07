@@ -10,10 +10,10 @@
     <string name="transcription_delete">Delete</string>
     <string name="transcription_cancel">Cancel</string>
     <string name="transcription_desc_back">Back</string>
-    <string name="transcription_title">Transcription</string>
-    <string name="transcription_section_model">Speech Recognition Model</string>
-    <string name="transcription_section_actions">Model Actions</string>
-    <string name="transcription_model_help">The speech recognition model is required for transcribing voice recordings. It runs entirely on your device for privacy.</string>
+    <string name="transcription_title">Voice Model</string>
+    <string name="transcription_section_model">Model Details</string>
+    <string name="transcription_section_actions">Management</string>
+    <string name="transcription_model_help">The local speech recognition model. It runs entirely on your device.</string>
     <string name="transcription_model_label">Model</string>
     <string name="transcription_size_label">Size</string>
     <string name="transcription_size_value">%1$d MB</string>

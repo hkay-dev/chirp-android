@@ -34,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.feature.llm.R
+import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
 @Composable
 internal fun LlmSettingsApiKeySection(
@@ -43,6 +44,7 @@ internal fun LlmSettingsApiKeySection(
     onTestConnection: () -> Unit,
     onClear: () -> Unit,
 ) {
+    SettingsSectionHeader(title = "API Configuration")
     ListItem(
         modifier = Modifier.fillMaxWidth(),
         colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
@@ -85,7 +87,7 @@ internal fun LlmSettingsApiKeySection(
         value = uiState.apiKey,
         onValueChange = onApiKeyChanged,
         label = { Text(stringResource(R.string.llm_gemini_api_key)) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         supportingText = {
@@ -93,7 +95,7 @@ internal fun LlmSettingsApiKeySection(
         },
     )
 
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(modifier = Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = onSave,
             enabled = uiState.apiKey.isNotBlank(),
@@ -126,7 +128,7 @@ internal fun LlmSettingsApiKeySection(
 
     uiState.connectionTestResult?.let { result ->
         Surface(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             shape = MaterialTheme.shapes.medium,
             color =
                 when (result) {
@@ -200,5 +202,6 @@ internal fun LlmSettingsApiKeySection(
         text = stringResource(R.string.llm_api_key_help),
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp),
     )
 }

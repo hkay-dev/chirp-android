@@ -43,6 +43,7 @@ internal fun LlmSettingsMasterToggleCard(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .padding(horizontal = 16.dp)
                 .semantics(mergeDescendants = true) {}
                 .clickable(onClick = onToggle),
         colors = CardDefaults.cardColors(containerColor = masterSwitchColor),
