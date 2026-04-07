@@ -104,7 +104,7 @@ fun TranscriptionSettingsScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Model Status Section
             SettingsSectionHeader(
