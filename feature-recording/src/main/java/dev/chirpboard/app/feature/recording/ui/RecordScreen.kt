@@ -1,43 +1,29 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.animateColor
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,9 +50,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.feature.recording.R
-import dev.chirpboard.app.feature.recording.ui.components.AudioWaveform
-import dev.chirpboard.app.feature.recording.ui.components.formatTimeMs
-import kotlinx.collections.immutable.toImmutableList
+import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
+import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
+import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
+import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
+import dev.chirpboard.app.core.util.formatTimeMs
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,55 +66,23 @@ fun RecordScreen(
     viewModel: RecordViewModel = hiltViewModel(),
 ) {
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
-    val waveformVersion by viewModel.waveformBuffer.dataVersion.collectAsStateWithLifecycle()
-    val amplitudeSampleCount by viewModel.amplitudeSampleCount.collectAsStateWithLifecycle()
     val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    var elapsedMs by remember { mutableLongStateOf(0L) }
     var showCancelDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
 
-    var hadRecordingSession by remember { mutableStateOf(false) }
-    var pendingNavigateBack by remember { mutableStateOf(false) }
-
-    val isRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Starting || recordingState is RecordingState.Stopping
+    val isRecording =
+        recordingState is RecordingState.Recording ||
+            recordingState is RecordingState.Starting ||
+            recordingState is RecordingState.Stopping
     val isPaused = recordingState is RecordingState.Paused
     val isActive = isRecording || isPaused
-
-    LaunchedEffect(recordingState) {
-        if (recordingState is RecordingState.Recording) {
-            hadRecordingSession = true
-        }
-    }
 
     LaunchedEffect(autoStart) {
         if (autoStart && recordingState is RecordingState.Idle) {
             viewModel.startRecording(context)
-        }
-    }
-
-    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(recordingState) {
-        when (val state = recordingState) {
-            is RecordingState.Recording -> {
-                val segmentStart = state.startTimeMs
-                while (true) {
-                    withFrameMillis {
-                        elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
-                    }
-                }
-            }
-            is RecordingState.Paused -> {
-                previousSegmentsMs = state.accumulatedMs
-                elapsedMs = state.accumulatedMs
-            }
-            is RecordingState.Idle -> {
-                previousSegmentsMs = 0L
-            }
-            else -> {}
         }
     }
 
@@ -176,8 +132,6 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showRestartDialog = false
-                        previousSegmentsMs = 0L
-                        elapsedMs = 0L
                         viewModel.restartRecording(context)
                     },
                 ) {
@@ -201,7 +155,6 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showBackDialog = false
-                        pendingNavigateBack = true
                         viewModel.stopRecording(context)
                     },
                 ) {
@@ -222,171 +175,97 @@ fun RecordScreen(
         )
     }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "glowTransition")
-    val glowColor by infiniteTransition.animateColor(
-        initialValue = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.0f),
-        targetValue = MaterialTheme.colorScheme.error.copy(alpha = 0.35f),
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = androidx.compose.animation.core.EaseInOut),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowColor"
-    )
-
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("New Recording") },
                 navigationIcon = {
-                    IconButton(onClick = {
-                        if (isActive) {
-                            showCancelDialog = true
-                        } else {
-                            onNavigateBack()
-                        }
-                    }) {
+                    IconButton(
+                        onClick = {
+                            if (isActive) {
+                                showCancelDialog = true
+                            } else {
+                                onNavigateBack()
+                            }
+                        },
+                    ) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_close))
                     }
-                }
+                },
             )
-        }
+        },
     ) { paddingValues ->
         Box(modifier = Modifier.fillMaxSize()) {
             if (isRecording) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                colors = listOf(
-                                    glowColor.copy(alpha = 0.45f),
-                                    glowColor.copy(alpha = 0.18f),
-                                    Color.Transparent
-                                ),
-                                center = Offset(
-                                    x = androidx.compose.ui.platform.LocalDensity.current.run { 180.dp.toPx() },
-                                    y = androidx.compose.ui.platform.LocalDensity.current.run { 360.dp.toPx() }
-                                ),
-                                radius = androidx.compose.ui.platform.LocalDensity.current.run { 440.dp.toPx() }
-                            )
-                        )
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                                colors = listOf(
-                                    glowColor.copy(alpha = 0.35f),
-                                    glowColor.copy(alpha = 0.12f),
-                                    Color.Transparent
-                                ),
-                                center = Offset(
-                                    x = androidx.compose.ui.platform.LocalDensity.current.run { 840.dp.toPx() },
-                                    y = androidx.compose.ui.platform.LocalDensity.current.run { 520.dp.toPx() }
-                                ),
-                                radius = androidx.compose.ui.platform.LocalDensity.current.run { 380.dp.toPx() }
-                            )
-                        )
-                )
+                RecordingGlowBackground(modifier = Modifier.fillMaxSize())
             }
 
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-            Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-            Text(
-                text = formatTimeMs(elapsedMs),
-                style = MaterialTheme.typography.displayLarge.copy(
-                    fontSize = 72.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 2.sp
-                ),
-                color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-            )
+                RecordingTimer(
+                    recordingState = recordingState,
+                    isRecording = isRecording,
+                )
 
-            Spacer(modifier = Modifier.height(48.dp))
+                Spacer(modifier = Modifier.height(48.dp))
 
-            AudioWaveform(
-                waveformBuffer = viewModel.waveformBuffer,
-                sampleCount = amplitudeSampleCount,
-                isActive = isRecording,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 16.dp)
-            )
+                RecordingWaveform(
+                    viewModel = viewModel,
+                    isRecording = isRecording,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(horizontal = 16.dp),
+                )
 
-            Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-            // BOTTOM CONTROLS
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 32.dp)
-            ) {
-                // LEFT: Pause/Resume
-                FilledTonalIconButton(
-                    onClick = {
+                RecordingActionRow(
+                    isRecording = isRecording,
+                    isPaused = isPaused,
+                    onTogglePausePlay = {
                         if (isPaused || !isActive) {
-                            if (isActive) viewModel.resumeRecording(context) else viewModel.startRecording(context)
+                            if (isActive) {
+                                viewModel.resumeRecording(context)
+                            } else {
+                                viewModel.startRecording(context)
+                            }
                         } else {
                             viewModel.pauseRecording(context)
                         }
                     },
-                    modifier = Modifier
-                        .size(64.dp)
-                        .align(Alignment.CenterStart)
-                ) {
-                    Icon(
-                        imageVector = if (isPaused || !isActive) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                // CENTER: Massive Done Button
-                Button(
-                    onClick = {
-                        pendingNavigateBack = true
-                        viewModel.stopRecording(context)
-                    },
-                    enabled = isActive,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .width(160.dp)
-                        .height(80.dp),
-                    shape = RoundedCornerShape(28.dp)
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(32.dp))
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Done", style = MaterialTheme.typography.titleLarge)
-                }
-
-                // RIGHT: Start Over
-                FilledTonalIconButton(
-                    onClick = { showRestartDialog = true },
-                    enabled = isActive,
-                    modifier = Modifier
-                        .size(64.dp)
-                        .align(Alignment.CenterEnd),
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(32.dp))
-                }
+                    onStopRecording = { viewModel.stopRecording(context) },
+                    onRestartRecording = { showRestartDialog = true },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp)
+                )
             }
         }
     }
 }
+
+
+@Composable
+private fun RecordingWaveform(
+    viewModel: RecordViewModel,
+    isRecording: Boolean,
+    modifier: Modifier = Modifier,
+ ) {
+    val amplitudeSampleCount by viewModel.amplitudeSampleCount.collectAsStateWithLifecycle()
+
+    AudioWaveform(
+        waveformBuffer = viewModel.waveformBuffer,
+        sampleCount = amplitudeSampleCount,
+        isActive = isRecording,
+        color = MaterialTheme.colorScheme.error,
+        modifier = modifier,
+    )
 }

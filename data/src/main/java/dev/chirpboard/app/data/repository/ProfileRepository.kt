@@ -1,6 +1,5 @@
 package dev.chirpboard.app.data.repository
 
-import androidx.room.withTransaction
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.entity.Profile
 import kotlinx.coroutines.CancellationException
@@ -18,7 +17,6 @@ class ProfileRepository
     @Inject
     constructor(
         private val profileDao: ProfileDao,
-        private val db: dev.chirpboard.app.data.db.AppDatabase,
     ) {
         fun getAllProfiles(): Flow<List<Profile>> =
             profileDao.getAllProfiles().catch {
@@ -55,24 +53,23 @@ class ProfileRepository
             val defaultTagIds: List<UUID> = emptyList(),
         )
 
-        suspend fun createProfile(request: CreateProfileRequest): Profile =
-            db.withTransaction {
-                val maxOrder = profileDao.getMaxSortOrder() ?: 0
-                val profile =
-                    Profile(
-                        name = request.name,
-                        icon = request.icon,
-                        defaultProcessingMode = request.defaultProcessingMode,
-                        autoTranscribe = request.autoTranscribe,
-                        autoTitle = request.autoTitle,
-                        autoSummary = request.autoSummary,
-                        obsidianVaultPath = request.obsidianVaultPath,
-                        autoExportToObsidian = request.autoExportToObsidian,
-                        sortOrder = maxOrder + 1,
-                    ).withDefaultTags(request.defaultTagIds)
-                profileDao.insert(profile)
-                profile
-            }
+        suspend fun createProfile(request: CreateProfileRequest): Profile {
+            val maxOrder = profileDao.getMaxSortOrder() ?: 0
+            val profile =
+                Profile(
+                    name = request.name,
+                    icon = request.icon,
+                    defaultProcessingMode = request.defaultProcessingMode,
+                    autoTranscribe = request.autoTranscribe,
+                    autoTitle = request.autoTitle,
+                    autoSummary = request.autoSummary,
+                    obsidianVaultPath = request.obsidianVaultPath,
+                    autoExportToObsidian = request.autoExportToObsidian,
+                    sortOrder = maxOrder + 1,
+                ).withDefaultTags(request.defaultTagIds)
+            profileDao.insert(profile)
+            return profile
+        }
 
         suspend fun insert(profile: Profile) = profileDao.insert(profile)
 

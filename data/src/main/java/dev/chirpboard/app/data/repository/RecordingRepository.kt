@@ -36,6 +36,7 @@ class RecordingRepository
                 if (it is CancellationException) throw it
                 emit(emptyList())
             }
+        suspend fun getAllAudioPaths(): List<String> = recordingDao.getAllAudioPaths()
 
         suspend fun getRecording(id: UUID): Recording? = recordingDao.getRecording(id)
 

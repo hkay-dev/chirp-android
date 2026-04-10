@@ -39,25 +39,27 @@ class TranscriptionQueueManagerTest {
         io.mockk.mockkStatic(WorkManager::class)
         every { WorkManager.getInstance(any()) } returns workManager
 
-        mockkObject(TranscriptionWorkRequest.Companion)
+        mockkObject(TranscriptionWorkRequest)
         every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } returns "test-work-id"
         every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(0)}" }
 
-        mockkObject(ReliabilityEventLogger.Companion)
+        mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
 
-        coEvery { constraintChecker.checkConstraints() } returns WorkConstraintStatus.SATISFIED
+        coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
 
-        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker)
+        val mockModelManager = mockk<WhisperModelManager>(relaxed = true)
+        every { mockModelManager.modelStatus } returns kotlinx.coroutines.flow.MutableStateFlow(WhisperModelManager.ModelStatus.Ready)
+        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), mockModelManager)
     }
 
     @After
     fun tearDown() {
         io.mockk.unmockkStatic(WorkManager::class)
-        unmockkObject(TranscriptionWorkRequest.Companion)
-        unmockkObject(ReliabilityEventLogger.Companion)
+        unmockkObject(TranscriptionWorkRequest)
+        unmockkObject(ReliabilityEventLogger)
     }
 
     @Test
@@ -92,7 +94,7 @@ class TranscriptionQueueManagerTest {
     }
 
     @Test
-    fun `cancel cancels work manager job and sets status to pending if transcribing`() = runTest {
+    fun `cancel cancels work manager job and sets status to failed if transcribing`() = runTest {
         val id = UUID.randomUUID()
         val recording = mockk<Recording>()
         every { recording.status } returns RecordingStatus.TRANSCRIBING
@@ -101,6 +103,6 @@ class TranscriptionQueueManagerTest {
         manager.cancel(id)
 
         coVerify { workManager.cancelUniqueWork("transcribe_$id") }
-        coVerify { recordingRepository.updateStatus(id, RecordingStatus.PENDING_TRANSCRIPTION) }
+        coVerify { recordingRepository.updateStatusWithError(id, RecordingStatus.FAILED, "Cancelled by user") }
     }
 }

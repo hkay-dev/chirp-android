@@ -30,6 +30,8 @@ interface RecordingDao {
 
     @Query("SELECT * FROM recordings WHERE profileId = :profileId ORDER BY createdAt DESC")
     fun getRecordingsByProfile(profileId: UUID): Flow<List<Recording>>
+    @Query("SELECT audioPath FROM recordings")
+    suspend fun getAllAudioPaths(): List<String>
 
     @Query(
         """

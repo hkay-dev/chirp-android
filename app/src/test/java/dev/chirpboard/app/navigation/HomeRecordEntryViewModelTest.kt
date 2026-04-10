@@ -5,8 +5,7 @@ import dev.chirpboard.app.download.ModelReadinessGate
 import dev.chirpboard.app.download.ModelReadinessState
 import dev.chirpboard.app.download.ModelReadinessUnavailableReason
 import dev.chirpboard.app.download.ModelReadyResult
-import dev.chirpboard.app.download.ModelReadinessState.Checking
-import dev.chirpboard.app.download.ModelReadySource
+import dev.chirpboard.app.download.ModelReadinessVerificationSource
 import dev.chirpboard.app.download.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.every
@@ -24,6 +23,9 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import android.util.Log
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeRecordEntryViewModelTest {
@@ -35,6 +37,10 @@ class HomeRecordEntryViewModelTest {
 
     @Before
     fun setup() {
+        mockkStatic(Log::class)
+        every { Log.d(any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0
+        every { Log.e(any(), any()) } returns 0
         Dispatchers.setMain(testDispatcher)
         modelReadinessGate = mockk(relaxed = true)
         readinessStateFlow = MutableStateFlow(ModelReadinessState.Unknown)
@@ -44,6 +50,7 @@ class HomeRecordEntryViewModelTest {
 
     @After
     fun tearDown() {
+        unmockkStatic(Log::class)
         Dispatchers.resetMain()
     }
 
@@ -55,12 +62,12 @@ class HomeRecordEntryViewModelTest {
 
     @Test
     fun `onRecordTapped ignores tap when checking`() = runTest {
-        readinessStateFlow.value = Checking()
+        readinessStateFlow.value = ModelReadinessState.Checking(VerificationTrigger.HOME_VISIBLE, System.currentTimeMillis())
         viewModel.onRecordTapped()
         
         viewModel.events.test {
             expectNoEvents()
-            cancelAndIgnoreEvents()
+            cancelAndIgnoreRemainingEvents()
         }
 
         coVerify(exactly = 0) { modelReadinessGate.ensureReady(any()) }
@@ -68,28 +75,28 @@ class HomeRecordEntryViewModelTest {
 
     @Test
     fun `onRecordTapped emits NavigateToRecord when ready`() = runTest {
-        readinessStateFlow.value = ModelReadinessState.Ready(ModelReadySource.DISK_CACHE)
-        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Ready(ModelReadySource.DISK_CACHE)
+        readinessStateFlow.value = ModelReadinessState.Ready(System.currentTimeMillis(), ModelReadinessVerificationSource.PROCESS_CACHE)
+        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Ready(ModelReadinessVerificationSource.PROCESS_CACHE)
 
         viewModel.onRecordTapped()
         
         viewModel.events.test {
             assertEquals(HomeRecordEntryEvent.NavigateToRecord, awaitItem())
-            cancelAndIgnoreEvents()
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
     fun `onRecordTapped emits ShowModelRequired when unavailable`() = runTest {
-        readinessStateFlow.value = ModelReadinessState.Unavailable(ModelReadinessUnavailableReason.MODEL_MISSING_OR_CORRUPT)
-        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Unavailable(ModelReadinessUnavailableReason.MODEL_MISSING_OR_CORRUPT)
+        readinessStateFlow.value = ModelReadinessState.Unavailable(ModelReadinessUnavailableReason.MISSING_MODEL_FILES)
+        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Unavailable(ModelReadinessUnavailableReason.MISSING_MODEL_FILES)
 
 
         viewModel.onRecordTapped()
 
         viewModel.events.test {
-            assertEquals(HomeRecordEntryEvent.ShowModelRequired(ModelReadinessUnavailableReason.MODEL_MISSING_OR_CORRUPT), awaitItem())
-            cancelAndIgnoreEvents()
+            assertEquals(HomeRecordEntryEvent.ShowModelRequired(ModelReadinessUnavailableReason.MISSING_MODEL_FILES), awaitItem())
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -102,7 +109,7 @@ class HomeRecordEntryViewModelTest {
 
         viewModel.events.test {
             assertEquals(HomeRecordEntryEvent.ShowError("Test error"), awaitItem())
-            cancelAndIgnoreEvents()
+            cancelAndIgnoreRemainingEvents()
         }
     }
 }

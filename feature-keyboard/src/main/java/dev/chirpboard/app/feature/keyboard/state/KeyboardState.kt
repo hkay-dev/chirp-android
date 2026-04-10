@@ -31,7 +31,13 @@ sealed interface KeyboardState {
  * like Transcribing, Polishing, Downloading, ModelNotReady, and LlmError are
  * managed directly by the keyboard service and not derived from RecordingState.
  */
-fun RecordingState.toKeyboardState(): KeyboardState {
+fun RecordingState.toKeyboardState(): KeyboardState? {
+    if (this.activeOrigin != null && this.activeOrigin != dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD) {
+        // If another origin is recording, don't show the keyboard as recording.
+        // If we map to Idle, the keyboard just stays idle.
+        return KeyboardState.Idle
+    }
+
     return when (this) {
         is RecordingState.Idle -> KeyboardState.Idle
         is RecordingState.Starting -> KeyboardState.Recording // Show as recording during startup

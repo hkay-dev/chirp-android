@@ -16,6 +16,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import app.cash.turbine.test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AudioSettingsViewModelTest {
@@ -39,7 +40,10 @@ class AudioSettingsViewModelTest {
     fun `initializes with preferences value`() =
         runTest {
             val viewModel = AudioSettingsViewModel(keyboardPreferences)
-            assertEquals(1.5f, viewModel.microphoneGain.value)
+            viewModel.microphoneGain.test {
+                assertEquals(1.5f, awaitItem()) // from flow
+                cancelAndIgnoreRemainingEvents()
+            }
         }
 
     @Test

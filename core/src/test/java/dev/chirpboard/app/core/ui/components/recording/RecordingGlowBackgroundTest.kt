@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.recording.ui.components
+package dev.chirpboard.app.core.ui.components.recording
 
 import org.junit.Test
 import org.junit.Assert.assertTrue

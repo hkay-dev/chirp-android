@@ -8,6 +8,8 @@ import dagger.hilt.android.HiltAndroidApp
 import dev.chirpboard.app.download.ModelReadinessGate
 import dev.chirpboard.app.download.VerificationTrigger
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.feature.recording.cleanup.OrphanedAudioCleaner
+import dev.chirpboard.app.feature.widget.WidgetStateObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,12 +31,20 @@ class ChirpApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var modelReadinessGate: ModelReadinessGate
     
+    @Inject
+    lateinit var orphanedAudioCleaner: OrphanedAudioCleaner
+
+    @Inject
+    lateinit var widgetStateObserver: WidgetStateObserver
+
     private val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
     )
     
     override fun onCreate() {
         super.onCreate()
+
+        widgetStateObserver.startObserving()
         
         // Migrate API key from plaintext to encrypted storage
         applicationScope.launch {
@@ -61,6 +71,16 @@ class ChirpApplication : Application(), Configuration.Provider {
                 Log.e(TAG, "Failed to warm model readiness on startup", e)
             }
         }
+        // Clean up any orphaned audio files from previous aborted sessions
+        applicationScope.launch {
+            try {
+                orphanedAudioCleaner.cleanOrphanedFiles()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to clean orphaned audio files", e)
+            }
+        }
+
     }
     
     override val workManagerConfiguration: Configuration

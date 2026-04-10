@@ -32,4 +32,9 @@ interface TranscriberProvider {
         samples: FloatArray,
         sampleRate: Int = 16000
     ): TranscriptionOutcome
+    /**
+     * Release the model from memory.
+     */
+    suspend fun release()
+
 }

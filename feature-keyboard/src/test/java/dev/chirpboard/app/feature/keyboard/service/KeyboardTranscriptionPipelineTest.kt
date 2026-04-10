@@ -14,8 +14,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import io.mockk.just
 import io.mockk.runs
@@ -64,11 +64,11 @@ class KeyboardTranscriptionPipelineTest {
         recordingRepository = mockk(relaxed = true)
         obsidianPreferences = mockk(relaxed = true)
         obsidianManager = mockk(relaxed = true)
-        mockkStatic(ReliabilityEventLogger::class)
+        mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
-        every { ReliabilityEventLogger.log(any(), any(), any(), any(), any()) } just runs
+        every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
 
-        coEvery { keyboardPreferences.saveKeyboardRecordings } returns flowOf(true)
+        every { keyboardPreferences.saveKeyboardRecordings } returns flowOf(true)
 
         pipeline = KeyboardTranscriptionPipeline(
             tag = "TestTag",
@@ -91,17 +91,17 @@ class KeyboardTranscriptionPipelineTest {
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        unmockkStatic(ReliabilityEventLogger::class)
+        unmockkObject(ReliabilityEventLogger)
     }
 
     @Test
     fun `run with recognizer not ready emits error and persists`() = runTest(testDispatcher) {
-        coEvery { recognizerProvider.isReady() } returns false
+        every { recognizerProvider.isReady() } returns false
         
         var stateEmitted: KeyboardState? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = ProcessingMode.Proofread,
             llmEnabled = false,
             commitText = {},
             onStateChanged = { stateEmitted = it },
@@ -115,14 +115,14 @@ class KeyboardTranscriptionPipelineTest {
 
     @Test
     fun `run with no speech discards capture and completes`() = runTest(testDispatcher) {
-        coEvery { recognizerProvider.isReady() } returns true
-        coEvery { recognizerProvider.transcribe(any()) } returns TranscriptionOutcome.NoSpeech
+        every { recognizerProvider.isReady() } returns true
+        coEvery { recognizerProvider.transcribe(any(), any()) } returns TranscriptionOutcome.NoSpeech
         
         var stateEmitted: KeyboardState? = null
         var completed = false
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = ProcessingMode.Proofread,
             llmEnabled = false,
             commitText = {},
             onStateChanged = { stateEmitted = it },
@@ -137,14 +137,14 @@ class KeyboardTranscriptionPipelineTest {
 
     @Test
     fun `run with successful transcription commits text without llm`() = runTest(testDispatcher) {
-        coEvery { recognizerProvider.isReady() } returns true
-        coEvery { recognizerProvider.transcribe(any()) } returns TranscriptionOutcome.Success("hello test")
+        every { recognizerProvider.isReady() } returns true
+        coEvery { recognizerProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello test")
         
         var stateEmitted: KeyboardState? = null
         var committedText: String? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = ProcessingMode.Proofread,
             llmEnabled = false,
             commitText = { committedText = it },
             onStateChanged = { stateEmitted = it },
@@ -159,15 +159,15 @@ class KeyboardTranscriptionPipelineTest {
 
     @Test
     fun `run with successful transcription and llm commits polished text`() = runTest(testDispatcher) {
-        coEvery { recognizerProvider.isReady() } returns true
-        coEvery { recognizerProvider.transcribe(any()) } returns TranscriptionOutcome.Success("hello test")
+        every { recognizerProvider.isReady() } returns true
+        coEvery { recognizerProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello test")
         coEvery { textProcessor.process(any(), any()) } returns Result.success("Hello, test.")
         
         var stateEmitted: KeyboardState? = null
         var committedText: String? = null
         pipeline.run(
             samples = FloatArray(10),
-            currentMode = ProcessingMode.TRANSCRIPTION,
+            currentMode = ProcessingMode.Proofread,
             llmEnabled = true,
             commitText = { committedText = it },
             onStateChanged = { stateEmitted = it },

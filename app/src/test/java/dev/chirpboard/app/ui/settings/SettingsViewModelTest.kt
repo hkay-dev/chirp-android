@@ -8,6 +8,7 @@ import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import android.app.Application
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +23,7 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
 
-    private val context = mockk<Context>()
+    private val application = mockk<Application>()
     private val packageManager = mockk<PackageManager>()
     private val obsidianPreferences = mockk<ObsidianPreferences>()
 
@@ -31,8 +32,8 @@ class SettingsViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        every { context.packageManager } returns packageManager
-        every { context.packageName } returns "dev.chirpboard.app"
+        every { application.packageManager } returns packageManager
+        every { application.packageName } returns "dev.chirpboard.app"
     }
 
     @After
@@ -42,21 +43,19 @@ class SettingsViewModelTest {
 
     @Test
     fun `initializes with correct app info`() {
-        val packageInfo = PackageInfo().apply {
-            versionName = "1.0.0"
-            longVersionCode = 100L
-        }
-        val appInfo = ApplicationInfo().apply {
-            flags = ApplicationInfo.FLAG_DEBUGGABLE
-        }
+        val packageInfo = mockk<PackageInfo>()
+        packageInfo.versionName = "1.0.0"
+        every { packageInfo.longVersionCode } returns 100L
 
+        val appInfo = mockk<ApplicationInfo>()
+        appInfo.flags = ApplicationInfo.FLAG_DEBUGGABLE
+        every { application.applicationInfo } returns appInfo
         every { packageManager.getPackageInfo("dev.chirpboard.app", 0) } returns packageInfo
-        every { context.applicationInfo } returns appInfo
 
         val vaultUriFlow = MutableStateFlow<String?>("content://test")
         every { obsidianPreferences.globalVaultUri } returns vaultUriFlow
 
-        val viewModel = SettingsViewModel(mockk(relaxed=true), obsidianPreferences)
+        val viewModel = SettingsViewModel(application, obsidianPreferences)
 
         val state = viewModel.uiState.value
         assertEquals("1.0.0", state.appVersion)

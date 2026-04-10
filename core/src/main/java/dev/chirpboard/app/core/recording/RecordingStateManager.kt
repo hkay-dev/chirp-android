@@ -71,7 +71,7 @@ class RecordingStateManager @Inject constructor() {
     private var timeoutJob: Job? = null
     companion object {
         private const val TAG = "RecordingStateManager"
-        private const val AMPLITUDE_HISTORY_SIZE = 1000 // Holds enough history for extreme slow scroll
+        private const val AMPLITUDE_HISTORY_SIZE = 150 // Holds enough history for visible bars without wasting memory
         private const val STOPPING_TIMEOUT_MS = 5000L
     }
     

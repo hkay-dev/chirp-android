@@ -2,8 +2,12 @@ package dev.chirpboard.app.download
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -18,17 +22,22 @@ class ModelDownloaderTest {
 
     private val testModelFiles =
         listOf(
-            dev.chirpboard.app.core.transcription.model.ModelFile(
+            ModelDownloader.ModelFile(
                 name = "test_model.onnx",
                 expectedSize = 12L,
-                expectedSha256 = "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", // "hello world\n"
-            )
+                expectedSha256 = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447", // "hello world\n"
+            ),
         )
 
     @Before
     fun setup() {
         context = mockk(relaxed = true)
         sharedPrefs = mockk(relaxed = true)
+        mockkStatic(Log::class)
+        every { Log.d(any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0
+        every { Log.e(any(), any()) } returns 0
+        every { Log.i(any(), any()) } returns 0
 
         every { context.getSharedPreferences(ModelDownloader.VERIFICATION_PREFS_NAME, Context.MODE_PRIVATE) } returns sharedPrefs
 
@@ -45,6 +54,11 @@ class ModelDownloaderTest {
                 legacyModelDirProvider = { testModelsDir },
             )
         ModelDownloader.clearProcessVerificationCacheForTest()
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic(Log::class)
     }
 
     @Test
@@ -71,11 +85,9 @@ class ModelDownloaderTest {
 
     @Test
     fun `hasSufficientStorage logic`() {
-        // 60MB available, needs 5MB + 50MB buffer = 55MB. Should be true.
-        assertTrue(hasSufficientStorage(60L * 1024 * 1024, 5L * 1024 * 1024))
-
-        // 50MB available, needs 5MB + 50MB buffer = 55MB. Should be false.
-        assertFalse(hasSufficientStorage(50L * 1024 * 1024, 5L * 1024 * 1024))
+        // Since buffer is added externally now, just test basic logic
+        assertTrue(hasSufficientStorage(60L, 55L))
+        assertFalse(hasSufficientStorage(50L, 55L))
     }
 
     @Test
@@ -84,25 +96,24 @@ class ModelDownloaderTest {
         file.writeText("hello world\n")
 
         val hash = computeSha256(file)
-        assertEquals("6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b", hash)
+        assertEquals("a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447", hash)
     }
 
     @Test
-    fun `validateFileIntegrity returns null when match`() {
+    fun `validateFileIntegrity returns true when match`() {
         val file = File(testDir, "hash_test2.txt")
         file.writeText("hello world\n")
 
-        val error = validateFileIntegrity(file, 12L, "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b")
-        assertNull(error)
+        val valid = validateFileIntegrity(file, 12L, "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447")
+        assertTrue(valid)
     }
 
     @Test
-    fun `validateFileIntegrity returns error message when mismatch`() {
+    fun `validateFileIntegrity returns false when mismatch`() {
         val file = File(testDir, "hash_test3.txt")
         file.writeText("wrong content")
 
-        val error = validateFileIntegrity(file, 12L, "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b")
-        assertNotNull(error)
-        assertTrue(error?.contains("Hash mismatch") == true)
+        val valid = validateFileIntegrity(file, 12L, "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447")
+        assertFalse(valid)
     }
 }

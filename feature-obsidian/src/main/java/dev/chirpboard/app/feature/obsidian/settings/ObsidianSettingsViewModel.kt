@@ -5,16 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.runtime.Stable
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -49,24 +46,20 @@ class ObsidianSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 preferences.globalVaultUri,
-                preferences.autoExportEnabled
+                preferences.autoExportEnabled,
             ) { vaultUri, autoExport ->
-                // SAF operations (DocumentFile.fromTreeUri, canRead, canWrite) are I/O
-                // and handled via flowOn(Dispatchers.IO) below
                 val uri = vaultUri?.let { Uri.parse(it) }
-                val hasAccess = uri?.let { obsidianManager.hasVaultAccess(it) } ?: false
-                val vaultName = uri?.let { obsidianManager.getVaultDisplayName(it) }
+                val hasAccess = uri?.let { currentUri -> obsidianManager.hasVaultAccess(currentUri) } ?: false
+                val vaultName = uri?.let { currentUri -> obsidianManager.getVaultDisplayName(currentUri) }
 
                 UiState(
                     vaultUri = vaultUri,
                     vaultName = vaultName,
                     autoExportEnabled = autoExport,
                     hasAccess = hasAccess,
-                    isLoading = false
+                    isLoading = false,
                 )
-            }
-            .flowOn(Dispatchers.IO)
-            .collect { state ->
+            }.collect { state ->
                 _uiState.value = state
             }
         }
@@ -111,9 +104,7 @@ class ObsidianSettingsViewModel @Inject constructor(
     fun refreshAccessStatus() {
         val currentUri = _uiState.value.vaultUri?.let { Uri.parse(it) } ?: return
         viewModelScope.launch {
-            val hasAccess = withContext(Dispatchers.IO) {
-                obsidianManager.hasVaultAccess(currentUri)
-            }
+            val hasAccess = obsidianManager.hasVaultAccess(currentUri)
             _uiState.update { it.copy(hasAccess = hasAccess) }
         }
     }

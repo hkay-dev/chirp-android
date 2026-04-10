@@ -102,7 +102,7 @@ class ChirpKeyboardService :
     private val _state = MutableStateFlow<KeyboardState>(KeyboardState.ModelNotReady)
     private val state = _state.asStateFlow()
 
-    private val recorder by lazy { VoiceRecorder(this) }
+    private val recorder by lazy { VoiceRecorder(this, scope) }
     private val audioEncoder = AudioEncoder()
     private lateinit var audioFocusManager: AudioFocusManager
     private var phoneCallHandler: PhoneCallHandler? = null
@@ -277,9 +277,11 @@ class ChirpKeyboardService :
                     val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
                     val currentMode by _currentMode.collectAsStateWithLifecycle()
                     val state by state.collectAsStateWithLifecycle()
+                    val sampleCount by recorder.sampleCountFlow.collectAsStateWithLifecycle()
                     KeyboardUI(
                         state = state,
-                        amplitudes = recorder.amplitudes,
+                        waveformBuffer = recorder.waveformBuffer,
+                        sampleCount = sampleCount,
                         llmEnabled = llmEnabled,
                         currentMode = currentMode,
                         onTap = ::onTap,
@@ -445,6 +447,15 @@ class ChirpKeyboardService :
             audioFocusManager.abandonFocus()
             recordingStateManager.onRecordingError(error.userMessage)
             _state.value = KeyboardState.Error(error.userMessage)
+        }
+
+        recorder.onLimitReached = {
+            Log.w(TAG, "Recording reached maximum limit, automatically transcribing")
+            scope.launch {
+                if (_state.value is KeyboardState.Recording) {
+                    stopAndTranscribe()
+                }
+            }
         }
 
         if (!recorder.start()) {

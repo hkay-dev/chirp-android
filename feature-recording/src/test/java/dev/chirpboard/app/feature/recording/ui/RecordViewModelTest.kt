@@ -27,7 +27,7 @@ class RecordViewModelTest {
         context = mockk(relaxed = true)
         recordingStateManager =
             mockk(relaxed = true) {
-                every { state } returns MutableStateFlow(RecordingState())
+                every { state } returns MutableStateFlow(RecordingState.Idle)
                 every { waveformBuffer } returns dev.chirpboard.app.core.recording.WaveformBuffer(1000)
                 every { amplitudeFlow } returns MutableStateFlow(0f)
                 every { lastCompletedRecordingId } returns MutableStateFlow(null)
@@ -41,7 +41,7 @@ class RecordViewModelTest {
         every { RecordingService.cancelRecording(any()) } returns Unit
         every { RecordingService.restartRecording(any(), any(), any()) } returns Unit
 
-        viewModel = RecordViewModel(context, recordingStateManager)
+        viewModel = RecordViewModel(recordingStateManager)
     }
 
     @After
@@ -58,39 +58,39 @@ class RecordViewModelTest {
     @Test
     fun `startRecording calls service`() {
         val profileId = UUID.randomUUID()
-        viewModel.startRecording(profileId)
+        viewModel.startRecording(context, profileId)
 
         verify { RecordingService.startRecording(context, RecordingOrigin.APP, profileId) }
     }
 
     @Test
     fun `pauseRecording calls service`() {
-        viewModel.pauseRecording()
+        viewModel.pauseRecording(context)
         verify { RecordingService.pauseRecording(context) }
     }
 
     @Test
     fun `resumeRecording calls service`() {
-        viewModel.resumeRecording()
+        viewModel.resumeRecording(context)
         verify { RecordingService.resumeRecording(context) }
     }
 
     @Test
     fun `stopRecording calls service`() {
-        viewModel.stopRecording()
+        viewModel.stopRecording(context)
         verify { RecordingService.stopRecording(context) }
     }
 
     @Test
     fun `cancelRecording calls service`() {
-        viewModel.cancelRecording()
+        viewModel.cancelRecording(context)
         verify { RecordingService.cancelRecording(context) }
     }
 
     @Test
     fun `restartRecording calls service`() {
         val profileId = UUID.randomUUID()
-        viewModel.restartRecording(profileId)
+        viewModel.restartRecording(context, profileId)
         verify { RecordingService.restartRecording(context, RecordingOrigin.APP, profileId) }
     }
 

@@ -7,13 +7,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.feature.widget.R
 
 /**
  * AppWidgetProvider for the recording widget.
  * 
  * Displays a record/stop button based on current recording state.
- * Widget UI is updated via [updateWidget] when recording state changes.
+ * Widget UI is updated via [updateWidgetState] when recording state changes.
  */
 class RecordingWidgetProvider : AppWidgetProvider() {
     
@@ -22,9 +23,8 @@ class RecordingWidgetProvider : AppWidgetProvider() {
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
-        // Update each widget instance
         for (appWidgetId in appWidgetIds) {
-            updateAppWidget(context, appWidgetManager, appWidgetId, isRecording = false)
+            updateAppWidgetWithState(context, appWidgetManager, appWidgetId, RecordingState.Idle, 0L)
         }
     }
     
@@ -32,43 +32,60 @@ class RecordingWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_TOGGLE_RECORDING = "dev.chirpboard.app.TOGGLE_RECORDING"
         
-        /**
-         * Update all widget instances with the current recording state.
-         * 
-         * @param context Application context
-         * @param isRecording Whether recording is currently active
-         * @param durationText Optional duration text to display (e.g., "1:23")
-         */
-        fun updateWidget(context: Context, isRecording: Boolean, durationText: String? = null) {
+        fun updateWidgetState(context: Context, state: RecordingState, currentDurationMs: Long) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val componentName = ComponentName(context, RecordingWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
             
             for (appWidgetId in appWidgetIds) {
-                updateAppWidget(context, appWidgetManager, appWidgetId, isRecording, durationText)
+                updateAppWidgetWithState(context, appWidgetManager, appWidgetId, state, currentDurationMs)
             }
         }
 
-        fun updateAppWidget(
+        fun updateAppWidgetWithState(
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetId: Int,
-            isRecording: Boolean,
-            durationText: String? = null
+            state: RecordingState,
+            currentDurationMs: Long
         ) {
             val views = RemoteViews(context.packageName, R.layout.widget_layout)
             
-            // Set button icon based on state
-            if (isRecording) {
-                views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
-                views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
-                // Use Chronometer for recording duration
-                views.setChronometer(R.id.widget_status, android.os.SystemClock.elapsedRealtime(), null, true)
-            } else {
-                views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
-                views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
-                // Stop chronometer and show default text
-                views.setChronometer(R.id.widget_status, 0, "Tap to record", false)
+            when (state) {
+                is RecordingState.Recording -> {
+                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
+                    // Use Chronometer for recording duration
+                    val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
+                    views.setChronometer(R.id.widget_status, base, null, true)
+                }
+                is RecordingState.Paused -> {
+                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
+                    // Show the accumulated time statically
+                    val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
+                    views.setChronometer(R.id.widget_status, base, null, false)
+                }
+                is RecordingState.Starting -> {
+                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
+                    views.setChronometer(R.id.widget_status, 0, "Starting...", false)
+                }
+                is RecordingState.Stopping -> {
+                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFF9E9E9E.toInt()) // Grey tint
+                    views.setChronometer(R.id.widget_status, 0, "Saving...", false)
+                }
+                is RecordingState.Error -> {
+                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
+                    views.setChronometer(R.id.widget_status, 0, "Error", false)
+                }
+                is RecordingState.Idle -> {
+                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
+                    views.setChronometer(R.id.widget_status, 0, "Tap to record", false)
+                }
             }
             
             // Set up click handler for toggle button

@@ -56,13 +56,11 @@ class RecordingManagerTest {
     @Test
     fun `startRecording returns AlreadyRecording if cannot start`() {
         every { stateManager.canStartRecording() } returns false
-        every { stateManager.state } returns MutableStateFlow(
-            RecordingState(isActive = true, activeOrigin = RecordingOrigin.WIDGET)
-        )
+        every { stateManager.state.value } returns RecordingState.Recording(origin = RecordingOrigin.WIDGET)
 
         val result = manager.startRecording()
         assertTrue(result is RecordingStartResult.AlreadyRecording)
-        assertEquals(RecordingOrigin.WIDGET, (result as RecordingStartResult.AlreadyRecording).origin)
+        assertEquals(RecordingOrigin.WIDGET, (result as RecordingStartResult.AlreadyRecording).currentOrigin)
     }
 
     @Test

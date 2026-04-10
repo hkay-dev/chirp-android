@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.runtime.*
-import dev.chirpboard.app.feature.recording.ui.components.formatTimeMs
+import dev.chirpboard.app.core.util.formatTimeMs
 import kotlin.math.max
 
 @Composable

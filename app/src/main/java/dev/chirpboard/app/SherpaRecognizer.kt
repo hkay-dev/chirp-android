@@ -162,8 +162,10 @@ class SherpaRecognizer(
             else -> ""
         }
 
-    fun release() {
-        recognizer?.release()
-        recognizer = null
+    suspend fun release() {
+        mutex.withLock {
+            recognizer?.release()
+            recognizer = null
+        }
     }
 }

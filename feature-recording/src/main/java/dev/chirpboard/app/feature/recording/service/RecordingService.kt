@@ -58,6 +58,9 @@ class RecordingService : Service() {
     lateinit var recordingRepository: RecordingRepository
 
     @Inject
+    lateinit var transcriberProvider: dev.chirpboard.app.core.transcription.TranscriberProvider
+
+    @Inject
     lateinit var transcriptionQueueManager: TranscriptionQueueManager
 
     @Inject
@@ -188,6 +191,12 @@ class RecordingService : Service() {
         currentProfileId = profileId
 
         try {
+        // Ensure speech model is not loaded in memory during a long recording
+        // to prevent OS from killing the app due to memory pressure
+        serviceScope.launch(Dispatchers.Default) {
+            transcriberProvider.release()
+        }
+
             // Create output file
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val outputDir = File(filesDir, "recordings").apply { mkdirs() }
@@ -232,7 +241,6 @@ class RecordingService : Service() {
             // Start amplitude collection for waveform visualization
             startAmplitudeCollection()
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
             try {
                 mediaRecorder?.release()
             } catch (_: Exception) {
@@ -252,6 +260,7 @@ class RecordingService : Service() {
             }
             currentRecordingFile = null
             stopSelf()
+            if (e is kotlinx.coroutines.CancellationException) throw e
         }
     }
 
@@ -304,26 +313,27 @@ class RecordingService : Service() {
                 release()
             }
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
             // MediaRecorder may throw if in an inconsistent state; just release
             try {
                 mediaRecorder?.release()
             } catch (_: Exception) {
             }
-        }
-        mediaRecorder = null
+            if (e is kotlinx.coroutines.CancellationException) throw e
+        } finally {
+            mediaRecorder = null
 
-        // Delete the audio file — no database entry was created
-        currentRecordingFile?.let { file ->
-            if (file.exists()) file.delete()
-        }
-        currentRecordingFile = null
-        accumulatedDurationMs = 0
+            // Delete the audio file — no database entry was created
+            currentRecordingFile?.let { file ->
+                if (file.exists()) file.delete()
+            }
+            currentRecordingFile = null
+            accumulatedDurationMs = 0
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            stopSelf()
+        }
     }
-
     /**
      * Atomic restart: cancel current recording and immediately start a new one
      * without stopping the service in between.
@@ -345,13 +355,14 @@ class RecordingService : Service() {
                 release()
             }
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
             try {
                 mediaRecorder?.release()
             } catch (_: Exception) {
             }
+            if (e is kotlinx.coroutines.CancellationException) throw e
+        } finally {
+            mediaRecorder = null
         }
-        mediaRecorder = null
 
         // Delete the old audio file
         currentRecordingFile?.let { file ->
@@ -396,24 +407,23 @@ class RecordingService : Service() {
             Log.e(TAG, "Failed to release recorder", e)
         }
         mediaRecorder = null
-
         serviceScope.launch {
-            val result =
-                try {
-                    if (snapshot == null) {
-                        StopPersistenceResult.NoAudioFile
-                    } else {
-                        withContext(Dispatchers.IO) {
-                            stopOrchestrator.persistAndQueueRecording(snapshot)
+            withContext(kotlinx.coroutines.NonCancellable) {
+                val result =
+                    try {
+                        if (snapshot == null) {
+                            StopPersistenceResult.NoAudioFile
+                        } else {
+                            withContext(Dispatchers.IO) {
+                                stopOrchestrator.persistAndQueueRecording(snapshot)
+                            }
                         }
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
+                    } finally {
+                        timeoutJob?.cancel()
                     }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    StopPersistenceResult.PersistenceFailed("Failed to stop recording: ${e.message}", e)
-                } finally {
-                    timeoutJob?.cancel()
-                }
-
             when (result) {
                 is StopPersistenceResult.SavedAndQueued -> {
                     ReliabilityEventLogger.log(
@@ -465,7 +475,8 @@ class RecordingService : Service() {
                 }
             }
 
-            finishStopLifecycle()
+                finishStopLifecycle()
+            }
         }
     }
 

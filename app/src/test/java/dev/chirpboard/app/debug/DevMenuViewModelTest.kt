@@ -35,10 +35,7 @@ class DevMenuViewModelTest {
     @Test
     fun `test viewmodel initialization`() =
         runTest {
-            val llmPreferences =
-                mockk<LlmPreferences>(relaxed = true) {
-                    every { apiKey } returns MutableStateFlow("some_key")
-                }
+            val llmPreferences = mockk<LlmPreferences>(relaxed = true)
             val recordingRepository = mockk<RecordingRepository>(relaxed = true)
             val tagRepository = mockk<TagRepository>(relaxed = true)
             val profileRepository = mockk<ProfileRepository>(relaxed = true)

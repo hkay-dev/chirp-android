@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.FileOpen
 import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingStatus
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.TextField
@@ -290,6 +292,30 @@ fun ProcessingStudioScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+            
+            if (state.status == RecordingStatus.FAILED) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.Error,
+                            contentDescription = "Error"
+                        )
+                        Text(
+                            text = state.errorMessage ?: stringResource(R.string.rec_status_failed),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                 }
             }

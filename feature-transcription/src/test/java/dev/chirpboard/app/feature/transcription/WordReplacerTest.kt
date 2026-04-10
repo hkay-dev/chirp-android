@@ -15,20 +15,20 @@ class WordReplacerTest {
     }
 
     @Test
-    fun `apply returns original text when no replacements provided`() {
+    fun `apply returns original text when no replacements provided`() = kotlinx.coroutines.test.runTest {
         val result = classUnderTest.apply("hello world", emptyList())
         assertEquals("hello world", result)
     }
 
     @Test
-    fun `apply ignores disabled replacements`() {
+    fun `apply ignores disabled replacements`() = kotlinx.coroutines.test.runTest {
         val rule = WordReplacement(original = "world", replacement = "there", enabled = false)
         val result = classUnderTest.apply("hello world", listOf(rule))
         assertEquals("hello world", result)
     }
 
     @Test
-    fun `apply performs case sensitive replacement`() {
+    fun `apply performs case sensitive replacement`() = kotlinx.coroutines.test.runTest {
         val rule = WordReplacement(original = "World", replacement = "There", enabled = true, caseSensitive = true)
         val result1 = classUnderTest.apply("hello World", listOf(rule))
         assertEquals("hello There", result1)
@@ -38,14 +38,14 @@ class WordReplacerTest {
     }
 
     @Test
-    fun `apply performs case insensitive replacement`() {
+    fun `apply performs case insensitive replacement`() = kotlinx.coroutines.test.runTest {
         val rule = WordReplacement(original = "world", replacement = "there", enabled = true, caseSensitive = false)
         val result = classUnderTest.apply("hello WORLD", listOf(rule))
         assertEquals("hello there", result)
     }
 
     @Test
-    fun `apply applies multiple replacements in order`() {
+    fun `apply applies multiple replacements in order`() = kotlinx.coroutines.test.runTest {
         val rules = listOf(
             WordReplacement(original = "hello", replacement = "hi", enabled = true),
             WordReplacement(original = "hi world", replacement = "greetings", enabled = true)

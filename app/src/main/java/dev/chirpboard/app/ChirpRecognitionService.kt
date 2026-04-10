@@ -32,7 +32,7 @@ class ChirpRecognitionService : RecognitionService() {
         private const val ERROR_RECOGNIZER_BUSY = 7
     }
 
-    private val recorder by lazy { VoiceRecorder(this) }
+    private val recorder by lazy { VoiceRecorder(this, scope) }
 
     @Inject
     lateinit var transcriberProvider: TranscriberProvider
@@ -128,10 +128,11 @@ class ChirpRecognitionService : RecognitionService() {
                 // Monitor amplitudes for RMS reporting
                 amplitudesJob =
                     scope.launch {
-                        recorder.amplitudes.collect { amps ->
-                            if (amps.isNotEmpty()) {
-                                val rms = amps.average() * 100 // Scale 0-100
-                                listener.rmsChanged(rms.toFloat())
+                        recorder.sampleCountFlow.collect { count ->
+                            if (count > 0L) {
+                                val amp = recorder.waveformBuffer.lastOrNull() ?: 0f
+                                val rms = amp * 100f // Scale 0-100
+                                listener.rmsChanged(rms)
                             }
                         }
                     }
@@ -227,6 +228,7 @@ class ChirpRecognitionService : RecognitionService() {
         Log.d(TAG, "Service destroyed")
         amplitudesJob?.cancel()
         recordingJob?.cancel()
+        recorder.close()
         scope.cancel()
         super.onDestroy()
     }

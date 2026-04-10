@@ -37,7 +37,7 @@ class ChunkedAudioProcessorTest {
     }
 
     @Test
-    fun `joinTranscripts merges parts without overlap`() {
+    fun `joinTranscripts merges parts without overlap`() = runTest {
         val processor = ChunkedAudioProcessor()
         val parts = listOf("Hello world", "this is a test")
         val joined = processor.joinTranscripts(parts)
@@ -45,7 +45,7 @@ class ChunkedAudioProcessorTest {
     }
 
     @Test
-    fun `joinTranscripts merges parts with single word overlap`() {
+    fun `joinTranscripts merges parts with single word overlap`() = runTest {
         val processor = ChunkedAudioProcessor()
         val parts = listOf("Hello world there", "there is a test")
         val joined = processor.joinTranscripts(parts)
@@ -53,7 +53,7 @@ class ChunkedAudioProcessorTest {
     }
 
     @Test
-    fun `joinTranscripts merges parts with multiple words overlap`() {
+    fun `joinTranscripts merges parts with multiple words overlap`() = runTest {
         val processor = ChunkedAudioProcessor()
         val parts = listOf("Hello world how are", "how are you doing")
         val joined = processor.joinTranscripts(parts)
@@ -61,7 +61,7 @@ class ChunkedAudioProcessorTest {
     }
 
     @Test
-    fun `joinTranscripts handles capitalization differences`() {
+    fun `joinTranscripts handles capitalization differences`() = runTest {
         val processor = ChunkedAudioProcessor()
         val parts = listOf("Hello world HOW ARE", "how are you doing")
         val joined = processor.joinTranscripts(parts)

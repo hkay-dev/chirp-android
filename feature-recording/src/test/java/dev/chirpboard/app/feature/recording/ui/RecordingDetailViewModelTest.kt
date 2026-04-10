@@ -1,6 +1,5 @@
 package dev.chirpboard.app.feature.recording.ui
 
-import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.audio.AudioPlayer
@@ -22,7 +21,6 @@ class RecordingDetailViewModelTest {
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var audioPlayer: AudioPlayer
     private lateinit var transcriptionQueueManager: TranscriptionQueueManager
-    private lateinit var context: Context
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
@@ -31,7 +29,6 @@ class RecordingDetailViewModelTest {
         recordingRepository = mockk(relaxed = true)
         audioPlayer = mockk(relaxed = true)
         transcriptionQueueManager = mockk(relaxed = true)
-        context = mockk(relaxed = true)
     }
 
     @After
@@ -48,7 +45,6 @@ class RecordingDetailViewModelTest {
                 recordingRepository,
                 audioPlayer,
                 transcriptionQueueManager,
-                context,
             )
         assertNotNull(viewModel)
     }

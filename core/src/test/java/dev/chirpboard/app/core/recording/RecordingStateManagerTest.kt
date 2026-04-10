@@ -115,11 +115,14 @@ class RecordingStateManagerTest {
     fun amplitudeUpdates_areTracked() {
         manager.updateAmplitude(0.5f)
         assertEquals(0.5f, manager.amplitudeFlow.value)
-        assertEquals(0.5f, manager.waveformBuffer.get(0)); assertEquals(1, manager.waveformBuffer.count)
+        assertEquals(0.5f, manager.waveformBuffer.get(0))
+        assertEquals(1, manager.waveformBuffer.count)
         
         manager.updateAmplitude(0.8f)
         assertEquals(0.8f, manager.amplitudeFlow.value)
-        assertEquals(0.5f, manager.waveformBuffer.get(0)); assertEquals(0.8f, manager.waveformBuffer.get(1)); assertEquals(2, manager.waveformBuffer.count)
+        assertEquals(0.5f, manager.waveformBuffer.get(0))
+        assertEquals(0.8f, manager.waveformBuffer.get(1))
+        assertEquals(2, manager.waveformBuffer.count)
         
         manager.clearAmplitude()
         assertEquals(0f, manager.amplitudeFlow.value)

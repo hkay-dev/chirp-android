@@ -40,6 +40,8 @@ class TranscriptionQueueManager
         @ApplicationContext private val context: Context,
         private val recordingRepository: RecordingRepository,
         private val constraintChecker: WorkConstraintChecker,
+        private val transcriberProvider: dev.chirpboard.app.core.transcription.TranscriberProvider,
+        private val whisperModelManager: WhisperModelManager,
     ) {
         private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
         private val reconciliationMutex = Mutex()
@@ -117,6 +119,13 @@ class TranscriptionQueueManager
                         delay(intervalMs)
                     }
                 }
+            scope.launch {
+                whisperModelManager.modelStatus.collect { status ->
+                    if (status is WhisperModelManager.ModelStatus.Ready) {
+                        recoverRecordingsWaitingForModel()
+                    }
+                }
+            }
         }
 
         /**
@@ -338,6 +347,18 @@ class TranscriptionQueueManager
                 queueReconciler.getRecoveryDiagnostics(recordingId)
             }
 
+        suspend fun recoverRecordingsWaitingForModel() {
+            val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first()
+            failed.filter {
+                it.errorMessage?.startsWith("Model not downloaded") == true ||
+                it.errorMessage?.startsWith("Failed to initialize") == true ||
+                it.errorMessage?.startsWith("Speech model unavailable") == true ||
+                it.errorMessage?.startsWith("Recognizer not ready") == true
+            }.forEach { recording ->
+                retry(recording.id)
+            }
+        }
+
         /**
          * Cancel pending transcription.
          * Cancels WorkManager work and updates status.
@@ -386,6 +407,9 @@ class TranscriptionQueueManager
         suspend fun processPendingOnStartup() {
             reconciliationMutex.withLock {
                 queueReconciler.reconcileQueueHealth(ReconciliationTrigger.STARTUP)
+            }
+            if (transcriberProvider.isModelDownloaded()) {
+                recoverRecordingsWaitingForModel()
             }
         }
 

@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
@@ -32,7 +33,7 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class VoiceRecognitionActivity : ComponentActivity() {
-    private val recorder by lazy { VoiceRecorder(this) }
+    private val recorder by lazy { VoiceRecorder(this, lifecycleScope) }
     private var recordingJob: Job? = null
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
@@ -50,7 +51,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
             textProcessor = textProcessor,
         )
     }
-    private val _isProcessing = MutableStateFlow(false)
+    private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     private val _shouldDismiss = MutableStateFlow(false)
     private val _partialTranscript = MutableStateFlow("")
 
@@ -74,8 +75,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 val currentMode by modeRepository.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
 
                 VoiceRecognitionDialog(
-                    amplitudesFlow = recorder.amplitudes,
-                    isProcessingFlow = _isProcessing,
+                    waveformBuffer = recorder.waveformBuffer,
+                    sampleCountFlow = recorder.sampleCountFlow,
+                    recordingStateFlow = _recordingState,
                     shouldDismissFlow = _shouldDismiss,
                     partialTranscriptFlow = _partialTranscript,
                     llmEnabled = llmEnabled.value,
@@ -94,6 +96,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     private fun startRecording() {
+        if (_recordingState.value !is RecordingState.Idle) {
+            Log.w(TAG, "Already recording, ignoring start request")
+            return
+        }
         if (androidx.core.content.ContextCompat
                 .checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -112,6 +118,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     returnError(SpeechRecognizer.ERROR_AUDIO)
                     return@launch
                 }
+                _recordingState.value = RecordingState.Recording(dev.chirpboard.app.core.recording.RecordingOrigin.APP)
 
                 // Collect samples in background
                 recordingJob =
@@ -130,10 +137,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
         llmEnabled: Boolean,
         processingMode: ProcessingMode,
     ) {
+        if (_recordingState.value is RecordingState.Stopping || _recordingState.value is RecordingState.Idle) {
+            Log.w(TAG, "Not recording or already stopping, ignoring stop request")
+            return
+        }
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Stop button pressed (LLM: $llmEnabled, Mode: ${processingMode.id})")
-                _isProcessing.value = true // Start processing indicator
+                _recordingState.value = RecordingState.Stopping(dev.chirpboard.app.core.recording.RecordingOrigin.APP)
                 recordingJob?.cancel()
                 val samples = recorder.stop()
                 Log.d(TAG, "Got ${samples.size} audio samples")
@@ -176,7 +187,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun cancelRecording() {
         recordingJob?.cancel()
         recorder.stop()
+        _recordingState.value = RecordingState.Idle
         dismissWithResult(Activity.RESULT_CANCELED)
+    }
+
+    override fun onDestroy() {
+        recorder.close()
+        super.onDestroy()
     }
 
     private fun returnError(errorCode: Int) {

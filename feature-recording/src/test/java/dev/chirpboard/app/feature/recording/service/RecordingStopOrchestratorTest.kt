@@ -15,6 +15,8 @@ import io.mockk.unmockkStatic
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import io.mockk.unmockkObject
+import io.mockk.mockkObject
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -36,7 +38,7 @@ class RecordingStopOrchestratorTest {
         recordingRepository = mockk(relaxed = true)
         transcriptionQueueManager = mockk(relaxed = true)
 
-        mockkStatic(ReliabilityEventLogger::class)
+        mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
 
         orchestrator = RecordingStopOrchestrator(recordingRepository, transcriptionQueueManager)
@@ -44,11 +46,11 @@ class RecordingStopOrchestratorTest {
 
     @After
     fun tearDown() {
-        unmockkStatic(ReliabilityEventLogger::class)
+        unmockkObject(ReliabilityEventLogger)
     }
 
     @Test
-    fun `persistAndQueueRecording returns NoAudioFile when path is null`() {
+    fun `persistAndQueueRecording returns NoAudioFile when path is null`() = runTest {
         val snapshot = StopSnapshot(
             origin = RecordingOrigin.APP,
             profileId = null,

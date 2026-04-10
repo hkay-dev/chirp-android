@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.sample
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.Closeable
+import dev.chirpboard.app.core.recording.WaveformBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
@@ -56,6 +58,7 @@ sealed class RecordingError(
  */
 class VoiceRecorder(
     private val context: Context,
+    private val coroutineScope: CoroutineScope,
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -66,11 +69,13 @@ class VoiceRecorder(
 
         /** Amplitude debounce interval - ~60fps is sufficient for visual smoothness on 120Hz displays */
         private const val AMPLITUDE_DEBOUNCE_MS = 16L
+        const val MAX_SAMPLE_CAPACITY = SAMPLE_RATE * 60 * 10 // 10 minutes
+        private const val INITIAL_SAMPLE_CAPACITY = SAMPLE_RATE * 60
     }
 
     private var audioRecord: AudioRecord? = null
     private val isRecording = AtomicBoolean(false)
-    private var samples = FloatArray(SAMPLE_RATE * 60) // Pre-allocate 1 min
+    private var samples = FloatArray(INITIAL_SAMPLE_CAPACITY) // Pre-allocate 1 min
     private var sampleCount = 0
     private val sampleLock = Any()
 
@@ -84,25 +89,18 @@ class VoiceRecorder(
     /** Callback invoked when a recording error occurs */
     var onRecordingError: ((RecordingError) -> Unit)? = null
 
+    /** Callback invoked when recording limit is reached */
+    var onLimitReached: (() -> Unit)? = null
+
     /** Whether an error occurred during the current recording session */
     private var hasError = false
 
     // Coroutine scope for debounced flow
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // Amplitude tracking for waveform visualization
-    // Raw amplitude updates flow (internal)
-    private val _amplitudesRaw = MutableStateFlow<ImmutableList<Float>>(persistentListOf())
-
-    // Debounced amplitudes for UI consumption (~60fps to prevent recomposition storms)
-    // This prevents 44.1kHz sample updates from overwhelming UI on 120Hz displays
-    val amplitudes: StateFlow<ImmutableList<Float>> =
-        _amplitudesRaw
-            .sample(AMPLITUDE_DEBOUNCE_MS.milliseconds)
-            .stateIn(scope, SharingStarted.WhileSubscribed(5000), persistentListOf())
-            
-    private val amplitudeHistory = FloatArray(5)
-    private var amplitudeHistoryCount = 0
+    val waveformBuffer = WaveformBuffer(42)
+    private val _sampleCountFlow = MutableStateFlow(0L)
+    val sampleCountFlow: StateFlow<Long> = _sampleCountFlow.asStateFlow()
 
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
@@ -164,10 +162,8 @@ class VoiceRecorder(
             synchronized(sampleLock) {
                 sampleCount = 0
             }
-            synchronized(amplitudeHistory) {
-                amplitudeHistoryCount = 0
-            }
-            _amplitudesRaw.value = persistentListOf()
+            waveformBuffer.clear()
+            _sampleCountFlow.value = 0L
             audioRecord?.startRecording()
             isRecording.set(true)
             recordingStartTimeMs = System.currentTimeMillis()
@@ -240,12 +236,26 @@ class VoiceRecorder(
                         // Normal case - process samples
                         synchronized(sampleLock) {
                             if (sampleCount + readResult > samples.size) {
-                                samples = samples.copyOf(maxOf(samples.size * 2, sampleCount + readResult))
+                                if (samples.size < MAX_SAMPLE_CAPACITY) {
+                                    samples = samples.copyOf(minOf(MAX_SAMPLE_CAPACITY, maxOf(samples.size * 2, sampleCount + readResult)))
+                                }
                             }
-                            for (i in 0 until readResult) {
-                                // Apply gain boost and clamp to prevent distortion
-                                val boostedSample = (buffer[i] * gainMultiplier).coerceIn(-1f, 1f)
-                                samples[sampleCount++] = boostedSample
+                            
+                            val spaceLeft = samples.size - sampleCount
+                            val toProcess = minOf(readResult, spaceLeft)
+                            
+                            if (toProcess > 0) {
+                                for (i in 0 until toProcess) {
+                                    // Apply gain boost and clamp to prevent distortion
+                                    val boostedSample = (buffer[i] * gainMultiplier).coerceIn(-1f, 1f)
+                                    samples[sampleCount++] = boostedSample
+                                }
+                            }
+                            
+                            if (sampleCount >= MAX_SAMPLE_CAPACITY && isRecording.get()) {
+                                isRecording.set(false)
+                                onLimitReached?.invoke()
+                                return@withContext
                             }
                         }
                         // Calculate amplitude for visualization (RMS of buffer)
@@ -254,19 +264,8 @@ class VoiceRecorder(
                             sum += abs(buffer[i] * gainMultiplier)
                         }
                         val amplitude = (sum / readResult).coerceIn(0f, 1f)
-                        synchronized(amplitudeHistory) {
-                            if (amplitudeHistoryCount < 5) {
-                                amplitudeHistory[amplitudeHistoryCount++] = amplitude
-                            } else {
-                                System.arraycopy(amplitudeHistory, 1, amplitudeHistory, 0, 4)
-                                amplitudeHistory[4] = amplitude
-                            }
-                            val currentList = ArrayList<Float>(amplitudeHistoryCount)
-                            for (i in 0 until amplitudeHistoryCount) {
-                                currentList.add(amplitudeHistory[i])
-                            }
-                            _amplitudesRaw.value = currentList.toImmutableList()
-                        }
+                        waveformBuffer.add(amplitude)
+                        _sampleCountFlow.value += 1L
                     }
                 }
             }
@@ -289,7 +288,12 @@ class VoiceRecorder(
         }
 
         return synchronized(sampleLock) {
-            samples.copyOf(sampleCount).also { sampleCount = 0 }
+            val capturedSamples = samples.copyOf(sampleCount)
+            sampleCount = 0
+            if (samples.size != INITIAL_SAMPLE_CAPACITY) {
+                samples = FloatArray(INITIAL_SAMPLE_CAPACITY)
+            }
+            capturedSamples
         }
     }
 

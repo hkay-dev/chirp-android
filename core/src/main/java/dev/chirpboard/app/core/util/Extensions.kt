@@ -131,7 +131,10 @@ fun String.isDefaultDateTitle(): Boolean {
  * Truncate string with ellipsis if longer than maxLength.
  */
 fun String.truncate(maxLength: Int): String {
-    return if (length <= maxLength) this else "${take(maxLength - 1)}..."
+    if (length < maxLength) return this
+    if (maxLength <= 3) return ".".repeat(maxLength.coerceAtLeast(0))
+    if (maxLength <= 4) return "..."
+    return "${take(maxLength - 3)}..."
 }
 
 /**
