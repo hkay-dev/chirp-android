@@ -14,6 +14,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
+import android.util.Log
+import org.junit.After
 
 class VoiceRecognitionPipelineTest {
     private lateinit var transcriberProvider: TranscriberProvider
@@ -22,6 +26,10 @@ class VoiceRecognitionPipelineTest {
 
     @Before
     fun setUp() {
+        mockkStatic(Log::class)
+        every { Log.d(any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0
+        every { Log.e(any(), any()) } returns 0
         transcriberProvider = mockk()
         textProcessor = mockk()
         pipeline =
@@ -30,6 +38,11 @@ class VoiceRecognitionPipelineTest {
                 transcriberProvider = transcriberProvider,
                 textProcessor = textProcessor,
             )
+    }
+
+    @After
+    fun tearDown() {
+        unmockkStatic(Log::class)
     }
 
     @Test

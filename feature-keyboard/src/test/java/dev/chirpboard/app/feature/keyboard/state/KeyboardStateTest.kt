@@ -14,28 +14,28 @@ class KeyboardStateTest {
 
     @Test
     fun `toKeyboardState maps Starting to Recording`() {
-        val recordingState = RecordingState.Starting(dev.chirpboard.app.core.recording.RecordingOrigin.APP)
+        val recordingState = RecordingState.Starting(dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD)
         val keyboardState = recordingState.toKeyboardState()
         assertEquals(KeyboardState.Recording, keyboardState)
     }
 
     @Test
     fun `toKeyboardState maps Recording correctly`() {
-        val recordingState = RecordingState.Recording(dev.chirpboard.app.core.recording.RecordingOrigin.APP, null)
+        val recordingState = RecordingState.Recording(origin = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD)
         val keyboardState = recordingState.toKeyboardState()
         assertEquals(KeyboardState.Recording, keyboardState)
     }
 
     @Test
     fun `toKeyboardState maps Paused to Recording`() {
-        val recordingState = RecordingState.Paused(dev.chirpboard.app.core.recording.RecordingOrigin.APP, null)
+        val recordingState = RecordingState.Paused(origin = dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD)
         val keyboardState = recordingState.toKeyboardState()
         assertEquals(KeyboardState.Recording, keyboardState)
     }
 
     @Test
     fun `toKeyboardState maps Stopping to Transcribing`() {
-        val recordingState = RecordingState.Stopping(dev.chirpboard.app.core.recording.RecordingOrigin.APP, null)
+        val recordingState = RecordingState.Stopping(dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD)
         val keyboardState = recordingState.toKeyboardState()
         assertEquals(KeyboardState.Transcribing, keyboardState)
     }
@@ -43,7 +43,7 @@ class KeyboardStateTest {
     @Test
     fun `toKeyboardState maps Error correctly`() {
         val errorMessage = "Microphone unavailable"
-        val recordingState = RecordingState.Error(dev.chirpboard.app.core.recording.RecordingOrigin.APP, errorMessage)
+        val recordingState = RecordingState.Error(dev.chirpboard.app.core.recording.RecordingOrigin.KEYBOARD, errorMessage)
         val keyboardState = recordingState.toKeyboardState()
         assertEquals(KeyboardState.Error(errorMessage), keyboardState)
     }

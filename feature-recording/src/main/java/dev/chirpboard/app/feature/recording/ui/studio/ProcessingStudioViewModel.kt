@@ -98,6 +98,7 @@ class ProcessingStudioViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         status = recording.status,
+                        errorMessage = recording.errorMessage,
                         transcriptWords = words.toImmutableList(),
                         summary = transcript?.summary ?: "",
                         title = recording.title,

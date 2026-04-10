@@ -77,4 +77,5 @@ dependencies {
     testImplementation("io.mockk:mockk:1.13.8")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("app.cash.turbine:turbine:1.0.0")
+    testImplementation("com.google.guava:guava:33.2.1-android")
 }

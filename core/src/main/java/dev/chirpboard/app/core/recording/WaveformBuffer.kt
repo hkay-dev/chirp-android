@@ -1,48 +1,55 @@
 package dev.chirpboard.app.core.recording
 
+import androidx.compose.runtime.Stable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+@Stable
 class WaveformBuffer(val capacity: Int = 1000) {
-    val buffer = FloatArray(capacity)
-    var index = 0
-        private set
-    var count = 0
-        private set
-    
+    private val buffer = FloatArray(capacity)
+    private var writeIndex = 0
+    private var sampleCount = 0
+
     private val _dataVersion = MutableStateFlow(0L)
     val dataVersion: StateFlow<Long> = _dataVersion.asStateFlow()
 
+    val count: Int
+        get() = synchronized(this) { sampleCount }
+
     fun add(amplitude: Float) {
         synchronized(this) {
-            buffer[index] = amplitude
-            index = (index + 1) % capacity
-            if (count < capacity) count++
+            buffer[writeIndex] = amplitude
+            writeIndex = (writeIndex + 1) % capacity
+            if (sampleCount < capacity) sampleCount++
             _dataVersion.value++
         }
     }
 
     fun clear() {
         synchronized(this) {
-            for (i in 0 until capacity) {
-                buffer[i] = 0f
-            }
-            index = 0
-            count = 0
+            buffer.fill(0f)
+            writeIndex = 0
+            sampleCount = 0
             _dataVersion.value++
         }
     }
-    
-    fun get(i: Int): Float {
-        if (i < 0 || i >= count) return 0f
-        val start = if (count < capacity) 0 else index
-        return buffer[(start + i) % capacity]
+
+    fun get(i: Int): Float = synchronized(this) {
+        if (i < 0 || i >= sampleCount) {
+            0f
+        } else {
+            val start = if (sampleCount < capacity) 0 else writeIndex
+            buffer[(start + i) % capacity]
+        }
     }
-    
-    fun lastOrNull(): Float? {
-        if (count == 0) return null
-        val idx = if (index == 0) capacity - 1 else index - 1
-        return buffer[idx]
+
+    fun lastOrNull(): Float? = synchronized(this) {
+        if (sampleCount == 0) {
+            null
+        } else {
+            val lastIndex = if (writeIndex == 0) capacity - 1 else writeIndex - 1
+            buffer[lastIndex]
+        }
     }
 }

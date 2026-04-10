@@ -413,7 +413,11 @@ class AudioDecoder @Inject constructor() {
             val resampled = if (sourceSampleRate != targetSampleRate) {
                 resample(monoSamples)
             } else {
-                monoSamples.map { it / MAX_16BIT }.toFloatArray()
+                val out = FloatArray(monoSamples.size)
+                for (i in monoSamples.indices) {
+                    out[i] = monoSamples[i] / MAX_16BIT
+                }
+                out
             }
 
             return resampled

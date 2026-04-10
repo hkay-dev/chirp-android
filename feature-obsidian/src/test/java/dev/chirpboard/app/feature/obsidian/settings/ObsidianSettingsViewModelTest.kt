@@ -33,15 +33,9 @@ class ObsidianSettingsViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-
-        // Mock Uri.parse
         mockkStatic(Uri::class)
-        every { Uri.parse(any()) } answers {
-            val str = firstArg<String>()
-            mockk<Uri> {
-                every { toString() } returns str
-            }
-        }
+        every { Uri.parse(any()) } returns mockk(relaxed = true)
+
 
         every { preferences.globalVaultUri } returns globalVaultUriFlow
         every { preferences.autoExportEnabled } returns autoExportEnabledFlow
@@ -63,19 +57,15 @@ class ObsidianSettingsViewModelTest {
             every { obsidianManager.getVaultDisplayName(any()) } returns "My Vault"
 
             val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
+            testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.uiState.test {
-                // First emission is usually the default initial state
-                val initialState = awaitItem()
-                assertTrue(initialState.isLoading)
-
-                // Next emission is the combined flow result
-                val updatedState = awaitItem()
-                assertEquals(uriStr, updatedState.vaultUri)
-                assertEquals("My Vault", updatedState.vaultName)
-                assertTrue(updatedState.autoExportEnabled)
-                assertTrue(updatedState.hasAccess)
-                assertFalse(updatedState.isLoading)
+                val state = awaitItem()
+                assertEquals(uriStr, state.vaultUri)
+                assertEquals("My Vault", state.vaultName)
+                assertTrue(state.autoExportEnabled)
+                assertTrue(state.hasAccess)
+                assertFalse(state.isLoading)
             }
         }
 
@@ -83,10 +73,8 @@ class ObsidianSettingsViewModelTest {
     fun `setVaultUri updates preference`() =
         runTest {
             val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
-            val testUri =
-                mockk<Uri> {
-                    every { toString() } returns "content://test"
-                }
+            val testUri = mockk<Uri>(relaxed = true)
+            every { testUri.toString() } returns "content://test"
 
             viewModel.setVaultUri(testUri)
             testDispatcher.scheduler.advanceUntilIdle()

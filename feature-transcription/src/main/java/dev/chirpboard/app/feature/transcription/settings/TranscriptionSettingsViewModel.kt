@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.transcription.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import dev.chirpboard.app.feature.transcription.WhisperModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +21,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class TranscriptionSettingsViewModel @Inject constructor(
-    private val modelManager: WhisperModelManager
+    private val modelManager: WhisperModelManager,
+    private val transcriptionQueueManager: TranscriptionQueueManager
 ) : ViewModel() {
 
     data class UiState(
@@ -100,6 +102,7 @@ class TranscriptionSettingsViewModel @Inject constructor(
                     downloadModelFiles()
                 }
                 modelManager.markDownloadComplete()
+                transcriptionQueueManager.recoverRecordingsWaitingForModel()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 val message = e.message ?: "Download failed"

@@ -39,7 +39,21 @@ class RecordingStopOrchestrator
                         RecordingOrigin.WIDGET -> RecordingSource.WIDGET
                     }
 
-                val recording =
+                val recording = try {
+                    recordingRepository.createRecording(
+                        title = title,
+                        audioPath = audioPath,
+                        source = source,
+                        profileId = snapshot.profileId,
+                        durationMs = snapshot.durationMs,
+                    )
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (file.exists()) {
+                        file.delete()
+                    }
+                    throw e
+                }
                     recordingRepository.createRecording(
                         title = title,
                         audioPath = audioPath,

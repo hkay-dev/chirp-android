@@ -1,12 +1,12 @@
 package dev.chirpboard.app.feature.transcription.settings
 
-import android.content.Context
 import app.cash.turbine.test
 import dev.chirpboard.app.feature.transcription.WhisperModelManager
 import dev.chirpboard.app.feature.transcription.WhisperModelManager.ModelStatus
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.coVerify
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -27,7 +27,6 @@ import org.junit.Test
 class TranscriptionSettingsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var mockContext: Context
     private lateinit var mockModelManager: WhisperModelManager
     private lateinit var mockStatusFlow: MutableStateFlow<ModelStatus>
     private lateinit var viewModel: TranscriptionSettingsViewModel
@@ -35,12 +34,11 @@ class TranscriptionSettingsViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        mockContext = mockk(relaxed = true)
         mockModelManager = mockk(relaxed = true)
         mockStatusFlow = MutableStateFlow(ModelStatus.NotDownloaded)
         every { mockModelManager.modelStatus } returns mockStatusFlow
         
-        viewModel = TranscriptionSettingsViewModel(mockContext, mockModelManager)
+        viewModel = TranscriptionSettingsViewModel(mockModelManager, mockk(relaxed = true))
     }
 
     @After
@@ -114,7 +112,7 @@ class TranscriptionSettingsViewModelTest {
             assertFalse(state.showDeleteConfirmation)
             assertNull(state.errorMessage)
             
-            verify { mockModelManager.deleteModel() }
+            coVerify { mockModelManager.deleteModel() }
             cancelAndIgnoreRemainingEvents()
         }
     }

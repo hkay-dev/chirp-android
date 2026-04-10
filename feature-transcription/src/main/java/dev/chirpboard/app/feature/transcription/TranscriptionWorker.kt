@@ -2,6 +2,9 @@ package dev.chirpboard.app.feature.transcription
 
 import android.content.Context
 import android.util.Log
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.Data
@@ -20,6 +23,7 @@ import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.UUID
 
@@ -44,6 +48,7 @@ class TranscriptionWorker
         private val llmClient: LlmClient,
         private val transcriberProvider: TranscriberProvider,
         private val audioDecoder: AudioDecoder,
+        private val recordingStateManager: dev.chirpboard.app.core.recording.RecordingStateManager,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "TranscriptionWorker"
@@ -84,6 +89,13 @@ class TranscriptionWorker
             val recording =
                 recordingRepository.getRecording(recordingId)
                     ?: return buildTranscriptionFailureResult("Recording not found: $recordingId")
+
+            // Defer work if a recording is currently active to prevent memory pressure from model loading
+            if (recordingStateManager.state.value.isActive) {
+                Log.w(TAG, "Recording is currently active. Waiting for it to finish before transcribing...")
+                recordingStateManager.state.first { !it.isActive }
+                Log.d(TAG, "Recording finished. Proceeding with transcription.")
+            }
 
             if (recording.status == RecordingStatus.PENDING_ENHANCEMENT) {
                 return runEnhancementOnly(recordingId, recording, correlationId)
@@ -176,6 +188,17 @@ class TranscriptionWorker
 
                 rawTranscriptionText =
                     processor.processAndJoin(audioFlow) { samples ->
+                        if (recordingStateManager.state.value.isActive) {
+                            Log.w(TAG, "Recording started during transcription. Pausing transcription until recording finishes...")
+                            recordingStateManager.state.first { !it.isActive }
+                            Log.d(TAG, "Recording finished. Resuming transcription.")
+                        }
+
+                        if (!transcriberProvider.isReady()) {
+                            Log.d(TAG, "Re-initializing transcriber...")
+                            transcriberProvider.initialize()
+                        }
+
                         mapOutcomeForChunkTranscription(
                             transcriberProvider.transcribe(
                                 samples,
@@ -331,6 +354,28 @@ class TranscriptionWorker
             }
         }
 
+        private fun showTranscriptionErrorNotification(recordingId: UUID, errorMessage: String) {
+            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "transcription_errors"
+            if (notificationManager.getNotificationChannel(channelId) == null) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Transcription Errors",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+                notificationManager.createNotificationChannel(channel)
+            }
+            
+            val notification = NotificationCompat.Builder(applicationContext, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("Transcription Failed")
+                .setContentText(errorMessage)
+                .setAutoCancel(true)
+                .build()
+                
+            notificationManager.notify(recordingId.hashCode(), notification)
+        }
+
         private suspend fun handleError(
             recordingId: UUID,
             correlationId: String,
@@ -373,6 +418,7 @@ class TranscriptionWorker
             return if (disposition.retry) {
                 Result.retry()
             } else {
+                showTranscriptionErrorNotification(recordingId, errorMessage)
                 buildTranscriptionFailureResult(errorMessage)
             }
         }

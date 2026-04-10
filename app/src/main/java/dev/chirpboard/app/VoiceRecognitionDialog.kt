@@ -55,25 +55,25 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
-import dev.chirpboard.app.core.ui.components.BreathingPulse
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.ThinkingDots
+import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
+import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
+import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-enum class RecognitionState {
-    Idle,
-    Listening,
-    Processing,
-}
-
 @Composable
 fun VoiceRecognitionDialog(
-    amplitudesFlow: StateFlow<List<Float>>,
-    isProcessingFlow: StateFlow<Boolean>,
+    waveformBuffer: WaveformBuffer,
+    sampleCountFlow: StateFlow<Long>,
+    recordingStateFlow: StateFlow<RecordingState>,
     shouldDismissFlow: StateFlow<Boolean>,
     partialTranscriptFlow: StateFlow<String>,
     llmEnabled: Boolean,
@@ -84,24 +84,17 @@ fun VoiceRecognitionDialog(
     onDismissComplete: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
 ) {
-    var isRecording by remember { mutableStateOf(false) }
-    val isProcessing by isProcessingFlow.collectAsStateWithLifecycle(false)
+    val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
     var isVisible by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
-    val recognitionState =
-        when {
-            isProcessing -> RecognitionState.Processing
-            isRecording -> RecognitionState.Listening
-            else -> RecognitionState.Idle
-        }
+    val sampleCount by sampleCountFlow.collectAsStateWithLifecycle(0L)
 
     LaunchedEffect(Unit) {
         delay(50)
         isVisible = true
-        isRecording = true
         onStart()
     }
 
@@ -154,9 +147,8 @@ fun VoiceRecognitionDialog(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                             onClick = {
-                                isVisible = false
-                                scope.launch {
-                                    delay(250)
+                                if (isVisible) {
+                                    isVisible = false
                                     onCancel()
                                 }
                             },
@@ -170,22 +162,21 @@ fun VoiceRecognitionDialog(
             exit = exitTransition,
         ) {
             VoiceRecognitionDialogContent(
-                recognitionState = recognitionState,
+                recordingState = recordingState,
+                waveformBuffer = waveformBuffer,
+                sampleCount = sampleCount,
                 partialTranscript = partialTranscript,
                 llmEnabled = llmEnabled,
                 currentMode = currentMode,
                 onStart = {
-                    isRecording = true
                     onStart()
                 },
                 onStop = {
-                    isRecording = false
                     onStop()
                 },
                 onCancel = {
-                    isVisible = false
-                    scope.launch {
-                        delay(250)
+                    if (isVisible) {
+                        isVisible = false
                         onCancel()
                     }
                 },
@@ -197,7 +188,9 @@ fun VoiceRecognitionDialog(
 
 @Composable
 private fun VoiceRecognitionDialogContent(
-    recognitionState: RecognitionState,
+    recordingState: RecordingState,
+    waveformBuffer: WaveformBuffer,
+    sampleCount: Long,
     partialTranscript: String,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
@@ -206,8 +199,10 @@ private fun VoiceRecognitionDialogContent(
     onCancel: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
 ) {
+    val isRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Starting || recordingState is RecordingState.Stopping
+    val isProcessing = recordingState is RecordingState.Stopping
     val containerSize by animateDpAsState(
-        targetValue = if (recognitionState == RecognitionState.Listening) 96.dp else 80.dp,
+        targetValue = if (isRecording && !isProcessing) 96.dp else 80.dp,
         animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
         label = "mic_container_size",
     )
@@ -239,6 +234,9 @@ private fun VoiceRecognitionDialogContent(
                 )
             }
 
+            if (isRecording) {
+                RecordingGlowBackground(modifier = Modifier.fillMaxSize())
+            }
             Column(
                 modifier =
                     Modifier
@@ -275,17 +273,33 @@ private fun VoiceRecognitionDialogContent(
                                 textAlign = TextAlign.Center,
                                 maxLines = 3,
                             )
-                        } else if (recognitionState == RecognitionState.Listening) {
-                            Text(
-                                text = stringResource(R.string.voice_recognition_listening),
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        } else if (isRecording && !isProcessing) {
+                            RecordingTimer(
+                                recordingState = recordingState,
+                                isRecording = true,
+                                textStyle = MaterialTheme.typography.displaySmall.copy(
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Light,
+                                    letterSpacing = 2.sp,
+                                )
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                if (isRecording && !isProcessing) {
+                    AudioWaveform(
+                        waveformBuffer = waveformBuffer,
+                        sampleCount = sampleCount,
+                        isActive = true,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                        maxBarHeight = 64.dp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
 
                 // Mic Button Area
                 Box(
@@ -294,26 +308,17 @@ private fun VoiceRecognitionDialogContent(
                             .size(120.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (recognitionState == RecognitionState.Listening) {
-                        BreathingPulse(
-                            isActive = true,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                            baseSize = 80.dp,
-                            expandedSize = containerSize + 24.dp,
-                        )
-                    }
-
                     val buttonColor =
-                        if (recognitionState == RecognitionState.Listening) {
-                            MaterialTheme.colorScheme.primary
+                        if (isRecording && !isProcessing) {
+                            MaterialTheme.colorScheme.errorContainer
                         } else {
-                            MaterialTheme.colorScheme.surfaceVariant
+                            MaterialTheme.colorScheme.primaryContainer
                         }
                     val iconColor =
-                        if (recognitionState == RecognitionState.Listening) {
-                            MaterialTheme.colorScheme.onPrimary
+                        if (isRecording && !isProcessing) {
+                            MaterialTheme.colorScheme.onErrorContainer
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.onPrimaryContainer
                         }
 
                     Box(
@@ -325,9 +330,9 @@ private fun VoiceRecognitionDialogContent(
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = ripple(bounded = false, radius = 56.dp),
-                                    enabled = recognitionState != RecognitionState.Processing,
+                                    enabled = !isProcessing,
                                     onClick = {
-                                        if (recognitionState == RecognitionState.Listening) {
+                                        if (isRecording) {
                                             onStop()
                                         } else {
                                             onStart()
@@ -336,17 +341,15 @@ private fun VoiceRecognitionDialogContent(
                                 ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (recognitionState == RecognitionState.Processing) {
+                        if (isProcessing) {
                             ThinkingDots(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         } else {
                             Icon(
-                                imageVector = if (recognitionState == RecognitionState.Listening) Icons.Filled.Stop else Icons.Filled.Mic,
+                                imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.Mic,
                                 contentDescription =
-                                    if (recognitionState ==
-                                        RecognitionState.Listening
-                                    ) {
+                                    if (isRecording) {
                                         stringResource(R.string.desc_stop)
                                     } else {
                                         stringResource(R.string.desc_start)
@@ -364,7 +367,7 @@ private fun VoiceRecognitionDialogContent(
                 VoiceRecognitionLlmControlSection(
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
-                    isRecording = recognitionState == RecognitionState.Listening,
+                    isRecording = isRecording,
                     onToggleLlm = onToggleLlm,
                 )
             }

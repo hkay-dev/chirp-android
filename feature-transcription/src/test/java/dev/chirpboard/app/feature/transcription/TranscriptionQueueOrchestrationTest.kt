@@ -12,8 +12,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkStatic
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.flow.flowOf
@@ -40,21 +40,23 @@ class TranscriptionQueueOrchestrationTest {
         constraintChecker = mockk(relaxed = true)
         workManager = mockk(relaxed = true)
 
-        mockkStatic(WorkManager::class)
+        io.mockk.mockkStatic(WorkManager::class)
         every { WorkManager.getInstance(any()) } returns workManager
 
-        mockkStatic(TranscriptionWorkRequest::class)
+        mockkObject(TranscriptionWorkRequest)
         every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } returns "test-work-id"
-        every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(1)}" }
+        every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(0)}" }
 
-        mockkStatic(ReliabilityEventLogger::class)
+        mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
 
-        coEvery { constraintChecker.checkConstraints() } returns WorkConstraintStatus.SATISFIED
+        coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
 
-        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker)
+        val mockModelManager = mockk<WhisperModelManager>(relaxed = true)
+        every { mockModelManager.modelStatus } returns kotlinx.coroutines.flow.MutableStateFlow(WhisperModelManager.ModelStatus.Ready)
+        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), mockModelManager)
         reconciler = TranscriptionQueueReconciler(
             context, recordingRepository, constraintChecker, {}, {}
         )
@@ -62,9 +64,9 @@ class TranscriptionQueueOrchestrationTest {
 
     @After
     fun tearDown() {
-        unmockkStatic(WorkManager::class)
-        unmockkStatic(TranscriptionWorkRequest::class)
-        unmockkStatic(ReliabilityEventLogger::class)
+        io.mockk.unmockkStatic(WorkManager::class)
+        unmockkObject(TranscriptionWorkRequest)
+        unmockkObject(ReliabilityEventLogger)
     }
 
     @Test
@@ -87,7 +89,7 @@ class TranscriptionQueueOrchestrationTest {
         reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
 
         coVerify {
-            recordingRepository.updateStatusWithError(id, RecordingStatus.PENDING_TRANSCRIPTION, match { it.contains("Recovered stale transcribing") })
+            recordingRepository.updateStatusWithError(id, RecordingStatus.PENDING_TRANSCRIPTION, match { it?.contains("Recovered stale transcribing") == true })
         }
     }
 

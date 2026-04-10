@@ -54,4 +54,10 @@ class SherpaRecognizerProvider(
         return activeRecognizer?.transcribeOutcome(samples, sampleRate)
             ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
     }
+    override suspend fun release() {
+        recognizer?.release()
+        recognizer = null
+        RecognizerManager.releaseRecognizer()
+    }
+
 }

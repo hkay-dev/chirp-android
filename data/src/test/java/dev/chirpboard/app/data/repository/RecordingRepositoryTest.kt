@@ -191,8 +191,7 @@ class RecordingRepositoryTest {
     fun `updateRawText delegates to dao`() = runTest {
         val id = UUID.randomUUID()
         repository.updateRawText(id, "raw")
-        coVerify(exactly = 1) { transcriptDao.updateRawText(id, "raw") }
-        coVerify(exactly = 1) { transcriptDao.updateRawText(id, "raw") }
+        coVerify(exactly = 1) { transcriptDao.updateRawText(id, "raw", any()) }
 
 
     }
@@ -201,7 +200,7 @@ class RecordingRepositoryTest {
     fun `updateProcessedText delegates to dao`() = runTest {
         val id = UUID.randomUUID()
         repository.updateProcessedText(id, "processed", "mode")
-        coVerify(exactly = 1) { transcriptDao.updateProcessedText(id, "processed", "mode") }
+        coVerify(exactly = 1) { transcriptDao.updateProcessedText(id, "processed", "mode", any()) }
 
 
     }
@@ -210,7 +209,7 @@ class RecordingRepositoryTest {
     fun `updateSummary delegates to dao`() = runTest {
         val id = UUID.randomUUID()
         repository.updateSummary(id, "summary")
-        coVerify(exactly = 1) { transcriptDao.updateSummary(id, "summary") }
+        coVerify(exactly = 1) { transcriptDao.updateSummary(id, "summary", any()) }
     }
 
     @Test

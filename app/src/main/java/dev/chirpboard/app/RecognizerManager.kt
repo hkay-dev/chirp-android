@@ -40,4 +40,12 @@ object RecognizerManager {
         }
         rec
     }
+    suspend fun releaseRecognizer() {
+        mutex.withLock {
+            Log.d(TAG, "Releasing SherpaRecognizer singleton from memory...")
+            recognizer?.release()
+            recognizer = null
+        }
+    }
+
 }

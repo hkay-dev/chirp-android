@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.recording.ui.components
+package dev.chirpboard.app.core.util
 
 /**
  * Format seconds into a human-readable duration string.

@@ -14,6 +14,7 @@ import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.Flow
 
 internal object KeyboardServiceStartup {
     fun configureAudioFocusInterrupts(
@@ -67,14 +68,30 @@ internal object KeyboardServiceStartup {
         onLlmEnabledChanged: (Boolean) -> Unit,
         onMicrophoneGainChanged: (Float) -> Unit,
     ) {
+        observePreferences(
+            scope = scope,
+            llmEnabledFlow = keyboardPreferences.llmEnabled,
+            microphoneGainFlow = keyboardPreferences.microphoneGain,
+            onLlmEnabledChanged = onLlmEnabledChanged,
+            onMicrophoneGainChanged = onMicrophoneGainChanged,
+        )
+    }
+
+    internal fun observePreferences(
+        scope: CoroutineScope,
+        llmEnabledFlow: Flow<Boolean>,
+        microphoneGainFlow: Flow<Float>,
+        onLlmEnabledChanged: (Boolean) -> Unit,
+        onMicrophoneGainChanged: (Float) -> Unit,
+    ) {
         scope.launch {
-            keyboardPreferences.llmEnabled.collect { enabled ->
+            llmEnabledFlow.collect { enabled ->
                 onLlmEnabledChanged(enabled)
             }
         }
 
         scope.launch {
-            keyboardPreferences.microphoneGain.collect { gain ->
+            microphoneGainFlow.collect { gain ->
                 onMicrophoneGainChanged(gain)
             }
         }
@@ -85,8 +102,20 @@ internal object KeyboardServiceStartup {
         modeRepository: ProcessingModeRepository,
         onModeChanged: (ProcessingMode) -> Unit,
     ) {
+        observeProcessingMode(
+            scope = scope,
+            currentModeFlow = modeRepository.currentMode,
+            onModeChanged = onModeChanged,
+        )
+    }
+
+    internal fun observeProcessingMode(
+        scope: CoroutineScope,
+        currentModeFlow: Flow<ProcessingMode>,
+        onModeChanged: (ProcessingMode) -> Unit,
+    ) {
         scope.launch {
-            modeRepository.currentMode.collect { mode ->
+            currentModeFlow.collect { mode ->
                 onModeChanged(mode)
             }
         }
@@ -106,7 +135,7 @@ internal object KeyboardServiceStartup {
                     return@collect
                 }
 
-                val derivedState = recordingState.toKeyboardState()
+                val derivedState = recordingState.toKeyboardState() ?: return@collect
                 if (derivedState != keyboardState) {
                     Log.d(tag, "Syncing state from RecordingStateManager: $recordingState -> $derivedState")
                     onStateChanged(derivedState)

@@ -73,14 +73,17 @@ import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
+import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 
 @Composable
 fun KeyboardUI(
     state: KeyboardState,
-    amplitudes: StateFlow<ImmutableList<Float>>,
+    waveformBuffer: WaveformBuffer,
+    sampleCount: Long,
     llmEnabled: Boolean,
     currentMode: ProcessingMode?,
     onTap: () -> Unit,
@@ -138,7 +141,7 @@ fun KeyboardUI(
                             }
 
                             is KeyboardState.Recording -> {
-                                RecordingContent(amplitudes, onTap)
+                                RecordingContent(waveformBuffer, sampleCount, onTap)
                             }
 
                             is KeyboardState.Transcribing -> {
@@ -369,7 +372,8 @@ private fun ModeChip(
 
 @Composable
 private fun RecordingContent(
-    amplitudes: StateFlow<ImmutableList<Float>>,
+    waveformBuffer: WaveformBuffer,
+    sampleCount: Long,
     onTap: () -> Unit,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
@@ -380,31 +384,39 @@ private fun RecordingContent(
             animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
             label = "pulse",
         )
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Waveform visualization
-        WaveformVisualizer(
-            amplitudesFlow = amplitudes,
-            modifier = Modifier.height(40.dp),
-            barColor = MaterialTheme.colorScheme.error,
-        )
-
-        LargeFloatingActionButton(
-            onClick = onTap,
-            modifier =
-                Modifier.graphicsLayer {
+    Box(modifier = Modifier.fillMaxSize()) {
+        RecordingGlowBackground(modifier = Modifier.fillMaxSize())
+        Column(
+            modifier = Modifier.fillMaxSize().padding(top = 16.dp, bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            AudioWaveform(
+                waveformBuffer = waveformBuffer,
+                sampleCount = sampleCount,
+                isActive = true,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f),
+                minBarHeight = 4.dp,
+                maxBarHeight = 64.dp,
+            )
+            LargeFloatingActionButton(
+                onClick = onTap,
+                modifier = Modifier.graphicsLayer {
                     scaleX = scale.value
                     scaleY = scale.value
                 },
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ) {
-            Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            ) {
+                Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
+            }
+            Text(
+                stringResource(R.string.keyboard_tap_to_stop),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
-        Text(
-            stringResource(R.string.keyboard_tap_to_stop),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.error,
-        )
     }
 }
 

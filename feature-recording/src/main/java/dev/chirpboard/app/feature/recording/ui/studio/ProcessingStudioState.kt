@@ -19,6 +19,7 @@ data class TranscriptWord(
 data class ProcessingStudioState(
     val isLoading: Boolean = false,
     val status: RecordingStatus? = null,
+    val errorMessage: String? = null,
     val transcriptWords: ImmutableList<TranscriptWord> = persistentListOf(),
     val summary: String = "",
     val chatMessages: ImmutableList<ChatMessage> = persistentListOf(),

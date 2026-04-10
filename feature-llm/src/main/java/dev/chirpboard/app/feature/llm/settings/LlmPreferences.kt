@@ -84,7 +84,7 @@ class LlmPreferences
                 securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null),
             )
 
-        fun getApiKey(): String? = securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null)
+        fun fetchApiKey(): String? = securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null)
 
         fun getModelName(): String = appPrefs.getString(KEY_GEMINI_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
 
@@ -123,7 +123,7 @@ class LlmPreferences
         /**
          * Check if an API key has been configured.
          */
-        fun hasApiKey(): Boolean = !getApiKey().isNullOrBlank()
+        fun hasApiKey(): Boolean = !fetchApiKey().isNullOrBlank()
 
         /**
          * Check if secure storage is available on this device.

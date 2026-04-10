@@ -1,6 +1,8 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import dev.chirpboard.app.data.model.RecordingStatus
 import android.content.Context
+import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.repository.ProfileRepository
@@ -35,7 +37,7 @@ class HomeViewModelTest {
     private lateinit var profileRepository: ProfileRepository
     private lateinit var transcriptionQueueManager: TranscriptionQueueManager
     private lateinit var llmClient: LlmClient
-    private lateinit var context: Context
+    private lateinit var savedStateHandle: SavedStateHandle
 
     private lateinit var viewModel: HomeViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -50,7 +52,7 @@ class HomeViewModelTest {
             }
         recordingManager =
             mockk(relaxed = true) {
-                every { state } returns MutableStateFlow(RecordingState())
+                every { state } returns MutableStateFlow(RecordingState.Idle)
             }
         tagRepository =
             mockk(relaxed = true) {
@@ -62,7 +64,7 @@ class HomeViewModelTest {
             }
         transcriptionQueueManager = mockk(relaxed = true)
         llmClient = mockk(relaxed = true)
-        context = mockk(relaxed = true)
+        savedStateHandle = SavedStateHandle()
 
         viewModel =
             HomeViewModel(
@@ -72,7 +74,7 @@ class HomeViewModelTest {
                 profileRepository,
                 transcriptionQueueManager,
                 llmClient,
-                context,
+                savedStateHandle,
             )
     }
 
@@ -102,21 +104,23 @@ class HomeViewModelTest {
             viewModel.deleteRecording(recording)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { recordingRepository.deleteRecording(recording) }
+            coVerify { recordingRepository.delete(recording) }
         }
 
     @Test
     fun `retryTranscription queues recording for transcription`() =
         runTest {
+            val recordingId = UUID.randomUUID()
             val recording =
                 mockk<Recording>(relaxed = true) {
-                    every { id } returns UUID.randomUUID()
+                    every { id } returns recordingId
+                    every { status } returns RecordingStatus.FAILED
                 }
 
             viewModel.retryTranscription(recording)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { transcriptionQueueManager.enqueue(recording.id) }
+            coVerify { transcriptionQueueManager.retry(recordingId) }
         }
 
     @Test
@@ -126,12 +130,12 @@ class HomeViewModelTest {
             val recording =
                 mockk<Recording>(relaxed = true) {
                     every { id } returns recordingId
+                    every { status } returns RecordingStatus.PENDING_TRANSCRIPTION
                 }
 
             viewModel.recoverStuckItem(recording)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { recordingRepository.resetToPending(recordingId) }
-            coVerify { transcriptionQueueManager.enqueue(recordingId) }
+            coVerify { transcriptionQueueManager.recoverPendingTranscription(recordingId) }
         }
 }

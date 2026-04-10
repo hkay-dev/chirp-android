@@ -308,6 +308,7 @@ IMPORTANT: Respond ONLY with the cleaned text. Do not add any commentary, explan
         }
 
         /** List of all preset modes (excludes Custom) */
-        val presets: List<ProcessingMode> = listOf(Proofread, Formal, Casual, Email, Code, Smart)
+        val presets: List<ProcessingMode>
+            get() = listOf(Proofread, Formal, Casual, Email, Code, Smart)
     }
 }
