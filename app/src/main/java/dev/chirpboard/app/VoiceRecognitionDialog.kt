@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -129,32 +131,9 @@ fun VoiceRecognitionDialog(
             )
 
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
         contentAlignment = Alignment.BottomCenter,
     ) {
-        // Scrim background to dim the app behind the STT overlay
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = fadeIn(animationSpec = tween(300)),
-            exit = fadeOut(animationSpec = tween(250)),
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.15f))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {
-                                if (isVisible) {
-                                    isVisible = false
-                                    onCancel()
-                                }
-                            },
-                        ),
-            )
-        }
 
         AnimatedVisibility(
             visible = isVisible,
@@ -208,10 +187,11 @@ private fun VoiceRecognitionDialogContent(
     )
 
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-        tonalElevation = 6.dp, // Premium native feel
-        shadowElevation = 16.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 200.dp, max = 280.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 2.dp,
     ) {
         Box(
             modifier =

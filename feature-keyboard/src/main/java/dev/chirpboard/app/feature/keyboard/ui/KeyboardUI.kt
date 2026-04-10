@@ -31,7 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Mic
@@ -68,6 +68,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.material.icons.filled.Close
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
@@ -87,6 +90,8 @@ fun KeyboardUI(
     llmEnabled: Boolean,
     currentMode: ProcessingMode?,
     onTap: () -> Unit,
+    onCancel: () -> Unit = {},
+    onRestart: () -> Unit = {},
     onToggleLlm: () -> Unit,
     onModeChange: (ProcessingMode) -> Unit,
     onBackspace: () -> Unit = {},
@@ -94,25 +99,25 @@ fun KeyboardUI(
     onMoveCursor: (Int) -> Unit = {},
 ) {
     KeyboardTheme {
+        val outlineColor = MaterialTheme.colorScheme.outlineVariant
         Surface(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp, max = 280.dp),
+                    .heightIn(min = 200.dp, max = 280.dp)
+                    .drawBehind {
+                        drawLine(
+                            color = outlineColor,
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = 1.dp.toPx()
+                        )
+                    },
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            tonalElevation = 2.dp,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = 0.dp,
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                // LLM Toggle in top-right corner
-                LlmToggle(
-                    enabled = llmEnabled,
-                    onClick = onToggleLlm,
-                    modifier =
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp),
-                )
-
+            Box(modifier = Modifier.fillMaxSize().padding(top = 1.dp)) {
                 // Main content
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -132,6 +137,7 @@ fun KeyboardUI(
                                 IdleContent(
                                     onTap = onTap,
                                     llmEnabled = llmEnabled,
+                                    onToggleLlm = onToggleLlm,
                                     currentMode = currentMode,
                                     onModeChange = onModeChange,
                                     onBackspace = onBackspace,
@@ -141,7 +147,17 @@ fun KeyboardUI(
                             }
 
                             is KeyboardState.Recording -> {
-                                RecordingContent(waveformBuffer, sampleCount, onTap)
+                                RecordingContent(
+                                    waveformBuffer = waveformBuffer,
+                                    sampleCount = sampleCount,
+                                    onStop = onTap,
+                                    onCancel = onCancel,
+                                    onRestart = onRestart,
+                                    llmEnabled = llmEnabled,
+                                    currentMode = currentMode,
+                                    onToggleLlm = onToggleLlm,
+                                    onModeChange = onModeChange
+                                )
                             }
 
                             is KeyboardState.Transcribing -> {
@@ -204,6 +220,7 @@ private fun LlmToggle(
 private fun IdleContent(
     onTap: () -> Unit,
     llmEnabled: Boolean,
+    onToggleLlm: () -> Unit,
     currentMode: ProcessingMode?,
     onModeChange: (ProcessingMode) -> Unit,
     onBackspace: () -> Unit,
@@ -238,12 +255,19 @@ private fun IdleContent(
             onMoveCursor = onMoveCursor,
         )
 
-        // Mode selector - only show when LLM is enabled
-        if (llmEnabled && currentMode != null) {
-            ModeSelector(
-                currentMode = currentMode,
-                onModeChange = onModeChange,
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LlmToggle(enabled = llmEnabled, onClick = onToggleLlm)
+            if (llmEnabled && currentMode != null) {
+                Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                ModeSelector(
+                    currentMode = currentMode,
+                    onModeChange = onModeChange,
+                )
+            }
         }
     }
 }
@@ -275,7 +299,7 @@ private fun KeyboardControls(
                     ).size(48.dp),
         ) {
             Icon(
-                Icons.Filled.Backspace,
+                Icons.AutoMirrored.Filled.Backspace,
                 contentDescription = stringResource(R.string.keyboard_desc_delete),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
@@ -335,9 +359,7 @@ private fun ModeSelector(
     Row(
         modifier =
             Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState)
-                .padding(horizontal = 16.dp),
+                .horizontalScroll(scrollState),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
         ModeChip("proofread", stringResource(R.string.keyboard_mode_proofread), currentId, onModeChange)
@@ -374,7 +396,13 @@ private fun ModeChip(
 private fun RecordingContent(
     waveformBuffer: WaveformBuffer,
     sampleCount: Long,
-    onTap: () -> Unit,
+    onStop: () -> Unit,
+    onCancel: () -> Unit,
+    onRestart: () -> Unit,
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode?,
+    onToggleLlm: () -> Unit,
+    onModeChange: (ProcessingMode) -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
     val scale =
@@ -396,26 +424,55 @@ private fun RecordingContent(
                 sampleCount = sampleCount,
                 isActive = true,
                 color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).padding(horizontal = 24.dp),
                 minBarHeight = 4.dp,
                 maxBarHeight = 64.dp,
             )
-            LargeFloatingActionButton(
-                onClick = onTap,
-                modifier = Modifier.graphicsLayer {
-                    scaleX = scale.value
-                    scaleY = scale.value
-                },
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp)
+                ) {
+                    Icon(Icons.Filled.Close, "Cancel recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+                LargeFloatingActionButton(
+                    onClick = onStop,
+                    modifier = Modifier.graphicsLayer {
+                        scaleX = scale.value
+                        scaleY = scale.value
+                    },
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ) {
+                    Icon(Icons.Filled.Check, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
+                }
+
+                IconButton(
+                    onClick = onRestart,
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp)
+                ) {
+                    Icon(Icons.Filled.Refresh, "Restart recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Text(
-                stringResource(R.string.keyboard_tap_to_stop),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                LlmToggle(enabled = llmEnabled, onClick = onToggleLlm)
+                if (llmEnabled && currentMode != null) {
+                    Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
+                    ModeSelector(
+                        currentMode = currentMode,
+                        onModeChange = onModeChange,
+                    )
+                }
+            }
         }
     }
 }

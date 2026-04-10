@@ -30,29 +30,16 @@ fun RecordingGlowBackground(modifier: Modifier = Modifier) {
 
     Canvas(modifier = modifier) {
         val color = glowColor.value
-        drawCircle(
-            brush =
-                Brush.radialGradient(
-                    colors = listOf(
-                        color.copy(alpha = 0.45f),
-                        color.copy(alpha = 0.18f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(180.dp.toPx(), 360.dp.toPx()),
-                    radius = 440.dp.toPx(),
+        drawRect(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    color.copy(alpha = 0.15f),
+                    color.copy(alpha = 0.35f),
                 ),
-        )
-        drawCircle(
-            brush =
-                Brush.radialGradient(
-                    colors = listOf(
-                        color.copy(alpha = 0.35f),
-                        color.copy(alpha = 0.12f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(840.dp.toPx(), 520.dp.toPx()),
-                    radius = 380.dp.toPx(),
-                ),
+                startY = 0f,
+                endY = size.height
+            )
         )
     }
 }

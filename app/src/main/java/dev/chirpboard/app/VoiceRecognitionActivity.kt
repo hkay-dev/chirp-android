@@ -61,6 +61,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
         androidx.core.view.WindowCompat
             .setDecorFitsSystemWindows(window, false)
+        val params = window.attributes
+        params.gravity = android.view.Gravity.BOTTOM
+        params.width = android.view.WindowManager.LayoutParams.MATCH_PARENT
+        params.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT
+        // Don't dim the background and watch for outside touches to dismiss
+        params.flags = params.flags or android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+        params.flags = params.flags and android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
+        window.attributes = params
 
         // Ensure transcriber is initialized
         lifecycleScope.launch {
@@ -93,6 +101,15 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
+        if (event?.action == android.view.MotionEvent.ACTION_OUTSIDE) {
+            Log.d(TAG, "Touched outside, cancelling recording")
+            cancelRecording()
+            return true
+        }
+        return super.onTouchEvent(event)
     }
 
     private fun startRecording() {
