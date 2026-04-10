@@ -285,6 +285,8 @@ class ChirpKeyboardService :
                         llmEnabled = llmEnabled,
                         currentMode = currentMode,
                         onTap = ::onTap,
+                        onCancel = ::cancelRecording,
+                        onRestart = ::restartRecording,
                         onToggleLlm = ::toggleLlm,
                         onModeChange = ::changeMode,
                         onBackspace = ::onBackspace,
@@ -508,6 +510,22 @@ class ChirpKeyboardService :
                 onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
             )
         }
+    }
+
+    private fun cancelRecording() {
+        Log.d(TAG, "Canceling recording")
+        audioFocusManager.abandonFocus()
+        HapticFeedback.onRecordStop(this)
+        recordingJob?.cancel()
+        recorder.stop()
+        lastRecordingSamples = null
+        recordingStateManager.onRecordingCompleted()
+        _state.value = KeyboardState.Idle
+    }
+
+    private fun restartRecording() {
+        cancelRecording()
+        startRecording()
     }
 
     private fun finalizeActiveRecording(errorMessage: String) {
