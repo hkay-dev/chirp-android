@@ -1,5 +1,8 @@
 package dev.chirpboard.app.ui.settings
 
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
@@ -77,27 +80,16 @@ fun AudioSettingsScreen(
             )
         },
     ) { padding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize(),
+            contentPadding = padding,
         ) {
-            // Input Section
-            Spacer(modifier = Modifier.height(16.dp))
-            SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_input))
-
+            item { SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_input)) }
             // Microphone Gain
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-            ) {
+            item {
                 Column(
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     val displayedGain by animateFloatAsState(
@@ -124,81 +116,67 @@ fun AudioSettingsScreen(
             }
 
             // Output Section
-            Spacer(modifier = Modifier.height(8.dp))
-            SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_output))
+            item { SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_output)) }
 
             // Recording Quality (placeholder)
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-            ) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+            item {
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                    headlineContent = {
                         Text(
                             text = stringResource(R.string.audio_settings_recording_quality),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                         )
+                    },
+                    supportingContent = {
                         Text(
                             text = stringResource(R.string.audio_settings_coming_soon),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         )
+                    },
+                    trailingContent = {
+                        Text(
+                            text = stringResource(R.string.audio_settings_quality_default),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                        )
                     }
-                    Text(
-                        text = stringResource(R.string.audio_settings_quality_default),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                    )
-                }
+                )
             }
-
             // Output Format (placeholder)
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-            ) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
+            item {
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+                    headlineContent = {
                         Text(
                             text = stringResource(R.string.audio_settings_output_format),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
                         )
+                    },
+                    supportingContent = {
                         Text(
                             text = stringResource(R.string.audio_settings_coming_soon),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                         )
+                    },
+                    trailingContent = {
+                        Text(
+                            text = stringResource(R.string.audio_settings_output_format_default),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+                        )
                     }
-                    Text(
-                        text = stringResource(R.string.audio_settings_output_format_default),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
-                    )
-                }
+                )
             }
 
             // Bottom padding
-            Spacer(modifier = Modifier.height(24.dp))
+            item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 }

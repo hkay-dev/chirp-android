@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.feature.obsidian.R
+import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
 /**
  * Settings screen for configuring Obsidian vault integration.
@@ -107,7 +108,6 @@ fun ObsidianSettingsScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
             // Vault configuration card
             VaultConfigurationCard(
                 vaultName = uiState.vaultName,
@@ -141,13 +141,11 @@ private fun VaultConfigurationCard(
     onClearVault: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = stringResource(R.string.obsidian_vault_title),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp),
+        SettingsSectionHeader(
+            title = stringResource(R.string.obsidian_vault_title),
         )
 
         val accessIconTint by animateColorAsState(
@@ -203,7 +201,7 @@ private fun VaultConfigurationCard(
             )
 
             Row(
-                modifier = Modifier,
+                modifier = Modifier.padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(onClick = onSelectVault) {
@@ -233,7 +231,7 @@ private fun VaultConfigurationCard(
 
             Button(
                 onClick = onSelectVault,
-                modifier = Modifier
+                modifier = Modifier.padding(horizontal = 16.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Folder,
@@ -275,7 +273,6 @@ private fun AutoExportCard(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
             .clickable(enabled = hasAccess) { onToggle() },
         colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent)
     )

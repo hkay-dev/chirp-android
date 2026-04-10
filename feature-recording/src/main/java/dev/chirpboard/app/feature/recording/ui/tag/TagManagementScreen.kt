@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -27,8 +28,9 @@ import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -124,9 +126,7 @@ fun TagManagementScreen(
                             .fillMaxSize()
                             .padding(paddingValues),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding =
-                        androidx.compose.foundation.layout
-                            .PaddingValues(16.dp),
+                    contentPadding = PaddingValues(bottom = 88.dp),
                 ) {
                     items(
                         items = tags,
@@ -139,6 +139,7 @@ fun TagManagementScreen(
                             onDelete = { viewModel.deleteTag(tag) },
                             modifier = Modifier.animateItem(),
                         )
+                        HorizontalDivider()
                     }
                 }
             }
@@ -241,21 +242,16 @@ private fun TagItemCard(
             tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
         }
 
-    Card(
+    ListItem(
         modifier = modifier.fillMaxWidth(),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Color indicator
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        headlineContent = {
+            Text(
+                text = tag.name,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        },
+        leadingContent = {
             Box(
                 modifier =
                     Modifier
@@ -263,17 +259,8 @@ private fun TagItemCard(
                         .clip(CircleShape)
                         .background(tagColor),
             )
-
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Tag name
-            Text(
-                text = tag.name,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.weight(1f),
-            )
-
-            // Edit button
+        },
+        trailingContent = {
             IconButton(onClick = onEdit) {
                 Icon(
                     imageVector = Icons.Default.Edit,
@@ -282,9 +269,8 @@ private fun TagItemCard(
                 )
             }
         }
-    }
+    )
 }
-
 private fun parseColor(
     hexColor: String,
     fallbackColor: Color,

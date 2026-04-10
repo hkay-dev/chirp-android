@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.transcription.settings
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -11,6 +12,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -96,66 +100,53 @@ fun TranscriptionSettingsScreen(
             )
         },
     ) { padding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize(),
+            contentPadding = padding,
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
 
             // Model Status Section
-            SettingsSectionHeader(
-                title = stringResource(R.string.transcription_section_model),
-            )
+            item {
+                SettingsSectionHeader(
+                    title = stringResource(R.string.transcription_section_model),
+                )
+            }
 
-            ModelStatusCard(
-                modelName = uiState.modelName,
-                modelSizeMb = uiState.modelSizeMb,
-                isDownloaded = uiState.isDownloaded,
-                isLoading = uiState.isLoading,
-            )
-
-            // Download Progress
-            if (uiState.isLoading) {
-                DownloadProgressCard(
+            item {
+                ModelManagementCard(
+                    modelName = uiState.modelName,
+                    modelSizeMb = uiState.modelSizeMb,
+                    isDownloaded = uiState.isDownloaded,
+                    isLoading = uiState.isLoading,
                     progress = uiState.downloadProgress,
                     currentFile = uiState.currentFile,
+                    onDownload = viewModel::downloadModel,
+                    onDelete = viewModel::showDeleteConfirmation,
                 )
             }
 
             // Error Message
             uiState.errorMessage?.let { error ->
-                ErrorCard(
-                    message = error,
-                    onDismiss = viewModel::dismissError,
-                )
+                item { Spacer(Modifier.height(8.dp)) }
+                item {
+                    ErrorCard(
+                        message = error,
+                        onDismiss = viewModel::dismissError,
+                    )
+                }
             }
 
-            // Model Actions Section
-            Spacer(modifier = Modifier.height(8.dp))
-            SettingsSectionHeader(
-                title = stringResource(R.string.transcription_section_actions),
-            )
-
-            ModelActionsCard(
-                isDownloaded = uiState.isDownloaded,
-                isLoading = uiState.isLoading,
-                onDownload = viewModel::downloadModel,
-                onDelete = viewModel::showDeleteConfirmation,
-            )
-
             // Help text
-            Text(
-                text = stringResource(R.string.transcription_model_help),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp),
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
+            item {
+                Text(
+                    text = stringResource(R.string.transcription_model_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp),
+                )
+            }
+            item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
 
@@ -178,11 +169,15 @@ fun TranscriptionSettingsScreen(
 }
 
 @Composable
-private fun ModelStatusCard(
+private fun ModelManagementCard(
     modelName: String,
     modelSizeMb: Int,
     isDownloaded: Boolean,
     isLoading: Boolean,
+    progress: Float,
+    currentFile: String,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val statusTint =
         animateColorAsState(
@@ -190,61 +185,43 @@ private fun ModelStatusCard(
                 when {
                     isLoading -> MaterialTheme.colorScheme.tertiary
                     isDownloaded -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.outline
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
                 },
             animationSpec = tween(300, easing = FastOutSlowInEasing),
             label = "status_tint",
         ).value
 
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-            headlineContent = {
-                Text(
-                    text = stringResource(R.string.transcription_model_label),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingContent = {
-                Text(
-                    text = modelName,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        )
+    val iconContainerColor =
+        animateColorAsState(
+            targetValue =
+                when {
+                    isLoading -> MaterialTheme.colorScheme.tertiaryContainer
+                    isDownloaded -> MaterialTheme.colorScheme.primaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                },
+            animationSpec = tween(300, easing = FastOutSlowInEasing),
+            label = "icon_container_color",
+        ).value
 
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-            headlineContent = {
-                Text(
-                    text = stringResource(R.string.transcription_size_label),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingContent = {
-                Text(
-                    text = stringResource(R.string.transcription_size_value, modelSizeMb),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-            }
-        )
-
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
-            headlineContent = {
-                Text(
-                    text = stringResource(R.string.transcription_status_label),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            },
-            trailingContent = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header with Icon and Model Info
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(color = iconContainerColor, shape = CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
                     AnimatedContent(
                         targetState =
@@ -259,112 +236,133 @@ private fun ModelStatusCard(
                         },
                         label = "statusIconTransition",
                     ) { state ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            when (state) {
-                                "loading" -> {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
-                                        color = statusTint,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.transcription_status_downloading),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = statusTint,
-                                    )
-                                }
-
-                                "downloaded" -> {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = statusTint,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.transcription_status_ready),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = statusTint,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                }
-
-                                else -> {
-                                    Icon(
-                                        imageVector = Icons.Default.Warning,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                        tint = statusTint,
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.transcription_status_not_downloaded),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = statusTint,
-                                    )
-                                }
+                        when (state) {
+                            "loading" -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                    color = statusTint,
+                                )
+                            }
+                            "downloaded" -> {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = statusTint,
+                                )
+                            }
+                            else -> {
+                                Icon(
+                                    imageVector = Icons.Default.CloudDownload,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                    tint = statusTint,
+                                )
                             }
                         }
                     }
                 }
+                
+                Spacer(Modifier.width(16.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = modelName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    val statusText = when {
+                        isLoading -> stringResource(R.string.transcription_status_downloading)
+                        isDownloaded -> stringResource(R.string.transcription_status_ready)
+                        else -> stringResource(R.string.transcription_status_not_downloaded)
+                    }
+                    val sizeText = stringResource(R.string.transcription_size_value, modelSizeMb)
+                    
+                    Text(
+                        text = "$statusText • $sizeText",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-        )
-    }
-}
 
-@Composable
-private fun DownloadProgressCard(
-    progress: Float,
-    currentFile: String,
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f),
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+            // Progress Section
+            AnimatedVisibility(visible = isLoading) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (currentFile.isNotEmpty()) {
+                                stringResource(R.string.transcription_downloading_file, currentFile)
+                            } else {
+                                stringResource(R.string.transcription_downloading)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(8.dp),
+                        color = MaterialTheme.colorScheme.tertiary,
+                        trackColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    )
+                }
+            }
+            
+            // Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
             ) {
-                Text(
-                    text =
-                        if (currentFile.isNotEmpty()) {
-                            stringResource(
-                                R.string.transcription_downloading_file,
-                                currentFile,
-                            )
+                if (!isDownloaded) {
+                    Button(
+                        onClick = onDownload,
+                        enabled = !isLoading,
+                    ) {
+                        if (isLoading) {
+                            Text(stringResource(R.string.transcription_downloading))
                         } else {
-                            stringResource(R.string.transcription_downloading)
-                        },
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.tertiary,
-                )
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.transcription_download_model))
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onDelete,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.transcription_delete_model))
+                    }
+                }
             }
-
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .height(8.dp),
-                color = MaterialTheme.colorScheme.tertiary,
-                trackColor = MaterialTheme.colorScheme.tertiaryContainer,
-            )
         }
     }
 }
@@ -400,62 +398,6 @@ private fun ErrorCard(
             )
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.transcription_dismiss))
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModelActionsCard(
-    isDownloaded: Boolean,
-    isLoading: Boolean,
-    onDownload: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (!isDownloaded) {
-            Button(
-                onClick = onDownload,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isLoading,
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.transcription_downloading))
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.CloudDownload,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.transcription_download_model))
-                }
-            }
-        } else {
-            OutlinedButton(
-                onClick = onDelete,
-                modifier = Modifier.fillMaxWidth(),
-                colors =
-                    ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                    ),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Delete,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.transcription_delete_model))
             }
         }
     }

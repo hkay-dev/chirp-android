@@ -29,8 +29,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -123,14 +124,7 @@ fun WordReplacementsScreen(
                         Modifier
                             .fillMaxSize()
                             .padding(paddingValues),
-                    contentPadding =
-                        PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 8.dp,
-                            bottom = 88.dp, // Extra padding for FAB
-                        ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 88.dp),
                 ) {
                     items(
                         items = replacements,
@@ -147,6 +141,7 @@ fun WordReplacementsScreen(
                             onDelete = { viewModel.delete(replacement) },
                             modifier = Modifier.animateItem(),
                         )
+                        HorizontalDivider()
                     }
                 }
             }
@@ -276,88 +271,51 @@ private fun ReplacementItemCard(
         label = "to_text_color",
     )
 
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors =
-            CardDefaults.cardColors(
-                containerColor =
-                    if (replacement.enabled) {
-                        MaterialTheme.colorScheme.surface
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    },
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Enable/disable switch + text - clickable area
+    ListItem(
+        modifier = Modifier.fillMaxWidth().clickable { onToggleEnabled() },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        headlineContent = {
             Row(
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .defaultMinSize(minHeight = 48.dp)
-                        .semantics(mergeDescendants = true) {}
-                        .clickable { onToggleEnabled() },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Switch(
-                    checked = replacement.enabled,
-                    onCheckedChange = null, // Handled by row click
+                Text(
+                    text = replacement.original,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textDecoration = if (!replacement.enabled) TextDecoration.LineThrough else TextDecoration.None,
+                    color = fromTextColor,
                 )
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                // Replacement text
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = replacement.original,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textDecoration =
-                                if (!replacement.enabled) {
-                                    TextDecoration.LineThrough
-                                } else {
-                                    TextDecoration.None
-                                },
-                            color = fromTextColor,
-                        )
-
-                        Text(
-                            text = " \u2192 ",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-
-                        Text(
-                            text = replacement.replacement.ifEmpty { stringResource(R.string.rec_replacement_remove) },
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = toTextColor,
-                        )
-                    }
-
-                    // Show case sensitivity badge if enabled
-                    if (replacement.caseSensitive) {
-                        Text(
-                            text = stringResource(R.string.rec_case_sensitive),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+                Text(
+                    text = " \u2192 ",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = replacement.replacement.ifEmpty { stringResource(R.string.rec_replacement_remove) },
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = toTextColor,
+                )
             }
-
-            // Edit button
+        },
+        supportingContent = if (replacement.caseSensitive) {
+            {
+                Text(
+                    text = stringResource(R.string.rec_case_sensitive),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else null,
+        leadingContent = {
+            Switch(
+                checked = replacement.enabled,
+                onCheckedChange = null, // Handled by row click
+            )
+        },
+        trailingContent = {
             IconButton(onClick = onEdit) {
                 Icon(
                     imageVector = Icons.Default.Edit,
@@ -366,5 +324,5 @@ private fun ReplacementItemCard(
                 )
             }
         }
-    }
+    )
 }

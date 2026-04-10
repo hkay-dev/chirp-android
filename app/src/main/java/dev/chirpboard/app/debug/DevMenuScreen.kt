@@ -19,7 +19,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -106,60 +106,12 @@ fun DevMenuScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // API Key Section
-            item {
-                DevSection(
-                    title = "API Key",
-                    icon = Icons.Default.Key,
-                ) {
-                    OutlinedTextField(
-                        value = uiState.apiKeyInput,
-                        onValueChange = viewModel::onApiKeyChange,
-                        label = { Text(stringResource(R.string.dev_gemini_key)) },
-                        placeholder = { Text(stringResource(R.string.dev_gemini_placeholder)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = viewModel::saveApiKey,
-                            enabled = uiState.apiKeyInput.isNotBlank(),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(stringResource(R.string.dev_save_key))
-                        }
-
-                        if (uiState.hasApiKey) {
-                            OutlinedButton(onClick = viewModel::clearApiKey) {
-                                Text(stringResource(R.string.dev_clear))
-                            }
-                        }
-                    }
-
-                    if (uiState.hasApiKey) {
-                        Text(
-                            text = "API key is configured",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
 
             // Dummy Recordings Section
             item {
                 DevSection(
                     title = "Dummy Recordings",
-                    icon = Icons.Default.PlaylistAdd,
+                    icon = Icons.AutoMirrored.Filled.PlaylistAdd,
                 ) {
                     Text(
                         text = "Generate fake recordings for testing UI states. These have no audio but are otherwise identical to real recordings.",

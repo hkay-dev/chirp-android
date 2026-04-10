@@ -12,7 +12,7 @@ import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Keyboard
-import androidx.compose.material.icons.rounded.Label
+import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -37,7 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.SettingsBadge
-import dev.chirpboard.app.core.ui.components.SettingsItem
+import dev.chirpboard.app.core.ui.components.SettingsListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
 /**
@@ -97,11 +97,10 @@ fun SettingsScreen(
         ) {
             // AI & Processing Section
             item {
-                Spacer(modifier = Modifier.height(16.dp))
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_ai_processing))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.RecordVoiceOver,
                     title = stringResource(R.string.settings_transcription_title),
                     subtitle = stringResource(R.string.settings_transcription_subtitle),
@@ -109,14 +108,10 @@ fun SettingsScreen(
                 )
             }
             item {
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 72.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                )
+                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.AutoAwesome,
                     title = stringResource(R.string.settings_llm_title),
                     subtitle = stringResource(R.string.settings_llm_subtitle),
@@ -127,11 +122,10 @@ fun SettingsScreen(
 
             // Integrations Section
             item {
-                Spacer(modifier = Modifier.height(24.dp))
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_integrations))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.FolderOpen,
                     title = stringResource(R.string.settings_obsidian_title),
                     subtitle = stringResource(R.string.settings_obsidian_subtitle),
@@ -142,11 +136,10 @@ fun SettingsScreen(
 
             // Keyboard Section
             item {
-                Spacer(modifier = Modifier.height(24.dp))
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_keyboard))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.Keyboard,
                     title = stringResource(R.string.settings_keyboard_title),
                     subtitle = stringResource(R.string.settings_keyboard_subtitle),
@@ -156,11 +149,10 @@ fun SettingsScreen(
 
             // Audio Section
             item {
-                Spacer(modifier = Modifier.height(24.dp))
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_audio))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.Tune,
                     title = stringResource(R.string.settings_audio_title),
                     subtitle = stringResource(R.string.settings_audio_subtitle),
@@ -169,26 +161,21 @@ fun SettingsScreen(
             }
             // Organization Section
             item {
-                Spacer(modifier = Modifier.height(24.dp))
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_organization))
             }
             item {
-                SettingsItem(
-                    icon = Icons.Rounded.Label,
+                SettingsListItem(
+                    icon = Icons.AutoMirrored.Rounded.Label,
                     title = stringResource(R.string.settings_tags_title),
                     subtitle = stringResource(R.string.settings_tags_subtitle),
                     onClick = onNavigateToTags,
                 )
             }
             item {
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 72.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                )
+                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.Person,
                     title = stringResource(R.string.settings_profiles_title),
                     subtitle = stringResource(R.string.settings_profiles_subtitle),
@@ -196,14 +183,10 @@ fun SettingsScreen(
                 )
             }
             item {
-                HorizontalDivider(
-                    modifier = Modifier.padding(start = 72.dp),
-                    thickness = 0.5.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                )
+                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.SwapHoriz,
                     title = stringResource(R.string.settings_word_replacements_title),
                     subtitle = stringResource(R.string.settings_word_replacements_subtitle),
@@ -213,11 +196,10 @@ fun SettingsScreen(
 
             // About Section
             item {
-                Spacer(modifier = Modifier.height(24.dp))
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_about))
             }
             item {
-                SettingsItem(
+                SettingsListItem(
                     icon = Icons.Rounded.Info,
                     title = stringResource(R.string.settings_app_info_title),
                     subtitle = stringResource(R.string.settings_app_info_subtitle, uiState.appVersion),
@@ -228,11 +210,10 @@ fun SettingsScreen(
             // Developer Menu (debug builds only)
             if (uiState.isDebugBuild) {
                 item {
-                    Spacer(modifier = Modifier.height(24.dp))
                     SettingsSectionHeader(title = stringResource(R.string.settings_section_developer))
                 }
                 item {
-                    SettingsItem(
+                    SettingsListItem(
                         icon = Icons.Rounded.Code,
                         title = stringResource(R.string.dev_menu_title),
                         subtitle = stringResource(R.string.settings_dev_menu_subtitle),

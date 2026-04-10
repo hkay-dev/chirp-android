@@ -23,70 +23,20 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.feature.llm.R
 
+import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.Icons
+
 @Composable
 internal fun LlmSettingsMasterToggleCard(
     uiState: LlmSettingsViewModel.UiState,
     onToggle: () -> Unit,
 ) {
-    val masterSwitchColor by animateColorAsState(
-        targetValue =
-            if (uiState.llmEnabled) {
-                MaterialTheme.colorScheme.primaryContainer
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "master_switch_color",
+    SettingsSwitchItem(
+        icon = Icons.Default.Star,
+        title = stringResource(R.string.llm_enable_processing_title),
+        subtitle = if (uiState.llmEnabled) stringResource(R.string.llm_enable_processing_enabled) else stringResource(R.string.llm_enable_processing_disabled),
+        checked = uiState.llmEnabled,
+        onCheckedChange = { onToggle() },
     )
-
-    Card(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .semantics(mergeDescendants = true) {}
-                .clickable(onClick = onToggle),
-        colors = CardDefaults.cardColors(containerColor = masterSwitchColor),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.llm_enable_processing_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    color =
-                        if (uiState.llmEnabled) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                )
-                Text(
-                    text =
-                        if (uiState.llmEnabled) {
-                            stringResource(R.string.llm_enable_processing_enabled)
-                        } else {
-                            stringResource(R.string.llm_enable_processing_disabled)
-                        },
-                    style = MaterialTheme.typography.bodySmall,
-                    color =
-                        if (uiState.llmEnabled) {
-                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        },
-                )
-            }
-            Switch(
-                checked = uiState.llmEnabled,
-                onCheckedChange = null,
-            )
-        }
-    }
 }

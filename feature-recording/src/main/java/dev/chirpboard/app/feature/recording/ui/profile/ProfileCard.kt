@@ -1,4 +1,5 @@
 package dev.chirpboard.app.feature.recording.ui.profile
+import androidx.compose.ui.graphics.Color
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,25 +41,12 @@ fun ProfileCard(
     var showMenu by remember { mutableStateOf(false) }
     val profile = profileItem.profile
 
-    Card(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .semantics(mergeDescendants = true) {}
-                .clickable(onClick = onClick),
-        colors =
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-            ),
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Icon (emoji or default)
+    ListItem(
+        modifier = modifier.clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        headlineContent = {
+        },
+        leadingContent = {
             val icon = profile.icon
             if (!icon.isNullOrBlank()) {
                 Text(
@@ -74,44 +62,40 @@ fun ProfileCard(
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
-
-            Spacer(modifier = Modifier.width(16.dp))
+        },
+        supportingContent = {
 
             // Content
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = profile.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Text(
+                text = profile.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
 
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Feature chips
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    if (profile.autoTranscribe) {
-                        FeatureChip(label = stringResource(R.string.rec_profile_chip_transcribe))
-                    }
-                    if (profile.autoTitle) {
-                        FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_title))
-                    }
-                    if (profile.autoSummary) {
-                        FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_summary))
-                    }
-                    if (profile.autoExportToObsidian) {
-                        FeatureChip(label = stringResource(R.string.rec_profile_chip_obsidian))
-                    }
-                    val processingMode = profile.defaultProcessingMode
-                    if (processingMode != null) {
-                        FeatureChip(label = processingMode)
-                    }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (profile.autoTranscribe) {
+                    FeatureChip(label = stringResource(R.string.rec_profile_chip_transcribe))
+                }
+                if (profile.autoTitle) {
+                    FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_title))
+                }
+                if (profile.autoSummary) {
+                    FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_summary))
+                }
+                if (profile.autoExportToObsidian) {
+                    FeatureChip(label = stringResource(R.string.rec_profile_chip_obsidian))
+                }
+                val processingMode = profile.defaultProcessingMode
+                if (processingMode != null) {
+                    FeatureChip(label = processingMode)
                 }
             }
-
+        },
+        trailingContent = {
             // Menu
             Box {
                 IconButton(onClick = { showMenu = true }) {
@@ -142,7 +126,7 @@ fun ProfileCard(
                 }
             }
         }
-    }
+    )
 }
 
 @Composable

@@ -36,7 +36,7 @@
     <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>
     <string name="keyboard_settings_processing_mode_title">Default Mode</string>
     <string name="keyboard_settings_processing_mode_description">How your voice should be formatted.</string>
-    <string name="keyboard_settings_processing_mode_disabled">Enable LLM processing to use this setting</string>
+    <string name="keyboard_settings_processing_mode_disabled">Enable AI Formatting to use this setting</string>
     <string name="keyboard_settings_mode_global">Use Global Setting</string>
     <string name="keyboard_settings_mode_proofread">Proofread</string>
     <string name="keyboard_settings_mode_formal">Formal</string>

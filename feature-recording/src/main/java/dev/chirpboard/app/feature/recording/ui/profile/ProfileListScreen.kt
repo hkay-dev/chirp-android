@@ -127,12 +127,9 @@ fun ProfileListScreen(
                             .padding(paddingValues),
                     contentPadding =
                         PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
                             top = 8.dp,
                             bottom = 88.dp, // Extra padding for FAB
                         ),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
                         items = profiles,
@@ -145,6 +142,7 @@ fun ProfileListScreen(
                             onDelete = { profileToDelete = profile },
                             modifier = Modifier.animateItem(),
                         )
+                        HorizontalDivider()
                     }
                 }
             }

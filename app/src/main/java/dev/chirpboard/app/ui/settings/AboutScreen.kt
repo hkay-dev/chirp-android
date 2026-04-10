@@ -1,4 +1,9 @@
 package dev.chirpboard.app.ui.settings
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.ui.graphics.Color
 
 import android.content.Context
 import android.content.Intent
@@ -35,7 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.R
-import dev.chirpboard.app.core.ui.components.SettingsItem
+import dev.chirpboard.app.core.ui.components.SettingsListItem
 
 /**
  * About screen showing app information and legal links.
@@ -61,98 +66,102 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
             )
         },
     ) { padding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 16.dp),
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
 
-            // App icon
-            Icon(
-                imageVector = Icons.Default.Mic,
-                contentDescription = null,
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.primary,
-            )
+                // App icon
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
 
-            // App name
-            Text(
-                text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
+                // App name
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
 
-            // Version info
-            Text(
-                text = stringResource(R.string.about_version, appInfo.versionName),
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(R.string.about_build, appInfo.versionCode),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+                // Version info
+                Text(
+                    text = stringResource(R.string.about_version, appInfo.versionName),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(R.string.about_build, appInfo.versionCode),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Description
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.about_description_title),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = stringResource(R.string.about_description_body),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            item {
+                // Description
+                ListItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.about_description_title),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            text = stringResource(R.string.about_description_body),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                )
 
-            // Legal links - Note: This app processes all data locally on-device
-            // No data is sent to external servers except when using LLM features (Gemini API)
-            SettingsItem(
-                icon = Icons.Default.Policy,
-                title = stringResource(R.string.about_privacy_title),
-                subtitle = stringResource(R.string.about_privacy_subtitle),
-                onClick = {
-                    // Show in-app privacy notice
-                },
-            )
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
-            SettingsItem(
-                icon = Icons.Default.Code,
-                title = stringResource(R.string.about_open_source_title),
-                subtitle = stringResource(R.string.about_open_source_subtitle),
-                onClick = {
-                    openUrl(context, "https://github.com/k2-fsa/sherpa-onnx")
-                },
-            )
+            item {
+                // Legal links
+                SettingsListItem(
+                    icon = Icons.Default.Policy,
+                    title = stringResource(R.string.about_privacy_title),
+                    subtitle = stringResource(R.string.about_privacy_subtitle),
+                    onClick = {
+                        // Show in-app privacy notice
+                    },
+                )
 
-            Spacer(modifier = Modifier.height(24.dp))
+                SettingsListItem(
+                    icon = Icons.Default.Code,
+                    title = stringResource(R.string.about_open_source_title),
+                    subtitle = stringResource(R.string.about_open_source_subtitle),
+                    onClick = {
+                        openUrl(context, "https://github.com/k2-fsa/sherpa-onnx")
+                    },
+                )
 
-            // Footer
-            Text(
-                text = stringResource(R.string.about_footer),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Footer
+                Text(
+                    text = stringResource(R.string.about_footer),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
     }
+}
 }
 
 private data class AppInfo(

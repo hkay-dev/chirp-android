@@ -1,9 +1,22 @@
 package dev.chirpboard.app.ui.settings
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.ui.graphics.Color
 
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material3.TopAppBarDefaults
+import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -84,7 +97,10 @@ fun KeyboardSettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(dev.chirpboard.app.R.string.keyboard_settings_title)) },
@@ -96,234 +112,197 @@ fun KeyboardSettingsScreen(
                         )
                     }
                 },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = padding,
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-            // Save recordings toggle - entire card is clickable
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clip(CardDefaults.shape)
-                        .semantics(mergeDescendants = true) {}
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(),
-                            onClick = { viewModel.toggleSaveRecordings() },
-                        ).animateContentSize(),
-            ) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.keyboard_settings_save_recordings_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.keyboard_settings_save_recordings_description),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = uiState.saveKeyboardRecordings,
-                        onCheckedChange = null, // Handled by card click
-                    )
-                }
+
+            // Save recordings toggle
+            item {
+                SettingsSwitchItem(
+                    icon = Icons.Default.Mic,
+                    title = stringResource(R.string.keyboard_settings_save_recordings_title),
+                    subtitle = stringResource(R.string.keyboard_settings_save_recordings_description),
+                    checked = uiState.saveKeyboardRecordings,
+                    onCheckedChange = { viewModel.toggleSaveRecordings() }
+                )
             }
 
-            // LLM processing toggle - entire card is clickable
-            Card(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                        .clip(CardDefaults.shape)
-                        .semantics(mergeDescendants = true) {}
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple(),
-                            onClick = { viewModel.toggleLlmEnabled() },
-                        ).animateContentSize(),
-            ) {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.keyboard_settings_enable_llm_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.keyboard_settings_enable_llm_description),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = uiState.llmEnabled,
-                        onCheckedChange = null, // Handled by card click
-                    )
-                }
+            // LLM processing toggle
+            item {
+                SettingsSwitchItem(
+                    icon = Icons.Default.Star,
+                    title = stringResource(R.string.keyboard_settings_enable_llm_title),
+                    subtitle = stringResource(R.string.keyboard_settings_enable_llm_description),
+                    checked = uiState.llmEnabled,
+                    onCheckedChange = { viewModel.toggleLlmEnabled() }
+                )
             }
 
             // Processing mode dropdown
-            ProcessingModeCard(
-                currentMode = uiState.defaultProcessingMode,
-                enabled = uiState.llmEnabled,
-                onModeSelected = viewModel::setProcessingMode,
-            )
+            item {
+                ProcessingModeListItem(
+                    currentMode = uiState.defaultProcessingMode,
+                    enabled = uiState.llmEnabled,
+                    onModeSelected = viewModel::setProcessingMode,
+                )
+            }
 
             // System keyboard settings link
-            Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Keyboard,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+            item {
+                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.keyboard_settings_system_title),
+                            style = MaterialTheme.typography.titleMedium,
                         )
+                    },
+                    supportingContent = {
                         Column {
-                            Text(
-                                text = stringResource(R.string.keyboard_settings_system_title),
-                                style = MaterialTheme.typography.titleMedium,
-                            )
                             Text(
                                 text = stringResource(R.string.keyboard_settings_system_description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilledTonalButton(
-                            onClick = {
-                                try {
-                                    context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-                                } catch (e: android.content.ActivityNotFoundException) {
-                                    // Ignore or handle for custom ROMs where this isn't available
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilledTonalButton(
+                                    onClick = {
+                                        try {
+                                            context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                                        } catch (e: android.content.ActivityNotFoundException) {
+                                            // Ignore
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Settings,
+                                        contentDescription = null,
+                                        modifier = Modifier.padding(end = 8.dp).size(18.dp)
+                                    )
+                                    Text(stringResource(dev.chirpboard.app.R.string.enable_keyboard))
                                 }
-                            },
-                        ) {
-                            Text(stringResource(dev.chirpboard.app.R.string.enable_keyboard))
+                                FilledTonalButton(
+                                    onClick = {
+                                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                                        imm.showInputMethodPicker()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Keyboard,
+                                        contentDescription = null,
+                                        modifier = Modifier.padding(end = 8.dp).size(18.dp)
+                                    )
+                                    Text(stringResource(dev.chirpboard.app.R.string.select_keyboard))
+                                }
+                            }
                         }
-                        FilledTonalButton(
-                            onClick = {
-                                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                                imm.showInputMethodPicker()
-                            },
+                    },
+                    leadingContent = {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                ),
                         ) {
-                            Text(stringResource(dev.chirpboard.app.R.string.select_keyboard))
+                            Icon(
+                                imageVector = Icons.Default.Keyboard,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp),
+                            )
                         }
-                    }
-                }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ProcessingModeCard(
+private fun ProcessingModeListItem(
     currentMode: String?,
     enabled: Boolean,
     onModeSelected: (String?) -> Unit,
 ) {
     var isDropdownExpanded by remember { mutableStateOf(false) }
-
     val currentModeName = keyboardProcessingModeLabel(currentMode)
 
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+    val textColor by animateColorAsState(
+        targetValue = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "keyboard_text_color",
+    )
+    val iconTint by animateColorAsState(
+        targetValue = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "keyboard_icon_tint",
+    )
+
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) {}
+            .clickable(enabled = enabled) { isDropdownExpanded = true },
+        headlineContent = {
             Text(
                 text = stringResource(R.string.keyboard_settings_processing_mode_title),
                 style = MaterialTheme.typography.titleMedium,
             )
-            Text(
-                text = stringResource(R.string.keyboard_settings_processing_mode_description),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            val textColor by animateColorAsState(
-                targetValue = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                animationSpec = tween(300, easing = FastOutSlowInEasing),
-                label = "keyboard_text_color",
-            )
-            val iconTint by animateColorAsState(
-                targetValue =
-                    if (enabled) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                            alpha = 0.38f,
-                        )
-                    },
-                animationSpec = tween(300, easing = FastOutSlowInEasing),
-                label = "keyboard_icon_tint",
-            )
-
-            Box {
-                OutlinedCard(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .semantics(mergeDescendants = true) {}
-                            .clickable(enabled = enabled) { isDropdownExpanded = true },
-                ) {
-                    Row(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = currentModeName,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = textColor,
-                        )
-                        Icon(
-                            imageVector = Icons.Default.ArrowDropDown,
-                            contentDescription = stringResource(R.string.desc_select_mode),
-                            tint = iconTint,
-                        )
-                    }
+        },
+        leadingContent = {
+            Box(Modifier.size(40.dp))
+        },
+        supportingContent = {
+            Column {
+                Text(
+                    text = stringResource(R.string.keyboard_settings_processing_mode_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (!enabled) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.keyboard_settings_processing_mode_disabled),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
-
+            }
+        },
+        trailingContent = {
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (enabled) 1f else 0.5f))
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = currentModeName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = stringResource(R.string.desc_select_mode),
+                        tint = iconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 DropdownMenu(
                     expanded = isDropdownExpanded,
                     onDismissRequest = { isDropdownExpanded = false },
@@ -335,24 +314,16 @@ private fun ProcessingModeCard(
                                 onModeSelected(modeId)
                                 isDropdownExpanded = false
                             },
-                            trailingIcon =
-                                if (currentMode == modeId) {
-                                    { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.desc_selected)) }
-                                } else {
-                                    null
-                                },
+                            trailingIcon = if (currentMode == modeId) {
+                                { Icon(Icons.Default.Check, contentDescription = stringResource(R.string.desc_selected)) }
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
             }
-
-            if (!enabled) {
-                Text(
-                    text = stringResource(R.string.keyboard_settings_processing_mode_disabled),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
 }
