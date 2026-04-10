@@ -44,9 +44,12 @@ class RecordingStateManager @Inject constructor() {
     private val _amplitude = MutableStateFlow(0f)
     val amplitudeFlow: StateFlow<Float> = _amplitude.asStateFlow()
     
-    /** Buffer of recent amplitude samples for waveform display (last 50 samples). */
-    private val _amplitudeHistory = MutableStateFlow<List<Float>>(emptyList())
-    val amplitudeHistoryFlow: StateFlow<List<Float>> = _amplitudeHistory.asStateFlow()
+    /** Buffer of recent amplitude samples for waveform display. */
+    val waveformBuffer = WaveformBuffer(AMPLITUDE_HISTORY_SIZE)
+    
+    /** Monotonic sample counter for smooth waveform scrolling. */
+    private val _amplitudeSampleCount = MutableStateFlow(0L)
+    val amplitudeSampleCountFlow: StateFlow<Long> = _amplitudeSampleCount.asStateFlow()
     
     /** ID of the last recording that was completed successfully. 
      *  UI observes this to navigate to the recording detail after saving. */
@@ -68,7 +71,7 @@ class RecordingStateManager @Inject constructor() {
     private var timeoutJob: Job? = null
     companion object {
         private const val TAG = "RecordingStateManager"
-        private const val AMPLITUDE_HISTORY_SIZE = 50
+        private const val AMPLITUDE_HISTORY_SIZE = 1000 // Holds enough history for extreme slow scroll
         private const val STOPPING_TIMEOUT_MS = 5000L
     }
     
@@ -332,11 +335,9 @@ class RecordingStateManager @Inject constructor() {
     fun updateAmplitude(amplitude: Float) {
         val normalized = amplitude.coerceIn(0f, 1f)
         _amplitude.value = normalized
+        _amplitudeSampleCount.update { it + 1 }
         
-        // Thread-safe update using StateFlow.update{} to prevent lost updates
-        _amplitudeHistory.update { history ->
-            (history + normalized).takeLast(AMPLITUDE_HISTORY_SIZE)
-        }
+        waveformBuffer.add(normalized)
     }
     
     /**
@@ -345,7 +346,8 @@ class RecordingStateManager @Inject constructor() {
      */
     fun clearAmplitude() {
         _amplitude.value = 0f
-        _amplitudeHistory.value = emptyList()
+        waveformBuffer.clear()
+        _amplitudeSampleCount.value = 0L
     }
     
     /**

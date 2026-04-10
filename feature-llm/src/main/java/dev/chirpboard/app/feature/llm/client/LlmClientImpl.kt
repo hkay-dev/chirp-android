@@ -97,6 +97,7 @@ Transcript:
 
                             return@withContext Result.success(resultText.trim())
                         } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
                             val shouldRetry = when (e) {
                                 is HttpException -> e.code() == 429 || e.code() == 503 || e.code() >= 500
                                 is java.io.IOException -> true // Network errors like timeout, unknown host
@@ -196,6 +197,7 @@ Transcript:
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Result.failure(e)
                 }
             }

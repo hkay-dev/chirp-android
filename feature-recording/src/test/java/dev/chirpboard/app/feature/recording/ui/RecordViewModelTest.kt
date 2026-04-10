@@ -28,7 +28,7 @@ class RecordViewModelTest {
         recordingStateManager =
             mockk(relaxed = true) {
                 every { state } returns MutableStateFlow(RecordingState())
-                every { amplitudeHistoryFlow } returns MutableStateFlow(emptyList())
+                every { waveformBuffer } returns dev.chirpboard.app.core.recording.WaveformBuffer(1000)
                 every { amplitudeFlow } returns MutableStateFlow(0f)
                 every { lastCompletedRecordingId } returns MutableStateFlow(null)
             }
@@ -52,7 +52,7 @@ class RecordViewModelTest {
     @Test
     fun `viewModel exposes stateManager flows`() {
         assertEquals(0f, viewModel.currentAmplitude.value)
-        assertEquals(emptyList<Float>(), viewModel.amplitudeHistory.value)
+        assertEquals(0, viewModel.waveformBuffer.count)
     }
 
     @Test

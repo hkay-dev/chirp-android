@@ -529,7 +529,8 @@ class RecordingService : Service() {
 
     /**
      * Collect audio amplitude for waveform visualization.
-     * Updates at ~50ms intervals for smooth 60fps animation.
+     * Collect audio amplitude for waveform visualization.
+     * Updates at display-friendly cadence so the UI has enough real data to interpolate smoothly.
      */
     private fun startAmplitudeCollection() {
         amplitudeJob =
@@ -537,15 +538,13 @@ class RecordingService : Service() {
                 while (isActive) {
                     try {
                         val maxAmplitude = mediaRecorder?.maxAmplitude ?: 0
-                        // Normalize from 0-32767 to 0-1 range
                         val normalized = (maxAmplitude / 32767f).coerceIn(0f, 1f)
                         recordingStateManager.updateAmplitude(normalized)
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
-                        // MediaRecorder may throw if not in a valid state
                         recordingStateManager.updateAmplitude(0f)
                     }
-                    delay(50) // ~20 updates per second for smooth animation
+                    delay(16)
                 }
             }
     }

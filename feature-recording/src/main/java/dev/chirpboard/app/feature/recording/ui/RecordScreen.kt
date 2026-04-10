@@ -78,8 +78,8 @@ fun RecordScreen(
     viewModel: RecordViewModel = hiltViewModel(),
 ) {
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
-    val rawAmplitudeHistory by viewModel.amplitudeHistory.collectAsStateWithLifecycle()
-    val amplitudeHistory = remember(rawAmplitudeHistory) { rawAmplitudeHistory.toImmutableList() }
+    val waveformVersion by viewModel.waveformBuffer.dataVersion.collectAsStateWithLifecycle()
+    val amplitudeSampleCount by viewModel.amplitudeSampleCount.collectAsStateWithLifecycle()
     val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -315,7 +315,8 @@ fun RecordScreen(
             Spacer(modifier = Modifier.height(48.dp))
 
             AudioWaveform(
-                amplitudes = amplitudeHistory,
+                waveformBuffer = viewModel.waveformBuffer,
+                sampleCount = amplitudeSampleCount,
                 isActive = isRecording,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier

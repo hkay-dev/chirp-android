@@ -62,6 +62,7 @@ class ProcessingStudioViewModel @Inject constructor(
             try {
                 loadRecording(UUID.fromString(recordingIdStr))
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 // Invalid UUID
             }
         }
@@ -309,6 +310,7 @@ class ProcessingStudioViewModel @Inject constructor(
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             })
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             _message.value = "Failed to share: ${e.message}"
         }
     }

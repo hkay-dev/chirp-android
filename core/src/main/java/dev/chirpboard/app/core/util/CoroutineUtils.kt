@@ -51,6 +51,7 @@ suspend fun <T> runCatchingUiState(block: suspend () -> T): UiState<T> =
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         UiState.Error(e.message ?: "Unknown error", e)
     }
 

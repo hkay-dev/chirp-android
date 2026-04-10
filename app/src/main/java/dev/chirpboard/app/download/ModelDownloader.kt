@@ -493,6 +493,7 @@ class ModelDownloader(
             val target = if (path.exists()) path else path.parentFile ?: path
             StatFs(target.absolutePath).availableBytes
         } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             Log.w(TAG, "Failed to read free storage for ${path.absolutePath}", e)
             0L
         }
@@ -532,6 +533,7 @@ internal suspend fun writeInputStreamToTempFile(
         }
         return downloaded
     } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
         tempFile.delete()
         throw e
     }

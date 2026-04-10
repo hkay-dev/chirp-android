@@ -463,6 +463,7 @@ class HomeViewModel
                                 mmr.release()
                             }
                         } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
                             0L
                         }
 
@@ -478,6 +479,7 @@ class HomeViewModel
                             transcriptionQueueManager.enqueue(recording.id, UUID.randomUUID().toString())
                         }
                     } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
                         kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                             if (outputFile.exists()) {
                                 outputFile.delete()
