@@ -18,9 +18,15 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -37,41 +43,52 @@ fun LlmSettingsScreen(
     onNavigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.llm_settings_title)) },
+            LargeTopAppBar(
+                title = { 
+                    Text(
+                        stringResource(R.string.llm_settings_title),
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.llm_desc_back)
                         )
                     }
-                }
+                },
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.largeTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                )
             )
         }
     ) { padding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .padding(padding),
+            contentPadding = PaddingValues(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Spacer(modifier = Modifier.height(16.dp))
-            LlmSettingsMasterToggleCard(
-                uiState = uiState,
-                onToggle = { viewModel.setLlmEnabled(!uiState.llmEnabled) }
-            )
+            item {
+                LlmSettingsMasterToggleCard(
+                    uiState = uiState,
+                    onToggle = { viewModel.setLlmEnabled(!uiState.llmEnabled) }
+                )
+            }
 
-            AnimatedVisibility(
-                visible = uiState.llmEnabled,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+            item {
+                AnimatedVisibility(
+                    visible = uiState.llmEnabled,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
                 ) {
                     LlmSettingsApiKeySection(
                         uiState = uiState,
@@ -80,14 +97,20 @@ fun LlmSettingsScreen(
                         onTestConnection = viewModel::testConnection,
                         onClear = viewModel::clearApiKey
                     )
+                }
+            }
 
-                    if (uiState.isKeyConfigured) {
-                        LlmSettingsProcessingSection(
-                            uiState = uiState,
-                            onSetAutoTitle = viewModel::setAutoTitle,
-                            onSetAutoSummary = viewModel::setAutoSummary
-                        )
-                    }
+            item {
+                AnimatedVisibility(
+                    visible = uiState.llmEnabled,
+                    enter = fadeIn() + expandVertically(),
+                    exit = fadeOut() + shrinkVertically()
+                ) {
+                    LlmSettingsProcessingSection(
+                        uiState = uiState,
+                        onSetAutoTitle = viewModel::setAutoTitle,
+                        onSetAutoSummary = viewModel::setAutoSummary
+                    )
                 }
             }
         }

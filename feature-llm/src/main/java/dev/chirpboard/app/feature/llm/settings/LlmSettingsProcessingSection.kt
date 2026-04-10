@@ -21,75 +21,36 @@ import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
+import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.Icons
+
 @Composable
 internal fun LlmSettingsProcessingSection(
     uiState: LlmSettingsViewModel.UiState,
     onSetAutoTitle: (Boolean) -> Unit,
     onSetAutoSummary: (Boolean) -> Unit,
 ) {
-    SettingsSectionHeader(title = stringResource(R.string.llm_processing_title))
+    Column {
+        SettingsSectionHeader(title = stringResource(R.string.llm_processing_title))
 
-    Card(
-        modifier =
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                .semantics(mergeDescendants = true) {}
-                .clickable { onSetAutoTitle(!uiState.autoTitle) },
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.llm_auto_title_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = stringResource(R.string.llm_auto_title_subtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = uiState.autoTitle,
-                onCheckedChange = null,
-            )
-        }
-    }
+        SettingsSwitchItem(
+            icon = Icons.Default.Edit,
+            title = stringResource(R.string.llm_auto_title_title),
+            subtitle = if (!uiState.isKeyConfigured) "Requires API key to be configured." else stringResource(R.string.llm_auto_title_subtitle),
+            checked = uiState.autoTitle,
+            onCheckedChange = onSetAutoTitle,
+            enabled = uiState.isKeyConfigured
+        )
 
-    Card(
-        modifier =
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                .semantics(mergeDescendants = true) {}
-                .clickable { onSetAutoSummary(!uiState.autoSummary) },
-    ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.llm_auto_summary_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Text(
-                    text = stringResource(R.string.llm_auto_summary_subtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Switch(
-                checked = uiState.autoSummary,
-                onCheckedChange = null,
-            )
-        }
+        SettingsSwitchItem(
+            icon = Icons.Default.List,
+            title = stringResource(R.string.llm_auto_summary_title),
+            subtitle = if (!uiState.isKeyConfigured) "Requires API key to be configured." else stringResource(R.string.llm_auto_summary_subtitle),
+            checked = uiState.autoSummary,
+            onCheckedChange = onSetAutoSummary,
+            enabled = uiState.isKeyConfigured
+        )
     }
 }

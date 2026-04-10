@@ -1,4 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui.profile
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -238,33 +240,36 @@ private fun SettingToggle(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 48.dp)
-                .semantics(mergeDescendants = true) {}
-                .clickable { onCheckedChange(!checked) }
-                .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+    ListItem(
+        headlineContent = {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
             )
+        },
+        supportingContent = {
             Text(
                 text = description,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = null, // Handled by row click
-        )
-    }
+        },
+        trailingContent = {
+            Switch(
+                checked = checked,
+                onCheckedChange = null, // Handled by toggleable modifier on the parent
+            )
+        },
+        modifier =
+            modifier
+                .semantics(mergeDescendants = true) {}
+                .toggleable(
+                    value = checked,
+                    onValueChange = onCheckedChange,
+                    role = Role.Switch,
+                ),
+        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -290,7 +295,7 @@ private fun ProcessingModeDropdown(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .menuAnchor(),
+                    .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryEditable, true),
         )
 
         ExposedDropdownMenu(

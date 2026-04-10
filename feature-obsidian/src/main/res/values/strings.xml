@@ -13,6 +13,6 @@
     <string name="obsidian_auto_export_title">Auto-export</string>
     <string name="obsidian_auto_export_subtitle">Automatically export recordings to Obsidian after transcription completes</string>
     <string name="obsidian_help_title">About Export</string>
-    <string name="obsidian_help_body">Choose a folder in your Obsidian vault. Recordings are exported as Markdown files with YAML frontmatter.</string>
+    <string name="obsidian_help_body">Choose a folder in your Obsidian vault. Recordings are exported as text files with tags.</string>
     <string name="obsidian_help_note">Chirp requests permission only for the specific folder you choose.</string>
 </resources>
