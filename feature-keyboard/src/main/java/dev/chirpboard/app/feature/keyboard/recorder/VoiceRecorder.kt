@@ -70,7 +70,9 @@ class VoiceRecorder(
 
     private var audioRecord: AudioRecord? = null
     private val isRecording = AtomicBoolean(false)
-    private val samples = mutableListOf<Float>()
+    private var samples = FloatArray(SAMPLE_RATE * 60) // Pre-allocate 1 min
+    private var sampleCount = 0
+    private val sampleLock = Any()
 
     // Synchronization for race condition between start() and collectSamples()
     private var recordingReady = CompletableDeferred<Unit>()
@@ -98,7 +100,9 @@ class VoiceRecorder(
         _amplitudesRaw
             .sample(AMPLITUDE_DEBOUNCE_MS.milliseconds)
             .stateIn(scope, SharingStarted.WhileSubscribed(5000), persistentListOf())
-    private val amplitudeHistory = mutableListOf<Float>()
+            
+    private val amplitudeHistory = FloatArray(5)
+    private var amplitudeHistoryCount = 0
 
     @SuppressLint("MissingPermission")
     fun start(): Boolean {
@@ -157,10 +161,12 @@ class VoiceRecorder(
                 return false
             }
 
-            synchronized(samples) {
-                samples.clear()
+            synchronized(sampleLock) {
+                sampleCount = 0
             }
-            amplitudeHistory.clear()
+            synchronized(amplitudeHistory) {
+                amplitudeHistoryCount = 0
+            }
             _amplitudesRaw.value = persistentListOf()
             audioRecord?.startRecording()
             isRecording.set(true)
@@ -232,11 +238,14 @@ class VoiceRecorder(
 
                     readResult > 0 -> {
                         // Normal case - process samples
-                        synchronized(samples) {
+                        synchronized(sampleLock) {
+                            if (sampleCount + readResult > samples.size) {
+                                samples = samples.copyOf(maxOf(samples.size * 2, sampleCount + readResult))
+                            }
                             for (i in 0 until readResult) {
                                 // Apply gain boost and clamp to prevent distortion
                                 val boostedSample = (buffer[i] * gainMultiplier).coerceIn(-1f, 1f)
-                                samples.add(boostedSample)
+                                samples[sampleCount++] = boostedSample
                             }
                         }
                         // Calculate amplitude for visualization (RMS of buffer)
@@ -246,12 +255,17 @@ class VoiceRecorder(
                         }
                         val amplitude = (sum / readResult).coerceIn(0f, 1f)
                         synchronized(amplitudeHistory) {
-                            amplitudeHistory.add(amplitude)
-                            // Keep last 5 samples for waveform display
-                            while (amplitudeHistory.size > 5) {
-                                amplitudeHistory.removeAt(0)
+                            if (amplitudeHistoryCount < 5) {
+                                amplitudeHistory[amplitudeHistoryCount++] = amplitude
+                            } else {
+                                System.arraycopy(amplitudeHistory, 1, amplitudeHistory, 0, 4)
+                                amplitudeHistory[4] = amplitude
                             }
-                            _amplitudesRaw.value = amplitudeHistory.toImmutableList()
+                            val currentList = ArrayList<Float>(amplitudeHistoryCount)
+                            for (i in 0 until amplitudeHistoryCount) {
+                                currentList.add(amplitudeHistory[i])
+                            }
+                            _amplitudesRaw.value = currentList.toImmutableList()
                         }
                     }
                 }
@@ -274,8 +288,8 @@ class VoiceRecorder(
             return FloatArray(0)
         }
 
-        return synchronized(samples) {
-            samples.toFloatArray().also { samples.clear() }
+        return synchronized(sampleLock) {
+            samples.copyOf(sampleCount).also { sampleCount = 0 }
         }
     }
 

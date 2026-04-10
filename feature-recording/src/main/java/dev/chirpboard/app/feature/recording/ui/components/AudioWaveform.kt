@@ -1,8 +1,8 @@
 package dev.chirpboard.app.feature.recording.ui.components
 
+import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.pow
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -12,7 +12,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -26,7 +25,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 
 /**
  * Audio waveform visualization component with smooth 60fps animation.
@@ -47,7 +45,8 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun AudioWaveform(
-    amplitudes: ImmutableList<Float>,
+    waveformBuffer: dev.chirpboard.app.core.recording.WaveformBuffer,
+    sampleCount: Long,
     isActive: Boolean,
     color: Color,
     modifier: Modifier = Modifier,
@@ -64,31 +63,30 @@ fun AudioWaveform(
 
     // Animate between active (1) and idle (0) states
     val activeAlpha by animateFloatAsState(
-        targetValue = if (isActive && amplitudes.isNotEmpty()) 1f else 0f,
+        targetValue = if (isActive && waveformBuffer.count > 0) 1f else 0f,
         animationSpec = tween(300, easing = EaseInOut),
         label = "activeAlpha",
     )
 
-    val offsetAnimatable = remember { Animatable(0f) }
-    LaunchedEffect(amplitudes.size) {
-        val target = amplitudes.size.toFloat()
-        if (amplitudes.isEmpty() || target < offsetAnimatable.value) {
-            offsetAnimatable.snapTo(target)
-        } else {
-            offsetAnimatable.animateTo(
-                targetValue = target,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow)
-            )
-        }
-    }
+    val localDensity = LocalDensity.current
+    val barWidthPx = remember(localDensity) { with(localDensity) { 5.dp.toPx() } }
+    val barSpacingPx = remember(localDensity) { with(localDensity) { 5.dp.toPx() } }
+    val stepPx = barWidthPx + barSpacingPx
 
-    val newestAmp = amplitudes.lastOrNull() ?: 0f
+    val scrollSpeed = 0.15f
+    val smoothSampleCount by animateFloatAsState(
+        targetValue = sampleCount.toFloat() * scrollSpeed,
+        animationSpec = if (sampleCount == 0L) tween(0) else spring(stiffness = Spring.StiffnessLow),
+        label = "smoothSampleCount"
+    )
+
+    val newestAmp = waveformBuffer.lastOrNull() ?: 0f
     val animatedNewestAmp by animateFloatAsState(
         targetValue = newestAmp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "newestAmp",
     )
-    val localDensity = androidx.compose.ui.platform.LocalDensity.current
+
     val dashEffect = remember(localDensity) {
         with(localDensity) {
             PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 8.dp.toPx()), 0f)
@@ -106,8 +104,6 @@ fun AudioWaveform(
         val canvasHeight = size.height
         val centerY = canvasHeight / 2
 
-        val barWidth = 5.dp.toPx()
-        val barSpacing = (canvasWidth - (barCount * barWidth)) / (barCount + 1)
         val minHeightPx = minBarHeight.toPx()
         val maxHeightPx = maxBarHeight.toPx()
 
@@ -116,90 +112,52 @@ fun AudioWaveform(
             val dottedAlpha = (1f - activeAlpha) * 0.3f
             drawLine(
                 color = animatedColor.copy(alpha = dottedAlpha),
-                start = Offset(barSpacing, centerY),
-                end = Offset(canvasWidth - barSpacing, centerY),
+                start = Offset(5.dp.toPx(), centerY),
+                end = Offset(canvasWidth - 5.dp.toPx(), centerY),
                 strokeWidth = 2.dp.toPx(),
                 cap = StrokeCap.Round,
                 pathEffect = dashEffect,
             )
         }
 
-        // Draw waveform bars with animated heights
+        // Draw waveform bars with animated offset
         if (activeAlpha > 0f) {
-            val currentOffset = offsetAnimatable.value
-            val points = mutableListOf<Offset>()
+            val n = waveformBuffer.count
+            val firstSampleIndex = sampleCount - n
 
-            val startIdx = maxOf(0, (currentOffset - barCount - 2).toInt())
-            val endIdx = minOf(amplitudes.size, (currentOffset + 2).toInt())
+            for (i in 0 until n) {
+                val absoluteIdx = firstSampleIndex + i
+                // Let the camera slide slowly
+                val scrollSpeed = 0.15f
+                val virtualCameraX = smoothSampleCount * scrollSpeed
 
-            for (i in startIdx until endIdx) {
-                val amp = if (i == amplitudes.lastIndex) animatedNewestAmp else amplitudes[i]
+                // The index of the bar, mapped to the slow camera space
+                val barVirtualX = absoluteIdx.toFloat() * scrollSpeed
+
+                // How far is this bar from the camera?
+                // We anchor the camera's front edge to the right side of the screen.
+                val distanceInSlots = virtualCameraX - barVirtualX - scrollSpeed
+
+                val xCenter = canvasWidth - (distanceInSlots * stepPx)
+
+                // Culling: Only draw bars that are visible on screen
+                if (xCenter < -barWidthPx / 2f || xCenter > canvasWidth + barWidthPx / 2f) {
+                    continue
+                }
+
+                val amp = if (i == n - 1) animatedNewestAmp else waveformBuffer.get(i)
                 val scaledAmplitude = amp * activeAlpha
                 val boostedAmplitude = (scaledAmplitude.pow(0.7f) * 1.5f)
                 val barHeight = (minHeightPx + (boostedAmplitude * (maxHeightPx - minHeightPx)))
                     .coerceIn(minHeightPx, maxHeightPx)
 
-                val distance = currentOffset - i - 1
-                val rightmostX = canvasWidth - barSpacing - barWidth / 2
-                val x = rightmostX - (distance * (barWidth + barSpacing))
-
-                points.add(Offset(x, barHeight / 2f))
-            }
-
-            if (points.size > 1) {
-                val path = Path()
-
-                // Top curve
-                path.moveTo(points.first().x, centerY - points.first().y)
-                for (i in 0 until points.size - 1) {
-                    val p0 = points[i]
-                    val p1 = points[i + 1]
-                    val midX = (p0.x + p1.x) / 2f
-                    path.cubicTo(midX, centerY - p0.y, midX, centerY - p1.y, p1.x, centerY - p1.y)
-                }
-
-                // Bottom curve (mirrored, moving right to left)
-                for (i in points.indices.reversed()) {
-                    val p = points[i]
-                    if (i == points.lastIndex) {
-                        path.lineTo(p.x, centerY + p.y)
-                    } else {
-                        val pNext = points[i + 1]
-                        val midX = (pNext.x + p.x) / 2f
-                        path.cubicTo(midX, centerY + pNext.y, midX, centerY + p.y, p.x, centerY + p.y)
-                    }
-                }
-                path.close()
-
-                // Draw filled gradient body
-                drawPath(
-                    path = path,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            animatedColor.copy(alpha = 0.1f * activeAlpha),
-                            animatedColor.copy(alpha = 0.8f * activeAlpha),
-                            animatedColor.copy(alpha = 0.1f * activeAlpha)
-                        ),
-                        startY = centerY - maxHeightPx / 2,
-                        endY = centerY + maxHeightPx / 2
-                    )
-                )
-
-                // Draw sleek solid rim
-                drawPath(
-                    path = path,
-                    color = animatedColor.copy(alpha = activeAlpha),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(
-                        width = 2.dp.toPx(),
-                        join = androidx.compose.ui.graphics.StrokeJoin.Round
-                    )
-                )
-            } else if (points.size == 1) {
-                val p = points.first()
-                drawCircle(
-                    color = animatedColor.copy(alpha = activeAlpha),
-                    radius = p.y,
-                    center = Offset(p.x, centerY)
+                val halfHeight = barHeight / 2f
+                drawLine(
+                    color = animatedColor.copy(alpha = 0.8f * activeAlpha),
+                    start = Offset(xCenter, centerY - halfHeight),
+                    end = Offset(xCenter, centerY + halfHeight),
+                    strokeWidth = barWidthPx,
+                    cap = StrokeCap.Round,
                 )
             }
         }

@@ -28,8 +28,11 @@ class RecordViewModel
         val recordingState: StateFlow<RecordingState> = recordingStateManager.state
 
         /** Buffer of amplitude samples for waveform display */
-        val amplitudeHistory: StateFlow<List<Float>> = recordingStateManager.amplitudeHistoryFlow
-
+        val waveformBuffer = recordingStateManager.waveformBuffer
+        
+        /** Monotonic waveform sample count for smooth scrolling */
+        val amplitudeSampleCount: StateFlow<Long> = recordingStateManager.amplitudeSampleCountFlow
+        
         /** Current audio amplitude (0-1) */
         val currentAmplitude: StateFlow<Float> = recordingStateManager.amplitudeFlow
 
