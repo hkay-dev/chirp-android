@@ -55,7 +55,17 @@ data class RecordingDisplayItem(
     val summary: String? = null,
     val profileName: String? = null,
     val profileIcon: String? = null,
-)
+) {
+    val id get() = recording.id
+    val title get() = recording.title
+    val audioPath get() = recording.audioPath
+    val status get() = recording.status
+    val source get() = recording.source
+    val profileId get() = recording.profileId
+    val createdAtMs get() = recording.createdAt.time
+    val durationMs get() = recording.durationMs
+    val errorMessage get() = recording.errorMessage
+}
 
 /**
  * Quick stats for the home screen header.
@@ -130,7 +140,6 @@ class HomeViewModel
                                     transcript?.summary ?: transcript?.processedText?.take(120)
                                         ?: transcript?.rawText?.take(120),
                                 profileName = profile?.name,
-                                profileIcon = profile?.icon,
                             )
                         }
                     }
@@ -144,7 +153,7 @@ class HomeViewModel
                 if (filter == ListFilterMode.ALL.name) {
                     items
                 } else {
-                    items.filter { isProcessingOrStuckStatus(it.recording.status) }
+                    items.filter { isProcessingOrStuckStatus(it.status) }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -152,8 +161,8 @@ class HomeViewModel
             allDisplayItems
                 .map { items ->
                     items.count { item ->
-                        item.recording.status == RecordingStatus.PENDING_TRANSCRIPTION ||
-                            item.recording.status == RecordingStatus.ENHANCING
+                        item.status == RecordingStatus.PENDING_TRANSCRIPTION ||
+                            item.status == RecordingStatus.ENHANCING
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -230,12 +239,12 @@ class HomeViewModel
          * If DB delete fails, we keep the file. If file delete fails, that's acceptable
          * since the DB record is already gone. Transcript is cascade-deleted by Room.
          */
-        fun deleteRecording(recording: Recording) {
+        fun deleteRecording(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 try {
                     // Step 1: Delete from database FIRST (the critical operation)
                     // Transcript is cascade-deleted via ForeignKey constraint
-                    recordingRepository.delete(recording)
+                    recordingRepository.deleteById(recording.id)
 
                     // Step 2: Delete audio file (non-critical, best effort)
                     // Run on IO dispatcher to avoid blocking main thread
@@ -271,7 +280,7 @@ class HomeViewModel
          * Share a recording (audio + transcript if available).
          */
         fun shareRecording(
-            recording: Recording,
+            recording: RecordingDisplayItem,
             context: Context,
         ) {
             viewModelScope.launch {
@@ -336,7 +345,7 @@ class HomeViewModel
         /**
          * Retry transcription for a failed recording.
          */
-        fun retryTranscription(recording: Recording) {
+        fun retryTranscription(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 if (recording.status == RecordingStatus.FAILED) {
                     transcriptionQueueManager.retry(recording.id)
@@ -345,7 +354,7 @@ class HomeViewModel
             }
         }
 
-        fun recoverStuckItem(recording: Recording) {
+        fun recoverStuckItem(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 val result =
                     when (recording.status) {
@@ -387,7 +396,7 @@ class HomeViewModel
         /**
          * Generate an AI title for a recording.
          */
-        fun generateTitle(recording: Recording) {
+        fun generateTitle(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 val transcript = recordingRepository.getTranscript(recording.id)
                 if (transcript == null) {
@@ -415,7 +424,7 @@ class HomeViewModel
         /**
          * Generate an AI summary for a recording.
          */
-        fun generateSummary(recording: Recording) {
+        fun generateSummary(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 val transcript = recordingRepository.getTranscript(recording.id)
                 if (transcript == null) {
@@ -496,10 +505,10 @@ class HomeViewModel
                 }
             }
         }
-    companion object {
-        private const val TAG = "HomeViewModel"
+        companion object {
+            private const val TAG = "HomeViewModel"
+        }
     }
-}
 
 internal fun isProcessingOrStuckStatus(status: RecordingStatus): Boolean =
     status in

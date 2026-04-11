@@ -35,7 +35,6 @@ internal fun RecordingCardHeader(
     onGenerateTitle: (() -> Unit)?,
     onGenerateSummary: (() -> Unit)?,
 ) {
-    val recording = item.recording
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -44,14 +43,14 @@ internal fun RecordingCardHeader(
     ) {
         ProfileIconBadge(
             profileIcon = item.profileIcon,
-            status = recording.status,
+            status = item.status,
         )
 
         Spacer(modifier = Modifier.width(12.dp))
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = recording.title,
+                text = item.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -61,7 +60,9 @@ internal fun RecordingCardHeader(
             Spacer(modifier = Modifier.height(2.dp))
 
             RecordingCardMetadata(
-                recording = recording,
+                createdAtMs = item.createdAtMs,
+                durationMs = item.durationMs,
+                source = item.source,
                 profileName = item.profileName,
             )
         }
@@ -78,7 +79,7 @@ internal fun RecordingCardHeader(
             RecordingCardMenu(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
-                recordingStatus = recording.status,
+                recordingStatus = item.status,
                 onShare = onShare,
                 onDelete = onDelete,
                 onRetryTranscription = onRetryTranscription,

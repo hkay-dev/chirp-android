@@ -75,6 +75,7 @@
     <string name="recording_in_progress_title">Recording in Progress</string>
     <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
     <string name="save">Save</string>
+    <string name="new_recording_title">New Recording</string>
     <string name="desc_add_profile">Add Profile</string>
 
     <string name="rec_profile_name_placeholder">e.g., Meeting Notes</string>

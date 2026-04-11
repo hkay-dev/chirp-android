@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import android.net.Uri
+import java.util.UUID
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -109,7 +110,7 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
-    onRecordingClick: (Recording) -> Unit,
+    onRecordingClick: (UUID) -> Unit,
     onRecordClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onImportAudio: (Uri) -> Unit = {},
@@ -309,7 +310,7 @@ fun HomeScreen(
                 AnimatedEmptyState(
                     onRecordClick = onRecordClick,
                     isRecordEntryChecking = isRecordEntryChecking,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                 )
             } else {
                 LazyColumn(
@@ -328,7 +329,7 @@ fun HomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 8.dp)
+                                        .padding(horizontal = 8.dp, vertical = 8.dp)
                                         .animateItem(),
                             )
                         }
@@ -339,7 +340,7 @@ fun HomeScreen(
                                     modifier =
                                         Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
                                     horizontalArrangement = Arrangement.End,
                                 ) {
                                     FilledTonalButton(onClick = { viewModel.recoverAllStuck() }) {
@@ -365,7 +366,7 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier =
                                     Modifier
-                                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                                        .padding(horizontal = 8.dp, vertical = 8.dp)
                                         .animateItem(),
                             )
                         }
@@ -374,13 +375,13 @@ fun HomeScreen(
                     // Recording list items - smooth scrolling, no stagger delay
                     items(
                         items = displayItems,
-                        key = { it.recording.id },
+                        key = { it.id },
                         contentType = { "recording" },
                     ) { item ->
                         Column(modifier = Modifier.animateItem()) {
                             RecordingListItem(
                                 item = item,
-                                onClick = { onRecordingClick(item.recording) },
+                                onClick = { onRecordingClick(item.id) },
                                 onLongClick = { selectedItem = item },
                             )
                             HorizontalDivider(
@@ -402,23 +403,23 @@ fun HomeScreen(
                 RecordingActionsSheet(
                     item = selectedItem!!,
                     onShare = {
-                        viewModel.shareRecording(selectedItem!!.recording, context)
+                        viewModel.shareRecording(selectedItem!!, context)
                         scope.launch {
                             sheetState.hide()
                             selectedItem = null
                         }
                     },
                     onDelete = {
-                        viewModel.deleteRecording(selectedItem!!.recording)
+                        viewModel.deleteRecording(selectedItem!!)
                         scope.launch {
                             sheetState.hide()
                             selectedItem = null
                         }
                     },
                     onRetryTranscription =
-                        if (selectedItem!!.recording.status == RecordingStatus.FAILED) {
+                        if (selectedItem!!.status == RecordingStatus.FAILED) {
                             {
-                                viewModel.retryTranscription(selectedItem!!.recording)
+                                viewModel.retryTranscription(selectedItem!!)
                                 scope.launch {
                                     sheetState.hide()
                                     selectedItem = null
@@ -428,9 +429,9 @@ fun HomeScreen(
                             null
                         },
                     onGenerateTitle =
-                        if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
+                        if (selectedItem!!.status == RecordingStatus.COMPLETED) {
                             {
-                                viewModel.generateTitle(selectedItem!!.recording)
+                                viewModel.generateTitle(selectedItem!!)
                                 scope.launch {
                                     sheetState.hide()
                                     selectedItem = null
@@ -440,9 +441,9 @@ fun HomeScreen(
                             null
                         },
                     onGenerateSummary =
-                        if (selectedItem!!.recording.status == RecordingStatus.COMPLETED) {
+                        if (selectedItem!!.status == RecordingStatus.COMPLETED) {
                             {
-                                viewModel.generateSummary(selectedItem!!.recording)
+                                viewModel.generateSummary(selectedItem!!)
                                 scope.launch {
                                     sheetState.hide()
                                     selectedItem = null
@@ -452,9 +453,9 @@ fun HomeScreen(
                             null
                         },
                     onRecoverStuck =
-                        if (shouldShowStuckRecoveryAction(selectedItem!!.recording.status)) {
+                        if (shouldShowStuckRecoveryAction(selectedItem!!.status)) {
                             {
-                                viewModel.recoverStuckItem(selectedItem!!.recording)
+                                viewModel.recoverStuckItem(selectedItem!!)
                                 scope.launch {
                                     sheetState.hide()
                                     selectedItem = null
@@ -468,7 +469,6 @@ fun HomeScreen(
         }
     }
 }
-
 /**
  * Individual recording list item - no card wrapper.
  */
@@ -480,7 +480,6 @@ private fun RecordingListItem(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val recording = item.recording
 
     Row(
         modifier =
@@ -522,7 +521,7 @@ private fun RecordingListItem(
         Column(modifier = Modifier.weight(1f)) {
             // Title
             Text(
-                text = recording.title,
+                text = item.title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
@@ -532,10 +531,9 @@ private fun RecordingListItem(
             Spacer(modifier = Modifier.height(2.dp))
 
             // Metadata line: "3h ago · 4:32"
-            val metadataText =
-                remember(recording.createdAt, recording.durationMs) {
-                    "${recording.createdAt.formatRelative()} · ${recording.durationMs.formatAsDuration()}"
-                }
+            val metadataText = remember(item.createdAtMs, item.durationMs) {
+                "${java.util.Date(item.createdAtMs).formatRelative()} · ${item.durationMs.formatAsDuration()}"
+            }
             Text(
                 text = metadataText,
                 style = MaterialTheme.typography.labelMedium,
@@ -554,14 +552,14 @@ private fun RecordingListItem(
                 )
             }
 
-            if (shouldShowStuckRecoveryAction(recording.status)) {
+            if (shouldShowStuckRecoveryAction(item.status)) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text =
-                        recording.errorMessage
+                        item.errorMessage
                             ?: stringResource(
                                 R.string.rec_stuck_recovery_message,
-                                recording.status.name
+                                item.status.name
                                     .lowercase()
                                     .replace('_', ' '),
                             ),
@@ -664,7 +662,7 @@ private fun RecordingActionsSheet(
     ) {
         // Header
         Text(
-            text = item.recording.title,
+            text = item.title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),

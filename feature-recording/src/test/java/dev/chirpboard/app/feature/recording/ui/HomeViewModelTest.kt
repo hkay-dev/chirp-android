@@ -101,10 +101,15 @@ class HomeViewModelTest {
                     every { audioPath } returns "/fake/path.wav"
                 }
 
-            viewModel.deleteRecording(recording)
+            val displayItem = mockk<dev.chirpboard.app.feature.recording.ui.RecordingDisplayItem>(relaxed = true) {
+                every { this@mockk.id } returns recording.id
+                every { this@mockk.audioPath } returns recording.audioPath
+            }
+
+            viewModel.deleteRecording(displayItem)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { recordingRepository.delete(recording) }
+            coVerify { recordingRepository.deleteById(recording.id) }
         }
 
     @Test
@@ -117,7 +122,12 @@ class HomeViewModelTest {
                     every { status } returns RecordingStatus.FAILED
                 }
 
-            viewModel.retryTranscription(recording)
+            val displayItem = mockk<dev.chirpboard.app.feature.recording.ui.RecordingDisplayItem>(relaxed = true) {
+                every { this@mockk.id } returns recordingId
+                every { this@mockk.status } returns RecordingStatus.FAILED
+            }
+
+            viewModel.retryTranscription(displayItem)
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify { transcriptionQueueManager.retry(recordingId) }
@@ -133,7 +143,12 @@ class HomeViewModelTest {
                     every { status } returns RecordingStatus.PENDING_TRANSCRIPTION
                 }
 
-            viewModel.recoverStuckItem(recording)
+            val displayItem = mockk<dev.chirpboard.app.feature.recording.ui.RecordingDisplayItem>(relaxed = true) {
+                every { this@mockk.id } returns recordingId
+                every { this@mockk.status } returns RecordingStatus.PENDING_TRANSCRIPTION
+            }
+
+            viewModel.recoverStuckItem(displayItem)
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify { transcriptionQueueManager.recoverPendingTranscription(recordingId) }
