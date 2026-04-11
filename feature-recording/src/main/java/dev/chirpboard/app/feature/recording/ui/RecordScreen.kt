@@ -8,26 +8,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,13 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
@@ -187,67 +177,81 @@ fun RecordScreen(
                             } else {
                                 onNavigateBack()
                             }
-                        },
+                        }
                     ) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_close))
                     }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
             )
-        },
+        }
     ) { paddingValues ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (isRecording) {
-                RecordingGlowBackground(modifier = Modifier.fillMaxSize())
-            }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues)
-                        .padding(horizontal = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            RecordingTimer(
+                recordingState = recordingState,
+                isRecording = isRecording,
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
             ) {
-                Spacer(modifier = Modifier.height(32.dp))
-
-                RecordingTimer(
-                    recordingState = recordingState,
-                    isRecording = isRecording,
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                RecordingWaveform(
-                    viewModel = viewModel,
-                    isRecording = isRecording,
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .padding(horizontal = 16.dp),
-                )
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                RecordingActionRow(
-                    isRecording = isRecording,
-                    isPaused = isPaused,
-                    onTogglePausePlay = {
-                        if (isPaused || !isActive) {
-                            if (isActive) {
-                                viewModel.resumeRecording(context)
-                            } else {
-                                viewModel.startRecording(context)
-                            }
-                        } else {
-                            viewModel.pauseRecording(context)
-                        }
-                    },
-                    onStopRecording = { viewModel.stopRecording(context) },
-                    onRestartRecording = { showRestartDialog = true },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 32.dp)
-                )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (isRecording) {
+                        RecordingGlowBackground(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(MaterialTheme.shapes.extraLarge)
+                        )
+                    }
+                    
+                    RecordingWaveform(
+                        viewModel = viewModel,
+                        isRecording = isRecording,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 24.dp)
+                    )
+                }
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            RecordingActionRow(
+                isRecording = isRecording,
+                isPaused = isPaused,
+                onTogglePausePlay = {
+                    if (isPaused || !isActive) {
+                        if (isActive) {
+                            viewModel.resumeRecording(context)
+                        } else {
+                            viewModel.startRecording(context)
+                        }
+                    } else {
+                        viewModel.pauseRecording(context)
+                    }
+                },
+                onStopRecording = { viewModel.stopRecording(context) },
+                onRestartRecording = { showRestartDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 32.dp)
+            )
         }
     }
 }

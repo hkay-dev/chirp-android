@@ -1,7 +1,11 @@
 package dev.chirpboard.app.core.ui.components.recording
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,14 +26,20 @@ fun RecordingTimer(
     isRecording: Boolean,
     textStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.displayLarge.copy(
         fontSize = 72.sp,
-        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Light,
         letterSpacing = 2.sp,
+        fontFeatureSettings = "tnum"
     ),
     modifier: Modifier = Modifier,
 ) {
     var elapsedMs by remember { mutableLongStateOf(0L) }
     var previousSegmentsMs by remember { mutableLongStateOf(0L) }
+
+    val textColor by animateColorAsState(
+        targetValue = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(durationMillis = 300),
+        label = "timerColor"
+    )
 
     LaunchedEffect(recordingState) {
         when (val state = recordingState) {
@@ -61,10 +71,20 @@ fun RecordingTimer(
         }
     }
 
-    Text(
-        text = formatTimeMs(elapsedMs),
+    Column(
         modifier = modifier,
-        style = textStyle,
-        color = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-    )
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = formatTimeMs(elapsedMs),
+            style = textStyle,
+            color = textColor,
+        )
+        Text(
+            text = "DURATION",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            letterSpacing = 1.sp
+        )
+    }
 }

@@ -253,8 +253,8 @@ fun AppNavHost(
             }
 
             HomeScreen(
-                onRecordingClick = { recording ->
-                    navController.navigate(Screen.ProcessingStudio.createRoute(recording.id.toString()))
+                onRecordingClick = { id ->
+                    navController.navigate(Screen.ProcessingStudio.createRoute(id.toString()))
                 },
                 onRecordClick = {
                     recordEntryViewModel.onRecordTapped()

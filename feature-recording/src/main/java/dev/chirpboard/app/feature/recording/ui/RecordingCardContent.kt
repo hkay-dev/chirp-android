@@ -18,6 +18,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -45,14 +49,15 @@ import kotlinx.collections.immutable.toImmutableList
 internal fun RecordingCardContent(
     item: RecordingDisplayItem,
     isProcessing: Boolean,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val recording = item.recording
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth().animateContentSize(animationSpec = spring())) {
         if (isProcessing) {
             Spacer(modifier = Modifier.height(10.dp))
-            ProcessingIndicator(status = recording.status)
+            ProcessingIndicator(status = item.status)
         }
 
         if (!isProcessing && item.summary != null) {
@@ -61,15 +66,30 @@ internal fun RecordingCardContent(
                 text = item.summary,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                maxLines = if (isExpanded) Int.MAX_VALUE else 2,
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = MaterialTheme.typography.bodySmall.lineHeight,
+                modifier = Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onToggleExpanded
+                ).padding(vertical = 4.dp)
             )
         }
 
-        if (recording.status == RecordingStatus.FAILED) {
+        if (isExpanded) {
+            Spacer(modifier = Modifier.height(12.dp))
+
+            RecordingCardMetadata(
+                createdAtMs = item.createdAtMs,
+                durationMs = item.durationMs,
+                source = item.source,
+                profileName = item.profileName
+            )
+        }
+        if (item.status == RecordingStatus.FAILED) {
             Spacer(modifier = Modifier.height(8.dp))
-            RecordingErrorMessage(recording.errorMessage)
+            RecordingErrorMessage(item.errorMessage)
         }
 
         if (item.tags.isNotEmpty()) {
@@ -81,14 +101,16 @@ internal fun RecordingCardContent(
 
 @Composable
 internal fun RecordingCardMetadata(
-    recording: dev.chirpboard.app.data.entity.Recording,
+    createdAtMs: Long,
+    durationMs: Long,
+    source: dev.chirpboard.app.data.model.RecordingSource,
     profileName: String?,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val relativeDateText = remember(recording.createdAt) { recording.createdAt.formatRelative() }
+        val relativeDateText = remember(createdAtMs) { java.util.Date(createdAtMs).formatRelative() }
         Text(
             text = relativeDateText,
             style = MaterialTheme.typography.bodySmall,
@@ -96,7 +118,7 @@ internal fun RecordingCardMetadata(
         )
 
         MetadataDot()
-        val durationText = remember(recording.durationMs) { recording.durationMs.formatAsDuration() }
+        val durationText = remember(durationMs) { durationMs.formatAsDuration() }
         Text(
             text = durationText,
             style = MaterialTheme.typography.bodySmall,
@@ -114,11 +136,11 @@ internal fun RecordingCardMetadata(
             )
         }
 
-        if (recording.source != RecordingSource.APP) {
+        if (source != RecordingSource.APP) {
             MetadataDot()
             Text(
                 text =
-                    when (recording.source) {
+                    when (source) {
                         RecordingSource.KEYBOARD -> stringResource(R.string.rec_source_keyboard)
                         RecordingSource.WIDGET -> stringResource(R.string.rec_source_widget)
                         else -> ""

@@ -31,16 +31,18 @@ fun RecordingCard(
     onRetryTranscription: (() -> Unit)? = null,
     onGenerateTitle: (() -> Unit)? = null,
     onGenerateSummary: (() -> Unit)? = null,
+    isExpanded: Boolean = false,
+    onToggleExpanded: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val recording = item.recording
-    val isProcessing = recording.status in ProcessingRecordingStatuses
+    val isProcessing = item.status in ProcessingRecordingStatuses
 
     Card(
         modifier =
             modifier
                 .fillMaxWidth()
                 .semantics(mergeDescendants = true) {}
+                .padding(horizontal = 8.dp, vertical = 6.dp)
                 .clickable(onClick = onClick),
         colors =
             CardDefaults.cardColors(
@@ -52,7 +54,7 @@ fun RecordingCard(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(12.dp),
         ) {
             RecordingCardHeader(
                 item = item,
@@ -66,6 +68,8 @@ fun RecordingCard(
             RecordingCardContent(
                 item = item,
                 isProcessing = isProcessing,
+                isExpanded = isExpanded,
+                onToggleExpanded = onToggleExpanded
             )
         }
     }
