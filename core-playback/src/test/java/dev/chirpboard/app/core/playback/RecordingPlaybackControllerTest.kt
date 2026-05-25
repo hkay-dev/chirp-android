@@ -3,6 +3,7 @@ package dev.chirpboard.app.core.playback
 import android.content.Context
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,6 +20,17 @@ class RecordingPlaybackControllerTest {
     fun initialState_isIdle() {
         val controller = RecordingPlaybackController(testContext())
         assertTrue(controller.state.value.isIdle)
+    }
+
+    @Test
+    fun prepare_missingAudioFile_doesNotStartForegroundService() {
+        val context = testContext()
+        val controller = RecordingPlaybackController(context)
+        val recordingId = UUID.randomUUID()
+
+        controller.prepare(recordingId, "Missing clip", "/does/not/exist.m4a")
+
+        verify(exactly = 0) { context.startForegroundService(any()) }
     }
 
     @Test

@@ -197,6 +197,8 @@ class RecordingService : Service() {
         checkpointJob?.cancel()
         segmentRotationJob?.cancel()
         serviceScope.cancel()
+        inputDeviceSelector.setOnActiveDeviceLostListener(null)
+        audioFocusManager.onFocusLost = null
     }
 
     private fun startRecording(
