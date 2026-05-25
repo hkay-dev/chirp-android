@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,7 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.LoadingState
-import dev.chirpboard.app.core.util.formatAsDuration
+import dev.chirpboard.app.core.ui.playback.RecordingFullPlayer
 import dev.chirpboard.app.core.util.formatAsHumanReadableDuration
 import dev.chirpboard.app.core.util.formatForHeader
 import dev.chirpboard.app.data.model.RecordingSource
@@ -82,6 +83,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -91,7 +93,9 @@ fun ProcessingStudioScreen(
     viewModel: ProcessingStudioViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val screenRecordingId = remember(recordingId) { runCatching { UUID.fromString(recordingId) }.getOrNull() }
 
     if (state.isLoading) {
         LoadingState()
@@ -364,6 +368,34 @@ fun ProcessingStudioScreen(
                         }
                     }
                 }
+            }
+
+            if (screenRecordingId != null && state.audioPath.isNotBlank()) {
+                val alternateNotice =
+                    playbackState.recordingId?.takeIf { it != screenRecordingId && playbackState.isPlaying }?.let { _ ->
+                        stringResource(
+                            CoreR.string.playback_other_recording_notice,
+                            playbackState.title,
+                        )
+                    }
+                HorizontalDivider(
+                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
+                RecordingFullPlayer(
+                    state = playbackState,
+                    screenRecordingId = screenRecordingId,
+                    screenTitle = state.title,
+                    alternateAudioNotice = alternateNotice,
+                    onPlayPause = viewModel::togglePlayPause,
+                    onSeek = viewModel::seekTo,
+                    onSkipBackward = viewModel::skipBackward,
+                    onSkipForward = viewModel::skipForward,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                )
             }
 
             if (state.errorMessage != null || state.recoveryActions.showPendingRecovery ||

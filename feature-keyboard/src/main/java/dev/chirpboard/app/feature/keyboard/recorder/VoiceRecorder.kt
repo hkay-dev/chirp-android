@@ -27,6 +27,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.Closeable
+import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -60,6 +61,7 @@ sealed class RecordingError(
 class VoiceRecorder(
     private val context: Context,
     private val coroutineScope: CoroutineScope,
+    private val inputDeviceSelector: AudioInputDeviceSelector? = null,
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -131,7 +133,15 @@ class VoiceRecorder(
                 while (retryCount < maxRetries) {
                     try {
                         audioRecord =
-                            AudioRecord(
+                            inputDeviceSelector?.let { selector ->
+                                selector.buildAudioRecord(
+                                    audioSource = MediaRecorder.AudioSource.MIC,
+                                    sampleRate = SAMPLE_RATE,
+                                    channelConfig = CHANNEL_CONFIG,
+                                    audioFormat = AUDIO_FORMAT,
+                                    bufferSize = bufferSize * 2,
+                                )
+                            } ?: AudioRecord(
                                 MediaRecorder.AudioSource.MIC,
                                 SAMPLE_RATE,
                                 CHANNEL_CONFIG,

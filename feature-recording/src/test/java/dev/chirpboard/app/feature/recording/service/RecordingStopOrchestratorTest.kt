@@ -41,7 +41,19 @@ class RecordingStopOrchestratorTest {
         mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
 
-        orchestrator = RecordingStopOrchestrator(recordingRepository, transcriptionQueueManager)
+        orchestrator =
+            RecordingStopOrchestrator(
+                recordingRepository,
+                transcriptionQueueManager,
+                RecordingFileValidator(),
+                mockk(relaxed = true),
+                RecordingSegmentFinalize(
+                    mockk(relaxed = true),
+                    RecordingSegmentConcatenator(),
+                    mockk(relaxed = true),
+                    RecordingFileValidator(),
+                ),
+            )
     }
 
     @After
@@ -54,6 +66,7 @@ class RecordingStopOrchestratorTest {
         val snapshot = StopSnapshot(
             origin = RecordingOrigin.APP,
             profileId = null,
+            recordingId = null,
             audioFilePath = null,
             durationMs = 1000L,
             stoppedAtEpochMs = 0L,
@@ -67,7 +80,10 @@ class RecordingStopOrchestratorTest {
     @Test
     fun `persistAndQueueRecording saves and enqueues on success`() = runTest {
         val file = File.createTempFile("test_audio", ".m4a")
-        file.writeText("audio data")
+        file.writeBytes(
+            byteArrayOf(0, 0, 0, 0x18, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+                ByteArray(512) + "moov".encodeToByteArray(),
+        )
         
         val recordingId = UUID.randomUUID()
         val recording = mockk<Recording>()
@@ -80,6 +96,7 @@ class RecordingStopOrchestratorTest {
         val snapshot = StopSnapshot(
             origin = RecordingOrigin.APP,
             profileId = null,
+            recordingId = null,
             audioFilePath = file.absolutePath,
             durationMs = 1000L,
             stoppedAtEpochMs = System.currentTimeMillis(),
@@ -103,7 +120,10 @@ class RecordingStopOrchestratorTest {
     @Test
     fun `persistAndQueueRecording returns SavedPendingRecovery if enqueue fails`() = runTest {
         val file = File.createTempFile("test_audio", ".m4a")
-        file.writeText("audio data")
+        file.writeBytes(
+            byteArrayOf(0, 0, 0, 0x18, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+                ByteArray(512) + "moov".encodeToByteArray(),
+        )
         
         val recordingId = UUID.randomUUID()
         val recording = mockk<Recording>()
@@ -119,6 +139,7 @@ class RecordingStopOrchestratorTest {
         val snapshot = StopSnapshot(
             origin = RecordingOrigin.APP,
             profileId = null,
+            recordingId = null,
             audioFilePath = file.absolutePath,
             durationMs = 1000L,
             stoppedAtEpochMs = System.currentTimeMillis(),

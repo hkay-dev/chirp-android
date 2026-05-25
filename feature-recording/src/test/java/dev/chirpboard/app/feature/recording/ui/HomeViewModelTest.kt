@@ -14,6 +14,7 @@ import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
+import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -43,6 +44,7 @@ class HomeViewModelTest {
     private lateinit var transcriptionQueueManager: TranscriptionRecovery
     private lateinit var llmClient: LlmClient
     private lateinit var audioImportOrchestrator: AudioImportOrchestrator
+    private lateinit var sessionRecovery: RecordingRecoveryStore
     private lateinit var savedStateHandle: SavedStateHandle
 
     private lateinit var viewModel: HomeViewModel
@@ -71,6 +73,13 @@ class HomeViewModelTest {
         transcriptionQueueManager = mockk(relaxed = true)
         llmClient = mockk(relaxed = true)
         audioImportOrchestrator = mockk(relaxed = true)
+        sessionRecovery = mockk(relaxed = true)
+        every { sessionRecovery.pendingSessions } returns MutableStateFlow(emptyList())
+        coEvery { sessionRecovery.refresh() } returns Unit
+        val playbackController =
+            mockk<dev.chirpboard.app.core.audio.RecordingPlaybackController>(relaxed = true) {
+                every { state } returns MutableStateFlow(dev.chirpboard.app.core.audio.RecordingPlaybackState())
+            }
         savedStateHandle = SavedStateHandle()
 
         viewModel =
@@ -82,6 +91,8 @@ class HomeViewModelTest {
                 transcriptionQueueManager,
                 llmClient,
                 audioImportOrchestrator,
+                sessionRecovery,
+                playbackController,
                 savedStateHandle,
             )
     }

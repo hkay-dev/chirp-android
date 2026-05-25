@@ -69,10 +69,21 @@ class RecordingStateManager @Inject constructor() {
     /** Scope for internal operations like timeouts */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var timeoutJob: Job? = null
+    private var lastAmplitudeEmitMs = 0L
+
     companion object {
         private const val TAG = "RecordingStateManager"
-        private const val AMPLITUDE_HISTORY_SIZE = 150 // Holds enough history for visible bars without wasting memory
-        private const val STOPPING_TIMEOUT_MS = 5000L
+        private const val AMPLITUDE_HISTORY_SIZE = 150
+        private const val AMPLITUDE_THROTTLE_MS = 100L
+        private const val STOPPING_TIMEOUT_BASE_MS = 15_000L
+        private const val STOPPING_TIMEOUT_PER_MB_MS = 1_000L
+        private const val STOPPING_TIMEOUT_MAX_MS = 120_000L
+
+        fun computeStoppingTimeoutMs(fileSizeBytes: Long): Long {
+            val sizeMb = fileSizeBytes / (1024 * 1024)
+            return (STOPPING_TIMEOUT_BASE_MS + sizeMb * STOPPING_TIMEOUT_PER_MB_MS)
+                .coerceAtMost(STOPPING_TIMEOUT_MAX_MS)
+        }
     }
     
     /**
@@ -102,7 +113,7 @@ class RecordingStateManager @Inject constructor() {
         accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Starting")
-            RecordingState.Starting(origin).also(onTransition)
+            RecordingState.Starting(origin, profileId).also(onTransition)
         }
         return RecordingStartResult.Success
     }
@@ -165,9 +176,9 @@ class RecordingStateManager @Inject constructor() {
     
     /**
      * Resume a paused recording.
-     * Only valid when in Paused state.
+     * When [newAudioFilePath] is provided, capture continues on a fresh hidden segment file.
      */
-    fun resumeRecording() {
+    fun resumeRecording(newAudioFilePath: String? = null) {
         _state.update { current ->
             when (current) {
                 is RecordingState.Paused -> {
@@ -175,9 +186,8 @@ class RecordingStateManager @Inject constructor() {
                     RecordingState.Recording(
                         origin = current.origin,
                         profileId = current.profileId,
-                        // Set startTimeMs so that (now - startTimeMs + accumulatedMs) == total recorded time
                         startTimeMs = System.currentTimeMillis(),
-                        audioFilePath = current.audioFilePath
+                        audioFilePath = newAudioFilePath ?: current.audioFilePath,
                     )
                 }
                 else -> {
@@ -189,56 +199,79 @@ class RecordingStateManager @Inject constructor() {
     }
     
     /**
-     * Begin stopping the current recording.
-     * Returns a Job that will force-cancel after STOPPING_TIMEOUT_MS if stop doesn't complete.
-     * Caller should cancel this job when stop completes successfully.
+     * Transition to Stopping without starting the post-release timeout yet.
      */
-    fun beginStopRecording(): Job? {
+    fun transitionToStopping(): Boolean {
         var transitioned = false
-        
+
         _state.update { current ->
             when (current) {
                 is RecordingState.Starting,
                 is RecordingState.Recording,
-                is RecordingState.Paused -> {
+                is RecordingState.Paused,
+                -> {
                     transitioned = true
                     Log.d(TAG, "State: ${current::class.simpleName} -> Stopping")
                     RecordingState.Stopping(
-                        origin = when (current) {
-                            is RecordingState.Starting -> current.origin
-                            is RecordingState.Recording -> current.origin
-                            is RecordingState.Paused -> current.origin
-                            else -> RecordingOrigin.APP
+                        origin = current.activeOrigin ?: RecordingOrigin.APP,
+                        profileId = when (current) {
+                            is RecordingState.Starting -> current.profileId
+                            is RecordingState.Recording -> current.profileId
+                            is RecordingState.Paused -> current.profileId
+                            else -> null
+                        },
+                        audioFilePath = when (current) {
+                            is RecordingState.Recording -> current.audioFilePath
+                            is RecordingState.Paused -> current.audioFilePath
+                            else -> null
                         },
                     )
                 }
                 else -> {
-                    Log.w(TAG, "beginStopRecording called in wrong state: ${current::class.simpleName}")
+                    Log.w(TAG, "transitionToStopping called in wrong state: ${current::class.simpleName}")
                     current
                 }
             }
         }
-        
-        if (!transitioned) return null
-        
-        // Launch timeout recovery
-        timeoutJob = scope.launch {
-            delay(STOPPING_TIMEOUT_MS)
-            var timedOut = false
-            _state.update { current ->
-                if (current is RecordingState.Stopping) {
-                    timedOut = true
-                    Log.w(TAG, "Stopping state timed out after ${STOPPING_TIMEOUT_MS}ms, forcing to Idle")
-                    RecordingState.Error(current.activeOrigin ?: RecordingOrigin.APP, "Failed to stop recording")
-                } else {
-                    current
+
+        return transitioned
+    }
+
+    /**
+     * Begin stopping timeout after recorder release completes.
+     */
+    fun startStoppingTimeout(fileSizeBytes: Long): Job? {
+        val timeoutMs = computeStoppingTimeoutMs(fileSizeBytes)
+        timeoutJob?.cancel()
+        timeoutJob =
+            scope.launch {
+                delay(timeoutMs)
+                var timedOut = false
+                _state.update { current ->
+                    if (current is RecordingState.Stopping) {
+                        timedOut = true
+                        Log.w(TAG, "Stopping state timed out after ${timeoutMs}ms, forcing to Idle")
+                        RecordingState.Error(
+                            current.activeOrigin ?: RecordingOrigin.APP,
+                            "Failed to stop recording",
+                        )
+                    } else {
+                        current
+                    }
+                }
+                if (timedOut) {
+                    recordingLock.set(false)
                 }
             }
-            if (timedOut) {
-                recordingLock.set(false)
-            }
-        }
         return timeoutJob
+    }
+
+    /**
+     * @deprecated Use [transitionToStopping] followed by [startStoppingTimeout] after IO release.
+     */
+    fun beginStopRecording(): Job? {
+        if (!transitionToStopping()) return null
+        return startStoppingTimeout(fileSizeBytes = 0L)
     }
     
     /**
@@ -327,16 +360,50 @@ class RecordingStateManager @Inject constructor() {
     }
     
     /**
+     * Rotate to a new capture segment without changing recording state.
+     * Accumulates elapsed time from the current segment and resets the segment clock.
+     */
+    fun rotateSegment(newAudioFilePath: String) {
+        while (true) {
+            val current = _state.value
+            if (current !is RecordingState.Recording) {
+                Log.w(TAG, "rotateSegment called in wrong state: ${current::class.simpleName}")
+                break
+            }
+            val elapsedThisSegment = System.currentTimeMillis() - current.startTimeMs
+            val totalAccumulated = accumulatedSegmentMs.get() + elapsedThisSegment
+            val nextState =
+                RecordingState.Recording(
+                    origin = current.origin,
+                    profileId = current.profileId,
+                    startTimeMs = System.currentTimeMillis(),
+                    audioFilePath = newAudioFilePath,
+                )
+            if (_state.compareAndSet(current, nextState)) {
+                accumulatedSegmentMs.set(totalAccumulated)
+                Log.d(TAG, "Rotated capture segment; accumulatedMs=$totalAccumulated")
+                break
+            }
+        }
+    }
+
+    /**
      * Update the current audio amplitude.
      * Call this from RecordingService during active recording.
      * 
      * @param amplitude Normalized amplitude value (0-1)
      */
     fun updateAmplitude(amplitude: Float) {
+        val now = System.currentTimeMillis()
+        if (now - lastAmplitudeEmitMs < AMPLITUDE_THROTTLE_MS) {
+            return
+        }
+        lastAmplitudeEmitMs = now
+
         val normalized = amplitude.coerceIn(0f, 1f)
         _amplitude.value = normalized
         _amplitudeSampleCount.update { it + 1 }
-        
+
         waveformBuffer.add(normalized)
     }
     
@@ -348,6 +415,7 @@ class RecordingStateManager @Inject constructor() {
         _amplitude.value = 0f
         waveformBuffer.clear()
         _amplitudeSampleCount.value = 0L
+        lastAmplitudeEmitMs = 0L
     }
     
     /**

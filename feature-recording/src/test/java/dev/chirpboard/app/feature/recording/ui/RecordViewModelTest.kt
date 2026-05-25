@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.feature.recording.service.RecordingService
+import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -32,6 +33,7 @@ class RecordViewModelTest {
     private lateinit var context: Context
     private lateinit var recordingStateManager: RecordingStateManager
     private lateinit var profileRepository: ProfileRepository
+    private lateinit var recoveryStore: RecordingRecoveryStore
     private lateinit var viewModel: RecordViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -48,6 +50,9 @@ class RecordViewModelTest {
                 every { lastCompletedRecordingId } returns MutableStateFlow(null)
             }
         profileRepository = mockk(relaxed = true)
+        recoveryStore = mockk(relaxed = true)
+        every { recoveryStore.pendingSessions } returns MutableStateFlow(emptyList())
+        coEvery { recoveryStore.refresh() } returns Unit
 
         mockkObject(RecordingService)
         every { RecordingService.startRecording(any(), any(), any()) } returns Unit
@@ -57,7 +62,7 @@ class RecordViewModelTest {
         every { RecordingService.cancelRecording(any()) } returns Unit
         every { RecordingService.restartRecording(any(), any(), any()) } returns Unit
 
-        viewModel = RecordViewModel(recordingStateManager, profileRepository, SavedStateHandle())
+        viewModel = RecordViewModel(recordingStateManager, profileRepository, recoveryStore, SavedStateHandle())
     }
 
     @After
@@ -127,6 +132,7 @@ class RecordViewModelTest {
             RecordViewModel(
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
+                recoveryStore = recoveryStore,
                 savedStateHandle = SavedStateHandle(mapOf("profileId" to profileId.toString())),
             )
 
@@ -152,6 +158,7 @@ class RecordViewModelTest {
             RecordViewModel(
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
+                recoveryStore = recoveryStore,
                 savedStateHandle = SavedStateHandle(mapOf("profileId" to profileId.toString())),
             )
 

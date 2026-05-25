@@ -64,6 +64,9 @@ data class AudioSettings(
     val microphoneGain: Float = DEFAULT_MICROPHONE_GAIN,
     val recordingQualityPreset: RecordingQualityPreset = RecordingQualityPreset.DEFAULT,
     val savedFormatLabel: String = SAVED_RECORDING_FORMAT_LABEL,
+    val inputDevicePolicy: AudioInputDevicePolicy = AudioInputDevicePolicy.DEFAULT,
+    val manualDeviceAddress: String? = null,
+    val batteryOptimizationPromptShown: Boolean = false,
 )
 
 interface AudioSettingsMigrationSource {
@@ -82,6 +85,9 @@ class AudioSettingsStore
         private object Keys {
             val microphoneGain = floatPreferencesKey("microphone_gain")
             val recordingQualityPreset = stringPreferencesKey("recording_quality_preset")
+            val inputDevicePolicy = stringPreferencesKey("input_device_policy")
+            val manualDeviceAddress = stringPreferencesKey("manual_device_address")
+            val batteryOptimizationPromptShown = booleanPreferencesKey("battery_optimization_prompt_shown")
             val migrationComplete = booleanPreferencesKey("audio_settings_migration_complete")
         }
 
@@ -107,6 +113,31 @@ class AudioSettingsStore
             ensureMigrated()
             dataStore.edit { preferences ->
                 preferences[Keys.recordingQualityPreset] = preset.storageValue
+            }
+        }
+
+        suspend fun setInputDevicePolicy(policy: AudioInputDevicePolicy) {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                preferences[Keys.inputDevicePolicy] = policy.storageValue
+            }
+        }
+
+        suspend fun setManualDeviceAddress(address: String?) {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                if (address.isNullOrBlank()) {
+                    preferences.remove(Keys.manualDeviceAddress)
+                } else {
+                    preferences[Keys.manualDeviceAddress] = address
+                }
+            }
+        }
+
+        suspend fun markBatteryOptimizationPromptShown() {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                preferences[Keys.batteryOptimizationPromptShown] = true
             }
         }
 
@@ -155,6 +186,9 @@ class AudioSettingsStore
             AudioSettings(
                 microphoneGain = readMicrophoneGain(),
                 recordingQualityPreset = readRecordingQualityPreset(),
+                inputDevicePolicy = AudioInputDevicePolicy.fromStorageValue(this[Keys.inputDevicePolicy]),
+                manualDeviceAddress = this[Keys.manualDeviceAddress],
+                batteryOptimizationPromptShown = this[Keys.batteryOptimizationPromptShown] == true,
             )
 
         private fun Preferences.readMicrophoneGain(): Float =

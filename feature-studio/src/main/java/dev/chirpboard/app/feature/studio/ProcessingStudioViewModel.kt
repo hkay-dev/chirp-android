@@ -14,6 +14,7 @@ import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import dev.chirpboard.app.core.audio.RecordingPlaybackController
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.collections.immutable.toImmutableList
@@ -43,6 +44,7 @@ class ProcessingStudioViewModel
         private val llmPreferences: LlmPreferences,
         private val wordReplacementRepository: WordReplacementRepository,
         private val transcriptionRecovery: TranscriptionRecovery,
+        private val playbackController: RecordingPlaybackController,
     ) : ViewModel() {
         private var currentRecordingId: UUID? = null
         private var currentTranscript: Transcript? = null
@@ -59,10 +61,7 @@ class ProcessingStudioViewModel
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
 
-        private var audioPlayback: ProcessingStudioAudioPlayback? = null
-        private var progressJob: Job? = null
-        private var playerInitJob: Job? = null
-        private var pendingPlayerAudioPath: String? = null
+        val playbackState: StateFlow<dev.chirpboard.app.core.audio.RecordingPlaybackState> = playbackController.state
 
         init {
             val recordingIdStr = savedStateHandle.get<String>("recordingId")
@@ -72,6 +71,29 @@ class ProcessingStudioViewModel
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     // Invalid UUID
+                }
+            }
+
+            viewModelScope.launch {
+                playbackController.state.collect { playback ->
+                    val screenRecordingId = currentRecordingId ?: return@collect
+                    val current = _uiState.value
+                    if (playback.recordingId == screenRecordingId) {
+                        updatePlaybackPosition(playback.positionMs)
+                        _uiState.value =
+                            current.copy(
+                                isPlaying = playback.isPlaying,
+                                currentPositionMs = playback.positionMs,
+                                durationMs =
+                                    if (playback.durationMs > 0) {
+                                        playback.durationMs
+                                    } else {
+                                        current.durationMs
+                                    },
+                            )
+                    } else if (playback.isPlaying && playback.recordingId != screenRecordingId) {
+                        _uiState.value = current.copy(isPlaying = false)
+                    }
                 }
             }
         }
@@ -176,7 +198,11 @@ class ProcessingStudioViewModel
 
                         _uiState.value = refreshTranscriptInteractionState(stateWithRecovery)
 
-                        scheduleDeferredPlayerInit(recording.audioPath, recording.id)
+                        scheduleDeferredStudioPlayback(
+                            recordingId = recording.id,
+                            title = recording.title,
+                            audioPath = recording.audioPath,
+                        )
                     } else {
                         _uiState.value = _uiState.value.copy(isLoading = false)
                     }
@@ -184,64 +210,47 @@ class ProcessingStudioViewModel
             }
         }
 
-        private fun scheduleDeferredPlayerInit(
-            audioPath: String,
+        private fun scheduleDeferredStudioPlayback(
             recordingId: UUID,
+            title: String,
+            audioPath: String,
         ) {
-            if (audioPlayback != null || pendingPlayerAudioPath == audioPath) {
-                return
+            viewModelScope.launch {
+                delay(ChirpMotion.NAV_TRANSITION_MS.toLong())
+                if (currentRecordingId != recordingId) return@launch
+                playbackController.onStudioOpened(recordingId, title, audioPath)
             }
-            pendingPlayerAudioPath = audioPath
-            playerInitJob?.cancel()
-            playerInitJob =
-                viewModelScope.launch {
-                    delay(ChirpMotion.NAV_TRANSITION_MS.toLong())
-                    if (currentRecordingId != recordingId || audioPlayback != null) {
-                        return@launch
-                    }
-                    initPlayer(audioPath)
-                }
-        }
-
-        private fun initPlayer(audioPath: String) {
-            if (audioPlayback != null) {
-                return
-            }
-            audioPlayback =
-                ProcessingStudioAudioPlayback(
-                    context = context,
-                    onPlayingChanged = { isPlaying ->
-                        _uiState.value = _uiState.value.copy(isPlaying = isPlaying)
-                        if (isPlaying) {
-                            startProgressUpdates()
-                        } else {
-                            progressJob?.cancel()
-                        }
-                    },
-                    onDurationReady = { durationMs ->
-                        _uiState.value = _uiState.value.copy(durationMs = durationMs)
-                    },
-                ).also { it.prepare(audioPath) }
         }
 
         fun togglePlayPause() {
-            audioPlayback?.togglePlayPause()
+            val recordingId = currentRecordingId ?: return
+            val screen = _uiState.value
+            if (screen.audioPath.isBlank()) return
+            val playback = playbackController.state.value
+            if (playback.recordingId == recordingId) {
+                playbackController.togglePlayPause()
+            } else {
+                playbackController.play(recordingId, screen.title, screen.audioPath)
+            }
         }
 
         fun seekTo(positionMs: Long) {
-            audioPlayback?.seekTo(positionMs)
+            val recordingId = currentRecordingId ?: return
+            val screen = _uiState.value
+            val playback = playbackController.state.value
+            if (playback.recordingId != recordingId) {
+                playbackController.prepare(recordingId, screen.title, screen.audioPath)
+            }
+            playbackController.seekTo(positionMs)
             updatePlaybackPosition(positionMs)
         }
 
-        private fun startProgressUpdates() {
-            progressJob?.cancel()
-            progressJob =
-                viewModelScope.launch {
-                    while (isActive && audioPlayback?.isPlaying == true) {
-                        updatePlaybackPosition(audioPlayback?.currentPositionMs ?: 0L)
-                        delay(ChirpMotion.PLAYBACK_TICK_MS)
-                    }
-                }
+        fun skipForward() {
+            playbackController.skipForward()
+        }
+
+        fun skipBackward() {
+            playbackController.skipBackward()
         }
 
         private fun updatePlaybackPosition(positionMs: Long) {
@@ -268,7 +277,11 @@ class ProcessingStudioViewModel
         fun onWordClicked(timestamp: Long) {
             if (!_uiState.value.canUseTranscriptInteractions()) return
             seekTo(timestamp)
-            audioPlayback?.play()
+            val recordingId = currentRecordingId ?: return
+            val screen = _uiState.value
+            if (!playbackController.state.value.isPlaying) {
+                playbackController.play(recordingId, screen.title, screen.audioPath)
+            }
         }
 
         fun updateChatDraft(newText: String) {
@@ -617,8 +630,9 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val id = currentRecordingId ?: return@launch
                 val rec = repository.getRecording(id) ?: return@launch
-                audioPlayback?.release()
-                audioPlayback = null
+                if (playbackController.state.value.recordingId == id) {
+                    playbackController.stop()
+                }
                 try {
                     repository.delete(rec)
                     withContext(Dispatchers.IO) {
@@ -753,10 +767,6 @@ class ProcessingStudioViewModel
 
         override fun onCleared() {
             super.onCleared()
-            playerInitJob?.cancel()
-            progressJob?.cancel()
-            audioPlayback?.release()
-            audioPlayback = null
         }
 
         private fun isTranscriptBusy(status: RecordingStatus?): Boolean =

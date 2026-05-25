@@ -10,4 +10,14 @@
     <string name="settings_badge_connected">CONNECTED</string>
     <string name="rec_done">Done</string>
     <string name="settings_badge_pro">PRO</string>
+    <string name="playback_play">Play</string>
+    <string name="playback_pause">Pause</string>
+    <string name="playback_stop">Stop playback</string>
+    <string name="playback_open_recording">Open recording</string>
+    <string name="playback_now_playing">Now playing</string>
+    <string name="playback_position">%1$s / %2$s</string>
+    <string name="playback_skip_back">Skip back 10 seconds</string>
+    <string name="playback_skip_forward">Skip forward 10 seconds</string>
+    <string name="playback_error">Playback error</string>
+    <string name="playback_other_recording_notice">Playing \"%1$s\" in the background. Press play to switch to this recording.</string>
 </resources>

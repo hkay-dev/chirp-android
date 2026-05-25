@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +44,7 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.feature.recording.R
+import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
@@ -63,11 +65,13 @@ fun RecordScreen(
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val isProfileHandoffResolved by viewModel.isProfileHandoffResolved.collectAsStateWithLifecycle()
     val entryMessage by viewModel.entryMessage.collectAsStateWithLifecycle()
+    val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var showCancelDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
+    var recoveryPromptSession by remember { mutableStateOf<RecoverableRecordingSession?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val isRecording =
@@ -77,8 +81,19 @@ fun RecordScreen(
     val isPaused = recordingState is RecordingState.Paused
     val isActive = isRecording || isPaused
 
-    LaunchedEffect(autoStart, isProfileHandoffResolved) {
-        if (autoStart && isProfileHandoffResolved && recordingState is RecordingState.Idle) {
+    LaunchedEffect(recoverableSessions) {
+        if (recoveryPromptSession == null && recoverableSessions.isNotEmpty()) {
+            recoveryPromptSession = recoverableSessions.first()
+        }
+    }
+
+    LaunchedEffect(autoStart, isProfileHandoffResolved, recoverableSessions) {
+        if (
+            autoStart &&
+            isProfileHandoffResolved &&
+            recoverableSessions.isEmpty() &&
+            recordingState is RecordingState.Idle
+        ) {
             viewModel.startRecording(context)
         }
     }
@@ -100,6 +115,55 @@ fun RecordScreen(
 
     BackHandler(enabled = isActive) {
         showBackDialog = true
+    }
+
+    recoveryPromptSession?.let { session ->
+        AlertDialog(
+            onDismissRequest = { recoveryPromptSession = null },
+            title = { Text(stringResource(R.string.rec_recovery_title)) },
+            text = {
+                Text(
+                    if (session.hasPotentialLoss) {
+                        stringResource(
+                            R.string.rec_recovery_message_with_loss,
+                            session.estimatedLostMinutes(),
+                        )
+                    } else {
+                        stringResource(R.string.rec_recovery_message)
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.recoverInterruptedSession(session.sessionId)
+                        recoveryPromptSession = null
+                    },
+                ) {
+                    Text(stringResource(R.string.rec_recovery_recover))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            viewModel.keepInterruptedSession(session.sessionId)
+                            recoveryPromptSession = null
+                        },
+                    ) {
+                        Text(stringResource(R.string.rec_recovery_keep))
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.discardInterruptedSession(session.sessionId)
+                            recoveryPromptSession = null
+                        },
+                    ) {
+                        Text(stringResource(R.string.rec_recovery_discard))
+                    }
+                }
+            },
+        )
     }
 
     if (showCancelDialog) {

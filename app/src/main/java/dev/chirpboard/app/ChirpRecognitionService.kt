@@ -6,6 +6,8 @@ import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
+import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
@@ -26,13 +28,19 @@ class ChirpRecognitionService : RecognitionService() {
         private const val TAG = "ChirpRecognition"
     }
 
-    private val recorder by lazy { VoiceRecorder(this, scope) }
+    private val recorder by lazy { VoiceRecorder(this, scope, inputDeviceSelector) }
 
     @Inject
     lateinit var transcriberProvider: TranscriberProvider
 
     @Inject
     lateinit var recordingRepository: RecordingRepository
+
+    @Inject
+    lateinit var inputDeviceSelector: AudioInputDeviceSelector
+
+    @Inject
+    lateinit var audioSettingsStore: AudioSettingsStore
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -98,6 +106,8 @@ class ChirpRecognitionService : RecognitionService() {
             try {
                 // Notify ready
                 listener.readyForSpeech(Bundle())
+
+                recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
 
                 // Start recording
                 if (!recorder.start()) {

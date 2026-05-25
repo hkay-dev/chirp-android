@@ -7,7 +7,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
@@ -30,6 +32,9 @@ import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.LoadingState
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.playback.RecordingMiniPlayerBar
+import dev.chirpboard.app.core.ui.playback.rememberRecordingPlaybackController
+import dev.chirpboard.app.core.ui.playback.shouldShowGlobalMiniPlayer
 import kotlinx.coroutines.flow.collect
 
 /**
@@ -54,6 +59,15 @@ internal fun AppNavHost(
     val sharedAudioNavigationTarget by sharedAudioHandoffViewModel.navigationTarget.collectAsStateWithLifecycle()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
+    val studioRecordingId = currentBackStackEntry?.arguments?.getString("recordingId")
+    val playbackController = rememberRecordingPlaybackController()
+    val playbackState by playbackController.state.collectAsStateWithLifecycle()
+    val showGlobalMiniPlayer =
+        shouldShowGlobalMiniPlayer(
+            playbackState = playbackState,
+            currentRoute = currentRoute,
+            studioRecordingId = studioRecordingId,
+        )
 
     LaunchedEffect(incomingSharedAudioRequest?.token) {
         sharedAudioHandoffViewModel.onIncomingRequest(incomingSharedAudioRequest)
@@ -77,10 +91,11 @@ internal fun AppNavHost(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Home.route,
-            modifier = Modifier.fillMaxSize(),
+        Column(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Home.route,
+                modifier = Modifier.weight(1f),
             enterTransition = {
                 fadeIn(
                     animationSpec =
@@ -156,6 +171,24 @@ internal fun AppNavHost(
         ) {
             appRecordingNavigation(navController)
             appSettingsNavigation(navController)
+        }
+
+            if (showGlobalMiniPlayer) {
+                RecordingMiniPlayerBar(
+                    state = playbackState,
+                    onPlayPause = playbackController::togglePlayPause,
+                    onSeek = playbackController::seekTo,
+                    onStop = playbackController::stop,
+                    onOpenRecording = {
+                        playbackState.recordingId?.let { id ->
+                            navController.navigate(Screen.ProcessingStudio.createRoute(id.toString())) {
+                                launchSingleTop = true
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
 
         when (val state = sharedAudioState) {

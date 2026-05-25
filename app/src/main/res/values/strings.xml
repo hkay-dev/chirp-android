@@ -93,6 +93,13 @@
     <string name="audio_settings_quality_low">Low</string>
     <string name="audio_settings_quality_balanced">Balanced</string>
     <string name="audio_settings_quality_high">High</string>
+    <string name="audio_settings_input_device_policy">Microphone selection</string>
+    <string name="audio_settings_input_device_policy_help">Automatic prefers the built-in mic over Bluetooth when both are available.</string>
+    <string name="audio_settings_input_policy_automatic">Automatic</string>
+    <string name="audio_settings_input_policy_builtin">Built-in only</string>
+    <string name="audio_settings_input_policy_manual">Choose device</string>
+    <string name="audio_settings_active_input">Active input</string>
+    <string name="audio_settings_active_input_help">Last resolved microphone for recording.</string>
     <string name="dev_gemini_key">Gemini API Key</string>
     <string name="dev_gemini_placeholder">AIza...</string>
     <string name="dev_save_key">Save Key</string>

@@ -25,6 +25,7 @@ import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
@@ -32,8 +33,8 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
+import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
-import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
@@ -90,6 +91,8 @@ class ChirpKeyboardService :
 
     @Inject lateinit var recordingRepository: RecordingRepository
 
+    @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
+
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
 
@@ -104,7 +107,7 @@ class ChirpKeyboardService :
     private val _state = MutableStateFlow<KeyboardState>(KeyboardState.ModelNotReady)
     private val state = _state.asStateFlow()
 
-    private val recorder by lazy { VoiceRecorder(this, scope) }
+    private val recorder by lazy { VoiceRecorder(this, scope, inputDeviceSelector) }
     private val audioEncoder = AudioEncoder()
     private lateinit var audioFocusManager: AudioFocusManager
     private var phoneCallHandler: PhoneCallHandler? = null

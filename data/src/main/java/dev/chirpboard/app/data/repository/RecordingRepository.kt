@@ -81,6 +81,48 @@ class RecordingRepository
             return recording
         }
 
+        suspend fun createInProgressRecording(
+            title: String,
+            audioPath: String,
+            source: RecordingSource,
+            profileId: UUID? = null,
+        ): Recording {
+            val recording =
+                Recording(
+                    title = title,
+                    audioPath = audioPath,
+                    source = source,
+                    profileId = profileId,
+                    durationMs = 0,
+                    status = RecordingStatus.RECORDING,
+                )
+            recordingDao.insert(recording)
+            return recording
+        }
+
+        suspend fun finalizeInProgressRecording(
+            recordingId: UUID,
+            durationMs: Long,
+            title: String? = null,
+        ): Recording? {
+            val existing = recordingDao.getRecording(recordingId) ?: return null
+            val updated =
+                existing.copy(
+                    title = title ?: existing.title,
+                    durationMs = durationMs,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                )
+            recordingDao.update(updated)
+            return updated
+        }
+
+        suspend fun deleteInProgressRecording(recordingId: UUID) {
+            val existing = recordingDao.getRecording(recordingId) ?: return
+            if (existing.status == RecordingStatus.RECORDING) {
+                recordingDao.deleteById(recordingId)
+            }
+        }
+
         suspend fun insert(recording: Recording) = recordingDao.insert(recording)
 
         suspend fun update(recording: Recording) = recordingDao.update(recording)

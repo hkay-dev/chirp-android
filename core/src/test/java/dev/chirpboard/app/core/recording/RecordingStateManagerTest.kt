@@ -39,9 +39,12 @@ class RecordingStateManagerTest {
 
     @Test
     fun tryStartRecording_success() {
-        val result = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        val profileId = UUID.randomUUID()
+        val result = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = profileId)
         assertTrue(result is RecordingStartResult.Success)
-        assertTrue(manager.state.value is RecordingState.Starting)
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Starting)
+        assertEquals(profileId, (state as RecordingState.Starting).profileId)
         assertFalse(manager.canStartRecording())
     }
 
@@ -112,18 +115,38 @@ class RecordingStateManagerTest {
         assertTrue(result is RecordingStartResult.Success)
     }
     @Test
+    fun computeStoppingTimeoutMs_scalesWithFileSize() {
+        val small = RecordingStateManager.computeStoppingTimeoutMs(1024)
+        val large = RecordingStateManager.computeStoppingTimeoutMs(100L * 1024 * 1024)
+        assertTrue(large > small)
+    }
+
+    @Test
+    fun pauseAndResume_preservesAccumulatedDuration() {
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path")
+        Thread.sleep(20)
+        manager.pauseRecording()
+        val pausedDuration = manager.getCurrentDurationMs()
+        assertTrue(pausedDuration >= 0L)
+        manager.resumeRecording()
+        assertTrue(manager.getCurrentDurationMs() >= pausedDuration)
+    }
+
+    @Test
     fun amplitudeUpdates_areTracked() {
         manager.updateAmplitude(0.5f)
         assertEquals(0.5f, manager.amplitudeFlow.value)
         assertEquals(0.5f, manager.waveformBuffer.get(0))
         assertEquals(1, manager.waveformBuffer.count)
-        
+
+        Thread.sleep(110)
         manager.updateAmplitude(0.8f)
         assertEquals(0.8f, manager.amplitudeFlow.value)
         assertEquals(0.5f, manager.waveformBuffer.get(0))
         assertEquals(0.8f, manager.waveformBuffer.get(1))
         assertEquals(2, manager.waveformBuffer.count)
-        
+
         manager.clearAmplitude()
         assertEquals(0f, manager.amplitudeFlow.value)
         assertEquals(0, manager.waveformBuffer.count)

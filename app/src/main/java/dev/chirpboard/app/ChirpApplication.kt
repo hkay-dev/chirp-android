@@ -9,7 +9,7 @@ import dagger.hilt.android.HiltAndroidApp
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.download.ModelReadinessGate
-import dev.chirpboard.app.feature.recording.cleanup.OrphanedAudioCleaner
+import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
 import dev.chirpboard.app.feature.widget.WidgetStateObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +33,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var modelReadinessGate: ModelReadinessGate
     
     @Inject
-    lateinit var orphanedAudioCleaner: OrphanedAudioCleaner
+    lateinit var recordingStartupCoordinator: RecordingStartupCoordinator
 
     @Inject
     lateinit var widgetStateObserver: WidgetStateObserver
@@ -51,13 +51,11 @@ class ChirpApplication : Application(), Configuration.Provider {
 
         widgetStateObserver.startObserving()
         
-        // Migrate API key from plaintext to encrypted storage
         applicationScope.launch {
             val result = apiKeyMigration.migrate()
             Log.d(TAG, "API key migration result: $result")
         }
         
-        // Recover any stuck transcriptions from previous session
         applicationScope.launch {
             try {
                 transcriptionQueueLifecycle.processPendingOnStartup()
@@ -76,13 +74,13 @@ class ChirpApplication : Application(), Configuration.Provider {
                 Log.e(TAG, "Failed to warm model readiness on startup", e)
             }
         }
-        // Clean up any orphaned audio files from previous aborted sessions
+
         applicationScope.launch {
             try {
-                orphanedAudioCleaner.cleanOrphanedFiles()
+                recordingStartupCoordinator.onAppStart()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Failed to clean orphaned audio files", e)
+                Log.e(TAG, "Failed recording startup coordinator", e)
             }
         }
 
