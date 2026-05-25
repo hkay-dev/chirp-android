@@ -1,6 +1,6 @@
 # UI polish manual QA checklist
 
-Run on a physical device **before merging** any PR that touches home list, record flow, Processing Studio, or nav shell composables (`AppNavigation`, `RecordScreen`, `HomeScreen`, `ProcessingStudioScreen`).
+Run on a physical device **before merging** any PR that touches home list, record flow, Processing Studio, nav shell, keyboard IME, or settings screens.
 
 ## Record → Done → Studio
 
@@ -15,26 +15,41 @@ Run on a physical device **before merging** any PR that touches home list, recor
 - [ ] During finalizing / transcribing / enhancing, **one** morphing progress region is visible (header compact banner)
 - [ ] Transcript tab shows skeleton lines only — **not** a second full progress panel with duplicate copy/spinner
 - [ ] When processing completes, transcript content (or empty-completed state) replaces skeleton without layout jump
+- [ ] Media player **expands down** and pushes tabs — not an instant pop-in
+- [ ] Recovery/error blocks expand down smoothly when they appear
 
 ## Home list filters and empty states
 
 - [ ] With recordings present, tap processing stat pill when count is **0** — list and stats **stay visible**; filter does not activate
-- [ ] With processing recordings present, tap processing pill — list filters to processing items; pill shows selected state; dismissible **Processing** chip appears
-- [ ] Tap processing pill again (or chip dismiss) — filter clears; full list returns
+- [ ] With processing recordings present, tap processing pill — list filters to processing items; pill shows selected state; dismissible **Processing** chip **slides in**
+- [ ] Tap processing pill again (or chip dismiss) — filter clears; full list returns with smooth collapse
 - [ ] Activate processing filter when no items match — stats row remains; inline “no match” message and **Clear filter** appear (not first-run empty state)
 - [ ] First-run empty state appears **only** when there are zero recordings total and no active search
 
-## Home search
+## Home search and list chrome
 
-- [ ] Tap search icon — search field is fully visible (not clipped by collapsing top app bar)
-- [ ] Type query — results filter; results count label updates
-- [ ] Clear query / close search — field dismisses cleanly; list restores
+- [ ] Tap search icon — search field **expands down** and pushes the list (fully visible, not clipped)
+- [ ] Type query — results filter; results count label **animates in**
+- [ ] Clear query / close search — field collapses smoothly; list restores
+- [ ] Recovery banner (if present) expands/collapses without snapping the list
+- [ ] Transcribing list items grow/shrink progress banner smoothly as status changes
 
 ## Nav shell (when touched)
 
-- [ ] Start playback from list — mini player slides in; content height adjusts smoothly
+- [ ] Start playback from list — mini player slides in from bottom; content height adjusts smoothly
 - [ ] Stop playback — mini player exits without jank
 - [ ] Share audio into app — scrim overlay appears; Home/NavHost stays mounted underneath
+
+## Keyboard & voice
+
+- [ ] Keyboard dictation: mode controls row expands down after recording stops
+- [ ] Voice recognition sheet: content reflows smoothly when waveform/mode areas change
+
+## Settings (spot check)
+
+- [ ] LLM settings: enabling LLM expands API key + processing sections smoothly
+- [ ] Transcription model download: progress bar expands in/out
+- [ ] Audio settings: switching to manual input device list expands device rows smoothly
 
 ## Regression smoke (quick)
 

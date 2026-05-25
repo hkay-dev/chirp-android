@@ -3,6 +3,8 @@ package dev.chirpboard.app.feature.keyboard.ui
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.FastOutSlowInEasing
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -160,7 +162,7 @@ fun KeyboardUI(
             tonalElevation = 0.dp,
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(top = 1.dp),
+                modifier = Modifier.fillMaxSize().padding(top = 1.dp).animatePushDownLayout(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
@@ -222,7 +224,7 @@ fun KeyboardUI(
                     }
                 }
 
-                if (showModeControls) {
+                PushDownReveal(visible = showModeControls) {
                     ModeControlsRow(
                         scrollState = modeScrollState,
                         llmEnabled = llmEnabled,

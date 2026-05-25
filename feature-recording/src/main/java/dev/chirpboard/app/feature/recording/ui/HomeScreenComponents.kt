@@ -1,6 +1,9 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -89,6 +92,7 @@ internal fun RecordingListItem(
         modifier =
             modifier
                 .fillMaxWidth()
+                .animatePushDownLayout()
                 .semantics(mergeDescendants = true) {}
                 .combinedClickable(
                     onClick = onClick,
@@ -136,21 +140,25 @@ internal fun RecordingListItem(
             source = item.source,
         )
 
-        item.status.transcriptionProgressCopy()?.let { copy ->
-            TranscriptionProgressBanner(copy = copy)
+        PushDownReveal(visible = item.status.transcriptionProgressCopy() != null) {
+            item.status.transcriptionProgressCopy()?.let { copy ->
+                TranscriptionProgressBanner(copy = copy)
+            }
         }
 
-        if (item.summary != null) {
-            Text(
-                text = item.summary,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        PushDownReveal(visible = item.summary != null) {
+            item.summary?.let { summary ->
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
-        if (shouldShowStuckRecoveryAction(item.status)) {
+        PushDownReveal(visible = shouldShowStuckRecoveryAction(item.status)) {
             Text(
                 text =
                     item.errorMessage
@@ -167,7 +175,7 @@ internal fun RecordingListItem(
             )
         }
 
-        if (item.tags.isNotEmpty()) {
+        PushDownReveal(visible = item.tags.isNotEmpty()) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),

@@ -69,6 +69,8 @@ import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.delay
 
@@ -229,6 +231,7 @@ private fun VoiceRecognitionDialogContent(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .animatePushDownLayout()
                         .padding(
                             top = 32.dp,
                             bottom = 24.dp,

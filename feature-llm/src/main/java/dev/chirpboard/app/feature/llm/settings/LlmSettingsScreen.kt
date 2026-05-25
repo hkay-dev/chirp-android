@@ -1,10 +1,6 @@
 package dev.chirpboard.app.feature.llm.settings
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -86,11 +82,7 @@ fun LlmSettingsScreen(
             }
 
             item {
-                AnimatedVisibility(
-                    visible = uiState.llmEnabled,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
+                PushDownReveal(visible = uiState.llmEnabled) {
                     LlmSettingsApiKeySection(
                         uiState = uiState,
                         onApiKeyChanged = viewModel::updateApiKey,
@@ -102,11 +94,7 @@ fun LlmSettingsScreen(
             }
 
             item {
-                AnimatedVisibility(
-                    visible = uiState.llmEnabled,
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
+                PushDownReveal(visible = uiState.llmEnabled) {
                     LlmSettingsProcessingSection(
                         uiState = uiState,
                         onSetAutoTitle = viewModel::setAutoTitle,

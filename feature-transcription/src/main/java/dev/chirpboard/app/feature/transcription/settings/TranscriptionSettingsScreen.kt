@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.transcription.settings
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -318,7 +319,7 @@ private fun ModelManagementCard(
             }
 
             // Progress Section
-            AnimatedVisibility(visible = isLoading) {
+            PushDownReveal(visible = isLoading) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)

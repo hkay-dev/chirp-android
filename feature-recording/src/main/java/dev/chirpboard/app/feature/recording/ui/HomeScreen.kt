@@ -4,11 +4,14 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import dev.chirpboard.app.core.ui.motion.ChirpMotion.layoutSizeSpring
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,6 +84,7 @@ import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.ui.components.StatusBarProtection
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -227,7 +231,12 @@ fun HomeScreen(
             },
         topBar = {
             val collapsed = appBarScrollBehavior?.state?.collapsedFraction?.let { it > 0.5f } ?: false
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .animateContentSize(animationSpec = layoutSizeSpring),
+            ) {
                 MediumTopAppBar(
                     title = {
                         Text(
@@ -310,7 +319,7 @@ fun HomeScreen(
                             scrolledContainerColor = MaterialTheme.colorScheme.surface,
                         ),
                 )
-                if (searchActive) {
+                PushDownReveal(visible = searchActive) {
                     SearchBarDefaults.InputField(
                         modifier =
                             Modifier
@@ -359,8 +368,9 @@ fun HomeScreen(
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.animatePushDownLayout(),
             ) {
-                if (!showEmptyState && shouldShowHomeQuickStartSurface(quickStarts)) {
+                PushDownReveal(visible = !showEmptyState && shouldShowHomeQuickStartSurface(quickStarts)) {
                     HomeQuickStartSurface(
                         quickStarts = quickStarts,
                         onQuickStartClick = onQuickStartClick,
@@ -384,7 +394,8 @@ fun HomeScreen(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .consumeWindowInsets(paddingValues),
+                        .consumeWindowInsets(paddingValues)
+                        .animatePushDownLayout(),
                 targetState = showEmptyState,
             transitionSpec = {
                 fadeIn(ChirpMotion.studioAlphaTween) togetherWith
@@ -415,8 +426,8 @@ fun HomeScreen(
                             bottom = paddingValues.calculateBottomPadding() + 96.dp,
                         ),
                 ) {
-                    if (recoverableSessions.isNotEmpty()) {
-                        item(key = "recovery_banner", contentType = "recovery_banner") {
+                    item(key = "recovery_banner", contentType = "recovery_banner") {
+                        PushDownReveal(visible = recoverableSessions.isNotEmpty()) {
                             Card(
                                 modifier =
                                     Modifier
@@ -463,9 +474,8 @@ fun HomeScreen(
                         }
                     }
 
-                    // Stats pill row - show when not searching
-                    if (searchQuery.isBlank() && stats.totalRecordings > 0) {
-                        item(key = "stats", contentType = "stats") {
+                    item(key = "stats", contentType = "stats") {
+                        PushDownReveal(visible = searchQuery.isBlank() && stats.totalRecordings > 0) {
                             StatsPillRow(
                                 recordingCount = stats.totalRecordings,
                                 totalDurationMs = stats.totalDurationMs,
@@ -478,59 +488,68 @@ fun HomeScreen(
                                         .padding(horizontal = 8.dp, vertical = 8.dp),
                             )
                         }
+                    }
 
-                        if (listFilter == ListFilterMode.PROCESSING) {
-                            item(key = "processing_filter_chip", contentType = "processing_filter_chip") {
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    InputChip(
-                                        selected = true,
-                                        onClick = { viewModel.setListFilter(ListFilterMode.ALL) },
-                                        label = { Text(stringResource(R.string.rec_filter_processing)) },
-                                        trailingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = stringResource(R.string.rec_filter_clear),
-                                                modifier = Modifier.size(18.dp),
-                                            )
-                                        },
-                                    )
-                                }
-                            }
-                        }
-
-                        if (searchQuery.isBlank() && listFilter == ListFilterMode.PROCESSING && stuckCount > 0) {
-                            item(key = "recover_stuck", contentType = "recover_stuck") {
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    horizontalArrangement = Arrangement.End,
-                                ) {
-                                    FilledTonalButton(onClick = { viewModel.recoverAllStuck() }) {
+                    item(key = "processing_filter_chip", contentType = "processing_filter_chip") {
+                        PushDownReveal(
+                            visible =
+                                searchQuery.isBlank() &&
+                                    stats.totalRecordings > 0 &&
+                                    listFilter == ListFilterMode.PROCESSING,
+                        ) {
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                InputChip(
+                                    selected = true,
+                                    onClick = { viewModel.setListFilter(ListFilterMode.ALL) },
+                                    label = { Text(stringResource(R.string.rec_filter_processing)) },
+                                    trailingIcon = {
                                         Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = null,
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = stringResource(R.string.rec_filter_clear),
                                             modifier = Modifier.size(18.dp),
                                         )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(stringResource(R.string.rec_recover_stuck, stuckCount))
-                                    }
+                                    },
+                                )
+                            }
+                        }
+                    }
+
+                    item(key = "recover_stuck", contentType = "recover_stuck") {
+                        PushDownReveal(
+                            visible =
+                                searchQuery.isBlank() &&
+                                    listFilter == ListFilterMode.PROCESSING &&
+                                    stuckCount > 0,
+                        ) {
+                            Row(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.End,
+                            ) {
+                                FilledTonalButton(onClick = { viewModel.recoverAllStuck() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(stringResource(R.string.rec_recover_stuck, stuckCount))
                                 }
                             }
                         }
                     }
 
-                    // Search results count
-                    if (searchQuery.isNotBlank()) {
-                        item(key = "search_results", contentType = "search_results") {
+                    item(key = "search_results", contentType = "search_results") {
+                        PushDownReveal(visible = searchQuery.isNotBlank()) {
                             Text(
                                 text = pluralStringResource(R.plurals.rec_search_results_count, displayItems.size, displayItems.size),
                                 style = MaterialTheme.typography.labelMedium,
@@ -542,8 +561,8 @@ fun HomeScreen(
                         }
                     }
 
-                    if (displayItems.isEmpty() && hasActiveListFilter) {
-                        item(key = "filter_empty", contentType = "filter_empty") {
+                    item(key = "filter_empty", contentType = "filter_empty") {
+                        PushDownReveal(visible = displayItems.isEmpty() && hasActiveListFilter) {
                             Column(
                                 modifier =
                                     Modifier

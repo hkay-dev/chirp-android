@@ -1,6 +1,6 @@
 package dev.chirpboard.app.feature.studio.tabs
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +40,9 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.ProcessingStudioTranscript
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.TranscriptSegment
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 
 @Composable
 fun TranscriptTab(
@@ -73,14 +76,11 @@ fun TranscriptTab(
         modifier =
             modifier
                 .fillMaxSize()
-                .padding(contentPadding),
+                .padding(contentPadding)
+                .animatePushDownLayout(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        AnimatedVisibility(
-            visible = showTranscriptChrome,
-            enter = progressEnterTransition,
-            exit = progressExitTransition,
-        ) {
+        PushDownReveal(visible = showTranscriptChrome) {
             TranscriptCopyActions(
                 llmProcessingEnabled = llmProcessingEnabled,
                 rawTranscriptText = rawTranscriptText,
@@ -94,11 +94,7 @@ fun TranscriptTab(
             )
         }
 
-        AnimatedVisibility(
-            visible = hasManualCorrection && !isEditingTranscript && showTranscriptChrome,
-            enter = progressEnterTransition,
-            exit = progressExitTransition,
-        ) {
+        PushDownReveal(visible = hasManualCorrection && showTranscriptChrome) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.secondaryContainer,
@@ -112,59 +108,85 @@ fun TranscriptTab(
             }
         }
 
-        Box(modifier = Modifier.weight(1f, fill = true).fillMaxWidth()) {
+        val bodyMode =
             when {
-                isProcessing && !isEditingTranscript -> {
-                    TranscriptProcessingSkeleton()
-                }
+                isProcessing && !isEditingTranscript -> TranscriptBodyMode.Processing
+                showTranscriptChrome -> TranscriptBodyMode.Chrome
+                showEmptyCompleted -> TranscriptBodyMode.EmptyCompleted
+                isEditingTranscript -> TranscriptBodyMode.Editing
+                else -> TranscriptBodyMode.Processing
+            }
 
-                showTranscriptChrome -> {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        when (transcript) {
-                            ProcessingStudioTranscript.Empty -> Unit
+        Box(
+            modifier =
+                Modifier
+                    .weight(1f, fill = true)
+                    .fillMaxWidth()
+                    .animatePushDownLayout(),
+        ) {
+            AnimatedContent(
+                targetState = bodyMode,
+                transitionSpec = { ChirpMotion.studioContentCrossfade },
+                label = "transcript_body_mode",
+            ) { mode ->
+                when (mode) {
+                    TranscriptBodyMode.Processing -> TranscriptProcessingSkeleton()
 
-                            is ProcessingStudioTranscript.Untimed -> {
-                                UntimedTranscriptContent(
-                                    transcript = transcript,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
+                    TranscriptBodyMode.Chrome -> {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            when (transcript) {
+                                ProcessingStudioTranscript.Empty -> Unit
 
-                            is ProcessingStudioTranscript.Timed -> {
-                                TimedTranscriptContent(
-                                    transcript = transcript,
-                                    activeSegmentIndex = activeSegmentIndex,
-                                    onSegmentClicked = onSegmentClicked,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
+                                is ProcessingStudioTranscript.Untimed -> {
+                                    UntimedTranscriptContent(
+                                        transcript = transcript,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+
+                                is ProcessingStudioTranscript.Timed -> {
+                                    TimedTranscriptContent(
+                                        transcript = transcript,
+                                        activeSegmentIndex = activeSegmentIndex,
+                                        onSegmentClicked = onSegmentClicked,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
-                showEmptyCompleted -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.rec_no_transcript_available),
-                            style = MaterialTheme.typography.bodyLarge,
+                    TranscriptBodyMode.EmptyCompleted -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.rec_no_transcript_available),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
+
+                    TranscriptBodyMode.Editing -> {
+                        OutlinedTextField(
+                            value = transcriptDraft,
+                            onValueChange = onTranscriptDraftChange,
+                            modifier = Modifier.fillMaxSize(),
+                            minLines = 12,
                         )
                     }
-                }
-
-                isEditingTranscript -> {
-                    OutlinedTextField(
-                        value = transcriptDraft,
-                        onValueChange = onTranscriptDraftChange,
-                        modifier = Modifier.fillMaxSize(),
-                        minLines = 12,
-                    )
                 }
             }
         }
     }
+}
+
+private enum class TranscriptBodyMode {
+    Processing,
+    Chrome,
+    EmptyCompleted,
+    Editing,
 }
 
 @Composable

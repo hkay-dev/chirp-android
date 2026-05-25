@@ -53,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.obsidian.R
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
 
 /**
  * Settings screen for configuring Obsidian vault integration.
@@ -119,7 +120,7 @@ fun ObsidianSettingsScreen(
             )
 
             // Auto-export toggle (only shown when vault is configured)
-            if (uiState.vaultUri != null) {
+            PushDownReveal(visible = uiState.vaultUri != null) {
                 AutoExportCard(
                     enabled = uiState.autoExportEnabled,
                     hasAccess = uiState.hasAccess,

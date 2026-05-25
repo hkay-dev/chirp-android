@@ -1,15 +1,20 @@
 package dev.chirpboard.app.core.ui.motion
 
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 
@@ -55,6 +60,43 @@ object ChirpMotion {
             slideOutVertically(
                 animationSpec = tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
                 targetOffsetY = { fullHeight -> fullHeight / 24 },
+            )
+
+    /**
+     * Expands chrome downward (search bar, studio player) while fading in.
+     * Pair with [layoutSizeSpring] on the parent so siblings are pushed smoothly.
+     */
+    val pushDownRevealTransition: EnterTransition =
+        expandVertically(
+            animationSpec = tween(durationMillis = STUDIO_REVEAL_MS, easing = FastOutSlowInEasing),
+            expandFrom = Alignment.Top,
+        ) +
+            fadeIn(tween(durationMillis = STUDIO_REVEAL_MS, easing = FastOutSlowInEasing))
+
+    /** Collapses chrome upward while fading out — inverse of [pushDownRevealTransition]. */
+    val pushDownHideTransition: ExitTransition =
+        shrinkVertically(
+            animationSpec = tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
+            shrinkTowards = Alignment.Top,
+        ) +
+            fadeOut(tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing))
+
+    private const val MINI_PLAYER_ENTER_MS = 300
+
+    /** Global mini player slides up from the bottom while fading in. */
+    val miniPlayerRevealTransition: EnterTransition =
+        fadeIn(tween(durationMillis = MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing)) +
+            slideInVertically(
+                animationSpec = tween(durationMillis = MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing),
+                initialOffsetY = { fullHeight -> fullHeight },
+            )
+
+    /** Global mini player slides down while fading out. */
+    val miniPlayerHideTransition: ExitTransition =
+        fadeOut(tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing)) +
+            slideOutVertically(
+                animationSpec = tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
+                targetOffsetY = { fullHeight -> fullHeight },
             )
 
     val studioContentCrossfade: ContentTransform =
