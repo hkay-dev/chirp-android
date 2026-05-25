@@ -65,22 +65,21 @@ Extract `ProcessingStudioSkeleton` (internal composable in `ProcessingStudioScre
 - Three chip placeholders (date, duration, source).
 - Optional header progress placeholder bar when status already known from partial state.
 
-### D2: Transcript tab processing fallback
+### D2: Transcript tab processing fallback (corrected)
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **A. `TranscriptionProgressPanel` when processing and no transcript chrome** (chosen) | Reuses existing morphing progress; consistent with header | Slightly redundant with compact header banner |
-| B. Skeleton lines only | Lighter | Less informative |
+| A. `TranscriptionProgressPanel` in tab + compact header banner | Informative tab body | **Shipped duplicate progress** — two spinners/copy blocks at once |
+| **B. Skeleton lines only in tab; header owns progress copy** (chosen) | Single authoritative progress surface; tab never empty | Tab body less informative during processing (acceptable) |
 | C. Full-screen blocking overlay | Very visible | Hides header progress; worse on small screens |
 
-**Decision:** In `TranscriptTab`, add branch when `isProcessing && !isEditingTranscript`:
+**Original decision:** Option A — documented as "slightly redundant with compact header banner." Release feedback confirmed this reads as broken UI.
 
-- If `transcriptionProgressCopy()` non-null → `TranscriptionProgressPanel` centered in weighted `Box`.
-- Else → 4–6 skeleton text lines (fixed height bars, `surfaceVariant`).
+**Corrected decision:** In `TranscriptTab`, when `isProcessing && !isEditingTranscript`, show **`TranscriptProcessingSkeleton` only** (skeleton lines). Do **not** render `TranscriptionProgressPanel` or `MorphingTranscriptionProgress` in the tab while `StudioProcessingHeader` shows compact progress.
 
 When processing completes, crossfade to transcript via `AnimatedVisibility` (D5).
 
-Header compact banner (`StudioProcessingHeader`) remains; tab panel is the **body** fallback, not a duplicate full-screen takeover.
+**Rule:** Exactly **one** morphing progress presentation visible on Processing Studio at a time — header compact banner during pipeline states; home list items may show compact in-row banners separately (different surface).
 
 ### D3: Single `animateContentSize` owner + fixed player slot
 
@@ -149,7 +148,7 @@ This aligns visible player with `playbackController.onStudioOpened()` timing and
 |------|------------|
 | Skeleton flashes real content abruptly | Keep skeleton until `isLoading == false`; crossfade metadata fields with short alpha or `AnimatedContent` on title only |
 | Min-height player slot wastes space when neither progress nor player shown | Use min height only when `progressKind != null \|\| showPlayer`; otherwise `heightIn(min = 0.dp)` |
-| Dual progress (header + tab panel) feels redundant | Tab panel uses fullscreen panel variant only when body would otherwise be empty; header stays compact |
+| Tab body feels empty during processing | Skeleton lines in tab; header carries all progress copy and spinner |
 | `beyondViewportPageCount = 1` increases composition cost | Only 3 tabs; acceptable for studio |
 | Bad recording ID shows eternal spinner | After load completes with null recording, transition to error empty state (future); document as open question |
 

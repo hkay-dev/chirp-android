@@ -31,7 +31,8 @@ The app SHALL provide a dedicated full-screen recording interface that users nav
 - **WHEN** user taps the Done button during an active recording
 - **THEN** the recording is saved
 - **AND** transcription is queued
-- **AND** user is navigated to Processing Studio exactly once via the persisted completion ID (not duplicate navigate calls from stop handler and state observer)
+- **AND** user is navigated to Processing Studio **immediately** using `activeRecordingId` when available
+- **AND** exactly one navigation occurs per stop (`hasNavigatedToComplete` dedupe; `LaunchedEffect(lastCompletedRecordingId)` is fallback only)
 
 #### Scenario: User cancels recording
 - **WHEN** user taps the Cancel button during an active recording

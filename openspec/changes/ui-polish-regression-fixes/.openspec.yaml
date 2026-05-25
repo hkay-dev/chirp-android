@@ -1,0 +1,7 @@
+change_id: ui-polish-regression-fixes
+title: UI polish regression fixes
+status: applied
+depends_on:
+  - ui-polish-nav-shell-stability
+  - ui-polish-studio-processing-ux
+  - ui-polish-metadata-progress-unification

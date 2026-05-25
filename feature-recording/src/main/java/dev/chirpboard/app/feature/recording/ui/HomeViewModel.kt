@@ -304,13 +304,21 @@ class HomeViewModel
         }
 
         fun onProcessingClick() {
-            val newListFilter =
-                if (_listFilter.value == ListFilterMode.PROCESSING.name) {
-                    ListFilterMode.ALL.name
-                } else {
-                    ListFilterMode.PROCESSING.name
-                }
-            savedStateHandle["listFilter"] = newListFilter
+            if (_listFilter.value == ListFilterMode.PROCESSING.name) {
+                savedStateHandle["listFilter"] = ListFilterMode.ALL.name
+                return
+            }
+            val hasProcessingItems =
+                allRecordingsList.value.any { isProcessingOrStuckStatus(it.status) }
+            if (!hasProcessingItems) {
+                return
+            }
+            savedStateHandle["listFilter"] = ListFilterMode.PROCESSING.name
+        }
+
+        fun clearListFilters() {
+            savedStateHandle["listFilter"] = ListFilterMode.ALL.name
+            savedStateHandle["searchQuery"] = ""
         }
 
         fun setListFilter(filter: ListFilterMode) {

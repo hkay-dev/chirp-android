@@ -36,6 +36,7 @@ import dev.chirpboard.app.core.util.formatAsDuration
  * @param totalDurationMs Total duration of all recordings in milliseconds
  * @param processingCount Number of recordings currently being processed
  * @param onProcessingClick Callback when the processing pill is clicked
+ * @param processingFilterActive Whether the processing list filter is currently active
  * @param modifier Optional modifier for customization
  */
 @Composable
@@ -44,6 +45,7 @@ fun StatsPillRow(
     totalDurationMs: Long,
     processingCount: Int,
     onProcessingClick: () -> Unit,
+    processingFilterActive: Boolean = false,
     modifier: Modifier = Modifier
 ) {
 
@@ -109,6 +111,7 @@ fun StatsPillRow(
             } else {
                 1f
             }
+            val showActiveFilter = processingFilterActive || isProcessing
             SuggestionChip(
                 onClick = onProcessingClick,
                 label = { Text(processingCount.toString()) },
@@ -120,22 +123,30 @@ fun StatsPillRow(
                     )
                 },
                 colors = SuggestionChipDefaults.suggestionChipColors(
-                    containerColor = if (isProcessing) {
+                    containerColor = if (showActiveFilter) {
                         MaterialTheme.colorScheme.tertiaryContainer
                     } else {
                         MaterialTheme.colorScheme.surfaceContainerHigh
                     },
-                    labelColor = if (isProcessing) {
+                    labelColor = if (showActiveFilter) {
                         MaterialTheme.colorScheme.onTertiaryContainer
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
-                    iconContentColor = if (isProcessing) {
+                    iconContentColor = if (showActiveFilter) {
                         MaterialTheme.colorScheme.onTertiaryContainer
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     }
                 ),
+                border = if (processingFilterActive) {
+                    SuggestionChipDefaults.suggestionChipBorder(
+                        enabled = true,
+                        borderColor = MaterialTheme.colorScheme.primary,
+                    )
+                } else {
+                    null
+                },
                 modifier = if (isProcessing) Modifier.alpha(pulseAlpha) else Modifier
             )
         }
