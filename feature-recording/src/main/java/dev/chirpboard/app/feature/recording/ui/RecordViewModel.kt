@@ -9,6 +9,8 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
+import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import dev.chirpboard.app.feature.recording.service.RecordingService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,7 @@ class RecordViewModel
     constructor(
         private val recordingStateManager: RecordingStateManager,
         private val profileRepository: ProfileRepository,
+        private val recoveryStore: RecordingRecoveryStore,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val requestedProfileId: UUID? =
@@ -67,7 +70,12 @@ class RecordViewModel
         /** ID of the last recording that completed successfully */
         val lastCompletedRecordingId: StateFlow<UUID?> = recordingStateManager.lastCompletedRecordingId
 
+        val recoverableSessions = recoveryStore.pendingSessions
+
         init {
+            viewModelScope.launch {
+                recoveryStore.refresh()
+            }
             if (requestedProfileId != null) {
                 viewModelScope.launch {
                     val profile = profileRepository.getProfile(requestedProfileId)
@@ -140,5 +148,34 @@ class RecordViewModel
 
         fun clearEntryMessage() {
             _entryMessage.value = null
+        }
+
+        fun recoverInterruptedSession(sessionId: UUID) {
+            viewModelScope.launch {
+                when (val result = recoveryStore.recoverSession(sessionId)) {
+                    is SessionRecoveryResult.Recovered -> {
+                        _entryMessage.value =
+                            result.estimatedLostMinutes?.let { lostMinutes ->
+                                "Recording recovered. Up to $lostMinutes minute(s) of recent audio may be missing."
+                            } ?: "Recording recovered."
+                    }
+                    is SessionRecoveryResult.Failed -> {
+                        _entryMessage.value = result.message
+                    }
+                    else -> Unit
+                }
+            }
+        }
+
+        fun discardInterruptedSession(sessionId: UUID) {
+            viewModelScope.launch {
+                recoveryStore.discardSession(sessionId)
+            }
+        }
+
+        fun keepInterruptedSession(sessionId: UUID) {
+            viewModelScope.launch {
+                recoveryStore.keepSession(sessionId)
+            }
         }
     }

@@ -194,4 +194,17 @@
         <item quantity="other">%1$d results</item>
     </plurals>
 
+    <string name="rec_recovery_title">Recover interrupted recording?</string>
+    <string name="rec_recovery_message">Chirp found an unfinished recording from a previous session. You can recover it, keep the file, or discard it.</string>
+    <string name="rec_recovery_message_with_loss">Chirp found an unfinished recording. Up to %1$d minute(s) of the most recent audio may not have been saved. You can still recover what was captured.</string>
+    <string name="rec_recovery_recover">Recover</string>
+    <string name="rec_recovery_keep">Keep file</string>
+    <string name="rec_recovery_discard">Discard</string>
+    <string name="rec_recovery_banner_title">Interrupted recording found</string>
+    <string name="rec_recovery_banner_body">A previous recording may not have finished saving.</string>
+    <string name="rec_recovery_banner_body_with_loss">A previous recording may not have finished saving. Up to %1$d minute(s) of recent audio may be missing.</string>
+    <string name="rec_recovery_review">Review</string>
+    <string name="rec_recovery_recovered">Recording recovered.</string>
+    <string name="rec_recovery_recovered_with_loss">Recording recovered. Up to %1$d minute(s) of recent audio may be missing.</string>
+
 </resources>

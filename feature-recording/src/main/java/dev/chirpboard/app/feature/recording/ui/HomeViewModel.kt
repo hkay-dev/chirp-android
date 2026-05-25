@@ -12,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.audio.RecordingPlaybackController
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
@@ -24,6 +25,9 @@ import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
+import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
+import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
+import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import kotlinx.collections.immutable.ImmutableList
@@ -104,6 +108,8 @@ class HomeViewModel
         private val transcriptionRecovery: TranscriptionRecovery,
         private val llmClient: LlmClient,
         private val audioImportOrchestrator: AudioImportOrchestrator,
+        private val sessionRecovery: RecordingRecoveryStore,
+        private val playbackController: RecordingPlaybackController,
         private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         /** Search query */
@@ -130,7 +136,9 @@ class HomeViewModel
             recordingRepository
                 .getAllRecordings()
                 .unwrapRepositoryFlow { _errorMessage.value = it }
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .map { recordings ->
+                    recordings.filter { it.status != RecordingStatus.RECORDING }
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         private val filteredRecordings: StateFlow<List<Recording>> =
             combine(_searchQuery, allRecordingsList) { query, all ->
@@ -234,6 +242,60 @@ class HomeViewModel
 
         private val _isImporting = MutableStateFlow(false)
         val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
+
+        private val _recoverableSessions = sessionRecovery.pendingSessions
+        val recoverableSessions: StateFlow<List<RecoverableRecordingSession>> = _recoverableSessions
+        val playbackState: StateFlow<dev.chirpboard.app.core.audio.RecordingPlaybackState> = playbackController.state
+
+        init {
+            refreshRecoverableSessions()
+        }
+
+        fun refreshRecoverableSessions() {
+            viewModelScope.launch {
+                sessionRecovery.refresh()
+            }
+        }
+
+        fun recoverInterruptedSession(sessionId: UUID) {
+            viewModelScope.launch {
+                when (val result = sessionRecovery.recoverSession(sessionId)) {
+                    is SessionRecoveryResult.Recovered -> {
+                        _errorMessage.value =
+                            result.estimatedLostMinutes?.let { lostMinutes ->
+                                "Recording recovered. Up to $lostMinutes minute(s) of recent audio may be missing."
+                            } ?: "Recording recovered."
+                        refreshRecoverableSessions()
+                    }
+                    is SessionRecoveryResult.Failed -> {
+                        _errorMessage.value = result.message
+                    }
+                    else -> refreshRecoverableSessions()
+                }
+            }
+        }
+
+        fun discardInterruptedSession(sessionId: UUID) {
+            viewModelScope.launch {
+                sessionRecovery.discardSession(sessionId)
+                refreshRecoverableSessions()
+            }
+        }
+
+        fun keepInterruptedSession(sessionId: UUID) {
+            viewModelScope.launch {
+                sessionRecovery.keepSession(sessionId)
+                refreshRecoverableSessions()
+            }
+        }
+
+        fun playRecording(item: RecordingDisplayItem) {
+            if (item.audioPath.isBlank()) {
+                _errorMessage.value = "Audio file not found"
+                return
+            }
+            playbackController.play(item.id, item.title, item.audioPath)
+        }
 
         /** Update search query */
         fun onSearchQueryChange(query: String) {

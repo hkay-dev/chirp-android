@@ -6,6 +6,7 @@ import java.util.UUID
 data class StopSnapshot(
     val origin: RecordingOrigin,
     val profileId: UUID?,
+    val recordingId: UUID?,
     val audioFilePath: String?,
     val durationMs: Long,
     val stoppedAtEpochMs: Long,

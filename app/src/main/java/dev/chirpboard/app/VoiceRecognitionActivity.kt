@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
@@ -35,7 +36,7 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class VoiceRecognitionActivity : ComponentActivity() {
-    private val recorder by lazy { VoiceRecorder(this, lifecycleScope) }
+    private val recorder by lazy { VoiceRecorder(this, lifecycleScope, inputDeviceSelector) }
     private var recordingJob: Job? = null
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
@@ -43,6 +44,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
     @Inject lateinit var prefs: Preferences
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
+
+    @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
 
     @Inject lateinit var modeRepository: ProcessingModeRepository
 

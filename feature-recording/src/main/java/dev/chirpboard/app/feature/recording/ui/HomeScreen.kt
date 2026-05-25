@@ -33,6 +33,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +53,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -100,6 +104,8 @@ fun HomeScreen(
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
+    val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -113,6 +119,13 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showImportMenu by remember { mutableStateOf(false) }
+    var recoveryPromptSession by remember { mutableStateOf<dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession?>(null) }
+
+    LaunchedEffect(recoverableSessions) {
+        if (recoveryPromptSession == null && recoverableSessions.isNotEmpty()) {
+            recoveryPromptSession = recoverableSessions.first()
+        }
+    }
 
     // FAB expand/collapse based on scroll with hysteresis to avoid flicker at the threshold.
     val fabExpanded by remember {
@@ -146,6 +159,55 @@ fun HomeScreen(
                 duration = SnackbarDuration.Short,
             )
         }
+    }
+
+    recoveryPromptSession?.let { session ->
+        AlertDialog(
+            onDismissRequest = { recoveryPromptSession = null },
+            title = { Text(stringResource(R.string.rec_recovery_title)) },
+            text = {
+                Text(
+                    if (session.hasPotentialLoss) {
+                        stringResource(
+                            R.string.rec_recovery_message_with_loss,
+                            session.estimatedLostMinutes(),
+                        )
+                    } else {
+                        stringResource(R.string.rec_recovery_message)
+                    },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.recoverInterruptedSession(session.sessionId)
+                        recoveryPromptSession = null
+                    },
+                ) {
+                    Text(stringResource(R.string.rec_recovery_recover))
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            viewModel.keepInterruptedSession(session.sessionId)
+                            recoveryPromptSession = null
+                        },
+                    ) {
+                        Text(stringResource(R.string.rec_recovery_keep))
+                    }
+                    TextButton(
+                        onClick = {
+                            viewModel.discardInterruptedSession(session.sessionId)
+                            recoveryPromptSession = null
+                        },
+                    ) {
+                        Text(stringResource(R.string.rec_recovery_discard))
+                    }
+                }
+            },
+        )
     }
 
     val showEmptyState = displayItems.isEmpty() && searchQuery.isBlank()
@@ -330,6 +392,54 @@ fun HomeScreen(
                             bottom = paddingValues.calculateBottomPadding() + 96.dp,
                         ),
                 ) {
+                    if (recoverableSessions.isNotEmpty()) {
+                        item(key = "recovery_banner", contentType = "recovery_banner") {
+                            Card(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                colors =
+                                    CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    ),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.rec_recovery_banner_title),
+                                        style = MaterialTheme.typography.titleSmall,
+                                    )
+                                    Text(
+                                        text =
+                                            if (recoverableSessions.firstOrNull()?.hasPotentialLoss == true) {
+                                                stringResource(
+                                                    R.string.rec_recovery_banner_body_with_loss,
+                                                    recoverableSessions.first().estimatedLostMinutes(),
+                                                )
+                                            } else {
+                                                stringResource(R.string.rec_recovery_banner_body)
+                                            },
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        FilledTonalButton(
+                                            onClick = {
+                                                recoverableSessions.firstOrNull()?.let { session ->
+                                                    recoveryPromptSession = session
+                                                }
+                                            },
+                                        ) {
+                                            Text(stringResource(R.string.rec_recovery_review))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Stats pill row - show when not searching
                     if (searchQuery.isBlank() && stats.totalRecordings > 0) {
                         item(key = "stats", contentType = "stats") {
@@ -391,7 +501,9 @@ fun HomeScreen(
                         Column {
                             RecordingListItem(
                                 item = item,
+                                playbackState = playbackState,
                                 onClick = { onRecordingClick(item.id) },
+                                onPlayClick = { viewModel.playRecording(item) },
                                 onLongClick = { selectedItem = item },
                             )
                             HorizontalDivider(

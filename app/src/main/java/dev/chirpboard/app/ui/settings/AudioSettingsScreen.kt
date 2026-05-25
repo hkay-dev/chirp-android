@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
@@ -63,6 +65,9 @@ fun AudioSettingsScreen(
 ) {
     val microphoneGain by viewModel.microphoneGain.collectAsStateWithLifecycle()
     val recordingQualityPreset by viewModel.recordingQualityPreset.collectAsStateWithLifecycle()
+    val inputDevicePolicy by viewModel.inputDevicePolicy.collectAsStateWithLifecycle()
+    val availableInputDevices by viewModel.availableInputDevices.collectAsStateWithLifecycle()
+    val activeInputDeviceLabel by viewModel.activeInputDeviceLabel.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -125,6 +130,37 @@ fun AudioSettingsScreen(
                 }
             }
 
+            item {
+                InputDevicePolicyListItem(
+                    currentPolicy = inputDevicePolicy,
+                    onPolicySelected = viewModel::setInputDevicePolicy,
+                )
+            }
+
+            activeInputDeviceLabel?.let { label ->
+                item {
+                    FixedValueListItem(
+                        title = stringResource(R.string.audio_settings_active_input),
+                        supportingText = stringResource(R.string.audio_settings_active_input_help),
+                        value = label,
+                    )
+                }
+            }
+
+            if (inputDevicePolicy == AudioInputDevicePolicy.Manual) {
+                items(availableInputDevices, key = { it.id }) { device ->
+                    ListItem(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.setManualInputDevice(device.address ?: device.id.toString()) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        headlineContent = { Text(device.productName) },
+                        supportingContent = { Text(device.typeLabel) },
+                    )
+                }
+            }
+
             item { SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_output)) }
             item {
                 RecordingQualityListItem(
@@ -144,6 +180,92 @@ fun AudioSettingsScreen(
         }
     }
 }
+
+@Composable
+private fun InputDevicePolicyListItem(
+    currentPolicy: AudioInputDevicePolicy,
+    onPolicySelected: (AudioInputDevicePolicy) -> Unit,
+) {
+    var isDropdownExpanded by remember { mutableStateOf(false) }
+
+    ListItem(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable { isDropdownExpanded = true },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        headlineContent = {
+            Text(
+                text = stringResource(R.string.audio_settings_input_device_policy),
+                style = MaterialTheme.typography.titleMedium,
+            )
+        },
+        supportingContent = {
+            Text(
+                text = stringResource(R.string.audio_settings_input_device_policy_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        trailingContent = {
+            Box {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier =
+                        Modifier
+                            .clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Text(
+                        text = inputDevicePolicyLabel(currentPolicy),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                DropdownMenu(
+                    expanded = isDropdownExpanded,
+                    onDismissRequest = { isDropdownExpanded = false },
+                ) {
+                    AudioInputDevicePolicy.entries.forEach { policy ->
+                        DropdownMenuItem(
+                            text = { Text(inputDevicePolicyLabel(policy)) },
+                            onClick = {
+                                onPolicySelected(policy)
+                                isDropdownExpanded = false
+                            },
+                            trailingIcon =
+                                if (policy == currentPolicy) {
+                                    {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = stringResource(R.string.desc_selected),
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
+                        )
+                    }
+                }
+            }
+        },
+    )
+}
+
+@Composable
+private fun inputDevicePolicyLabel(policy: AudioInputDevicePolicy): String =
+    when (policy) {
+        AudioInputDevicePolicy.Automatic -> stringResource(R.string.audio_settings_input_policy_automatic)
+        AudioInputDevicePolicy.PreferBuiltIn -> stringResource(R.string.audio_settings_input_policy_builtin)
+        AudioInputDevicePolicy.Manual -> stringResource(R.string.audio_settings_input_policy_manual)
+    }
 
 @Composable
 private fun RecordingQualityListItem(

@@ -27,16 +27,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import dev.chirpboard.app.core.ui.components.ChirpPrimaryExtendedFab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -44,6 +49,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import dev.chirpboard.app.core.audio.RecordingPlaybackState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -68,10 +74,15 @@ import java.util.UUID
 @Composable
 internal fun RecordingListItem(
     item: RecordingDisplayItem,
+    playbackState: RecordingPlaybackState,
     onClick: () -> Unit,
+    onPlayClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isCurrentItem = playbackState.recordingId == item.id
+    val isPlayingCurrent = isCurrentItem && playbackState.isPlaying
+
     Column(
         modifier =
             modifier
@@ -83,13 +94,39 @@ internal fun RecordingListItem(
                 ).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = item.title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            FilledTonalIconButton(
+                onClick = onPlayClick,
+                modifier = Modifier.size(40.dp),
+                colors =
+                    IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    ),
+            ) {
+                Icon(
+                    imageVector = if (isPlayingCurrent) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription =
+                        if (isPlayingCurrent) {
+                            stringResource(R.string.desc_pause)
+                        } else {
+                            stringResource(R.string.desc_play)
+                        },
+                )
+            }
+        }
 
         MetadataPillRow(
             createdAtMs = item.createdAtMs,
