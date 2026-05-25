@@ -13,7 +13,6 @@ android {
         minSdk = 26
     }
 
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -26,7 +25,6 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
-    api("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
 
     implementation("com.google.dagger:hilt-android:2.51.1")
     ksp("com.google.dagger:hilt-android-compiler:2.51.1")
@@ -34,6 +32,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation(project(":test-support"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation(libs.mockk)
     testImplementation("app.cash.turbine:turbine:1.0.0")

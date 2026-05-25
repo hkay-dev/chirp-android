@@ -1,19 +1,16 @@
 package dev.chirpboard.app.feature.recording.ui
 
-import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.repository.ProfileRepository
-import dev.chirpboard.app.feature.recording.service.RecordingService
+import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkObject
-import io.mockk.unmockkObject
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +27,7 @@ import org.junit.Test
 import java.util.UUID
 
 class RecordViewModelTest {
-    private lateinit var context: Context
+    private lateinit var recordingManager: RecordingManager
     private lateinit var recordingStateManager: RecordingStateManager
     private lateinit var profileRepository: ProfileRepository
     private lateinit var recoveryStore: RecordingRecoveryStore
@@ -40,7 +37,7 @@ class RecordViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        context = mockk(relaxed = true)
+        recordingManager = mockk(relaxed = true)
         recordingStateManager =
             mockk(relaxed = true) {
                 every { state } returns MutableStateFlow(RecordingState.Idle)
@@ -54,21 +51,19 @@ class RecordViewModelTest {
         every { recoveryStore.pendingSessions } returns MutableStateFlow(emptyList())
         coEvery { recoveryStore.refresh() } returns Unit
 
-        mockkObject(RecordingService)
-        every { RecordingService.startRecording(any(), any(), any()) } returns Unit
-        every { RecordingService.pauseRecording(any()) } returns Unit
-        every { RecordingService.resumeRecording(any()) } returns Unit
-        every { RecordingService.stopRecording(any()) } returns Unit
-        every { RecordingService.cancelRecording(any()) } returns Unit
-        every { RecordingService.restartRecording(any(), any(), any()) } returns Unit
-
-        viewModel = RecordViewModel(recordingStateManager, profileRepository, recoveryStore, SavedStateHandle())
+        viewModel =
+            RecordViewModel(
+                recordingManager = recordingManager,
+                recordingStateManager = recordingStateManager,
+                profileRepository = profileRepository,
+                recoveryStore = recoveryStore,
+                savedStateHandle = SavedStateHandle(),
+            )
     }
 
     @After
     fun teardown() {
         Dispatchers.resetMain()
-        unmockkObject(RecordingService)
     }
 
     @Test
@@ -78,42 +73,42 @@ class RecordViewModelTest {
     }
 
     @Test
-    fun `startRecording calls service`() {
+    fun `startRecording delegates to recording manager`() {
         val profileId = UUID.randomUUID()
-        viewModel.startRecording(context, profileId)
+        viewModel.startRecording(profileId)
 
-        verify { RecordingService.startRecording(context, RecordingOrigin.APP, profileId) }
+        verify { recordingManager.startRecording(RecordingOrigin.APP, profileId) }
     }
 
     @Test
-    fun `pauseRecording calls service`() {
-        viewModel.pauseRecording(context)
-        verify { RecordingService.pauseRecording(context) }
+    fun `pauseRecording delegates to recording manager`() {
+        viewModel.pauseRecording()
+        verify { recordingManager.pauseRecording() }
     }
 
     @Test
-    fun `resumeRecording calls service`() {
-        viewModel.resumeRecording(context)
-        verify { RecordingService.resumeRecording(context) }
+    fun `resumeRecording delegates to recording manager`() {
+        viewModel.resumeRecording()
+        verify { recordingManager.resumeRecording() }
     }
 
     @Test
-    fun `stopRecording calls service`() {
-        viewModel.stopRecording(context)
-        verify { RecordingService.stopRecording(context) }
+    fun `stopRecording delegates to recording manager`() {
+        viewModel.stopRecording()
+        verify { recordingManager.stopRecording() }
     }
 
     @Test
-    fun `cancelRecording calls service`() {
-        viewModel.cancelRecording(context)
-        verify { RecordingService.cancelRecording(context) }
+    fun `cancelRecording delegates to recording manager`() {
+        viewModel.cancelRecording()
+        verify { recordingManager.cancelRecording() }
     }
 
     @Test
-    fun `restartRecording calls service`() {
+    fun `restartRecording delegates to recording manager`() {
         val profileId = UUID.randomUUID()
-        viewModel.restartRecording(context, profileId)
-        verify { RecordingService.restartRecording(context, RecordingOrigin.APP, profileId) }
+        viewModel.restartRecording(profileId)
+        verify { recordingManager.restartRecording(RecordingOrigin.APP, profileId) }
     }
 
     @Test
@@ -130,6 +125,7 @@ class RecordViewModelTest {
 
         val recordViewModel =
             RecordViewModel(
+                recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 recoveryStore = recoveryStore,
@@ -144,9 +140,9 @@ class RecordViewModelTest {
         assertEquals(true, recordViewModel.isProfileHandoffResolved.value)
         assertNull(recordViewModel.entryMessage.value)
 
-        recordViewModel.startRecording(context)
+        recordViewModel.startRecording()
 
-        verify { RecordingService.startRecording(context, RecordingOrigin.APP, profileId) }
+        verify { recordingManager.startRecording(RecordingOrigin.APP, profileId) }
     }
 
     @Test
@@ -156,6 +152,7 @@ class RecordViewModelTest {
 
         val recordViewModel =
             RecordViewModel(
+                recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 recoveryStore = recoveryStore,
@@ -171,8 +168,8 @@ class RecordViewModelTest {
             recordViewModel.entryMessage.value,
         )
 
-        recordViewModel.startRecording(context)
+        recordViewModel.startRecording()
 
-        verify { RecordingService.startRecording(context, RecordingOrigin.APP, null) }
+        verify { recordingManager.startRecording(RecordingOrigin.APP, null) }
     }
 }

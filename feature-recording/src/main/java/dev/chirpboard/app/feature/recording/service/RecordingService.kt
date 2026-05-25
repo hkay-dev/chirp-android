@@ -5,10 +5,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
-import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import androidx.annotation.VisibleForTesting
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioFocusManager
@@ -127,7 +125,6 @@ class RecordingService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        activeInstanceForTest = this
         notificationFactory.ensureChannel(this)
         audioFocusManager = AudioFocusManager(getSystemService(AudioManager::class.java))
         audioFocusManager.onFocusLost = { lossKind ->
@@ -203,9 +200,6 @@ class RecordingService : Service() {
         checkpointJob?.cancel()
         segmentRotationJob?.cancel()
         serviceScope.cancel()
-        if (activeInstanceForTest === this) {
-            activeInstanceForTest = null
-        }
     }
 
     private fun startRecording(
@@ -883,38 +877,5 @@ class RecordingService : Service() {
 
     companion object {
         private const val TAG = "RecordingService"
-
-        const val ACTION_START_RECORDING = RecordingServiceCommands.ACTION_START_RECORDING
-        const val ACTION_PAUSE_RECORDING = RecordingServiceCommands.ACTION_PAUSE_RECORDING
-        const val ACTION_RESUME_RECORDING = RecordingServiceCommands.ACTION_RESUME_RECORDING
-        const val ACTION_STOP_RECORDING = RecordingServiceCommands.ACTION_STOP_RECORDING
-        const val ACTION_CANCEL_RECORDING = RecordingServiceCommands.ACTION_CANCEL_RECORDING
-        const val ACTION_RESTART_RECORDING = RecordingServiceCommands.ACTION_RESTART_RECORDING
-        const val EXTRA_ORIGIN = RecordingServiceCommands.EXTRA_ORIGIN
-        const val EXTRA_PROFILE_ID = RecordingServiceCommands.EXTRA_PROFILE_ID
-
-        @Volatile
-        @VisibleForTesting
-        var activeInstanceForTest: RecordingService? = null
-
-        fun startRecording(
-            context: Context,
-            origin: RecordingOrigin = RecordingOrigin.APP,
-            profileId: UUID? = null,
-        ) = RecordingServiceCommands.startRecording(context, origin, profileId)
-
-        fun pauseRecording(context: Context) = RecordingServiceCommands.pauseRecording(context)
-
-        fun resumeRecording(context: Context) = RecordingServiceCommands.resumeRecording(context)
-
-        fun stopRecording(context: Context) = RecordingServiceCommands.stopRecording(context)
-
-        fun cancelRecording(context: Context) = RecordingServiceCommands.cancelRecording(context)
-
-        fun restartRecording(
-            context: Context,
-            origin: RecordingOrigin = RecordingOrigin.APP,
-            profileId: UUID? = null,
-        ) = RecordingServiceCommands.restartRecording(context, origin, profileId)
     }
 }

@@ -94,7 +94,7 @@ fun RecordScreen(
             recoverableSessions.isEmpty() &&
             recordingState is RecordingState.Idle
         ) {
-            viewModel.startRecording(context)
+            viewModel.startRecording()
         }
     }
 
@@ -175,7 +175,7 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showCancelDialog = false
-                        viewModel.cancelRecording(context)
+                        viewModel.cancelRecording()
                         onNavigateBack()
                     },
                 ) {
@@ -199,7 +199,7 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showRestartDialog = false
-                        viewModel.restartRecording(context)
+                        viewModel.restartRecording()
                     },
                 ) {
                     Text(stringResource(R.string.start_over), color = MaterialTheme.colorScheme.error)
@@ -222,7 +222,7 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showBackDialog = false
-                        viewModel.stopRecording(context)
+                        viewModel.stopRecording()
                     },
                 ) {
                     Text(stringResource(R.string.save))
@@ -232,7 +232,7 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showBackDialog = false
-                        viewModel.cancelRecording(context)
+                        viewModel.cancelRecording()
                         onNavigateBack()
                     },
                 ) {
@@ -324,15 +324,15 @@ fun RecordScreen(
                 onTogglePausePlay = {
                     if (isPaused || !isActive) {
                         if (isActive) {
-                            viewModel.resumeRecording(context)
+                            viewModel.resumeRecording()
                         } else if (isProfileHandoffResolved) {
-                            viewModel.startRecording(context)
+                            viewModel.startRecording()
                         }
                     } else {
-                        viewModel.pauseRecording(context)
+                        viewModel.pauseRecording()
                     }
                 },
-                onStopRecording = { viewModel.stopRecording(context) },
+                onStopRecording = { viewModel.stopRecording() },
                 onRestartRecording = { showRestartDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()

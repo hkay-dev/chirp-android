@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Rule
-import dev.chirpboard.app.data.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 
 class FlowRepositorySupportTest {

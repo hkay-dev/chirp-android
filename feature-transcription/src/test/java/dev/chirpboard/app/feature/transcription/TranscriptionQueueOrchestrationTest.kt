@@ -25,7 +25,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
-import dev.chirpboard.app.feature.transcription.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 import java.util.Date
 import java.util.UUID

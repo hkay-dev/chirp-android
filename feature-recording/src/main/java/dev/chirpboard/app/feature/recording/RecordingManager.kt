@@ -64,6 +64,25 @@ class RecordingManager
             RecordingServiceCommands.stopRecording(context)
         }
 
+        fun pauseRecording() {
+            RecordingServiceCommands.pauseRecording(context)
+        }
+
+        fun resumeRecording() {
+            RecordingServiceCommands.resumeRecording(context)
+        }
+
+        fun cancelRecording() {
+            RecordingServiceCommands.cancelRecording(context)
+        }
+
+        fun restartRecording(
+            origin: RecordingOrigin = RecordingOrigin.APP,
+            profileId: UUID? = null,
+        ) {
+            RecordingServiceCommands.restartRecording(context, origin, profileId)
+        }
+
         /**
          * Toggle recording on/off.
          *
