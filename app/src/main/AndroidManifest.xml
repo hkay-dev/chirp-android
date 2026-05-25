@@ -92,6 +92,13 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
+        <!-- WorkManager foreground worker (TranscriptionWorker setForeground) -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+
         <!-- Home Screen Widget -->
         <receiver
             android:name="dev.chirpboard.app.feature.widget.RecordingWidgetProvider"

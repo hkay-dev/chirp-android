@@ -47,6 +47,7 @@ class TranscriptionWorker
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
         private val llmClient: LlmClient,
+        private val llmPreferences: dev.chirpboard.app.feature.llm.settings.LlmPreferences,
         private val transcriberProvider: TranscriberProvider,
         private val audioDecoder: AudioDecoder,
         private val recordingStateManager: dev.chirpboard.app.core.recording.RecordingStateManager,
@@ -317,6 +318,17 @@ class TranscriptionWorker
             processedText: String,
             correlationId: String,
         ) {
+            if (!llmPreferences.getLlmEnabled() || llmPreferences.fetchApiKey().isNullOrBlank()) {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "llm_unavailable",
+                )
+                return
+            }
+
             recordingRepository.updateStatus(recordingId, RecordingStatus.ENHANCING)
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.ENHANCEMENT,
@@ -326,42 +338,46 @@ class TranscriptionWorker
                 reasonCode = "enhancement_started",
             )
 
-            try {
+            var titleApplied = false
+            var summaryApplied = false
+
+            if (llmPreferences.getAutoTitle()) {
                 val titleResult = llmClient.generateTitle(processedText)
-                if (titleResult.isFailure) {
-                    val e = titleResult.exceptionOrNull() ?: Exception("Failed to generate title")
-                    Log.e(TAG, "Failed to generate title", e)
-                    throw e
+                if (titleResult.isSuccess) {
+                    recordingRepository.updateTitle(recordingId, titleResult.getOrThrow())
+                    titleApplied = true
+                } else {
+                    Log.w(TAG, "Skipping title generation", titleResult.exceptionOrNull())
                 }
-                recordingRepository.updateTitle(recordingId, titleResult.getOrThrow())
-
-                val summaryResult = llmClient.generateSummary(processedText)
-                if (summaryResult.isFailure) {
-                    val e = summaryResult.exceptionOrNull() ?: Exception("Failed to generate summary")
-                    Log.e(TAG, "Failed to generate summary", e)
-                    throw e
-                }
-                recordingRepository.updateSummary(recordingId, summaryResult.getOrThrow())
-
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.ENHANCEMENT,
-                    outcome = ReliabilityOutcome.SUCCESS,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "enhancement_applied",
-                )
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.ENHANCEMENT,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "enhancement_failed",
-                    message = e.message,
-                )
-                throw e
             }
+
+            if (llmPreferences.getAutoSummary()) {
+                val summaryResult = llmClient.generateSummary(processedText)
+                if (summaryResult.isSuccess) {
+                    recordingRepository.updateSummary(recordingId, summaryResult.getOrThrow())
+                    summaryApplied = true
+                } else {
+                    Log.w(TAG, "Skipping summary generation", summaryResult.exceptionOrNull())
+                }
+            }
+
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.ENHANCEMENT,
+                outcome =
+                    if (titleApplied || summaryApplied) {
+                        ReliabilityOutcome.SUCCESS
+                    } else {
+                        ReliabilityOutcome.SKIPPED
+                    },
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode =
+                    if (titleApplied || summaryApplied) {
+                        "enhancement_applied"
+                    } else {
+                        "enhancement_not_requested"
+                    },
+            )
         }
 
         private fun showTranscriptionErrorNotification(recordingId: UUID, errorMessage: String) {
