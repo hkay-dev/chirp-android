@@ -1,5 +1,7 @@
 package dev.chirpboard.app.feature.studio.tabs
 
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressKind
+import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.data.model.RecordingStatus
 import org.junit.Assert.assertEquals
 import org.junit.Test

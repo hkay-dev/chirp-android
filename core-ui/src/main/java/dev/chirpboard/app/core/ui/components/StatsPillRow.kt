@@ -28,8 +28,9 @@ import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
 
 /**
- * Horizontal row of stat pills displaying recording count, total duration, and processing count.
- * The processing pill pulses when there are items being processed.
+ * Aggregate home-screen stat pills: recording count, total duration, and processing filter.
+ *
+ * For per-recording metadata (date, duration, source), use [MetadataPillRow] instead.
  *
  * @param recordingCount Total number of recordings
  * @param totalDurationMs Total duration of all recordings in milliseconds

@@ -14,27 +14,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,9 +65,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.LoadingState
+import dev.chirpboard.app.core.ui.components.MetadataPillRow
 import dev.chirpboard.app.core.ui.playback.RecordingFullPlayer
-import dev.chirpboard.app.core.util.formatAsHumanReadableDuration
-import dev.chirpboard.app.core.util.formatForHeader
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.R
@@ -86,9 +77,6 @@ import dev.chirpboard.app.feature.studio.tabs.TranscriptTab
 import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressCopy
 import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressKind
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -169,7 +157,7 @@ fun ProcessingStudioScreen(
                     title = { Text(stringResource(R.string.rec_details)) },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(CoreR.string.desc_back))
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(CoreR.string.desc_navigate_back))
                         }
                     },
                     actions = {
@@ -347,106 +335,11 @@ fun ProcessingStudioScreen(
                         }
                     }
                 } else {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val dateStr =
-                        remember(state.createdAt) {
-                            java.util.Date(state.createdAt).formatForHeader()
-                        }
-                    val durationStr =
-                        remember(state.durationMs) {
-                            state.durationMs.formatAsHumanReadableDuration()
-                        }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Event,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = dateStr,
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            )
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        ) {
-                            Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Schedule,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = durationStr,
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                            )
-                        }
-                    }
-                    val source = state.source
-                    if (source != null) {
-                        val sourceIcon =
-                            remember(source) {
-                                when (source) {
-                                    RecordingSource.APP -> Icons.Default.Mic
-                                    RecordingSource.KEYBOARD -> Icons.Default.Keyboard
-                                    RecordingSource.WIDGET -> Icons.Default.Widgets
-                                    RecordingSource.IMPORTED -> Icons.Default.AudioFile
-                                }
-                            }
-                        val sourceTextRes =
-                            remember(source) {
-                                when (source) {
-                                    RecordingSource.APP -> CoreR.string.rec_source_app
-                                    RecordingSource.KEYBOARD -> CoreR.string.rec_source_keyboard
-                                    RecordingSource.WIDGET -> CoreR.string.rec_source_widget
-                                    RecordingSource.IMPORTED -> CoreR.string.rec_source_imported
-                                }
-                            }
-                        val sourceText = stringResource(sourceTextRes)
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            ) {
-                                Icon(
-                                    imageVector = sourceIcon,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = sourceText,
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                )
-                            }
-                        }
-                    }
-                }
+                    MetadataPillRow(
+                        createdAtMs = state.createdAt,
+                        durationMs = state.durationMs,
+                        source = state.source ?: RecordingSource.APP,
+                    )
                 }
             }
 
@@ -520,7 +413,7 @@ fun ProcessingStudioScreen(
                     ) {
                         Icon(
                             imageVector = androidx.compose.material.icons.Icons.Default.Error,
-                            contentDescription = "Error",
+                            contentDescription = stringResource(R.string.rec_processing_error),
                         )
                         Text(
                             text = state.errorMessage.asProcessingMessage() ?: stringResource(CoreR.string.rec_status_failed),
@@ -599,6 +492,7 @@ fun ProcessingStudioScreen(
                             draftMessage = state.chatDraft,
                             onDraftMessageChange = viewModel::updateChatDraft,
                             onSendMessage = viewModel::onSendChatMessage,
+                            isTyping = state.isTyping,
                         )
                     }
                 }
