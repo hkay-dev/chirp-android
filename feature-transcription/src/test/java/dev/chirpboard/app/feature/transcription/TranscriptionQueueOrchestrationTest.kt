@@ -24,11 +24,16 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
+import dev.chirpboard.app.feature.transcription.testing.MockAndroidLogRule
 import org.junit.Test
 import java.util.Date
 import java.util.UUID
 
 class TranscriptionQueueOrchestrationTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
 
     private lateinit var context: Context
     private lateinit var recordingRepository: RecordingRepository

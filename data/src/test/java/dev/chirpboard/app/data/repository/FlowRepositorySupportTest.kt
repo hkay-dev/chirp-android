@@ -4,9 +4,14 @@ import app.cash.turbine.test
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Rule
+import dev.chirpboard.app.data.testing.MockAndroidLogRule
 import org.junit.Test
 
 class FlowRepositorySupportTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     @Test
     fun `catchRepositoryFlow emits default on failure`() =
         runTest {

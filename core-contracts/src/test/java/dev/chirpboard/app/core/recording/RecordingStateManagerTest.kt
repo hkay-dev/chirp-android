@@ -11,11 +11,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingStateManagerTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
 
     private lateinit var manager: RecordingStateManager
     private val testDispatcher = StandardTestDispatcher()

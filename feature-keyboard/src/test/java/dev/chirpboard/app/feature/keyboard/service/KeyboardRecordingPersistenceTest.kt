@@ -15,12 +15,16 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
+import dev.chirpboard.app.feature.keyboard.testing.MockAndroidLogRule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class KeyboardRecordingPersistenceTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
