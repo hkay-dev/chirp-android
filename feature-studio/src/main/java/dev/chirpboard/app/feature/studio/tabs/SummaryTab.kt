@@ -23,7 +23,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.StructuredOutcomeGroup

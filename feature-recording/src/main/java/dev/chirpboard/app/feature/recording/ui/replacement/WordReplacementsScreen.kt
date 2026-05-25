@@ -65,7 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.WordReplacement
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 @OptIn(ExperimentalMaterial3Api::class)

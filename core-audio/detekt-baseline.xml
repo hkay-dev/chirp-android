@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>InstanceOfCheckForException:AudioEncoder.kt$AudioEncoder$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:VoiceRecorder.kt$VoiceRecorder$e is kotlinx.coroutines.CancellationException</ID>
+  </CurrentIssues>
+</SmellBaseline>
