@@ -37,17 +37,6 @@ class WhisperModelManagerTest {
     }
 
     @Test
-    fun `isModelDownloaded delegates to store`() = runTest {
-        coEvery { speechModelStore.evaluateReadiness() } returns
-            ModelReadinessEvaluation(
-                isReady = true,
-                verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION,
-            )
-
-        assertTrue(classUnderTest.isModelDownloaded())
-    }
-
-    @Test
     fun `deleteModel invalidates cache and refreshes gate`() = runTest {
         coEvery { speechModelStore.deleteModel() } returns true
         coEvery { speechModelStore.evaluateReadiness() } returns

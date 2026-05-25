@@ -1,3 +1,6 @@
+> **Archive note:** Historical paths below reference the pre-split `:core` module. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+>
+
 # Codebase Review Report V2
 
 *Date: April 5, 2026*

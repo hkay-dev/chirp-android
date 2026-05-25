@@ -1,3 +1,6 @@
+> **Archive note:** Historical paths below reference the pre-split `:core` module. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+>
+
 # Chirpboard Processing Studio: UI Design Concepts
 
 The user explicitly requested a unified, non-split-screen interface for the new Processing Studio. We tasked three expert Android UX subagents to analyze macOS paradigms (like MacWhisper) and translate them into three distinct, highly-polished Jetpack Compose architectures. 

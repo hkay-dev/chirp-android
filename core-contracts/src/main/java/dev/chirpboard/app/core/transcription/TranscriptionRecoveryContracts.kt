@@ -21,7 +21,12 @@ data class RecoveryDiagnostics(
     val ownership: RecoveryOwnershipState,
 )
 
-interface TranscriptionRecovery : TranscriptionScheduler {
+interface TranscriptionRecovery {
+    suspend fun enqueue(
+        recordingId: UUID,
+        correlationId: String? = null,
+    ): String
+
     suspend fun markPendingForQueueRecovery(
         recordingId: UUID,
         reason: String,
@@ -42,3 +47,14 @@ interface TranscriptionRecovery : TranscriptionScheduler {
 
     suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics
 }
+
+fun ManualRecoveryResult.toUserMessage(success: String): String =
+    when (this) {
+        ManualRecoveryResult.ENQUEUED -> success
+        ManualRecoveryResult.BLOCKED_ACTIVE_WORK ->
+            "Already processing. Recovery disabled while active work runs"
+        ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT ->
+            "Could not verify processing ownership. Try again shortly"
+        ManualRecoveryResult.NOT_RECOVERABLE_STATE ->
+            "Recovery is unavailable for this state"
+    }

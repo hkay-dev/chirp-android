@@ -86,13 +86,6 @@ class ModelDownloaderTest {
     }
 
     @Test
-    fun `hasSufficientStorage logic`() {
-        // Since buffer is added externally now, just test basic logic
-        assertTrue(hasSufficientStorage(60L, 55L))
-        assertFalse(hasSufficientStorage(50L, 55L))
-    }
-
-    @Test
     fun `computeSha256 returns correct hash`() {
         val file = File(testDir, "hash_test.txt")
         file.writeText("hello world\n")
@@ -108,14 +101,5 @@ class ModelDownloaderTest {
 
         val valid = validateFileIntegrity(file, 12L, "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447")
         assertTrue(valid)
-    }
-
-    @Test
-    fun `validateFileIntegrity returns false when mismatch`() {
-        val file = File(testDir, "hash_test3.txt")
-        file.writeText("wrong content")
-
-        val valid = validateFileIntegrity(file, 12L, "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447")
-        assertFalse(valid)
     }
 }

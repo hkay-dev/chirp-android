@@ -28,7 +28,7 @@ dependencies {
     api(project(":core-contracts"))
 
     implementation("androidx.core:core-ktx:1.12.0")
-    api("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 

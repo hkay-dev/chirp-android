@@ -9,9 +9,6 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
@@ -25,6 +22,7 @@ import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
+import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -41,7 +39,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
 
-    @Inject lateinit var prefs: Preferences
+    @Inject lateinit var llmPreferences: LlmPreferences
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
@@ -86,7 +84,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
         setContent {
             ChirpTheme {
-                val llmEnabled = remember { mutableStateOf(prefs.llmEnabled) }
+                val llmEnabled by llmPreferences.llmEnabled.collectAsStateWithLifecycle(initialValue = true)
                 val currentMode by modeRepository.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
 
                 VoiceRecognitionDialog(
@@ -95,15 +93,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     recordingStateFlow = _recordingState,
                     shouldDismissFlow = _shouldDismiss,
                     partialTranscriptFlow = _partialTranscript,
-                    llmEnabled = llmEnabled.value,
+                    llmEnabled = llmEnabled,
                     currentMode = currentMode,
                     onStart = ::startRecording,
-                    onStop = { stopRecording(llmEnabled.value, currentMode) },
+                    onStop = { stopRecording(llmEnabled, currentMode) },
                     onCancel = ::cancelRecording,
                     onDismissComplete = { finish() },
                     onToggleLlm = { enabled ->
-                        llmEnabled.value = enabled
-                        prefs.llmEnabled = enabled
+                        lifecycleScope.launch {
+                            llmPreferences.setLlmEnabled(enabled)
+                        }
                     },
                 )
             }

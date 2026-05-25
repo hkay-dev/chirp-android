@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.llm.model
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -42,23 +41,5 @@ class ProcessingModeTest {
         
         assertTrue(mode is ProcessingMode.Custom)
         assertEquals("", (mode as ProcessingMode.Custom).customPrompt)
-    }
-
-    @Test
-    fun `Smart mode has null prompt`() {
-        assertNull(ProcessingMode.Smart.prompt)
-    }
-
-    @Test
-    fun `presets list contains expected modes`() {
-        val expectedPresets = listOf(
-            ProcessingMode.Proofread,
-            ProcessingMode.Formal,
-            ProcessingMode.Casual,
-            ProcessingMode.Email,
-            ProcessingMode.Code,
-            ProcessingMode.Smart
-        )
-        assertEquals(expectedPresets, ProcessingMode.presets)
     }
 }

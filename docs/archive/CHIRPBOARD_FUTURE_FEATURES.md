@@ -1,3 +1,6 @@
+> **Archive note:** Historical paths below reference the pre-split `:core` module. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+>
+
 # Chirpboard: Future Feature Architecture & Product Strategy
 
 As a Principal Android Architect and Lead Product Manager, I've analyzed macOS-native audio/transcription tools like **Spokenly, MacWhisper, and Wispr Note**. These tools excel because they blend deeply into the OS, remove friction from capture, and offer powerful post-processing. 

@@ -19,7 +19,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import dev.chirpboard.app.core.recording.RecordingState
-import dev.chirpboard.app.core.util.formatTimeMs
+import dev.chirpboard.app.core.util.formatAsDuration
 
 @Composable
 fun RecordingTimer(
@@ -76,7 +76,7 @@ fun RecordingTimer(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            text = formatTimeMs(elapsedMs),
+            text = elapsedMs.formatAsDuration(),
             style = textStyle,
             color = textColor,
         )

@@ -3,10 +3,9 @@ package dev.chirpboard.app.feature.recording.service
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.util.Log
-import dev.chirpboard.app.feature.recording.util.useCompat
+import dev.chirpboard.app.feature.recording.util.probeDurationUs
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
 import java.nio.ByteBuffer
@@ -123,17 +122,6 @@ class RecordingSegmentConcatenator
                 if (mime?.startsWith("audio/") == true) return index
             }
             return -1
-        }
-
-        private fun probeDurationUs(file: File): Long {
-            val durationMs =
-                runCatching {
-                    MediaMetadataRetriever().useCompat { retriever ->
-                        retriever.setDataSource(file.absolutePath)
-                        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                    }
-                }.getOrNull()?.coerceAtLeast(0L) ?: 0L
-            return durationMs * 1_000L
         }
 
         companion object {

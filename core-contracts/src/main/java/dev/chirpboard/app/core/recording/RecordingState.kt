@@ -32,7 +32,8 @@ sealed class RecordingState {
         val origin: RecordingOrigin,
         val profileId: UUID? = null,
         val startTimeMs: Long = System.currentTimeMillis(),
-        val audioFilePath: String? = null
+        val audioFilePath: String? = null,
+        val recordingId: UUID? = null,
     ) : RecordingState()
     
     /** Recording is paused */
@@ -41,14 +42,16 @@ sealed class RecordingState {
         val profileId: UUID? = null,
         val audioFilePath: String? = null,
         /** Total milliseconds recorded before this pause (sum of all active segments) */
-        val accumulatedMs: Long = 0L
+        val accumulatedMs: Long = 0L,
+        val recordingId: UUID? = null,
     ) : RecordingState()
     
     /** Recording is stopping */
     data class Stopping(
         val origin: RecordingOrigin,
         val profileId: UUID? = null,
-        val audioFilePath: String? = null
+        val audioFilePath: String? = null,
+        val recordingId: UUID? = null,
     ) : RecordingState()
     
     /** Recording failed */
@@ -69,6 +72,15 @@ sealed class RecordingState {
             is Recording -> origin
             is Paused -> origin
             is Stopping -> origin
+            else -> null
+        }
+
+    /** Database recording ID for the active session, when one has been created. */
+    val activeRecordingId: UUID?
+        get() = when (this) {
+            is Recording -> recordingId
+            is Paused -> recordingId
+            is Stopping -> recordingId
             else -> null
         }
 }

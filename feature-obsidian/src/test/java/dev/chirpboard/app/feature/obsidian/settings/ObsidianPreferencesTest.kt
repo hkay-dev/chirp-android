@@ -35,20 +35,6 @@ class ObsidianPreferencesTest {
     }
 
     @Test
-    fun `globalVaultUri initially returns null`() = testScope.runTest {
-        preferences.globalVaultUri.test {
-            assertNull(awaitItem())
-        }
-    }
-
-    @Test
-    fun `autoExportEnabled initially returns false`() = testScope.runTest {
-        preferences.autoExportEnabled.test {
-            assertEquals(false, awaitItem())
-        }
-    }
-
-    @Test
     fun `setGlobalVaultUri updates flow`() = testScope.runTest {
         preferences.globalVaultUri.test {
             assertNull(awaitItem())

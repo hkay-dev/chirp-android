@@ -11,7 +11,6 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
-import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 
@@ -29,13 +28,6 @@ class ProfileEditorViewModelTest {
     @After
     fun teardown() {
         Dispatchers.resetMain()
-    }
-
-    @Test
-    fun `viewModel can be initialized`() {
-        val savedStateHandle = SavedStateHandle(mapOf("profileId" to null))
-        val viewModel = ProfileEditorViewModel(profileRepository, savedStateHandle)
-        assertNotNull(viewModel)
     }
 
     @Test

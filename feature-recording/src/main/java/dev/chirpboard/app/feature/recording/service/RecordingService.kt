@@ -79,9 +79,6 @@ class RecordingService : Service() {
     lateinit var capturePaths: RecordingCapturePaths
 
     @Inject
-    lateinit var recorderReleaseCoordinator: RecorderReleaseCoordinator
-
-    @Inject
     lateinit var storageMonitor: RecordingStorageMonitor
 
     @Inject
@@ -333,7 +330,10 @@ class RecordingService : Service() {
                     sampleRate = recordingQualityConfig.sampleRate,
                 )
             }
-            recordingStateManager.onRecordingStarted(currentRecordingFile!!.absolutePath)
+            recordingStateManager.onRecordingStarted(
+                audioFilePath = currentRecordingFile!!.absolutePath,
+                recordingId = currentInProgressRecordingId,
+            )
 
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.RECORDING_START,

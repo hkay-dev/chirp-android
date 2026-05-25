@@ -36,6 +36,8 @@
     <string name="rec_transcription_progress_subtitle">Your transcript will appear here when processing finishes.</string>
     <string name="rec_enhancement_progress_title">Enhancing</string>
     <string name="rec_enhancement_progress_subtitle">Title and summary updates run after transcription completes.</string>
+    <string name="rec_recording_finalize_title">Stitching your recording together</string>
+    <string name="rec_recording_finalize_subtitle">Saving audio and getting transcription ready.</string>
     <string name="rec_transcript">Transcript</string>
     <string name="rec_transcript_retranscribe_confirmation">A new transcription will replace the pipeline transcript. Your saved manual correction stays visible until the new transcript finishes successfully.</string>
     <string name="rec_transcript_selection_done">Done</string>

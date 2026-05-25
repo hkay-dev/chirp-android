@@ -1,3 +1,6 @@
+> **Archive note:** Historical paths below reference the pre-split `:core` module. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+>
+
 # Record Screen Redesign & Notification Fix Plan
 
 Based on your feedback, we are completely overhauling the in-app recording experience and fixing the broken foreground notification.

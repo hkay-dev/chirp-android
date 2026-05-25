@@ -48,7 +48,6 @@ android {
 
 dependencies {
     // Internal modules
-    implementation(project(":core-contracts"))
     implementation(project(":core-audio"))
     implementation(project(":core-ui"))
     implementation(project(":core-playback"))
@@ -69,7 +68,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("com.squareup.leakcanary:leakcanary-android:2.14")
 
@@ -80,7 +78,6 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.savedstate:savedstate-ktx:1.2.1")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
@@ -112,6 +109,5 @@ dependencies {
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)
-    androidTestImplementation(libs.mockk.android)
 
 }

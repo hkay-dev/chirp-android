@@ -49,8 +49,6 @@ import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
-import dev.chirpboard.app.core.ui.motion.ChirpMotion
-import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,12 +97,9 @@ fun RecordScreen(
     }
 
     LaunchedEffect(lastCompletedRecordingId) {
-        val recordingId = lastCompletedRecordingId
-        if (recordingId != null) {
-            delay(ChirpMotion.RECORD_HANDOFF_MS)
-            onRecordingComplete(recordingId.toString())
-            viewModel.clearLastCompletedRecordingId()
-        }
+        val recordingId = lastCompletedRecordingId ?: return@LaunchedEffect
+        onRecordingComplete(recordingId.toString())
+        viewModel.clearLastCompletedRecordingId()
     }
 
     RepositoryErrorSnackbarEffect(
@@ -332,7 +327,13 @@ fun RecordScreen(
                         viewModel.pauseRecording()
                     }
                 },
-                onStopRecording = { viewModel.stopRecording() },
+                onStopRecording = {
+                    val recordingId = recordingState.activeRecordingId
+                    viewModel.stopRecording()
+                    if (recordingId != null) {
+                        onRecordingComplete(recordingId.toString())
+                    }
+                },
                 onRestartRecording = { showRestartDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()

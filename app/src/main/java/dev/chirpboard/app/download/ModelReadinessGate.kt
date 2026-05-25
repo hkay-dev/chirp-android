@@ -6,7 +6,7 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
-import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerifier
+import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
@@ -25,7 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 class ModelReadinessGate(
-    private val verifier: ModelReadinessVerifier,
+    private val speechModelStore: SpeechModelStore,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val gateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -80,7 +80,7 @@ class ModelReadinessGate(
     private suspend fun verifyAndUpdateState(trigger: VerificationTrigger): ModelReadyResult {
         val startedNs = System.nanoTime()
         return try {
-            val evaluation = verifier.verify()
+            val evaluation = speechModelStore.evaluateReadiness()
             val durationMs = (System.nanoTime() - startedNs) / 1_000_000
             if (evaluation.isReady) {
                 val source =

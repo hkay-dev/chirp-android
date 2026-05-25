@@ -61,10 +61,6 @@ data class ModelReadinessEvaluation(
     val unavailableReason: ModelReadinessUnavailableReason? = null,
 )
 
-fun interface ModelReadinessVerifier {
-    suspend fun verify(): ModelReadinessEvaluation
-}
-
 sealed interface SpeechModelDownloadState {
     data class Progress(
         val file: String,
