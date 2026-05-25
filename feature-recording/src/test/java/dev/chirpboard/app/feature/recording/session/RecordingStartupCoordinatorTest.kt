@@ -40,7 +40,9 @@ class RecordingStartupCoordinatorTest {
         orphanedAudioCleaner = mockk(relaxed = true)
         sessionJournal = mockk(relaxed = true)
         recordingStateManager = mockk(relaxed = true)
+        val finalizeStartupReconciler = mockk<RecordingFinalizeStartupReconciler>(relaxed = true)
         coEvery { recoveryStore.refresh() } returns Unit
+        coEvery { finalizeStartupReconciler.reconcilePendingFinalizations() } returns Unit
         coordinator =
             RecordingStartupCoordinator(
                 recoveryStore = recoveryStore,
@@ -48,6 +50,7 @@ class RecordingStartupCoordinatorTest {
                 sessionJournal = sessionJournal,
                 pendingStopStore = pendingStopStore,
                 recordingStateManager = recordingStateManager,
+                finalizeStartupReconciler = finalizeStartupReconciler,
             )
     }
 

@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -39,6 +40,7 @@ class RecordingListItemProgressTest {
                 RecordingListItem(
                     item = item,
                     playbackState = RecordingPlaybackState(),
+                    recordingState = RecordingState.Idle,
                     onClick = {},
                     onPlayClick = {},
                     onLongClick = {},

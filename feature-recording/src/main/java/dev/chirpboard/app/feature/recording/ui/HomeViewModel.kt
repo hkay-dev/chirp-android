@@ -61,6 +61,7 @@ data class RecordingDisplayItem(
     val summary: String? = null,
     val profileName: String? = null,
     val profileIcon: String? = null,
+    val isLiveCapture: Boolean = false,
 ) {
     val id get() = recording.id
     val title get() = recording.title
@@ -140,27 +141,39 @@ class HomeViewModel
                 .unwrapRepositoryFlow { _errorMessage.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        private val allRecordingsList: StateFlow<List<Recording>> =
+        private val allRecordingsRaw: StateFlow<List<Recording>> =
             recordingRepository
                 .getAllRecordings()
                 .unwrapRepositoryFlow { _errorMessage.value = it }
-                .map { recordings ->
-                    recordings.filter { it.status != RecordingStatus.RECORDING }
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private val allRecordingsList: StateFlow<List<Recording>> =
+            combine(allRecordingsRaw, recordingManager.state) { recordings, recordingState ->
+                recordings.filter { shouldShowRecordingOnHomeList(it, recordingState) }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         private val filteredRecordings: StateFlow<List<Recording>> =
-            combine(_searchQuery, allRecordingsList) { query, all ->
-                query to all
-            }.flatMapLatest { (query, all) ->
+            _searchQuery.flatMapLatest { query ->
                 if (query.isBlank()) {
-                    kotlinx.coroutines.flow.flowOf(all)
+                    allRecordingsList
                 } else {
-                    recordingRepository
-                        .searchRecordings(query)
-                        .unwrapRepositoryFlow { _errorMessage.value = it }
-                        .map { recordings ->
-                            recordings.filter { it.status != RecordingStatus.RECORDING }
-                        }
+                    combine(
+                        recordingRepository
+                            .searchRecordings(query)
+                            .unwrapRepositoryFlow { _errorMessage.value = it },
+                        allRecordingsRaw,
+                        recordingManager.state,
+                    ) { searchResults, allRecordings, recordingState ->
+                        val finalizingMatches =
+                            allRecordings.filter { recording ->
+                                recording.status == RecordingStatus.RECORDING &&
+                                    shouldShowRecordingOnHomeList(recording, recordingState) &&
+                                    recording.title.contains(query, ignoreCase = true)
+                            }
+                        (searchResults + finalizingMatches)
+                            .distinctBy(Recording::id)
+                            .sortedByDescending { it.createdAt.time }
+                    }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -207,11 +220,20 @@ class HomeViewModel
             combine(
                 allDisplayItems,
                 _listFilter,
-            ) { items, filter ->
+                recordingManager.state,
+            ) { items, filter, recordingState ->
+                val enriched =
+                    items.map { item ->
+                        item.copy(
+                            isLiveCapture = isLiveCaptureHomeListItem(item.recording, recordingState),
+                        )
+                    }
                 if (filter == ListFilterMode.ALL.name) {
-                    items
+                    enriched
                 } else {
-                    items.filter { isProcessingOrStuckStatus(it.status) }
+                    enriched.filter { item ->
+                        isHomeListProcessingItem(item.recording, recordingState)
+                    }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -226,27 +248,20 @@ class HomeViewModel
 
         /** Quick stats derived from recordings */
         val stats: StateFlow<HomeStats> =
-            allRecordingsList
-                .map { recordings ->
-                    HomeStats(
-                        totalRecordings = recordings.size,
-                        totalDurationMs = recordings.sumOf { it.durationMs },
-                        completedCount =
-                            recordings.count {
-                                it.status == dev.chirpboard.app.data.model.RecordingStatus.COMPLETED
-                            },
-                        processingCount =
-                            recordings.count {
-                                it.status in
-                                    listOf(
-                                        dev.chirpboard.app.data.model.RecordingStatus.TRANSCRIBING,
-                                        dev.chirpboard.app.data.model.RecordingStatus.ENHANCING,
-                                        dev.chirpboard.app.data.model.RecordingStatus.PENDING_TRANSCRIPTION,
-                                        dev.chirpboard.app.data.model.RecordingStatus.PENDING_ENHANCEMENT,
-                                    )
-                            },
-                    )
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeStats())
+            combine(allRecordingsList, recordingManager.state) { recordings, recordingState ->
+                HomeStats(
+                    totalRecordings = recordings.size,
+                    totalDurationMs = recordings.sumOf { it.durationMs },
+                    completedCount =
+                        recordings.count {
+                            it.status == dev.chirpboard.app.data.model.RecordingStatus.COMPLETED
+                        },
+                    processingCount =
+                        recordings.count {
+                            isHomeListProcessingItem(it, recordingState)
+                        },
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeStats())
 
         /** Current recording state */
         val recordingState: StateFlow<RecordingState> = recordingManager.state
@@ -610,6 +625,46 @@ internal fun isProcessingOrStuckStatus(status: RecordingStatus): Boolean =
             RecordingStatus.ENHANCING,
             RecordingStatus.PENDING_TRANSCRIPTION,
             RecordingStatus.PENDING_ENHANCEMENT,
+        )
+
+/** All recordings remain visible on Home, including live capture and finalize/stitch rows. */
+internal fun shouldShowRecordingOnHomeList(
+    recording: Recording,
+    @Suppress("UNUSED_PARAMETER") recordingState: RecordingState,
+): Boolean = true
+
+/**
+ * True when the row represents the active in-app capture session (not background finalize).
+ */
+internal fun isLiveCaptureHomeListItem(
+    recording: Recording,
+    recordingState: RecordingState,
+): Boolean {
+    if (recording.status != RecordingStatus.RECORDING) {
+        return false
+    }
+    val activeRecordingId = recordingState.activeRecordingId ?: return false
+    if (recording.id != activeRecordingId) {
+        return false
+    }
+    return when (recordingState) {
+        is RecordingState.Starting,
+        is RecordingState.Recording,
+        is RecordingState.Paused,
+        -> true
+
+        else -> false
+    }
+}
+
+internal fun isHomeListProcessingItem(
+    recording: Recording,
+    recordingState: RecordingState,
+): Boolean =
+    isProcessingOrStuckStatus(recording.status) ||
+        (
+            recording.status == RecordingStatus.RECORDING &&
+                shouldShowRecordingOnHomeList(recording, recordingState)
         )
 
 internal fun deriveHomeQuickStarts(

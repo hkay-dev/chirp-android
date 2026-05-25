@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -247,7 +248,19 @@ fun RecordScreen(
         AnimatedAlertDialog(
             onDismissRequest = { showBackDialog = false },
             title = { Text(stringResource(R.string.recording_in_progress_title)) },
-            text = { Text(stringResource(R.string.recording_in_progress_text)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.recording_in_progress_text))
+                    TextButton(
+                        onClick = {
+                            showBackDialog = false
+                            onNavigateBack()
+                        },
+                    ) {
+                        Text(stringResource(R.string.rec_browse_home))
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {

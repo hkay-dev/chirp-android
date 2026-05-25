@@ -9,6 +9,7 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.feature.recording.RecordingManager
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,7 @@ class HomeRecordEntryViewModel
     @Inject
     constructor(
         private val modelReadinessGate: SpeechModelReadinessGate,
+        private val recordingManager: RecordingManager,
     ) : ViewModel() {
         val readinessState: StateFlow<ModelReadinessState> = modelReadinessGate.state
 
@@ -34,6 +36,13 @@ class HomeRecordEntryViewModel
 
         fun onRecordTapped(profileId: UUID? = null) {
             if (readinessState.value is ModelReadinessState.Checking) {
+                return
+            }
+
+            if (recordingManager.hasActiveAppCapture) {
+                viewModelScope.launch {
+                    _events.send(HomeRecordEntryEvent.NavigateToRecord(autoStart = false))
+                }
                 return
             }
 
@@ -71,6 +80,7 @@ class HomeRecordEntryViewModel
 sealed interface HomeRecordEntryEvent {
     data class NavigateToRecord(
         val profileId: UUID? = null,
+        val autoStart: Boolean = true,
     ) : HomeRecordEntryEvent
 
     data class ShowModelRequired(

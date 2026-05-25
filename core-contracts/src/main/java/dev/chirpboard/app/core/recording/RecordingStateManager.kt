@@ -331,6 +331,33 @@ class RecordingStateManager @Inject constructor() {
     }
     
     /**
+     * Capture has stopped and finalize work was enqueued.
+     * Releases the recording lock immediately while the DB row remains in-progress until finalize completes.
+     */
+    fun onCaptureStopHandoff(recordingId: UUID?) {
+        timeoutJob?.cancel()
+        _lastCompletedRecordingId.value = recordingId
+        _state.update { current ->
+            when (current) {
+                is RecordingState.Starting,
+                is RecordingState.Recording,
+                is RecordingState.Paused,
+                is RecordingState.Stopping,
+                -> {
+                    Log.d(TAG, "State: ${current::class.simpleName} -> Idle (capture handoff)")
+                    RecordingState.Idle
+                }
+                else -> {
+                    Log.w(TAG, "onCaptureStopHandoff called in unexpected state: ${current::class.simpleName}, forcing Idle")
+                    RecordingState.Idle
+                }
+            }
+        }
+        recordingLock.set(false)
+        clearAmplitude()
+    }
+
+    /**
      * Recording has completed successfully.
      * This releases the lock and returns to Idle state.
      *

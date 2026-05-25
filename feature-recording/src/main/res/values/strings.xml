@@ -43,7 +43,11 @@
     <string name="start_over_text">Current recording will be discarded.</string>
     <string name="start_over">Start Over</string>
     <string name="recording_in_progress_title">Recording in Progress</string>
-    <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
+    <string name="recording_in_progress_text">Save, discard, or browse home while recording continues in the background.</string>
+    <string name="rec_browse_home">Browse home</string>
+    <string name="rec_live_capture_banner_title">Recording</string>
+    <string name="rec_live_capture_banner_subtitle_active">Tap to return to recorder</string>
+    <string name="rec_live_capture_banner_subtitle_paused">Paused — tap to return</string>
     <string name="save">Save</string>
     <string name="new_recording_title">New Recording</string>
     <string name="desc_add_profile">Add Profile</string>
@@ -103,6 +107,9 @@
     <string name="rec_empty_state_subtitle">Tap Record to capture your first brilliant idea</string>
     <string name="rec_notification_starting_title">Starting recording</string>
     <string name="rec_notification_starting_text">Preparing microphone</string>
+    <string name="rec_finalize_notification_channel">Recording finalize</string>
+    <string name="rec_finalize_notification_title">Stitching recording</string>
+    <string name="rec_finalize_notification_body">Saving audio and preparing transcription.</string>
     <string name="rec_record_button_recording">Recording</string>
     <string name="rec_active_profile_label">Recording with profile</string>
     <string name="rec_color">Color</string>

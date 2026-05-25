@@ -286,9 +286,106 @@ class HomeViewModelTest {
         }
 
     @Test
-    fun `search excludes in-progress RECORDING rows`() =
+    fun `search includes live capture and finalizing RECORDING title matches`() =
         runBlocking {
             Dispatchers.setMain(Dispatchers.Unconfined)
+            val liveRecordingId = UUID.randomUUID()
+            val finalizingRecordingId = UUID.randomUUID()
+            val recordingStateFlow =
+                MutableStateFlow<RecordingState>(
+                    RecordingState.Recording(
+                        origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                        recordingId = liveRecordingId,
+                    ),
+                )
+            val localRecordingManager =
+                mockk<RecordingManager>(relaxed = true) {
+                    every { state } returns recordingStateFlow
+                }
+
+            val completed =
+                Recording(
+                    id = UUID.randomUUID(),
+                    title = "Team sync",
+                    audioPath = "/tmp/done.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                )
+            val liveCapture =
+                Recording(
+                    id = liveRecordingId,
+                    title = "Team sync live",
+                    audioPath = "/tmp/live.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                )
+            val finalizing =
+                Recording(
+                    id = finalizingRecordingId,
+                    title = "Team sync finalizing",
+                    audioPath = "/tmp/final.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                )
+
+            every { recordingRepository.getAllRecordings() } returns
+                flowOf(RepositoryFlowState(listOf(completed, liveCapture, finalizing)))
+            every { recordingRepository.searchRecordings("team") } returns
+                flowOf(
+                    RepositoryFlowState(listOf(completed)),
+                )
+            coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
+            coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
+
+            val localViewModel =
+                HomeViewModel(
+                    recordingRepository,
+                    localRecordingManager,
+                    tagRepository,
+                    profileRepository,
+                    transcriptionQueueManager,
+                    recordingTextEnrichment,
+                    audioImportOrchestrator,
+                    sessionRecovery,
+                    playbackController =
+                        mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                            every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
+                        },
+                    savedStateHandle = SavedStateHandle(),
+                )
+            val collector = launch { localViewModel.displayItems.collect { } }
+
+            localViewModel.onSearchQueryChange("team")
+            delay(300)
+
+            assertEquals(
+                setOf(completed.id, liveRecordingId, finalizingRecordingId),
+                localViewModel.displayItems.value.map { it.id }.toSet(),
+            )
+            collector.cancel()
+        }
+
+    @Test
+    fun `displayItems includes background finalize recording while idle`() =
+        runBlocking {
+            Dispatchers.setMain(Dispatchers.Unconfined)
+            val recordingId = UUID.randomUUID()
+            val finalizingRecording =
+                Recording(
+                    id = recordingId,
+                    title = "Morning notes",
+                    audioPath = "/tmp/morning.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                )
+            every { recordingRepository.getAllRecordings() } answers {
+                flowOf(RepositoryFlowState(listOf(finalizingRecording)))
+            }
+            val idleStateFlow = MutableStateFlow(RecordingState.Idle)
+            every { recordingManager.state } returns idleStateFlow
+            coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
+            coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
+
             val localViewModel =
                 HomeViewModel(
                     recordingRepository,
@@ -305,38 +402,124 @@ class HomeViewModelTest {
                         },
                     savedStateHandle = SavedStateHandle(),
                 )
-            val collector = launch { localViewModel.displayItems.collect { } }
 
-            val completed =
+            val collector = launch { localViewModel.displayItems.collect { } }
+            delay(300)
+
+            assertEquals(listOf(recordingId), localViewModel.displayItems.value.map { it.id })
+            assertFalse(localViewModel.displayItems.value.single().isLiveCapture)
+            collector.cancel()
+        }
+
+    @Test
+    fun `displayItems includes finalizing recording while stop is in progress`() =
+        runBlocking {
+            Dispatchers.setMain(Dispatchers.Unconfined)
+            val recordingId = UUID.randomUUID()
+            val finalizingRecording =
                 Recording(
-                    id = UUID.randomUUID(),
-                    title = "Team sync",
-                    audioPath = "/tmp/done.m4a",
-                    source = RecordingSource.APP,
-                    status = RecordingStatus.COMPLETED,
-                )
-            val inProgress =
-                Recording(
-                    id = UUID.randomUUID(),
-                    title = "Team sync live",
-                    audioPath = "/tmp/live.m4a",
+                    id = recordingId,
+                    title = "Morning notes",
+                    audioPath = "/tmp/morning.m4a",
                     source = RecordingSource.APP,
                     status = RecordingStatus.RECORDING,
                 )
-
-            every { recordingRepository.searchRecordings("team") } returns
-                flowOf(
-                    RepositoryFlowState(listOf(completed, inProgress)),
+            every { recordingRepository.getAllRecordings() } answers {
+                flowOf(RepositoryFlowState(listOf(finalizingRecording)))
+            }
+            val stoppingStateFlow =
+                MutableStateFlow(
+                    RecordingState.Stopping(
+                        origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                        recordingId = recordingId,
+                    ),
                 )
+            every { recordingManager.state } returns stoppingStateFlow
             coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
             coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
 
-            localViewModel.onSearchQueryChange("team")
+            val localViewModel =
+                HomeViewModel(
+                    recordingRepository,
+                    recordingManager,
+                    tagRepository,
+                    profileRepository,
+                    transcriptionQueueManager,
+                    recordingTextEnrichment,
+                    audioImportOrchestrator,
+                    sessionRecovery,
+                    playbackController =
+                        mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                            every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
+                        },
+                    savedStateHandle = SavedStateHandle(),
+                )
+
+            val collector = launch { localViewModel.displayItems.collect { } }
             delay(300)
 
-            assertEquals(listOf(completed.id), localViewModel.displayItems.value.map { it.id })
+            assertEquals(listOf(recordingId), localViewModel.displayItems.value.map { it.id })
             collector.cancel()
         }
+
+    @Test
+    fun `shouldShowRecordingOnHomeList includes live capture row`() {
+        val recordingId = UUID.randomUUID()
+        val recording =
+            Recording(
+                id = recordingId,
+                title = "Live",
+                audioPath = "/tmp/live.m4a",
+                source = RecordingSource.APP,
+                status = RecordingStatus.RECORDING,
+            )
+
+        assertTrue(
+            shouldShowRecordingOnHomeList(
+                recording,
+                RecordingState.Recording(
+                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                    recordingId = recordingId,
+                ),
+            ),
+        )
+        assertTrue(
+            isLiveCaptureHomeListItem(
+                recording,
+                RecordingState.Recording(
+                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                    recordingId = recordingId,
+                ),
+            ),
+        )
+        assertTrue(
+            isLiveCaptureHomeListItem(
+                recording,
+                RecordingState.Paused(
+                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                    recordingId = recordingId,
+                ),
+            ),
+        )
+        assertFalse(
+            isLiveCaptureHomeListItem(
+                recording,
+                RecordingState.Stopping(
+                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                    recordingId = recordingId,
+                ),
+            ),
+        )
+        assertTrue(
+            shouldShowRecordingOnHomeList(
+                recording,
+                RecordingState.Stopping(
+                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
+                    recordingId = recordingId,
+                ),
+            ),
+        )
+    }
 
     @Test
     fun `importAudio navigates to studio after successful import`() =
