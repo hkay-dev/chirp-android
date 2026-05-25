@@ -12,8 +12,9 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,26 +50,12 @@ class LlmPreferences
          * Encrypted SharedPreferences for secure API key storage.
          * Returns null if encryption is unavailable (rare device-specific issues).
          */
-        private val securePrefs: SharedPreferences? by lazy {
-            try {
-                val masterKey =
-                    MasterKey
-                        .Builder(context)
-                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                        .build()
+        private val securePrefs: SharedPreferences? by lazy { createSecurePrefs() }
 
-                EncryptedSharedPreferences.create(
-                    context,
-                    SECURE_PREFS_NAME,
-                    masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-                )
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
-                null
-            }
+        private val _apiKey = MutableStateFlow<String?>(null)
+
+        init {
+            _apiKey.value = readStoredApiKey()
         }
 
         val llmEnabled: Flow<Boolean> =
@@ -76,15 +63,16 @@ class LlmPreferences
                 preferences[Keys.LLM_ENABLED] ?: true // On by default for dev
             }
 
-        /**
-         * API key from secure encrypted storage.
-         */
-        val apiKey: Flow<String?> =
-            flowOf(
-                securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null),
-            )
+        /** API key updates whenever secure storage changes. */
+        val apiKey: Flow<String?> = _apiKey.asStateFlow()
 
-        fun fetchApiKey(): String? = securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null)
+        fun fetchApiKey(): String? {
+            val stored = readStoredApiKey()
+            if (_apiKey.value != stored) {
+                _apiKey.value = stored
+            }
+            return stored
+        }
 
         fun getModelName(): String = appPrefs.getString(KEY_GEMINI_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
 
@@ -108,8 +96,19 @@ class LlmPreferences
          * Stores API key in encrypted SharedPreferences.
          */
         suspend fun setApiKey(key: String) {
-            securePrefs?.edit()?.putString(GEMINI_CREDENTIAL_PREF, key)?.apply()
-                ?: Log.e(TAG, "Cannot save API key: secure storage unavailable")
+            val normalized = key.trim()
+            val prefs = securePrefs
+            if (prefs == null) {
+                Log.e(TAG, "Cannot save API key: secure storage unavailable")
+                return
+            }
+
+            val committed = prefs.edit().putString(GEMINI_CREDENTIAL_PREF, normalized).commit()
+            if (committed) {
+                _apiKey.value = normalized
+            } else {
+                Log.e(TAG, "Failed to commit API key to secure storage")
+            }
         }
 
         fun setModelName(modelName: String) {
@@ -117,8 +116,34 @@ class LlmPreferences
         }
 
         suspend fun clearApiKey() {
-            securePrefs?.edit()?.remove(GEMINI_CREDENTIAL_PREF)?.apply()
+            val prefs = securePrefs ?: return
+            if (prefs.edit().remove(GEMINI_CREDENTIAL_PREF).commit()) {
+                _apiKey.value = null
+            }
         }
+
+        private fun createSecurePrefs(): SharedPreferences? =
+            try {
+                val masterKey =
+                    MasterKey
+                        .Builder(context)
+                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                        .build()
+
+                EncryptedSharedPreferences.create(
+                    context,
+                    SECURE_PREFS_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+                )
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
+                null
+            }
+
+        private fun readStoredApiKey(): String? = securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null)
 
         /**
          * Check if an API key has been configured.

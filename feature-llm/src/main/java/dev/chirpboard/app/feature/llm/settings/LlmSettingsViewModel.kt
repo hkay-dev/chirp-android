@@ -24,6 +24,7 @@ class LlmSettingsViewModel
             val llmEnabled: Boolean = true,
             val apiKey: String = "",
             val isKeyConfigured: Boolean = false,
+            val isSecureStorageAvailable: Boolean = true,
             val isTestingConnection: Boolean = false,
             val connectionTestResult: ConnectionTestResult? = null,
             val autoTitle: Boolean = false,
@@ -44,12 +45,17 @@ class LlmSettingsViewModel
         init {
             viewModelScope.launch {
                 val storedApiKey = preferences.fetchApiKey().orEmpty()
-                val apiKeyInput = savedStateHandle.get<String>("apiKeyInput") ?: storedApiKey
-                _uiState.update {
-                    it.copy(
+                _uiState.update { current ->
+                    val apiKeyInput =
+                        savedStateHandle.get<String>("apiKeyInput")
+                            ?: current.apiKey.takeIf { it.isNotBlank() }
+                            ?: storedApiKey
+                    savedStateHandle["apiKeyInput"] = apiKeyInput
+                    current.copy(
                         llmEnabled = preferences.getLlmEnabled(),
                         apiKey = apiKeyInput,
-                        isKeyConfigured = apiKeyInput.isNotBlank(),
+                        isKeyConfigured = preferences.hasApiKey(),
+                        isSecureStorageAvailable = preferences.isSecureStorageAvailable(),
                         autoTitle = preferences.getAutoTitle(),
                         autoSummary = preferences.getAutoSummary(),
                     )
@@ -58,26 +64,67 @@ class LlmSettingsViewModel
         }
 
         fun updateApiKey(key: String) {
-            savedStateHandle["apiKeyInput"] = key
-            _uiState.update { it.copy(apiKey = key, isKeyConfigured = key.isNotBlank()) }
+            val normalized = key.trim()
+            savedStateHandle["apiKeyInput"] = normalized
+            _uiState.update { it.copy(apiKey = normalized) }
         }
 
         fun saveApiKey() {
             viewModelScope.launch {
-                preferences.setApiKey(_uiState.value.apiKey)
+                if (!preferences.isSecureStorageAvailable()) {
+                    _uiState.update {
+                        it.copy(connectionTestResult = ConnectionTestResult.Error("Secure storage unavailable on this device"))
+                    }
+                    return@launch
+                }
+
+                val apiKey = _uiState.value.apiKey.trim()
+                if (apiKey.isBlank()) return@launch
+
+                preferences.setApiKey(apiKey)
+                val saved = preferences.hasApiKey()
+                _uiState.update {
+                    it.copy(
+                        apiKey = apiKey,
+                        isKeyConfigured = saved,
+                        connectionTestResult =
+                            if (saved) {
+                                null
+                            } else {
+                                ConnectionTestResult.Error("Failed to save API key")
+                            },
+                    )
+                }
             }
         }
 
         fun clearApiKey() {
             viewModelScope.launch {
                 preferences.clearApiKey()
-                _uiState.update { it.copy(apiKey = "", connectionTestResult = null) }
+                savedStateHandle["apiKeyInput"] = ""
+                _uiState.update {
+                    it.copy(
+                        apiKey = "",
+                        isKeyConfigured = false,
+                        connectionTestResult = null,
+                    )
+                }
             }
         }
 
         fun testConnection() {
             viewModelScope.launch {
                 _uiState.update { it.copy(isTestingConnection = true, connectionTestResult = null) }
+
+                if (!preferences.isSecureStorageAvailable()) {
+                    _uiState.update {
+                        it.copy(
+                            isTestingConnection = false,
+                            connectionTestResult = ConnectionTestResult.Error("Secure storage unavailable on this device"),
+                        )
+                    }
+                    return@launch
+                }
 
                 val apiKey = _uiState.value.apiKey.trim()
                 if (apiKey.isBlank()) {
@@ -91,6 +138,15 @@ class LlmSettingsViewModel
                 }
 
                 preferences.setApiKey(apiKey)
+                if (!preferences.hasApiKey()) {
+                    _uiState.update {
+                        it.copy(
+                            isTestingConnection = false,
+                            connectionTestResult = ConnectionTestResult.Error("Failed to save API key"),
+                        )
+                    }
+                    return@launch
+                }
 
                 val result =
                     llmClient.process(
@@ -101,6 +157,7 @@ class LlmSettingsViewModel
                 _uiState.update {
                     it.copy(
                         isTestingConnection = false,
+                        isKeyConfigured = preferences.hasApiKey(),
                         connectionTestResult =
                             if (result.isSuccess) {
                                 ConnectionTestResult.Success
