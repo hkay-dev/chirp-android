@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,7 +49,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,9 +68,9 @@ import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import kotlinx.coroutines.delay
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @Composable
 fun VoiceRecognitionDialog(
@@ -89,21 +90,18 @@ fun VoiceRecognitionDialog(
     val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
-    var isVisible by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    var isVisible by remember { mutableStateOf(true) }
 
     val sampleCount by sampleCountFlow.collectAsStateWithLifecycle(0L)
 
     LaunchedEffect(Unit) {
-        delay(50)
-        isVisible = true
         onStart()
     }
 
     LaunchedEffect(shouldDismiss) {
         if (shouldDismiss) {
             isVisible = false
-            delay(250)
+            delay(VOICE_RECOGNITION_EXIT_MS)
             onDismissComplete()
         }
     }
@@ -153,12 +151,7 @@ fun VoiceRecognitionDialog(
                 onStop = {
                     onStop()
                 },
-                onCancel = {
-                    if (isVisible) {
-                        isVisible = false
-                        onCancel()
-                    }
-                },
+                onCancel = onCancel,
                 onToggleLlm = onToggleLlm,
             )
         }
@@ -180,6 +173,17 @@ private fun VoiceRecognitionDialogContent(
 ) {
     val isRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Starting || recordingState is RecordingState.Stopping
     val isProcessing = recordingState is RecordingState.Stopping
+    val showRecordingVisuals = isRecording && !isProcessing
+    val recordingVisualEnter =
+        fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+            expandVertically(
+                animationSpec = tween(ChirpMotion.STUDIO_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            )
+    val recordingVisualExit =
+        fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+            shrinkVertically(
+                animationSpec = tween(ChirpMotion.STUDIO_HIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            )
     val containerSize by animateDpAsState(
         targetValue = if (isRecording && !isProcessing) 96.dp else 80.dp,
         animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
@@ -214,7 +218,11 @@ private fun VoiceRecognitionDialogContent(
                 )
             }
 
-            if (isRecording) {
+            AnimatedVisibility(
+                visible = showRecordingVisuals,
+                enter = fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS)),
+                exit = fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS)),
+            ) {
                 RecordingGlowBackground(modifier = Modifier.fillMaxSize())
             }
             Column(
@@ -267,19 +275,28 @@ private fun VoiceRecognitionDialogContent(
                     }
                 }
 
-                if (isRecording && !isProcessing) {
-                    AudioWaveform(
-                        waveformBuffer = waveformBuffer,
-                        sampleCount = sampleCount,
-                        isActive = true,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                        maxBarHeight = 64.dp
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                } else {
-                    Spacer(modifier = Modifier.height(32.dp))
+                AnimatedVisibility(
+                    visible = showRecordingVisuals,
+                    enter = recordingVisualEnter,
+                    exit = recordingVisualExit,
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        AudioWaveform(
+                            waveformBuffer = waveformBuffer,
+                            sampleCount = sampleCount,
+                            isActive = true,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                            maxBarHeight = 64.dp,
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(if (showRecordingVisuals) 0.dp else 32.dp))
 
                 // Mic Button Area
                 Box(
@@ -354,6 +371,8 @@ private fun VoiceRecognitionDialogContent(
         }
     }
 }
+
+private const val VOICE_RECOGNITION_EXIT_MS = 250L
 
 @Composable
 private fun VoiceRecognitionLlmControlSection(

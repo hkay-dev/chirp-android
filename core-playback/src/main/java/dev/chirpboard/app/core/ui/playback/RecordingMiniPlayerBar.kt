@@ -1,5 +1,13 @@
 package dev.chirpboard.app.core.ui.playback
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,7 +37,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.util.formatAsDuration
+
+private val seekTrackEnterTransition =
+    fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = FastOutSlowInEasing)) +
+        expandVertically(
+            animationSpec = tween(ChirpMotion.STUDIO_REVEAL_MS, easing = FastOutSlowInEasing),
+        )
+private val seekTrackExitTransition =
+    fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing)) +
+        shrinkVertically(
+            animationSpec = tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
+        )
 
 @Composable
 fun RecordingMiniPlayerBar(
@@ -49,14 +69,21 @@ fun RecordingMiniPlayerBar(
         shadowElevation = 0.dp,
     ) {
         Column(
-            modifier = Modifier.navigationBarsPadding(),
+            modifier =
+                Modifier
+                    .navigationBarsPadding()
+                    .animateContentSize(),
         ) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                 thickness = 0.5.dp,
             )
 
-            if (state.durationMs > 0 && state.errorMessage == null) {
+            AnimatedVisibility(
+                visible = state.durationMs > 0 && state.errorMessage == null,
+                enter = seekTrackEnterTransition,
+                exit = seekTrackExitTransition,
+            ) {
                 MiniPlayerSeekTrack(
                     positionMs = state.positionMs,
                     durationMs = state.durationMs,
