@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
+import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
@@ -42,6 +43,7 @@ class KeyboardSessionCoordinator(
     private val modelInitFailedMessage = MutableStateFlow<String?>(null)
     private val llmEnabled = MutableStateFlow(true)
     private val currentMode = MutableStateFlow<ProcessingMode>(ProcessingMode.Proofread)
+    private val availableModes = MutableStateFlow<List<dev.chirpboard.app.feature.llm.model.ProcessingModeListItem>>(emptyList())
 
     private var recordingJob: Job? = null
     private var transcriptionJob: Job? = null
@@ -55,7 +57,8 @@ class KeyboardSessionCoordinator(
             combine(modelInitFailedMessage, llmEnabled, currentMode, permissionError) { initFailed, llm, mode, permError ->
                 listOf(initFailed, llm, mode, permError)
             },
-        ) { captureState, prefsState ->
+            availableModes,
+        ) { captureState, prefsState, modes ->
             val (recording, phase, banner) = captureState
             @Suppress("UNCHECKED_CAST")
             val initFailed = prefsState[0] as String?
@@ -72,6 +75,7 @@ class KeyboardSessionCoordinator(
                 modelInitFailedMessage = initFailed,
                 llmEnabled = llm,
                 processingMode = mode,
+                availableModes = modes,
                 permissionError = permError,
             )
         }.stateIn(
@@ -84,11 +88,17 @@ class KeyboardSessionCoordinator(
                 modelInitFailedMessage = null,
                 llmEnabled = true,
                 processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
                 permissionError = null,
             ),
         )
 
     init {
+        recordingStateManager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD) {
+            cancelRecording()
+            recordingStateManager.onRecordingError("Failed to stop dictation")
+        }
+
         scope.launch {
             keyboardPreferences.llmEnabled.collect { llmEnabled.value = it }
         }
@@ -97,6 +107,9 @@ class KeyboardSessionCoordinator(
         }
         scope.launch {
             modeRepository.currentMode.collect { currentMode.value = it }
+        }
+        scope.launch {
+            modeRepository.selectableModes.collect { availableModes.value = it }
         }
 
         capture.onRecordingError = { error ->
@@ -296,9 +309,9 @@ class KeyboardSessionCoordinator(
         }
     }
 
-    fun changeMode(mode: ProcessingMode) {
+    fun changeMode(modeId: String) {
         scope.launch {
-            modeRepository.setMode(mode)
+            modeRepository.setModeById(modeId)
         }
     }
 

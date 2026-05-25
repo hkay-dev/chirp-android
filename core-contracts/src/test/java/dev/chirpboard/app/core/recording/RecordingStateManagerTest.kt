@@ -76,6 +76,30 @@ class RecordingStateManagerTest {
     }
 
     @Test
+    fun onRecordingIdAssigned_exposesActiveRecordingIdDuringStarting() {
+        val recordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingIdAssigned(recordingId)
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Starting)
+        assertEquals(recordingId, state.activeRecordingId)
+    }
+
+    @Test
+    fun transitionToStopping_preservesRecordingIdFromStarting() {
+        val recordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingIdAssigned(recordingId)
+
+        manager.transitionToStopping()
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Stopping)
+        assertEquals(recordingId, (state as RecordingState.Stopping).recordingId)
+    }
+
+    @Test
     fun transitionToStopping_preservesRecordingId() {
         val recordingId = UUID.randomUUID()
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
@@ -172,5 +196,34 @@ class RecordingStateManagerTest {
         manager.clearAmplitude()
         assertEquals(0f, manager.amplitudeFlow.value)
         assertEquals(0, manager.waveformBuffer.count)
+    }
+
+    @Test
+    fun stoppingTimeout_awaitsHandlerBeforeErrorTransition() {
+        manager.stoppingTimeoutMsOverrideForTest = 10L
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.transitionToStopping()
+
+        val handlerGate = java.util.concurrent.CountDownLatch(1)
+        val handlerMayProceed = java.util.concurrent.CountDownLatch(1)
+        var handlerCompletedBeforeError = false
+
+        manager.setStoppingTimeoutHandler(RecordingOrigin.APP) { _ ->
+            handlerGate.countDown()
+            assertTrue(handlerMayProceed.await(2, java.util.concurrent.TimeUnit.SECONDS))
+            handlerCompletedBeforeError = true
+        }
+
+        manager.startStoppingTimeout(fileSizeBytes = 0L)
+        assertTrue(handlerGate.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        assertTrue(manager.state.value is RecordingState.Stopping)
+        handlerMayProceed.countDown()
+        Thread.sleep(100)
+
+        assertTrue(handlerCompletedBeforeError)
+        assertTrue(manager.state.value is RecordingState.Error)
+        manager.clearError()
+        val restart = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        assertTrue(restart is RecordingStartResult.Success)
     }
 }
