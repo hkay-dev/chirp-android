@@ -5,7 +5,7 @@ import android.util.Log
 import androidx.compose.runtime.Recomposer
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import dev.chirpboard.app.core.recording.RecordingStateManager
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.state.toKeyboardState

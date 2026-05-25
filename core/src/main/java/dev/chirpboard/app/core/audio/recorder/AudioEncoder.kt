@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.keyboard.recorder
+package dev.chirpboard.app.core.audio.recorder
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo

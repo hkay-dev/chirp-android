@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.keyboard.recorder
+package dev.chirpboard.app.core.audio.recorder
 
 import android.Manifest
 import android.annotation.SuppressLint

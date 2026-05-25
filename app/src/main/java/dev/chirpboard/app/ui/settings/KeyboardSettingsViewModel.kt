@@ -3,7 +3,7 @@ package dev.chirpboard.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

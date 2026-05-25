@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.keyboard
+package dev.chirpboard.app.core.preferences
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences

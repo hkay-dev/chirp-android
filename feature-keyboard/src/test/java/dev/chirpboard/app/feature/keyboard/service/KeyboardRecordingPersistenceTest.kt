@@ -2,7 +2,7 @@ package dev.chirpboard.app.feature.keyboard.service
 
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk

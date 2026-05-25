@@ -7,8 +7,8 @@ import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
-import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.NonCancellable

@@ -31,11 +31,11 @@ import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.core.audio.AudioFocusManager
-import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
-import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard

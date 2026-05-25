@@ -27,7 +27,6 @@ dependencies {
     // Internal modules
     implementation(project(":core"))
     implementation(project(":data"))
-    implementation(project(":feature-recording"))
     
     // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")

@@ -1,6 +1,6 @@
 package dev.chirpboard.app.ui.settings
 
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

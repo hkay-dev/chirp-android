@@ -2,7 +2,7 @@ package dev.chirpboard.app
 
 import android.content.Context
 import io.mockk.mockk
-import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 

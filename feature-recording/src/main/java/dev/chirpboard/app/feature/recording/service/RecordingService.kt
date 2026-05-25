@@ -16,6 +16,7 @@ import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.RecordingStorageMonitor
 import dev.chirpboard.app.core.audio.StorageCheckLevel
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
+import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingStartResult
@@ -149,33 +150,33 @@ class RecordingService : Service() {
         startId: Int,
     ): Int {
         when (intent?.action) {
-            ACTION_START_RECORDING -> {
-                val originName = intent.getStringExtra(EXTRA_ORIGIN) ?: RecordingOrigin.APP.name
+            RecordingServiceCommands.ACTION_START_RECORDING -> {
+                val originName = intent.getStringExtra(RecordingServiceCommands.EXTRA_ORIGIN) ?: RecordingOrigin.APP.name
                 val origin = RecordingOrigin.valueOf(originName)
-                val profileId = intent.getStringExtra(EXTRA_PROFILE_ID)?.let { UUID.fromString(it) }
+                val profileId = intent.getStringExtra(RecordingServiceCommands.EXTRA_PROFILE_ID)?.let { UUID.fromString(it) }
                 startRecording(origin, profileId)
             }
 
-            ACTION_PAUSE_RECORDING -> {
+            RecordingServiceCommands.ACTION_PAUSE_RECORDING -> {
                 pauseRecording()
             }
 
-            ACTION_RESUME_RECORDING -> {
+            RecordingServiceCommands.ACTION_RESUME_RECORDING -> {
                 resumeRecording()
             }
 
-            ACTION_STOP_RECORDING -> {
+            RecordingServiceCommands.ACTION_STOP_RECORDING -> {
                 stopRecording()
             }
 
-            ACTION_CANCEL_RECORDING -> {
+            RecordingServiceCommands.ACTION_CANCEL_RECORDING -> {
                 cancelRecording()
             }
 
-            ACTION_RESTART_RECORDING -> {
-                val originName = intent?.getStringExtra(EXTRA_ORIGIN) ?: RecordingOrigin.APP.name
+            RecordingServiceCommands.ACTION_RESTART_RECORDING -> {
+                val originName = intent?.getStringExtra(RecordingServiceCommands.EXTRA_ORIGIN) ?: RecordingOrigin.APP.name
                 val origin = RecordingOrigin.valueOf(originName)
-                val profileId = intent?.getStringExtra(EXTRA_PROFILE_ID)?.let { UUID.fromString(it) }
+                val profileId = intent?.getStringExtra(RecordingServiceCommands.EXTRA_PROFILE_ID)?.let { UUID.fromString(it) }
                 restartRecording(origin, profileId)
             }
         }
@@ -883,14 +884,14 @@ class RecordingService : Service() {
     companion object {
         private const val TAG = "RecordingService"
 
-        const val ACTION_START_RECORDING = "dev.chirpboard.app.ACTION_START_RECORDING"
-        const val ACTION_PAUSE_RECORDING = "dev.chirpboard.app.ACTION_PAUSE_RECORDING"
-        const val ACTION_RESUME_RECORDING = "dev.chirpboard.app.ACTION_RESUME_RECORDING"
-        const val ACTION_STOP_RECORDING = "dev.chirpboard.app.ACTION_STOP_RECORDING"
-        const val ACTION_CANCEL_RECORDING = "dev.chirpboard.app.ACTION_CANCEL_RECORDING"
-        const val ACTION_RESTART_RECORDING = "dev.chirpboard.app.ACTION_RESTART_RECORDING"
-        const val EXTRA_ORIGIN = "extra_origin"
-        const val EXTRA_PROFILE_ID = "extra_profile_id"
+        const val ACTION_START_RECORDING = RecordingServiceCommands.ACTION_START_RECORDING
+        const val ACTION_PAUSE_RECORDING = RecordingServiceCommands.ACTION_PAUSE_RECORDING
+        const val ACTION_RESUME_RECORDING = RecordingServiceCommands.ACTION_RESUME_RECORDING
+        const val ACTION_STOP_RECORDING = RecordingServiceCommands.ACTION_STOP_RECORDING
+        const val ACTION_CANCEL_RECORDING = RecordingServiceCommands.ACTION_CANCEL_RECORDING
+        const val ACTION_RESTART_RECORDING = RecordingServiceCommands.ACTION_RESTART_RECORDING
+        const val EXTRA_ORIGIN = RecordingServiceCommands.EXTRA_ORIGIN
+        const val EXTRA_PROFILE_ID = RecordingServiceCommands.EXTRA_PROFILE_ID
 
         @Volatile
         @VisibleForTesting
@@ -900,60 +901,20 @@ class RecordingService : Service() {
             context: Context,
             origin: RecordingOrigin = RecordingOrigin.APP,
             profileId: UUID? = null,
-        ) {
-            val intent =
-                Intent(context, RecordingService::class.java).apply {
-                    action = ACTION_START_RECORDING
-                    putExtra(EXTRA_ORIGIN, origin.name)
-                    profileId?.let { putExtra(EXTRA_PROFILE_ID, it.toString()) }
-                }
-            context.startForegroundService(intent)
-        }
+        ) = RecordingServiceCommands.startRecording(context, origin, profileId)
 
-        fun pauseRecording(context: Context) {
-            val intent =
-                Intent(context, RecordingService::class.java).apply {
-                    action = ACTION_PAUSE_RECORDING
-                }
-            context.startService(intent)
-        }
+        fun pauseRecording(context: Context) = RecordingServiceCommands.pauseRecording(context)
 
-        fun resumeRecording(context: Context) {
-            val intent =
-                Intent(context, RecordingService::class.java).apply {
-                    action = ACTION_RESUME_RECORDING
-                }
-            context.startService(intent)
-        }
+        fun resumeRecording(context: Context) = RecordingServiceCommands.resumeRecording(context)
 
-        fun stopRecording(context: Context) {
-            val intent =
-                Intent(context, RecordingService::class.java).apply {
-                    action = ACTION_STOP_RECORDING
-                }
-            context.startService(intent)
-        }
+        fun stopRecording(context: Context) = RecordingServiceCommands.stopRecording(context)
 
-        fun cancelRecording(context: Context) {
-            val intent =
-                Intent(context, RecordingService::class.java).apply {
-                    action = ACTION_CANCEL_RECORDING
-                }
-            context.startService(intent)
-        }
+        fun cancelRecording(context: Context) = RecordingServiceCommands.cancelRecording(context)
 
         fun restartRecording(
             context: Context,
             origin: RecordingOrigin = RecordingOrigin.APP,
             profileId: UUID? = null,
-        ) {
-            val intent =
-                Intent(context, RecordingService::class.java).apply {
-                    action = ACTION_RESTART_RECORDING
-                    putExtra(EXTRA_ORIGIN, origin.name)
-                    profileId?.let { putExtra(EXTRA_PROFILE_ID, it.toString()) }
-                }
-            context.startService(intent)
-        }
+        ) = RecordingServiceCommands.restartRecording(context, origin, profileId)
     }
 }

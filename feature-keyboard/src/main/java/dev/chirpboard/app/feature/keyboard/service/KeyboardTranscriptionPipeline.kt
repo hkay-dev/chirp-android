@@ -6,8 +6,8 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
-import dev.chirpboard.app.feature.keyboard.recorder.AudioEncoder
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode

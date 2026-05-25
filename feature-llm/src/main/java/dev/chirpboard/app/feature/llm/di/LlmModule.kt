@@ -4,8 +4,10 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.LlmClientImpl
+import dev.chirpboard.app.feature.llm.client.LlmRecordingTextEnrichment
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import javax.inject.Singleton
 
@@ -15,4 +17,8 @@ object LlmModule {
     @Provides
     @Singleton
     fun provideLlmClient(preferences: LlmPreferences): LlmClient = LlmClientImpl(preferences)
+
+    @Provides
+    @Singleton
+    fun provideRecordingTextEnrichment(impl: LlmRecordingTextEnrichment): RecordingTextEnrichment = impl
 }

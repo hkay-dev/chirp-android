@@ -39,7 +39,6 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":feature-obsidian"))
     implementation(project(":data"))
-    implementation(project(":feature-transcription"))
     implementation(project(":feature-llm"))
 
     // Compose
