@@ -48,7 +48,10 @@ android {
 
 dependencies {
     // Internal modules
-    implementation(project(":core"))
+    implementation(project(":core-contracts"))
+    implementation(project(":core-audio"))
+    implementation(project(":core-ui"))
+    implementation(project(":core-playback"))
     implementation(project(":data"))
     implementation(project(":feature-recording"))
     implementation(project(":feature-studio"))
