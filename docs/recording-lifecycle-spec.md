@@ -7,6 +7,7 @@ Operational summary for recording, recovery, and stop handoff. **Canonical requi
 - Applied: `openspec/changes/archive/2026-05-25-stop-persistence-integrity/`
 - Applied: `openspec/changes/archive/2026-05-25-recovery-data-integrity/`
 - Applied: `openspec/changes/archive/2026-05-25-recording-edge-case-races/`
+- Applied: `openspec/changes/archive/2026-05-25-transcription-pipeline-hardening/`
 - **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (remaining proposed changes)
 
 When editing behavior, update the OpenSpec change or baseline first, then mirror here.
@@ -149,6 +150,14 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Pending keyboard stop reconcile mismatch | `KeyboardPendingStopStore.reconcileStale(RecordingState)` retains KEYBOARD Starting/Recording/Paused/Stopping |
 | Widget tap during `Stopping` is no-op | Widget shows "Saving…"; tap shows "Finishing current recording" toast |
 
+## Resolved (transcription-pipeline-hardening)
+
+| Gap | Resolution |
+|-----|------------|
+| Orphan cleaner skips `.mp3` | `OrphanedAudioCleaner` scans `m4a`, `wav`, `mp3` with same grace/safelist/protected-path rules |
+| TranscriptionWorker unbounded active wait | `awaitRecordingInactive` with duration-scaled timeout; `active_recording_wait_timeout` reliability event |
+| WAV MediaCodec device risk | `AudioDecoder.decodeWavPcmDirect` bypasses MediaCodec for valid PCM WAV; MediaCodec failure retries direct read |
+
 ## Audit backlog (2026-05-25)
 
 Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
@@ -163,10 +172,7 @@ _(none — see Resolved recording-edge-case-races)_
 
 ### P2 — UX / cleanup gaps
 
-| Gap | Change |
-|-----|--------|
-| Orphan cleaner skips `.mp3` | `transcription-pipeline-hardening` |
-| TranscriptionWorker waits forever on stuck active state | `transcription-pipeline-hardening` |
+_(none — see Resolved transcription-pipeline-hardening)_
 
 ### P3 — Edge cases / polish risks
 
@@ -184,7 +190,6 @@ _(none — see Resolved recording-edge-case-races)_
 |-----|--------|
 | Checklist: keyboard mode row expand vs crossfade | `nav-search-playback-polish` |
 | Checklist: player pushes content not tab row | `nav-search-playback-polish` |
-| WAV transcription depends on MediaCodec path | `transcription-pipeline-hardening` |
 | Gapless capture / protected-path store untested | `docs-test-hygiene` |
 | Migration tests omit structured_outcome DAO open | `docs-test-hygiene` |
 | `AudioSettingsStore` outputFormat not written on legacy migration | `docs-test-hygiene` |

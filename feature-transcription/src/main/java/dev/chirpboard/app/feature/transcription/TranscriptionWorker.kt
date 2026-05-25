@@ -24,7 +24,6 @@ import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.flow.first
 import java.io.File
 import java.util.UUID
 
@@ -95,7 +94,7 @@ class TranscriptionWorker
             // Defer work if a recording is currently active to prevent memory pressure from model loading
             if (recordingStateManager.state.value.isActive) {
                 Log.w(TAG, "Recording is currently active. Waiting for it to finish before transcribing...")
-                recordingStateManager.state.first { !it.isActive }
+                waitForInactiveRecording(recordingId, correlationId, recording.durationMs)
                 Log.d(TAG, "Recording finished. Proceeding with transcription.")
             }
 
@@ -198,7 +197,7 @@ class TranscriptionWorker
                     processor.processAndJoinDetailed(audioFlow) { samples ->
                         if (recordingStateManager.state.value.isActive) {
                             Log.w(TAG, "Recording started during transcription. Pausing transcription until recording finishes...")
-                            recordingStateManager.state.first { !it.isActive }
+                            waitForInactiveRecording(recordingId, correlationId, recording.durationMs)
                             Log.d(TAG, "Recording finished. Resuming transcription.")
                         }
 
@@ -451,6 +450,29 @@ class TranscriptionWorker
             } else {
                 showTranscriptionErrorNotification(recordingId, errorMessage)
                 buildTranscriptionFailureResult(errorMessage)
+            }
+        }
+
+        private suspend fun waitForInactiveRecording(
+            recordingId: UUID,
+            correlationId: String,
+            recordingDurationMs: Long,
+        ) {
+            try {
+                awaitRecordingInactive(
+                    recordingState = recordingStateManager.state,
+                    timeoutMs = computeActiveWaitTimeoutMs(recordingDurationMs),
+                )
+            } catch (e: ActiveRecordingWaitTimeoutException) {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "active_recording_wait_timeout",
+                    message = e.message,
+                )
+                throw e
             }
         }
 

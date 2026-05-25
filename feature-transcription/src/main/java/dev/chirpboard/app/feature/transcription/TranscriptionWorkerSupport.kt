@@ -9,12 +9,19 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.Data
 import androidx.work.ForegroundInfo
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 internal const val TRANSCRIPTION_MAX_RETRY_COUNT = 3
+internal const val TRANSCRIPTION_MAX_ACTIVE_WAIT_MS = 30 * 60 * 1000L
+internal const val TRANSCRIPTION_MIN_ACTIVE_WAIT_MS = 5 * 60 * 1000L
+internal const val TRANSCRIPTION_ACTIVE_WAIT_PER_MINUTE_MS = 60_000L
 internal const val TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID = 2001
 internal const val TRANSCRIPTION_FOREGROUND_CHANNEL_ID = "transcription_progress"
 
@@ -125,4 +132,32 @@ internal fun resolveWorkerFailureDisposition(
 }
 
 internal class RetryableTranscriptionException(message: String) : java.io.IOException(message)
-internal class NonRetryableTranscriptionException(message: String) : Exception(message)
+internal open class NonRetryableTranscriptionException(message: String) : Exception(message)
+
+internal class ActiveRecordingWaitTimeoutException(
+    message: String,
+) : NonRetryableTranscriptionException(message)
+
+internal fun computeActiveWaitTimeoutMs(recordingDurationMs: Long?): Long {
+    if (recordingDurationMs == null) {
+        return TRANSCRIPTION_MAX_ACTIVE_WAIT_MS
+    }
+    if (recordingDurationMs <= 0L) {
+        return TRANSCRIPTION_MIN_ACTIVE_WAIT_MS
+    }
+    val durationBased =
+        TRANSCRIPTION_MIN_ACTIVE_WAIT_MS +
+            (recordingDurationMs / 60_000L) * TRANSCRIPTION_ACTIVE_WAIT_PER_MINUTE_MS
+    return durationBased.coerceIn(TRANSCRIPTION_MIN_ACTIVE_WAIT_MS, TRANSCRIPTION_MAX_ACTIVE_WAIT_MS)
+}
+
+internal suspend fun awaitRecordingInactive(
+    recordingState: StateFlow<RecordingState>,
+    timeoutMs: Long,
+) {
+    withTimeoutOrNull(timeoutMs) {
+        recordingState.first { !it.isActive }
+    } ?: throw ActiveRecordingWaitTimeoutException(
+        "Timed out after ${timeoutMs}ms waiting for active recording to finish",
+    )
+}
