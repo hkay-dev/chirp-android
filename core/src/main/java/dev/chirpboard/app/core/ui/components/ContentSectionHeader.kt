@@ -1,17 +1,24 @@
-package dev.chirpboard.app.feature.recording.ui.components
+package dev.chirpboard.app.core.ui.components
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun SectionHeader(
+fun ContentSectionHeader(
     title: String,
-    action: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
+    action: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier =
@@ -36,12 +43,12 @@ fun SectionHeader(
 @Composable
 fun ContentSection(
     title: String,
-    action: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
+    action: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(modifier = modifier) {
-        SectionHeader(title = title, action = action)
+        ContentSectionHeader(title = title, action = action)
         Column(
             modifier = Modifier.padding(horizontal = 16.dp),
             content = content,

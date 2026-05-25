@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
@@ -24,7 +25,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.R as CoreR
 
 @Composable
 fun RecordingActionRow(
@@ -60,10 +63,14 @@ fun RecordingActionRow(
                 .padding(horizontal = 16.dp)
                 .height(80.dp),
             shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
         ) {
             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.width(12.dp))
-            Text("Done", style = MaterialTheme.typography.titleLarge)
+            Text(stringResource(CoreR.string.rec_done), style = MaterialTheme.typography.titleLarge)
         }
 
         FilledTonalIconButton(

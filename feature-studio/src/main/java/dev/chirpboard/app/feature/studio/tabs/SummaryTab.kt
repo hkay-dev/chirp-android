@@ -1,24 +1,25 @@
 package dev.chirpboard.app.feature.studio.tabs
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,37 +42,50 @@ fun SummaryTab(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
-    if (status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.TRANSCRIBING || status == RecordingStatus.ENHANCING || status == RecordingStatus.PENDING_ENHANCEMENT) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = if (status == RecordingStatus.ENHANCING || status == RecordingStatus.PENDING_ENHANCEMENT) "Enhancing summary..." else "Transcribing audio...",
-                    style = MaterialTheme.typography.bodyLarge,
+    val progressCopy = status.transcriptionProgressCopy()
+    val showProgress = progressCopy != null
+    val summaryAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (showProgress) 0f else 1f,
+        animationSpec = studioContentAlphaTween,
+        label = "summary_content_alpha",
+    )
+
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = summaryAlpha },
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            item(key = "summary_body") {
+                SummaryBody(summaryMarkdown = summaryMarkdown)
+            }
+
+            item(key = "structured_outcomes") {
+                StructuredOutcomeSection(
+                    state = structuredOutcomeSection,
+                    onGenerateStructuredOutcomes = onGenerateStructuredOutcomes,
+                    onCopyStructuredOutcome = onCopyStructuredOutcome,
+                    onShareStructuredOutcome = onShareStructuredOutcome,
+                    onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
                 )
             }
         }
-        return
-    }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        item {
-            SummaryBody(summaryMarkdown = summaryMarkdown)
-        }
-
-        item {
-            StructuredOutcomeSection(
-                state = structuredOutcomeSection,
-                onGenerateStructuredOutcomes = onGenerateStructuredOutcomes,
-                onCopyStructuredOutcome = onCopyStructuredOutcome,
-                onShareStructuredOutcome = onShareStructuredOutcome,
-                onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
-            )
+        AnimatedVisibility(
+            visible = showProgress && progressCopy != null,
+            enter = progressEnterTransition,
+            exit = progressExitTransition,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (progressCopy != null) {
+                TranscriptionProgressPanel(
+                    copy = progressCopy,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
     }
 }

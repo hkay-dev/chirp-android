@@ -6,6 +6,15 @@
     <string name="rec_edit_title">Edit title</string>
     <string name="rec_no_transcript_available">No transcript available</string>
     <string name="rec_retranscribe">Re-transcribe</string>
+    <string name="rec_recover">Recover</string>
+    <string name="rec_recover_queue">Recover Queue</string>
+    <string name="rec_retry_transcription_cap">Retry Transcription</string>
+    <string name="rec_recovery_latest_reason">Latest reason: %1$s</string>
+    <string name="rec_recovery_no_reason">No reason available</string>
+    <string name="rec_recovery_unknown">Unknown</string>
+    <string name="rec_recovery_last_attempt">Last attempt: %1$s</string>
+    <string name="rec_recovery_ownership">Ownership: %1$s</string>
+    <string name="rec_recovery_actions_disabled">Recovery actions are disabled while work is active or ownership check timed out</string>
     <string name="rec_select_text">Select text</string>
     <string name="rec_structured_empty_body">Generate tasks, decisions, and follow-ups from the latest transcript.</string>
     <string name="rec_structured_failed_message">Couldn’t generate structured outcomes. %1$s</string>
@@ -23,6 +32,10 @@
     <string name="rec_structured_try_again">Try again</string>
     <string name="rec_structured_unavailable">Structured outcomes are available after processing finishes.</string>
     <string name="rec_summary">Summary</string>
+    <string name="rec_transcription_progress_title">Transcribing</string>
+    <string name="rec_transcription_progress_subtitle">Your transcript will appear here when processing finishes.</string>
+    <string name="rec_enhancement_progress_title">Enhancing</string>
+    <string name="rec_enhancement_progress_subtitle">Title and summary updates run after transcription completes.</string>
     <string name="rec_transcript">Transcript</string>
     <string name="rec_transcript_retranscribe_confirmation">A new transcription will replace the pipeline transcript. Your saved manual correction stays visible until the new transcript finishes successfully.</string>
     <string name="rec_transcript_selection_done">Done</string>

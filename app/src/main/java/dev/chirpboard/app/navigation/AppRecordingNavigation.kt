@@ -24,7 +24,6 @@ import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.feature.recording.ui.HomeScreen
 import dev.chirpboard.app.feature.recording.ui.HomeViewModel
 import dev.chirpboard.app.feature.recording.ui.RecordScreen
-import dev.chirpboard.app.feature.recording.ui.RecordingDetailScreen
 import dev.chirpboard.app.feature.studio.ProcessingStudioScreen
 
 internal data class RecordEntryDialogContent(
@@ -157,22 +156,12 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
         RecordScreen(
             onNavigateBack = { navController.popBackStack() },
             onRecordingComplete = { recordingId ->
-                navController.popBackStack()
-                navController.navigate(Screen.ProcessingStudio.createRoute(recordingId))
+                navController.navigate(Screen.ProcessingStudio.createRoute(recordingId)) {
+                    popUpTo(Screen.Home.route) { inclusive = false }
+                    launchSingleTop = true
+                }
             },
             autoStart = autoStart,
-        )
-    }
-
-    composable(
-        route = Screen.RecordingDetail.route,
-        arguments =
-            listOf(
-                navArgument("recordingId") { type = NavType.StringType },
-            ),
-    ) {
-        RecordingDetailScreen(
-            onBackClick = { navController.popBackStack() },
         )
     }
 

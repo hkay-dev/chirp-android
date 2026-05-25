@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -232,7 +233,7 @@ fun ProcessingStudioScreen(
             }
         },
     ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues).imePadding()) {
             // Metadata Bar
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 if (state.isEditingTitle) {
@@ -365,6 +366,20 @@ fun ProcessingStudioScreen(
                 }
             }
 
+            if (state.errorMessage != null || state.recoveryActions.showPendingRecovery ||
+                state.recoveryActions.showEnhancementRecovery || state.recoveryActions.showFailedRetry
+            ) {
+                TranscriptionRecoverySection(
+                    recoveryActions = state.recoveryActions,
+                    diagnostics = state.recoveryDiagnostics,
+                    onRecoverPending = viewModel::recoverPendingTranscription,
+                    onRecoverEnhancing = viewModel::recoverEnhancing,
+                    onRetranscribeFromEnhancing = viewModel::retranscribeFromEnhancing,
+                    onRetryFailed = viewModel::retryTranscription,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
             if (state.errorMessage != null) {
                 val isFailure = state.status == RecordingStatus.FAILED
                 Surface(
@@ -393,6 +408,7 @@ fun ProcessingStudioScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 0,
             ) { page ->
                 when (page) {
                     0 -> {

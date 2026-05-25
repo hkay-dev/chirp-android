@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.recording.ui
+package dev.chirpboard.app.feature.studio
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.MaterialTheme
@@ -14,7 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class RecordingDetailRecoveryAffordanceUiTest {
+class TranscriptionRecoveryAffordanceUiTest {
     @get:Rule
     val composeRule = createComposeRule()
 
@@ -30,10 +30,10 @@ class RecordingDetailRecoveryAffordanceUiTest {
             }
         }
 
-        composeRule.onNodeWithTag(RecordingDetailRecoveryTestTags.PendingRecoverButton).assertIsDisplayed()
+        composeRule.onNodeWithTag(TranscriptionRecoveryTestTags.PendingRecoverButton).assertIsDisplayed()
         composeRule.onNodeWithText("Recover Queue").assertIsDisplayed()
-        composeRule.onAllNodesWithTag(RecordingDetailRecoveryTestTags.EnhancingRecoverButton).assertCountEquals(0)
-        composeRule.onAllNodesWithTag(RecordingDetailRecoveryTestTags.EnhancingRetranscribeButton).assertCountEquals(0)
+        composeRule.onAllNodesWithTag(TranscriptionRecoveryTestTags.EnhancingRecoverButton).assertCountEquals(0)
+        composeRule.onAllNodesWithTag(TranscriptionRecoveryTestTags.EnhancingRetranscribeButton).assertCountEquals(0)
     }
 
     @Test
@@ -50,10 +50,10 @@ class RecordingDetailRecoveryAffordanceUiTest {
             }
         }
 
-        composeRule.onNodeWithTag(RecordingDetailRecoveryTestTags.EnhancingRecoverButton).assertIsDisplayed()
-        composeRule.onNodeWithTag(RecordingDetailRecoveryTestTags.EnhancingRetranscribeButton).assertIsDisplayed()
+        composeRule.onNodeWithTag(TranscriptionRecoveryTestTags.EnhancingRecoverButton).assertIsDisplayed()
+        composeRule.onNodeWithTag(TranscriptionRecoveryTestTags.EnhancingRetranscribeButton).assertIsDisplayed()
         composeRule.onNodeWithText("Recover").assertIsDisplayed()
         composeRule.onNodeWithText("Re-transcribe").assertIsDisplayed()
-        composeRule.onAllNodesWithTag(RecordingDetailRecoveryTestTags.PendingRecoverButton).assertCountEquals(0)
+        composeRule.onAllNodesWithTag(TranscriptionRecoveryTestTags.PendingRecoverButton).assertCountEquals(0)
     }
 }

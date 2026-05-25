@@ -39,4 +39,12 @@ data class ProcessingStudioState(
     val editedTitle: String = "",
     val audioPath: String = "",
     val source: RecordingSource? = null,
+    val recoveryDiagnostics: RecoveryDiagnosticsUi = RecoveryDiagnosticsUi(),
+    val recoveryActions: TranscriptionRecoveryActionsUi = TranscriptionRecoveryActionsUi(
+        showPendingRecovery = false,
+        showEnhancementRecovery = false,
+        showRetranscribeFromEnhancing = false,
+        showFailedRetry = false,
+        actionsEnabled = true,
+    ),
 )

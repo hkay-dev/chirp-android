@@ -20,10 +20,6 @@ sealed class Screen(
             }
     }
 
-    object RecordingDetail : Screen("recording/{recordingId}") {
-        fun createRoute(recordingId: String) = "recording/$recordingId"
-    }
-
     object Settings : Screen("settings")
 
     object TranscriptionSettings : Screen("settings/transcription?autoDownload={autoDownload}") {

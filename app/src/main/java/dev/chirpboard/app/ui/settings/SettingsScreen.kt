@@ -37,6 +37,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.SettingsBadge
+import dev.chirpboard.app.core.ui.components.ChirpSettingsHubScaffold
 import dev.chirpboard.app.core.ui.components.SettingsListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
@@ -62,32 +63,11 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    Scaffold(
+    ChirpSettingsHubScaffold(
+        title = stringResource(R.string.settings_title),
+        onNavigateBack = onNavigateBack,
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.settings_title),
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-                colors =
-                    TopAppBarDefaults.largeTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-            )
-        },
+        scrollBehavior = scrollBehavior,
     ) { padding ->
         LazyColumn(
             modifier =
