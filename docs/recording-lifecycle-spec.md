@@ -5,7 +5,8 @@ Operational summary for recording, recovery, and stop handoff. **Canonical requi
 - Baseline: `openspec/specs/recording/spec.md`, `recording-stability/spec.md`, `widget/spec.md`, `keyboard-recording/spec.md`, `tags/spec.md`
 - Applied: `openspec/changes/archive/2026-05-25-recording-lifecycle-gap-closure/`
 - Applied: `openspec/changes/archive/2026-05-25-stop-persistence-integrity/`
-- **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (6 proposed changes, P0–P4)
+- Applied: `openspec/changes/archive/2026-05-25-recovery-data-integrity/`
+- **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (remaining proposed changes)
 
 When editing behavior, update the OpenSpec change or baseline first, then mirror here.
 
@@ -62,7 +63,7 @@ A session is recoverable when:
 3. Linked recording is still `RECORDING` in DB, **or** no finalized row exists yet
 4. Session is **not** the live active recording (`recordingId` ≠ `RecordingState.activeRecordingId`)
 
-Reconciler removes journals whose linked recording already left `RECORDING`.
+Reconciler removes journals whose linked recording already left `RECORDING` **or whose linked recording row no longer exists**.
 
 ### User actions
 
@@ -70,7 +71,7 @@ Reconciler removes journals whose linked recording already left `RECORDING`.
 |--------|---------|--------|-----------|
 | Recover | `markFinalized` | Finalized | No |
 | Discard | `markFinalized` | Deleted | No |
-| Keep files | Journal removed; paths protected 7 days | Unchanged in-progress row | No |
+| Keep files | Journal removed; paths protected 7 days | In-progress row deleted | No |
 | Defer (dismiss) | Unchanged | Unchanged | No until pending clears; persisted in DataStore |
 
 Deferred session IDs persist in `recording_recovery` preferences and survive process death.
@@ -93,6 +94,7 @@ Tags attach to the in-progress `recordingId` as soon as `RecordingStateManager.o
 
 See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 
+- `RecordingSessionRecoveryTest` — recover idempotency and missing-row guard
 - `RecordingSessionRecoveryLiveSessionTest` — live session exclusion
 - `RecordingSessionJournalTest` — journal lifecycle + prune
 - `KeyboardRecordingStopBridgeTest` — widget/keyboard stop bridge
@@ -119,6 +121,15 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Stop timeout vs persist race | `stopGeneration` guard discards late persist; timeout increments generation first |
 | Timeout handler cleanup ordering | Suspend handlers awaited before Error transition and lock release |
 
+## Resolved (recovery-data-integrity)
+
+| Gap | Resolution |
+|-----|------------|
+| `recoverSession()` re-finalizes completed rows / duplicate `createRecording` | Pre-flight status guard; idempotent `Recovered` without re-enqueue |
+| Keep files leaves permanent `RECORDING` DB row | `keepSession()` deletes in-progress row after protecting paths |
+| Reconciler skips journal when DB row missing | Reconciler finalizes orphan journals and deletes capture artifacts |
+| `RecordingRecoveryDeferStore` fire-and-forget persist (minor) | Spec requirement documented; await persist deferred to follow-up |
+
 ## Audit backlog (2026-05-25)
 
 Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
@@ -127,7 +138,6 @@ Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDI
 
 | Gap | Change |
 |-----|--------|
-| `recoverSession()` re-finalizes completed rows / duplicate `createRecording` | `recovery-data-integrity` |
 | Studio invalid UUID → spinner with no back | `processing-studio-resilience` |
 | Studio missing/deleted recording → eternal skeleton | `processing-studio-resilience` |
 
@@ -136,7 +146,6 @@ Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDI
 | Gap | Change |
 |-----|--------|
 | Cancel during `Starting` before journal exists | `recording-edge-case-races` |
-| Keep files leaves permanent `RECORDING` DB row | `recovery-data-integrity` |
 
 ### P2 — UX / cleanup gaps
 
@@ -146,7 +155,6 @@ Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDI
 | Home import does not open Studio (share does) | `processing-studio-resilience` |
 | FAILED Studio shows duplicate error + recovery blocks | `processing-studio-resilience` |
 | TranscriptionWorker waits forever on stuck active state | `transcription-pipeline-hardening` |
-| Reconciler skips journal when DB row missing | `recovery-data-integrity` |
 
 ### P3 — Edge cases / polish risks
 
@@ -171,4 +179,3 @@ Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDI
 | Gapless capture / protected-path store untested | `docs-test-hygiene` |
 | Migration tests omit structured_outcome DAO open | `docs-test-hygiene` |
 | `AudioSettingsStore` outputFormat not written on legacy migration | `docs-test-hygiene` |
-| `RecordingRecoveryDeferStore` fire-and-forget persist (minor) | `recovery-data-integrity` |
