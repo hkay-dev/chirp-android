@@ -1,6 +1,8 @@
 package dev.chirpboard.app.feature.studio
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Widgets
@@ -78,9 +81,10 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.tabs.ChatTab
 import dev.chirpboard.app.feature.studio.tabs.SummaryTab
-import dev.chirpboard.app.feature.studio.tabs.TranscriptionProgressBanner
+import dev.chirpboard.app.feature.studio.tabs.StudioProcessingHeader
 import dev.chirpboard.app.feature.studio.tabs.TranscriptTab
 import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressCopy
+import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressKind
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -99,10 +103,12 @@ fun ProcessingStudioScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val screenRecordingId = remember(recordingId) { runCatching { UUID.fromString(recordingId) }.getOrNull() }
 
-    if (state.isLoading) {
+    if (screenRecordingId == null) {
         LoadingState()
         return
     }
+
+    val showMetadataSkeleton = state.isLoading || state.title.isBlank()
 
     val tabs = listOf(stringResource(R.string.rec_transcript), stringResource(R.string.rec_summary), stringResource(R.string.rec_chat))
     val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -114,6 +120,15 @@ fun ProcessingStudioScreen(
     var showOptionsMenu by remember { mutableStateOf(false) }
     var showShareMenu by remember { mutableStateOf(false) }
     var showRetranscribeConfirmation by remember { mutableStateOf(false) }
+
+    val canEditTranscript =
+        state.effectiveTranscriptText.isNotBlank() &&
+            !state.isEditingTranscript &&
+            state.status.transcriptionProgressKind() == null
+    val canRetranscribe =
+        state.effectiveTranscriptText.isNotBlank() &&
+            !state.isEditingTranscript &&
+            state.status.transcriptionProgressKind() == null
 
     LaunchedEffect(message) {
         val currentMessage = message ?: return@LaunchedEffect
@@ -158,6 +173,14 @@ fun ProcessingStudioScreen(
                         }
                     },
                     actions = {
+                        if (state.isEditingTranscript) {
+                            IconButton(onClick = viewModel::cancelEditingTranscript) {
+                                Icon(Icons.Default.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
+                            }
+                            IconButton(onClick = viewModel::saveTranscriptCorrection) {
+                                Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
+                            }
+                        } else {
                         Box {
                             IconButton(onClick = { showShareMenu = true }) {
                                 Icon(Icons.Default.Share, contentDescription = stringResource(CoreR.string.desc_share))
@@ -183,6 +206,31 @@ fun ProcessingStudioScreen(
                                         showShareMenu = false
                                         viewModel.shareBoth(context)
                                     },
+                                )
+                            }
+                        }
+                            IconButton(
+                                onClick = {
+                                    if (state.hasManualCorrection) {
+                                        showRetranscribeConfirmation = true
+                                    } else {
+                                        viewModel.retranscribe()
+                                    }
+                                },
+                                enabled = canRetranscribe,
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = stringResource(R.string.rec_retranscribe_desc),
+                                )
+                            }
+                            IconButton(
+                                onClick = viewModel::startEditingTranscript,
+                                enabled = canEditTranscript,
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = stringResource(R.string.rec_edit_transcript),
                                 )
                             }
                         }
@@ -239,7 +287,16 @@ fun ProcessingStudioScreen(
             }
         },
     ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues).imePadding()) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .imePadding()
+                    .animateContentSize(
+                        animationSpec = dev.chirpboard.app.core.ui.motion.ChirpMotion.layoutSizeSpring,
+                    ),
+        ) {
             // Metadata Bar
             Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 if (state.isEditingTitle) {
@@ -262,6 +319,12 @@ fun ProcessingStudioScreen(
                             Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
                         }
                     }
+                } else if (showMetadataSkeleton) {
+                    Text(
+                        text = stringResource(R.string.rec_studio_loading_title),
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     Text(
                         text = state.title,
@@ -270,6 +333,20 @@ fun ProcessingStudioScreen(
                     )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+                if (showMetadataSkeleton) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        repeat(3) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.size(width = 88.dp, height = 28.dp),
+                            ) {}
+                        }
+                    }
+                } else {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -370,44 +447,48 @@ fun ProcessingStudioScreen(
                         }
                     }
                 }
+                }
             }
 
-            state.status.transcriptionProgressCopy()?.takeIf { state.status == RecordingStatus.RECORDING }?.let { copy ->
-                TranscriptionProgressBanner(
-                    copy = copy,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
+            val progressCopy = state.status.transcriptionProgressCopy()
+            val progressKind = state.status.transcriptionProgressKind()
+            val showPlayer =
+                screenRecordingId != null &&
+                    state.playerRevealReady &&
+                    state.audioPath.isNotBlank() &&
+                    state.status != RecordingStatus.RECORDING
 
-            if (screenRecordingId != null &&
-                state.audioPath.isNotBlank() &&
-                state.status != RecordingStatus.RECORDING
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = if (progressCopy != null || showPlayer) 72.dp else 0.dp),
             ) {
-                val alternateNotice =
-                    playbackState.recordingId?.takeIf { it != screenRecordingId && playbackState.isPlaying }?.let { _ ->
-                        stringResource(
-                            CoreR.string.playback_other_recording_notice,
-                            playbackState.title,
-                        )
-                    }
-                HorizontalDivider(
-                    modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                )
-                RecordingFullPlayer(
-                    state = playbackState,
-                    screenRecordingId = screenRecordingId,
-                    screenTitle = state.title,
-                    alternateAudioNotice = alternateNotice,
-                    onPlayPause = viewModel::togglePlayPause,
-                    onSeek = viewModel::seekTo,
-                    onSkipBackward = viewModel::skipBackward,
-                    onSkipForward = viewModel::skipForward,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                )
+            StudioProcessingHeader(
+                progressCopy = progressCopy,
+                progressKind = progressKind,
+                showPlayer = showPlayer,
+                playerContent = {
+                    val alternateNotice =
+                        playbackState.recordingId?.takeIf { it != screenRecordingId && playbackState.isPlaying }?.let { _ ->
+                            stringResource(
+                                CoreR.string.playback_other_recording_notice,
+                                playbackState.title,
+                            )
+                        }
+                    RecordingFullPlayer(
+                        state = playbackState,
+                        screenRecordingId = screenRecordingId!!,
+                        screenTitle = state.title,
+                        alternateAudioNotice = alternateNotice,
+                        onPlayPause = viewModel::togglePlayPause,
+                        onSeek = viewModel::seekTo,
+                        onSkipBackward = viewModel::skipBackward,
+                        onSkipForward = viewModel::skipForward,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                },
+            )
             }
 
             if (state.errorMessage != null || state.recoveryActions.showPendingRecovery ||
@@ -452,40 +533,42 @@ fun ProcessingStudioScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                beyondViewportPageCount = 0,
+                beyondViewportPageCount = 1,
             ) { page ->
                 when (page) {
                     0 -> {
                         TranscriptTab(
                             transcript = state.transcript,
-                            renderedTranscriptText = state.renderedTranscriptText,
                             effectiveTranscriptText = state.effectiveTranscriptText,
+                            rawTranscriptText = state.rawTranscriptText,
+                            enhancedTranscriptText = state.enhancedTranscriptText,
+                            llmProcessingEnabled = state.llmProcessingEnabled,
                             transcriptDraft = state.transcriptDraft,
                             isEditingTranscript = state.isEditingTranscript,
-                            isSelectingTranscript = state.isSelectingTranscript,
-                            selectedTranscriptPassage = state.selectedTranscriptPassage,
-                            transcriptSelectionActionInFlight = state.transcriptSelectionActionInFlight,
-                            transcriptSelectionResult = state.transcriptSelectionResult,
-                            canEnterSelectionMode = state.canEnterTranscriptSelectionMode(),
                             hasManualCorrection = state.hasManualCorrection,
-                            canPromoteManualCorrection = state.canPromoteManualCorrection,
                             activeSegmentIndex = state.activeTranscriptSegmentIndex,
                             status = state.status,
                             onSegmentClicked = if (state.canUseTranscriptInteractions()) viewModel::onWordClicked else null,
-                            onStartEditing = viewModel::startEditingTranscript,
-                            onEnterSelectionMode = viewModel::enterTranscriptSelectionMode,
-                            onExitSelectionMode = viewModel::exitTranscriptSelectionMode,
-                            onTranscriptSelectionChange = viewModel::onTranscriptSelectionChanged,
-                            onRunTranscriptSelectionAction = viewModel::runTranscriptSelectionAction,
                             onTranscriptDraftChange = viewModel::updateTranscriptDraft,
-                            onCancelEditing = viewModel::cancelEditingTranscript,
-                            onSaveCorrection = viewModel::saveTranscriptCorrection,
-                            onPromoteCorrection = viewModel::promoteTranscriptCorrection,
-                            onRetranscribe = {
-                                if (state.hasManualCorrection) {
-                                    showRetranscribeConfirmation = true
-                                } else {
-                                    viewModel.retranscribe()
+                            onCopyTranscript = {
+                                val text = state.effectiveTranscriptText.trim()
+                                if (text.isNotEmpty()) {
+                                    clipboardManager.setText(AnnotatedString(text))
+                                    viewModel.onTranscriptCopied()
+                                }
+                            },
+                            onCopyOriginal = {
+                                val text = state.rawTranscriptText.trim()
+                                if (text.isNotEmpty()) {
+                                    clipboardManager.setText(AnnotatedString(text))
+                                    viewModel.onTranscriptCopied()
+                                }
+                            },
+                            onCopyEnhanced = {
+                                val text = state.enhancedTranscriptText.trim()
+                                if (text.isNotEmpty()) {
+                                    clipboardManager.setText(AnnotatedString(text))
+                                    viewModel.onTranscriptCopied()
                                 }
                             },
                         )
@@ -494,7 +577,6 @@ fun ProcessingStudioScreen(
                     1 -> {
                         SummaryTab(
                             summaryMarkdown = state.summary,
-                            status = state.status,
                             structuredOutcomeSection = state.structuredOutcomeSection,
                             onGenerateStructuredOutcomes = viewModel::generateStructuredOutcomes,
                             onCopyStructuredOutcome = { item ->

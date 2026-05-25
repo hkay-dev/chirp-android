@@ -76,6 +76,12 @@ class ProcessingStudioViewModel
             }
 
             viewModelScope.launch {
+                llmPreferences.llmEnabled.collect { enabled ->
+                    _uiState.value = _uiState.value.copy(llmProcessingEnabled = enabled)
+                }
+            }
+
+            viewModelScope.launch {
                 playbackController.state.collect { playback ->
                     val screenRecordingId = currentRecordingId ?: return@collect
                     val current = _uiState.value
@@ -104,7 +110,7 @@ class ProcessingStudioViewModel
                 currentRecordingId = id
                 currentTranscript = null
 
-                _uiState.value = ProcessingStudioState(isLoading = true)
+                _uiState.value = ProcessingStudioState(isLoading = true, playerRevealReady = false)
                 combine(
                     repository.getRecordingFlow(id),
                     repository.getTranscriptFlow(id),
@@ -163,6 +169,8 @@ class ProcessingStudioViewModel
                                 transcript = transcriptState,
                                 renderedTranscriptText = renderedTranscriptText,
                                 effectiveTranscriptText = effectiveTranscriptText,
+                                rawTranscriptText = transcript?.rawText.orEmpty(),
+                                enhancedTranscriptText = transcript?.processedText.orEmpty(),
                                 transcriptDraft = if (isEditingTranscript) currentState.transcriptDraft else effectiveTranscriptText,
                                 isEditingTranscript = isEditingTranscript,
                                 hasManualCorrection = transcript?.hasManualCorrection == true,
@@ -219,8 +227,9 @@ class ProcessingStudioViewModel
             audioPath: String,
         ) {
             viewModelScope.launch {
-                delay(ChirpMotion.NAV_TRANSITION_MS.toLong())
+                delay(ChirpMotion.RECORD_HANDOFF_MS)
                 if (currentRecordingId != recordingId) return@launch
+                _uiState.value = _uiState.value.copy(playerRevealReady = true)
                 playbackController.onStudioOpened(recordingId, title, audioPath)
             }
         }
@@ -376,6 +385,10 @@ class ProcessingStudioViewModel
 
         fun onStructuredOutcomeCopied() {
             _message.value = "Copied to clipboard"
+        }
+
+        fun onTranscriptCopied() {
+            _message.value = context.getString(R.string.rec_copied_to_clipboard)
         }
 
         fun startEditingTitle() {
