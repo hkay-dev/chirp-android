@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.LoadingState
+import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.util.formatForHeader
 import dev.chirpboard.app.core.util.isDefaultDateTitle
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -46,12 +47,11 @@ fun RecordingDetailScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     // Show messages
-    LaunchedEffect(message) {
-        message?.let {
-            viewModel.clearMessage()
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-        }
-    }
+    RepositoryErrorSnackbarEffect(
+        errorMessage = message,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearMessage,
+    )
 
     // Load audio when recording becomes available and is ready for playback
     LaunchedEffect(recording?.id, recording?.status) {

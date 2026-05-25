@@ -14,9 +14,9 @@ import java.util.UUID
 object TranscriptionWorkRequest {
 
     const val WORK_TAG_TRANSCRIPTION = "transcription"
+    const val WORK_TAG_RECORDING_PREFIX = "recording_"
     const val INPUT_CORRELATION_ID = "correlation_id"
     private const val WORK_NAME_PREFIX = "transcription_"
-    private const val WORK_TAG_RECORDING_PREFIX = "recording_"
 
     /**
      * Gets the unique work name for a recording's transcription.

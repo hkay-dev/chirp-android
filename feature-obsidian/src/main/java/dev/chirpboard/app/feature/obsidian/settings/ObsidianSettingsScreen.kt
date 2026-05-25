@@ -50,6 +50,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.obsidian.R
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 
@@ -93,7 +94,7 @@ fun ObsidianSettingsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.obsidian_desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_back),
                         )
                     }
                 },

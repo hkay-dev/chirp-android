@@ -72,6 +72,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.StatsPillRow
+import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.launch
@@ -122,15 +123,11 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
 
     // Show error messages
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let { message ->
-            viewModel.clearError()
-            snackbarHostState.showSnackbar(
-                message = message,
-                duration = SnackbarDuration.Short,
-            )
-        }
-    }
+    RepositoryErrorSnackbarEffect(
+        errorMessage = errorMessage,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearError,
+    )
 
     LaunchedEffect(recordingState) {
         if (recordingState is RecordingState.Error) {

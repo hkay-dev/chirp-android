@@ -4,7 +4,6 @@
     <string name="obsidian_change_vault">Change Vault</string>
     <string name="obsidian_clear">Clear</string>
     <string name="obsidian_select_vault_folder">Select Vault Folder</string>
-    <string name="obsidian_desc_back">Back</string>
     <string name="obsidian_vault_title">Target Vault</string>
     <string name="obsidian_unknown_folder">Unknown folder</string>
     <string name="obsidian_access_granted">Access granted</string>
