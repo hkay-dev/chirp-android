@@ -1,7 +1,7 @@
 package dev.chirpboard.app.feature.recording.session
 
 import android.media.MediaMetadataRetriever
-import dev.chirpboard.app.feature.recording.service.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.util.useCompat
 import java.io.File
 import java.util.concurrent.TimeUnit

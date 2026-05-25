@@ -9,7 +9,8 @@ import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.recording.service.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
 import dev.chirpboard.app.feature.recording.util.useCompat
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +108,7 @@ class RecordingSessionRecovery
                 }
 
                 val validation = fileValidator.validateForRecovery(exportFile)
-                if (validation.level == dev.chirpboard.app.feature.recording.service.RecordingValidationLevel.INVALID) {
+                if (validation.level == RecordingValidationLevel.INVALID) {
                     return@withContext SessionRecoveryResult.Failed(
                         validation.failureReason ?: "Recording file could not be validated",
                     )

@@ -1,9 +1,5 @@
 package dev.chirpboard.app.feature.recording.service
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -13,7 +9,6 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.annotation.VisibleForTesting
-import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioFocusManager
@@ -31,9 +26,10 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.core.util.formatAsDuration
-import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
+import dev.chirpboard.app.feature.recording.session.RecordingCheckpointScheduler
+import dev.chirpboard.app.feature.recording.session.RecordingSegmentRotator
+import dev.chirpboard.app.feature.recording.session.RecordingSessionHeartbeat
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -92,6 +88,18 @@ class RecordingService : Service() {
     @Inject
     lateinit var inputDeviceSelector: AudioInputDeviceSelector
 
+    @Inject
+    lateinit var sessionHeartbeat: RecordingSessionHeartbeat
+
+    @Inject
+    lateinit var checkpointScheduler: RecordingCheckpointScheduler
+
+    @Inject
+    lateinit var segmentRotator: RecordingSegmentRotator
+
+    @Inject
+    lateinit var notificationFactory: RecordingNotificationFactory
+
     private lateinit var audioFocusManager: AudioFocusManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -119,7 +127,7 @@ class RecordingService : Service() {
     override fun onCreate() {
         super.onCreate()
         activeInstanceForTest = this
-        createNotificationChannel()
+        notificationFactory.ensureChannel(this)
         audioFocusManager = AudioFocusManager(getSystemService(AudioManager::class.java))
         audioFocusManager.onFocusLost = { lossKind ->
             when (lossKind) {
@@ -240,8 +248,8 @@ class RecordingService : Service() {
     private fun promoteToForegroundImmediately() {
         ServiceCompat.startForeground(
             this,
-            NOTIFICATION_ID,
-            createStartingNotification(),
+            RecordingNotificationFactory.NOTIFICATION_ID,
+            notificationFactory.createStartingNotification(this),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
         )
     }
@@ -340,7 +348,12 @@ class RecordingService : Service() {
             )
 
             // Upgrade the starting notification to the live recording UI
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            ServiceCompat.startForeground(
+                this,
+                RecordingNotificationFactory.NOTIFICATION_ID,
+                notificationFactory.createRecordingNotification(this, recordingStateManager),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
 
             startDurationUpdates()
             startAmplitudeCollection()
@@ -387,7 +400,7 @@ class RecordingService : Service() {
             amplitudeJob?.cancel()
             amplitudeJob = null
             recordingStateManager.updateAmplitude(0f)
-            updateNotification()
+            notificationFactory.updateRecordingNotification(this, recordingStateManager)
             serviceScope.launch {
                 try {
                     commitSegmentOnPause()
@@ -435,7 +448,7 @@ class RecordingService : Service() {
                 }
                 startAmplitudeCollection()
                 startSegmentRotation()
-                updateNotification()
+                notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 recordingStateManager.onRecordingError("Failed to resume recording: ${e.message}", e)
@@ -682,34 +695,15 @@ class RecordingService : Service() {
         }
     }
 
-    private fun captureStopSnapshot(): StopSnapshot? {
-        val state = recordingStateManager.state.value
-        val isPaused = state is RecordingState.Paused
-        val filePath =
-            currentRecordingFile?.absolutePath ?: when (state) {
-                is RecordingState.Recording -> state.audioFilePath
-                is RecordingState.Paused -> state.audioFilePath
-                else -> null
-            }
-        val profileId =
-            when (state) {
-                is RecordingState.Starting -> state.profileId
-                is RecordingState.Recording -> state.profileId
-                is RecordingState.Paused -> state.profileId
-                else -> currentProfileId
-            }
-
-        return StopSnapshot(
-            origin = state.activeOrigin ?: currentOrigin,
-            profileId = profileId,
-            recordingId = currentInProgressRecordingId,
-            audioFilePath = filePath,
-            durationMs = recordingStateManager.getCurrentDurationMs().coerceAtLeast(0L),
-            stoppedAtEpochMs = System.currentTimeMillis(),
-            wasPaused = isPaused,
-            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+    private fun captureStopSnapshot(): StopSnapshot? =
+        StopSnapshotCapture.capture(
+            recordingStateManager = recordingStateManager,
+            currentRecordingFile = currentRecordingFile,
+            currentProfileId = currentProfileId,
+            currentOrigin = currentOrigin,
+            currentInProgressRecordingId = currentInProgressRecordingId,
+            currentCorrelationId = currentCorrelationId,
         )
-    }
 
     private suspend fun emergencyFinalizeActiveCapture(wasPaused: Boolean) {
         if (!stopRequestGate.tryBegin()) {
@@ -779,7 +773,7 @@ class RecordingService : Service() {
                 while (isActive) {
                     val state = recordingStateManager.state.value
                     if (state is RecordingState.Recording) {
-                        updateNotification()
+                        notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
                     }
                     // Don't update while paused — timer is frozen and notification already set
                     delay(1000)
@@ -811,35 +805,21 @@ class RecordingService : Service() {
     private fun startSessionHeartbeat() {
         heartbeatJob?.cancel()
         heartbeatJob =
-            serviceScope.launch {
-                while (isActive) {
-                    delay(30_000)
-                    val sessionId = currentSessionId ?: continue
-                    val bytes = currentRecordingFile?.takeIf { it.exists() }?.length() ?: 0L
-                    sessionJournal.updateHeartbeat(sessionId, bytes)
-                }
-            }
+            sessionHeartbeat.start(
+                scope = serviceScope,
+                sessionIdProvider = { currentSessionId },
+                activeFileProvider = { currentRecordingFile },
+            )
     }
 
     private fun startCheckpointCopies() {
         checkpointJob?.cancel()
         checkpointJob =
-            serviceScope.launch {
-                while (isActive) {
-                    delay(RecordingSessionJournal.CHECKPOINT_INTERVAL_MS)
-                    withContext(Dispatchers.IO) {
-                        val file = currentRecordingFile?.takeIf { it.exists() } ?: return@withContext
-                        val sessionId = currentSessionId ?: return@withContext
-                        val checkpoint = File(RecordingFileValidator.checkpointPathFor(file.absolutePath))
-                        runCatching {
-                            file.copyTo(checkpoint, overwrite = true)
-                            sessionJournal.updateCheckpoint(sessionId, checkpoint.absolutePath, file.length())
-                        }.onFailure { error ->
-                            Log.w(TAG, "Checkpoint copy failed", error)
-                        }
-                    }
-                }
-            }
+            checkpointScheduler.start(
+                scope = serviceScope,
+                sessionIdProvider = { currentSessionId },
+                activeFileProvider = { currentRecordingFile },
+            )
     }
 
     private suspend fun startGaplessCapture(
@@ -861,81 +841,23 @@ class RecordingService : Service() {
                     if (recordingStateManager.state.value is RecordingState.Paused) continue
                     if (stopRequestGate.isInProgress()) continue
                     try {
-                        rotateSegmentIfNeeded()
+                        val outcome =
+                            segmentRotator.rotateIfNeeded(
+                                recordingStateManager = recordingStateManager,
+                                stopRequestGate = stopRequestGate,
+                                segmentTransitionMutex = segmentTransitionMutex,
+                                sessionId = currentSessionId,
+                                segmentCapture = segmentCapture,
+                                currentRecordingFile = currentRecordingFile,
+                                correlationId = currentCorrelationId,
+                            )
+                        outcome?.nextSegmentFile?.let { currentRecordingFile = it }
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.w(TAG, "Gapless segment rotation failed", e)
                     }
                 }
             }
-    }
-
-    private suspend fun rotateSegmentIfNeeded() {
-        if (recordingStateManager.state.value !is RecordingState.Recording) return
-
-        segmentTransitionMutex.withLock {
-            if (stopRequestGate.isInProgress()) return
-            if (recordingStateManager.state.value !is RecordingState.Recording) return
-
-            val sessionId = currentSessionId ?: return
-            val entry = sessionJournal.findBySessionId(sessionId) ?: return
-            val capture = segmentCapture ?: return
-            val completedFile = currentRecordingFile ?: return
-
-            val nextIndex = entry.segmentPaths.size + 1
-            val nextSegment = capturePaths.segmentFile(sessionId, nextIndex)
-
-            val rotationResult =
-                withContext(Dispatchers.IO) {
-                    capture.rotateSegment(nextSegment)
-                }
-
-            if (rotationResult !is SegmentRotationResult.Success) {
-                val reason = (rotationResult as? SegmentRotationResult.Failed)?.reason ?: "unknown"
-                Log.w(TAG, "Gapless segment rotation skipped: $reason")
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_START,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "segment_rotation_failed",
-                    message = reason,
-                )
-                return
-            }
-
-            val completedValidation = RecordingFileValidator().validateForRecovery(completedFile)
-            if (!completedValidation.isRecoverableStub) {
-                Log.w(
-                    TAG,
-                    "Gapless segment rotation produced invalid segment: ${completedValidation.failureReason}",
-                )
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_START,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "segment_rotation_invalid",
-                    message = completedValidation.failureReason,
-                )
-                return
-            }
-
-            sessionJournal.appendCompletedSegment(
-                sessionId = sessionId,
-                completedSegmentPath = completedFile.absolutePath,
-                nextSegmentPath = nextSegment.absolutePath,
-                fileBytes = nextSegment.takeIf { it.exists() }?.length() ?: 0L,
-            )
-
-            currentRecordingFile = nextSegment
-            recordingStateManager.rotateSegment(nextSegment.absolutePath)
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_START,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                reasonCode = "segment_rotated_gapless",
-                message = "segment=$nextIndex",
-            )
-        }
     }
 
     private fun startStorageMonitoring() {
@@ -945,7 +867,8 @@ class RecordingService : Service() {
                 while (isActive) {
                     delay(15_000)
                     when (storageMonitor.checkAvailableStorage().level) {
-                        StorageCheckLevel.LOW -> updateNotification()
+                        StorageCheckLevel.LOW ->
+                            notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
                         StorageCheckLevel.CRITICAL -> {
                             recordingStateManager.onRecordingError("Storage full — stopping recording to protect your audio")
                             stopRecording()
@@ -957,150 +880,8 @@ class RecordingService : Service() {
             }
     }
 
-    private fun updateNotification() {
-        val notification = createNotification()
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.notify(NOTIFICATION_ID, notification)
-    }
-
-    private fun createStartingNotification(): Notification {
-        val launchIntent =
-            packageManager.getLaunchIntentForPackage(packageName)?.apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-        val contentPendingIntent =
-            launchIntent?.let {
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    it,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            }
-
-        return NotificationCompat
-            .Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notif_mic)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setContentIntent(contentPendingIntent)
-            .setColorized(true)
-            .setColor(android.graphics.Color.parseColor("#D32F2F"))
-            .setContentTitle(getString(R.string.rec_notification_starting_title))
-            .setContentText(getString(R.string.rec_notification_starting_text))
-            .build()
-    }
-
-    private fun createNotification(): Notification {
-        val state = recordingStateManager.state.value
-        val isPaused = state is RecordingState.Paused
-        val duration = recordingStateManager.getCurrentDurationMs()
-        val durationText = duration.formatAsDuration()
-
-        // Tap notification → open the app
-        val launchIntent =
-            packageManager.getLaunchIntentForPackage(packageName)?.apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-            }
-        val contentPendingIntent =
-            launchIntent?.let {
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    it,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            }
-
-        // Done action (always present)
-        val doneIntent =
-            Intent(this, RecordingService::class.java).apply {
-                action = ACTION_STOP_RECORDING
-            }
-        val donePendingIntent =
-            PendingIntent.getService(
-                this,
-                1,
-                doneIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-
-        val builder =
-            NotificationCompat
-                .Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_notif_mic)
-                .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setContentIntent(contentPendingIntent)
-                .setColorized(true)
-                .setColor(android.graphics.Color.parseColor("#D32F2F")) // Material Red 700
-
-        if (isPaused) {
-            builder.setContentTitle("Recording paused")
-            builder.setContentText(durationText)
-
-            // Resume action
-            val resumeIntent =
-                Intent(this, RecordingService::class.java).apply {
-                    action = ACTION_RESUME_RECORDING
-                }
-            val resumePendingIntent =
-                PendingIntent.getService(
-                    this,
-                    2,
-                    resumeIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            builder.addAction(R.drawable.ic_notif_resume, "Resume", resumePendingIntent)
-            builder.addAction(R.drawable.ic_notif_done, "Done", donePendingIntent)
-        } else {
-            builder.setContentTitle("Recording")
-            builder.setContentText(durationText)
-            // Use chronometer for live timer — setWhen to the effective start time
-            builder.setUsesChronometer(true)
-            builder.setWhen(System.currentTimeMillis() - duration)
-
-            // Pause action
-            val pauseIntent =
-                Intent(this, RecordingService::class.java).apply {
-                    action = ACTION_PAUSE_RECORDING
-                }
-            val pausePendingIntent =
-                PendingIntent.getService(
-                    this,
-                    3,
-                    pauseIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            builder.addAction(R.drawable.ic_notif_pause, "Pause", pausePendingIntent)
-            builder.addAction(R.drawable.ic_notif_done, "Done", donePendingIntent)
-        }
-
-        return builder.build()
-    }
-
-    private fun createNotificationChannel() {
-        val channel =
-            NotificationChannel(
-                CHANNEL_ID,
-                "Recording",
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = "Shows when recording is in progress"
-                setShowBadge(false)
-                // No sound — this is a persistent status notification
-                setSound(null, null)
-                enableVibration(false)
-            }
-
-        val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.createNotificationChannel(channel)
-    }
-
     companion object {
         private const val TAG = "RecordingService"
-        private const val CHANNEL_ID = "recording_channel_v2"
-        private const val NOTIFICATION_ID = 1001
 
         const val ACTION_START_RECORDING = "dev.chirpboard.app.ACTION_START_RECORDING"
         const val ACTION_PAUSE_RECORDING = "dev.chirpboard.app.ACTION_PAUSE_RECORDING"

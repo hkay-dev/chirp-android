@@ -4,6 +4,7 @@ import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import java.io.File
 import java.util.UUID
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import javax.inject.Inject
 import javax.inject.Singleton
 
