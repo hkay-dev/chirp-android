@@ -8,14 +8,14 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | --- | --- | --- | --- |
 | Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff; Done must navigate immediately to studio stitching UI | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest`, `RecordViewModelTest` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin` |
 | Queue recovery | Pending work orphaned or stale transcribing/enhancing states not recovered | `TranscriptionQueueReconciliationPolicyTest` | `:feature-transcription:testDebugUnitTest` |
-| Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionWorkerSupportTest`, `TranscriptionOutcomeMappingTest`, `KeyboardTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest`, `:feature-keyboard:testDebugUnitTest` |
+| Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionWorkerSupportTest`, `TranscriptionOutcomeMappingTest`, `InlineTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription worker active wait | Worker does not block forever when another recording stays active | `TranscriptionWorkerSupportTest` active wait timeout | `:feature-transcription:testDebugUnitTest` |
 | Recognition persistence integrity | Partial write of recording without transcript | `RecordingRepositoryTransactionTest`, `RecognitionHistoryPersistenceTest` | `:data:compileDebugAndroidTestKotlin`, `:app:testDebugUnitTest` |
 | Model artifact integrity | Corrupt or interrupted model downloads accepted as ready | `ModelDownloaderIntegrityTest` | `:app:testDebugUnitTest` |
 | Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core-contracts:testDebugUnitTest` |
 | Session journal durability | Interrupted recordings deleted as orphans; stale journals reconciled; abandoned entries pruned; recover idempotent | `RecordingSessionJournalTest`, `RecordingSessionReconcilerTest`, `RecordingSessionRecoveryTest`, `RecordingSessionRecoveryLiveSessionTest`, `RecordingSessionRecoveryKeepSessionTest`, `RecordingSessionJournalCancelOrderingTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
 | Orphan cleaner format parity | Unreferenced mp3/wav/m4a orphans deleted; referenced and protected paths retained | `OrphanedAudioCleanerTest` mp3 cases | `:feature-recording:testDebugUnitTest` |
-| Recovery deferral persistence | Dismissed recovery prompts do not reappear after process death | `RecordingRecoveryDeferStore` (manual), `RecordingRecoveryStore` integration | `:feature-recording:testDebugUnitTest` |
+| Recovery deferral persistence | Dismissed recovery prompts do not reappear after process death | `RecordingRecoveryDeferStoreTest`, `RecordingRecoveryStore` integration | `:feature-recording:testDebugUnitTest` |
 | Origin-aware stop routing | Widget stop reaches keyboard quick-capture without desyncing global state | `KeyboardRecordingStopBridgeTest`, `KeyboardPendingStopStoreTest` | `:core-contracts:testDebugUnitTest` |
 | Stop timeout cleanup | Hung finalize abandons journal/DB row and releases service resources | `RecordingStateManagerTest.stoppingTimeout_awaitsHandlerBeforeErrorTransition`, `RecordingServiceStopOutcomesTest` | `:core-contracts:testDebugUnitTest`, `:feature-recording:testDebugUnitTest` |
 | Stop validation | Invalid M4A saved after failed finalize | `RecordingFileValidatorTest`, `RecordingStopOrchestratorTest` | `:feature-recording:testDebugUnitTest` |
@@ -24,6 +24,8 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Stop timeout scaling | False timeout on long finalize | `RecordingStateManagerTest` | `:core-contracts:testDebugUnitTest` |
 | NoAudioFile stop DB hygiene | Empty capture leaves phantom RECORDING row | `RecordingServiceStopOutcomesTest.noAudioFile_deletesInProgressRowAndCompletes` | `:feature-recording:testDebugUnitTest` |
 | Stop timeout vs persist race | Late persist after timeout flips Error→Idle or duplicates row | `RecordingServiceStopOutcomesTest.staleGeneration_discardsPersistResultWithoutStateTransition` | `:feature-recording:testDebugUnitTest` |
+| Gapless segment capture | Segment rotation/finalize drops audio or picks wrong codec factory | `GaplessSegmentCaptureFactoryTest`, `GaplessWavSegmentCaptureTest` | `:feature-recording:testDebugUnitTest` |
+| Audio settings legacy migration | Upgrades without outputFormat key leave format unset | `AudioSettingsStoreTest` legacy outputFormat backfill | `:core-audio:testDebugUnitTest` |
 
 ## Long-session recording soak (manual)
 
@@ -68,14 +70,6 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Studio launchSingleTop | Repeated Home/search taps do not stack Studio entries | `StudioNavigation` helper + manual N1–N3 | Implemented |
 | Search excludes RECORDING | In-progress rows hidden from search results | `RecordingDaoTest.searchRecordings_excludesInProgressRows`, `HomeViewModelTest` | Implemented |
 | Mini player cross-studio | Opening Studio for B pauses playback of A | `ProcessingStudioViewModelTest`, manual N4 | Implemented |
-
-## Audit backlog (2026-05-25) — proposed OpenSpec changes
-
-Index: `openspec/changes/AUDIT_INDEX.md`. Each row maps to a change folder with `proposal.md`, `design.md`, `tasks.md`, and spec deltas.
-
-| Priority | Risk class | OpenSpec change | Planned tests (on implement) |
-| --- | --- | --- | --- |
-| P3–P4 | Matrix drift, dead wrappers, coverage gaps | `docs-test-hygiene` | Matrix audit script |
 
 ## Unit test standards
 

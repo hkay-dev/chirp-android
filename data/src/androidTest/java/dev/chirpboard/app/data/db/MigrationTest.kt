@@ -51,6 +51,7 @@ class MigrationTest {
         // Verify database is accessible by getting DAOs
         db.recordingDao()
         db.transcriptDao()
+        db.structuredOutcomeSnapshotDao()
         db.profileDao()
         db.tagDao()
         db.wordReplacementDao()

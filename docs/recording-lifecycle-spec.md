@@ -169,6 +169,16 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Checklist: keyboard mode row expand vs crossfade | `openspec/UI_POLISH_QA_CHECKLIST.md` M1 |
 | Checklist: player pushes content not tab row | `openspec/UI_POLISH_QA_CHECKLIST.md` M2 |
 
+## Resolved (docs-test-hygiene)
+
+| Gap | Resolution |
+|-----|------------|
+| Reliability matrix cites wrong tests for some rows | Matrix rows corrected (`InlineTranscriptionOutcomeMappingTest`, `RecordingRecoveryDeferStoreTest`); gapless and outputFormat rows added |
+| Unused `TranscriptionProgressPanel` wrappers | Removed `feature-studio/.../TranscriptionProgressUi.kt`; call sites import `core-ui` directly |
+| Gapless capture untested | `GaplessSegmentCaptureFactoryTest`, `GaplessWavSegmentCaptureTest` |
+| Migration tests omit structured_outcome DAO open | `MigrationTest.createDb` opens `structuredOutcomeSnapshotDao()` |
+| `AudioSettingsStore` outputFormat not written on legacy migration | Backfill on read when key missing; `AudioSettingsStoreTest` legacy scenario |
+
 ## Audit backlog (2026-05-25)
 
 Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
@@ -187,15 +197,8 @@ _(none — see Resolved transcription-pipeline-hardening)_
 
 ### P3 — Edge cases / polish risks
 
-| Gap | Change |
-|-----|--------|
-| Reliability matrix cites wrong tests for some rows | `docs-test-hygiene` |
-| Unused `TranscriptionProgressPanel` wrappers | `docs-test-hygiene` |
+_(none — see Resolved docs-test-hygiene)_
 
 ### P4 — Low / test / device / checklist
 
-| Gap | Change |
-|-----|--------|
-| Gapless capture / protected-path store untested | `docs-test-hygiene` |
-| Migration tests omit structured_outcome DAO open | `docs-test-hygiene` |
-| `AudioSettingsStore` outputFormat not written on legacy migration | `docs-test-hygiene` |
+_(none — see Resolved docs-test-hygiene)_

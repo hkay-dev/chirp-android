@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.components.MorphingTranscriptionProgress
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressCopy
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressKind
 
 @Composable
 internal fun StudioProcessingHeader(

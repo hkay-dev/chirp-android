@@ -40,6 +40,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.ProcessingStudioTranscript
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.TranscriptSegment
+import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
@@ -65,6 +66,7 @@ fun TranscriptTab(
     contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
     val isProcessing = status.transcriptionProgressKind() != null
+    val isFailed = status == RecordingStatus.FAILED
     val hasTranscriptContent = transcript != ProcessingStudioTranscript.Empty
     val showTranscriptChrome = hasTranscriptContent && !isEditingTranscript && !isProcessing
     val showEmptyCompleted =
@@ -110,6 +112,7 @@ fun TranscriptTab(
 
         val bodyMode =
             when {
+                isFailed && !isEditingTranscript -> TranscriptBodyMode.Failed
                 isProcessing && !isEditingTranscript -> TranscriptBodyMode.Processing
                 showTranscriptChrome -> TranscriptBodyMode.Chrome
                 showEmptyCompleted -> TranscriptBodyMode.EmptyCompleted
@@ -131,6 +134,8 @@ fun TranscriptTab(
             ) { mode ->
                 when (mode) {
                     TranscriptBodyMode.Processing -> TranscriptProcessingSkeleton()
+
+                    TranscriptBodyMode.Failed -> Unit
 
                     TranscriptBodyMode.Chrome -> {
                         Box(modifier = Modifier.fillMaxSize()) {
@@ -184,6 +189,7 @@ fun TranscriptTab(
 
 private enum class TranscriptBodyMode {
     Processing,
+    Failed,
     Chrome,
     EmptyCompleted,
     Editing,
