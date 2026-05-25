@@ -502,7 +502,8 @@ class ChirpKeyboardService :
         }
 
         _state.value = KeyboardState.Transcribing
-        recordingStateManager.beginStopRecording()
+        recordingStateManager.transitionToStopping()
+        recordingStateManager.startStoppingTimeout(fileSizeBytes = 0L)
         scope.launch(Dispatchers.Default) {
             transcriptionPipeline.run(
                 samples = samples,

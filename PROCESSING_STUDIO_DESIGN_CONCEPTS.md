@@ -32,7 +32,7 @@ To build this fluid, modern experience, we will leverage the following Material 
 
 ### 3. The Transcript Tab (Text-First Interaction)
 * **`LazyColumn`**: To render the transcript efficiently.
-* **`ClickableText` / `AnnotatedString`**: The transcript isn't just text; it's a remote control. By parsing the transcript into an `AnnotatedString` with custom annotations for timestamps, tapping any word triggers a callback to the `AudioPlayer` state, instantly seeking the audio and updating the floating pill. The currently spoken word is highlighted using a dynamic `SpanStyle` (e.g., pulling the `MaterialTheme.colorScheme.primary`).
+* **`ClickableText` / `AnnotatedString`**: The transcript isn't just text; it's a remote control. By parsing the transcript into an `AnnotatedString` with custom annotations for timestamps, tapping any word triggers a callback to the shared `RecordingPlaybackController`, instantly seeking the audio and updating the inline or mini player. The currently spoken word is highlighted using a dynamic `SpanStyle` (e.g., pulling the `MaterialTheme.colorScheme.primary`).
 
 ### 4. The Floating Audio Pill
 * **`Surface`**: A `Surface` with `RoundedCornerShape(Percent(50))` (a true pill shape), highly elevated (`shadowElevation = 8.dp`), and tinted with `MaterialTheme.colorScheme.surfaceContainerHigh`.

@@ -84,7 +84,8 @@ class RecordingStateManagerTest {
     @Test
     fun onRecordingCompleted_returnsToIdle() {
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
-        manager.beginStopRecording()
+        manager.transitionToStopping()
+        manager.startStoppingTimeout(fileSizeBytes = 0L)
         manager.onRecordingCompleted(UUID.randomUUID())
         
         manager.clearError()

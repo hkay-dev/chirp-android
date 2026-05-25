@@ -44,7 +44,7 @@ class ApiKeyMigrationTest {
         runTest {
             every { llmPreferences.isSecureStorageAvailable() } returns true
             every { llmPreferences.hasApiKey() } returns false
-            every { preferences.geminiApiKey } returns "   "
+            every { preferences.readLegacyGeminiApiKeyForMigration() } returns "   "
 
             assertEquals(ApiKeyMigration.MigrationResult.NO_CUSTOM_KEY, migration.migrate())
         }
@@ -54,7 +54,7 @@ class ApiKeyMigrationTest {
         runTest {
             every { llmPreferences.isSecureStorageAvailable() } returns true
             every { llmPreferences.hasApiKey() } returns false
-            every { preferences.geminiApiKey } returns "REMOVED_GOOGLE_API_KEY"
+            every { preferences.readLegacyGeminiApiKeyForMigration() } returns "REMOVED_GOOGLE_API_KEY"
 
             assertEquals(ApiKeyMigration.MigrationResult.NO_CUSTOM_KEY, migration.migrate())
             coVerify(exactly = 0) { llmPreferences.setApiKey(any()) }
@@ -65,7 +65,7 @@ class ApiKeyMigrationTest {
         runTest {
             every { llmPreferences.isSecureStorageAvailable() } returns true
             every { llmPreferences.hasApiKey() } returns false
-            every { preferences.geminiApiKey } returns "user-custom-key"
+            every { preferences.readLegacyGeminiApiKeyForMigration() } returns "user-custom-key"
             coEvery { llmPreferences.setApiKey("user-custom-key") } just runs
             every { preferences.clearGeminiApiKey() } just runs
 

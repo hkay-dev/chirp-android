@@ -7,6 +7,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.feature.recording.util.useCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -38,14 +39,11 @@ class ImportedAudioMetadataReader
     constructor() {
         fun readDurationMs(copiedFile: File): Long =
             try {
-                val retriever = MediaMetadataRetriever()
-                try {
+                MediaMetadataRetriever().useCompat { retriever ->
                     retriever.setDataSource(copiedFile.absolutePath)
                     retriever
                         .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         ?.toLongOrNull() ?: 0L
-                } finally {
-                    retriever.release()
                 }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e

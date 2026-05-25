@@ -20,13 +20,10 @@ class Preferences @Inject constructor(
         set(value) = sharedPreferences.edit().putFloat(KEY_MICROPHONE_GAIN, value.coerceIn(1.0f, 5.0f)).apply()
 
     /**
-     * @deprecated Use SecurePreferences.geminiApiKey instead for secure storage.
-     * This property is kept for migration purposes only.
+     * Reads a legacy plaintext API key once for migration to secure storage.
      */
-    @Deprecated("Use SecurePreferences.geminiApiKey instead")
-    var geminiApiKey: String
-        get() = sharedPreferences.getString(KEY_GEMINI_API_KEY, "") ?: ""
-        set(value) = sharedPreferences.edit().putString(KEY_GEMINI_API_KEY, value).apply()
+    fun readLegacyGeminiApiKeyForMigration(): String =
+        sharedPreferences.getString(KEY_GEMINI_API_KEY, "") ?: ""
 
     /**
      * Clears the API key from plaintext storage (used during migration).
