@@ -62,7 +62,7 @@ import dev.chirpboard.app.core.ui.components.ChirpPrimaryFab
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.Tag
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 /**

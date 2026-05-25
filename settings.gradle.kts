@@ -18,6 +18,10 @@ dependencyResolutionManagement {
 rootProject.name = "Chirp"
 include(":app")
 include(":core")
+include(":core-contracts")
+include(":core-audio")
+include(":core-ui")
+include(":core-playback")
 include(":data")
 include(":feature-recording")
 include(":feature-studio")

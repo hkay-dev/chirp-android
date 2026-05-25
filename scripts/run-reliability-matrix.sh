@@ -7,7 +7,10 @@ set -euo pipefail
 ./gradlew \
 	detekt \
 	lintDebug \
-	:core:testDebugUnitTest \
+	:core-contracts:testDebugUnitTest \
+	:core-audio:testDebugUnitTest \
+	:core-ui:testDebugUnitTest \
+	:core-playback:testDebugUnitTest \
 	:data:testDebugUnitTest \
 	:feature-transcription:testDebugUnitTest \
 	:feature-keyboard:testDebugUnitTest \

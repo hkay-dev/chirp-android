@@ -33,7 +33,7 @@ import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 @OptIn(ExperimentalLayoutApi::class)

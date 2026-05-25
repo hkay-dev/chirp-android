@@ -24,7 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.data.entity.WordReplacement
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 @Composable

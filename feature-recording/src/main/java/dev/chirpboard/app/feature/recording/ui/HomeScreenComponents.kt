@@ -60,7 +60,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R

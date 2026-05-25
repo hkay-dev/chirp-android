@@ -20,7 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight

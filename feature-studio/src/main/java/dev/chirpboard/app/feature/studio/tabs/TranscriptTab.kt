@@ -48,7 +48,7 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.studio.R

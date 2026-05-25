@@ -65,7 +65,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
-import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.transcription.R
 
 private fun requestModelDownload(

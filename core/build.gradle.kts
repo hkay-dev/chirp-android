@@ -1,9 +1,6 @@
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.dagger.hilt.android")
-    id("com.google.devtools.ksp")
 }
 
 android {
@@ -14,12 +11,6 @@ android {
         minSdk = 26
     }
 
-    testOptions {
-        unitTests {
-            isReturnDefaultValues = true
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -28,41 +19,11 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
-
-    buildFeatures {
-        compose = true
-    }
 }
 
 dependencies {
-    // Compose
-    implementation(platform("androidx.compose:compose-bom:2025.01.01"))
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    debugImplementation("androidx.compose.ui:ui-tooling")
-
-    // Core
-    implementation("androidx.core:core-ktx:1.12.0")
-    api("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
-    
-    // Hilt
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    ksp("com.google.dagger:hilt-android-compiler:2.51.1")
-    
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-
-    // Media3 playback (shared across app)
-    implementation(libs.media3.exoplayer)
-    implementation(libs.media3.session)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.7.3")
-
-    // Tests
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    testImplementation(libs.mockk)
-    testImplementation("app.cash.turbine:turbine:1.0.0")
+    api(project(":core-contracts"))
+    api(project(":core-audio"))
+    api(project(":core-ui"))
+    api(project(":core-playback"))
 }
