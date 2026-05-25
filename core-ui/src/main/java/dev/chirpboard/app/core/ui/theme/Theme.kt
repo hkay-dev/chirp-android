@@ -2,9 +2,19 @@ package dev.chirpboard.app.core.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+
+private val chirpMaterialShapes =
+    Shapes(
+        extraSmall = ChirpShapes.ExtraSmall as CornerBasedShape,
+        small = ChirpShapes.Small as CornerBasedShape,
+        medium = ChirpShapes.Medium as CornerBasedShape,
+        large = ChirpShapes.Large as CornerBasedShape,
+        extraLarge = ChirpShapes.ExtraLarge as CornerBasedShape,
+    )
 
 @Composable
 fun ChirpTheme(
@@ -24,7 +34,8 @@ fun ChirpTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography(),
+        typography = ChirpTypography,
+        shapes = chirpMaterialShapes,
         content = content
     )
 }

@@ -116,7 +116,6 @@
     <string name="about_open_source_subtitle">Built with Sherpa-ONNX, Jetpack Compose</string>
     <string name="about_footer">Made with care</string>
     <string name="cancel">Cancel</string>
-    <string name="desc_back">Back</string>
     <string name="desc_cancel">Cancel</string>
     <string name="desc_select_mode">Select mode</string>
     <string name="desc_selected">Selected</string>

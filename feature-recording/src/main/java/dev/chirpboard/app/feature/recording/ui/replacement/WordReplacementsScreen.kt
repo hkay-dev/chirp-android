@@ -95,7 +95,7 @@ fun WordReplacementsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(CoreR.string.desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_navigate_back),
                         )
                     }
                 },

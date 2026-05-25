@@ -15,9 +15,8 @@ import androidx.compose.runtime.setValue
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import dev.chirpboard.app.core.ui.theme.recordingTimerStyle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.util.formatAsDuration
 
@@ -25,12 +24,7 @@ import dev.chirpboard.app.core.util.formatAsDuration
 fun RecordingTimer(
     recordingState: RecordingState,
     isRecording: Boolean,
-    textStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.displayLarge.copy(
-        fontSize = 72.sp,
-        fontWeight = FontWeight.Light,
-        letterSpacing = 2.sp,
-        fontFeatureSettings = "tnum"
-    ),
+    textStyle: androidx.compose.ui.text.TextStyle = recordingTimerStyle,
     modifier: Modifier = Modifier,
 ) {
     var elapsedMs by remember { mutableLongStateOf(0L) }
