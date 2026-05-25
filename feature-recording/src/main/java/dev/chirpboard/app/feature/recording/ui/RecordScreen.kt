@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +51,9 @@ import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import dev.chirpboard.app.feature.recording.ui.tag.TagPicker
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +69,8 @@ fun RecordScreen(
     val isProfileHandoffResolved by viewModel.isProfileHandoffResolved.collectAsStateWithLifecycle()
     val entryMessage by viewModel.entryMessage.collectAsStateWithLifecycle()
     val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
+    val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
+    val selectedTagIds by viewModel.selectedTagIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -73,6 +79,7 @@ fun RecordScreen(
     var recoveryPromptSession by remember { mutableStateOf<RecoverableRecordingSession?>(null) }
     var hasNavigatedToComplete by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     val isRecording =
         recordingState is RecordingState.Recording ||
@@ -82,8 +89,8 @@ fun RecordScreen(
     val isActive = isRecording || isPaused
 
     LaunchedEffect(recoverableSessions) {
-        if (recoveryPromptSession == null && recoverableSessions.isNotEmpty()) {
-            recoveryPromptSession = recoverableSessions.first()
+        if (recoveryPromptSession == null) {
+            recoveryPromptSession = recoverableSessions.firstOrNull()
         }
     }
 
@@ -119,9 +126,30 @@ fun RecordScreen(
         showBackDialog = true
     }
 
+    fun navigateToProcessingStudioIfNeeded(recordingId: java.util.UUID?) {
+        if (recordingId != null && !hasNavigatedToComplete) {
+            hasNavigatedToComplete = true
+            onRecordingComplete(recordingId.toString())
+        }
+    }
+
+    fun completeRecordingWithHandoff() {
+        val handoffId = viewModel.stopRecordingWithHandoff()
+        if (handoffId != null) {
+            navigateToProcessingStudioIfNeeded(handoffId)
+        } else if (isActive) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.rec_done_wait_for_id))
+            }
+        }
+    }
+
     recoveryPromptSession?.let { session ->
         AnimatedAlertDialog(
-            onDismissRequest = { recoveryPromptSession = null },
+            onDismissRequest = {
+                viewModel.deferInterruptedSession(session.sessionId)
+                recoveryPromptSession = null
+            },
             title = { Text(stringResource(R.string.rec_recovery_title)) },
             text = {
                 Text(
@@ -224,7 +252,7 @@ fun RecordScreen(
                 TextButton(
                     onClick = {
                         showBackDialog = false
-                        viewModel.stopRecording()
+                        completeRecordingWithHandoff()
                     },
                 ) {
                     Text(stringResource(R.string.save))
@@ -252,7 +280,7 @@ fun RecordScreen(
                     IconButton(
                         onClick = {
                             if (isActive) {
-                                showCancelDialog = true
+                                showBackDialog = true
                             } else {
                                 onNavigateBack()
                             }
@@ -286,6 +314,26 @@ fun RecordScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                 }
+            }
+
+            val activeRecordingId = recordingState.activeRecordingId
+            PushDownReveal(visible = activeRecordingId != null) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = stringResource(R.string.rec_tags),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TagPicker(
+                        availableTags = availableTags.toImmutableList(),
+                        selectedTagIds = selectedTagIds,
+                        onTagToggle = viewModel::toggleTag,
+                        onCreateTag = viewModel::createTagForRecording,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
             RecordingTimer(
@@ -323,9 +371,12 @@ fun RecordScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
+            val canHandoffToStudio = activeRecordingId != null && isActive
+
             RecordingActionRow(
                 isRecording = isRecording,
                 isPaused = isPaused,
+                isStopEnabled = canHandoffToStudio,
                 onTogglePausePlay = {
                     if (isPaused || !isActive) {
                         if (isActive) {
@@ -337,14 +388,7 @@ fun RecordScreen(
                         viewModel.pauseRecording()
                     }
                 },
-                onStopRecording = {
-                    val recordingId = recordingState.activeRecordingId
-                    viewModel.stopRecording()
-                    if (recordingId != null && !hasNavigatedToComplete) {
-                        hasNavigatedToComplete = true
-                        onRecordingComplete(recordingId.toString())
-                    }
-                },
+                onStopRecording = { completeRecordingWithHandoff() },
                 onRestartRecording = { showRestartDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()

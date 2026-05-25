@@ -37,8 +37,10 @@ fun RecordingActionRow(
     onStopRecording: () -> Unit,
     onRestartRecording: () -> Unit,
     modifier: Modifier = Modifier,
+    isStopEnabled: Boolean? = null,
 ) {
     val isActive = isRecording || isPaused
+    val stopEnabled = isStopEnabled ?: isActive
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -58,7 +60,7 @@ fun RecordingActionRow(
 
         Button(
             onClick = onStopRecording,
-            enabled = isActive,
+            enabled = stopEnabled,
             modifier = Modifier
                 .padding(horizontal = 16.dp)
                 .height(80.dp),

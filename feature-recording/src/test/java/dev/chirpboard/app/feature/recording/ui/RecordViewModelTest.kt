@@ -6,6 +6,7 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import io.mockk.coEvery
@@ -14,6 +15,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -30,6 +32,7 @@ class RecordViewModelTest {
     private lateinit var recordingManager: RecordingManager
     private lateinit var recordingStateManager: RecordingStateManager
     private lateinit var profileRepository: ProfileRepository
+    private lateinit var tagRepository: TagRepository
     private lateinit var recoveryStore: RecordingRecoveryStore
     private lateinit var viewModel: RecordViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -47,8 +50,11 @@ class RecordViewModelTest {
                 every { lastCompletedRecordingId } returns MutableStateFlow(null)
             }
         profileRepository = mockk(relaxed = true)
+        tagRepository = mockk(relaxed = true)
+        every { tagRepository.getAllTags() } returns emptyFlow()
         recoveryStore = mockk(relaxed = true)
         every { recoveryStore.pendingSessions } returns MutableStateFlow(emptyList())
+        every { recoveryStore.actionablePendingSessions } returns MutableStateFlow(emptyList())
         coEvery { recoveryStore.refresh() } returns Unit
 
         viewModel =
@@ -56,6 +62,7 @@ class RecordViewModelTest {
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
+                tagRepository = tagRepository,
                 recoveryStore = recoveryStore,
                 savedStateHandle = SavedStateHandle(),
             )
@@ -77,6 +84,7 @@ class RecordViewModelTest {
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
+                tagRepository = tagRepository,
                 recoveryStore = recoveryStore,
                 savedStateHandle = SavedStateHandle(mapOf("profileId" to profileId.toString())),
             )
@@ -95,6 +103,53 @@ class RecordViewModelTest {
     }
 
     @Test
+    fun `stopRecordingWithHandoff returns active recording id and stops capture`() = runTest(testDispatcher) {
+        val recordingId = UUID.randomUUID()
+        every { recordingStateManager.state } returns
+            MutableStateFlow(
+                RecordingState.Recording(
+                    origin = RecordingOrigin.APP,
+                    profileId = null,
+                    startTimeMs = 0L,
+                    audioFilePath = "path",
+                    recordingId = recordingId,
+                ),
+            )
+
+        val handoffViewModel =
+            RecordViewModel(
+                recordingManager = recordingManager,
+                recordingStateManager = recordingStateManager,
+                profileRepository = profileRepository,
+                tagRepository = tagRepository,
+                recoveryStore = recoveryStore,
+                savedStateHandle = SavedStateHandle(),
+            )
+
+        val handoffId = handoffViewModel.stopRecordingWithHandoff()
+
+        assertEquals(recordingId, handoffId)
+        verify { recordingManager.stopRecording() }
+    }
+
+    @Test
+    fun `stopRecordingWithHandoff returns null when no active recording id`() = runTest(testDispatcher) {
+        every { recordingStateManager.state } returns MutableStateFlow(RecordingState.Starting(RecordingOrigin.APP))
+
+        val handoffId = viewModel.stopRecordingWithHandoff()
+
+        assertNull(handoffId)
+        verify(exactly = 0) { recordingManager.stopRecording() }
+    }
+
+    @Test
+    fun `canHandoffToStudio is false while recording id is unassigned`() = runTest(testDispatcher) {
+        every { recordingStateManager.state } returns MutableStateFlow(RecordingState.Starting(RecordingOrigin.APP))
+
+        assertEquals(false, viewModel.canHandoffToStudio())
+    }
+
+    @Test
     fun `missing selected profile falls back to no-profile recording`() = runTest(testDispatcher) {
         val profileId = UUID.randomUUID()
         coEvery { profileRepository.getProfile(profileId) } returns null
@@ -104,6 +159,7 @@ class RecordViewModelTest {
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
+                tagRepository = tagRepository,
                 recoveryStore = recoveryStore,
                 savedStateHandle = SavedStateHandle(mapOf("profileId" to profileId.toString())),
             )

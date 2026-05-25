@@ -7,13 +7,19 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.data.repository.TagRepository
+import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -37,6 +43,7 @@ class RecordViewModel
         private val recordingManager: RecordingManager,
         private val recordingStateManager: RecordingStateManager,
         private val profileRepository: ProfileRepository,
+        private val tagRepository: TagRepository,
         private val recoveryStore: RecordingRecoveryStore,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
@@ -70,7 +77,18 @@ class RecordViewModel
         /** ID of the last recording that completed successfully */
         val lastCompletedRecordingId: StateFlow<UUID?> = recordingStateManager.lastCompletedRecordingId
 
-        val recoverableSessions = recoveryStore.pendingSessions
+        val recoverableSessions = recoveryStore.actionablePendingSessions
+
+        val availableTags: StateFlow<List<Tag>> =
+            tagRepository
+                .getAllTags()
+                .unwrapRepositoryFlow { _entryMessage.value = it }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private val _selectedTagIds = MutableStateFlow<Set<UUID>>(emptySet())
+        val selectedTagIds: StateFlow<Set<UUID>> = _selectedTagIds.asStateFlow()
+
+        private var tagsInitializedForRecordingId: UUID? = null
 
         init {
             viewModelScope.launch {
@@ -91,6 +109,22 @@ class RecordViewModel
                         _entryMessage.value = "Profile no longer exists. Using default recording settings."
                     }
                     _isProfileHandoffResolved.value = true
+                }
+            }
+
+            viewModelScope.launch {
+                recordingState.collect { state ->
+                    val recordingId = state.activeRecordingId
+                    if (recordingId != null && recordingId != tagsInitializedForRecordingId) {
+                        tagsInitializedForRecordingId = recordingId
+                        initializeTagsForRecording(
+                            recordingId = recordingId,
+                            profileId = profileIdFromState(state),
+                        )
+                    } else if (recordingId == null && state is RecordingState.Idle) {
+                        tagsInitializedForRecordingId = null
+                        _selectedTagIds.value = emptySet()
+                    }
                 }
             }
         }
@@ -116,6 +150,15 @@ class RecordViewModel
         fun resumeRecording() {
             recordingManager.resumeRecording()
         }
+
+        /** Stop the current recording and return the in-progress ID for immediate studio handoff. */
+        fun stopRecordingWithHandoff(): UUID? {
+            val recordingId = recordingState.value.activeRecordingId ?: return null
+            recordingManager.stopRecording()
+            return recordingId
+        }
+
+        fun canHandoffToStudio(): Boolean = recordingState.value.activeRecordingId != null
 
         /** Stop the current recording and save it. */
         fun stopRecording() {
@@ -148,6 +191,28 @@ class RecordViewModel
             _entryMessage.value = null
         }
 
+        fun toggleTag(tagId: UUID) {
+            val recordingId = recordingState.value.activeRecordingId ?: return
+            viewModelScope.launch {
+                if (tagId in _selectedTagIds.value) {
+                    tagRepository.removeTagFromRecording(recordingId, tagId)
+                    _selectedTagIds.update { it - tagId }
+                } else {
+                    tagRepository.addTagToRecording(recordingId, tagId)
+                    _selectedTagIds.update { it + tagId }
+                }
+            }
+        }
+
+        fun createTagForRecording(name: String) {
+            val recordingId = recordingState.value.activeRecordingId ?: return
+            viewModelScope.launch {
+                val tag = tagRepository.createTag(name.trim())
+                tagRepository.addTagToRecording(recordingId, tag.id)
+                _selectedTagIds.update { it + tag.id }
+            }
+        }
+
         fun recoverInterruptedSession(sessionId: UUID) {
             viewModelScope.launch {
                 when (val result = recoveryStore.recoverSession(sessionId)) {
@@ -176,4 +241,40 @@ class RecordViewModel
                 recoveryStore.keepSession(sessionId)
             }
         }
+
+        fun deferInterruptedSession(sessionId: UUID) {
+            recoveryStore.deferSession(sessionId)
+        }
+
+        private suspend fun initializeTagsForRecording(
+            recordingId: UUID,
+            profileId: UUID?,
+        ) {
+            val existing = tagRepository.getTagsForRecordingList(recordingId)
+            if (existing.isNotEmpty()) {
+                _selectedTagIds.value = existing.map { it.id }.toSet()
+                return
+            }
+
+            val defaultTagIds =
+                profileId
+                    ?.let { profileRepository.getProfile(it)?.getDefaultTags() }
+                    .orEmpty()
+            if (defaultTagIds.isEmpty()) {
+                _selectedTagIds.value = emptySet()
+                return
+            }
+
+            defaultTagIds.forEach { tagId ->
+                tagRepository.addTagToRecording(recordingId, tagId)
+            }
+            _selectedTagIds.value = defaultTagIds.toSet()
+        }
+
+        private fun profileIdFromState(state: RecordingState): UUID? =
+            when (state) {
+                is RecordingState.Recording -> state.profileId
+                is RecordingState.Paused -> state.profileId
+                else -> activeProfile.value?.id
+            }
     }
