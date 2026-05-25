@@ -126,6 +126,55 @@ fun ChirpSettingsHubScaffold(
     )
 }
 
+/**
+ * Leaf settings screen with collapsing large title and optional snackbar host.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChirpSettingsDetailScaffold(
+    title: String,
+    onNavigateBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    scrollBehavior: TopAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(),
+    snackbarHostState: SnackbarHostState? = null,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            LargeTopAppBar(
+                title = {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.desc_navigate_back),
+                        )
+                    }
+                },
+                scrollBehavior = scrollBehavior,
+                colors =
+                    TopAppBarDefaults.largeTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+            )
+        },
+        snackbarHost = {
+            if (snackbarHostState != null) {
+                SnackbarHost(snackbarHostState)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.background,
+        content = content,
+    )
+}
+
 @Composable
 fun ChirpScaffoldSurface(
     modifier: Modifier = Modifier,

@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,7 +86,7 @@ fun DevMenuScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_navigate_back),
                         )
                     }
                 },
