@@ -50,7 +50,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import androidx.compose.ui.Modifier
@@ -70,6 +74,10 @@ import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.core.ui.components.MetadataPillRow
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
+import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
+import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import kotlinx.coroutines.delay
 import java.util.UUID
 
 /**
@@ -80,6 +88,7 @@ import java.util.UUID
 internal fun RecordingListItem(
     item: RecordingDisplayItem,
     playbackState: RecordingPlaybackState,
+    recordingState: RecordingState,
     onClick: () -> Unit,
     onPlayClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -87,6 +96,13 @@ internal fun RecordingListItem(
 ) {
     val isCurrentItem = playbackState.recordingId == item.id
     val isPlayingCurrent = isCurrentItem && playbackState.isPlaying
+    val liveCaptureElapsedMs =
+        if (item.isLiveCapture) {
+            rememberLiveCaptureElapsedMs(recordingState)
+        } else {
+            null
+        }
+    val isLiveCapturePaused = item.isLiveCapture && recordingState is RecordingState.Paused
 
     Column(
         modifier =
@@ -113,36 +129,45 @@ internal fun RecordingListItem(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            FilledTonalIconButton(
-                onClick = onPlayClick,
-                modifier = Modifier.size(40.dp),
-                colors =
-                    IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ),
-            ) {
-                Icon(
-                    imageVector = if (isPlayingCurrent) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription =
-                        if (isPlayingCurrent) {
-                            stringResource(R.string.desc_pause)
-                        } else {
-                            stringResource(R.string.desc_play)
-                        },
-                )
+            if (!item.isLiveCapture) {
+                FilledTonalIconButton(
+                    onClick = onPlayClick,
+                    modifier = Modifier.size(40.dp),
+                    colors =
+                        IconButtonDefaults.filledTonalIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = if (isPlayingCurrent) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        contentDescription =
+                            if (isPlayingCurrent) {
+                                stringResource(R.string.desc_pause)
+                            } else {
+                                stringResource(R.string.desc_play)
+                            },
+                    )
+                }
             }
         }
 
         MetadataPillRow(
             createdAtMs = item.createdAtMs,
-            durationMs = item.durationMs,
+            durationMs = liveCaptureElapsedMs ?: item.durationMs,
             source = item.source,
         )
 
-        PushDownReveal(visible = item.status.transcriptionProgressCopy() != null) {
+        PushDownReveal(visible = item.isLiveCapture) {
+            LiveCaptureHomeBanner(isPaused = isLiveCapturePaused)
+        }
+
+        PushDownReveal(visible = !item.isLiveCapture && item.status.transcriptionProgressCopy() != null) {
             item.status.transcriptionProgressCopy()?.let { copy ->
-                TranscriptionProgressBanner(copy = copy)
+                TranscriptionProgressBanner(
+                    copy = copy,
+                    kind = item.status.transcriptionProgressKind(),
+                )
             }
         }
 
@@ -190,6 +215,102 @@ internal fun RecordingListItem(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(recordingState) {
+        when (val state = recordingState) {
+            is RecordingState.Starting -> {
+                previousSegmentsMs = 0L
+                elapsedMs = 0L
+            }
+
+            is RecordingState.Recording -> {
+                val segmentStart = state.startTimeMs
+                while (true) {
+                    elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    delay(ChirpMotion.TIMER_TICK_MS)
+                }
+            }
+
+            is RecordingState.Paused -> {
+                previousSegmentsMs = state.accumulatedMs
+                elapsedMs = state.accumulatedMs
+            }
+
+            else -> Unit
+        }
+    }
+
+    return elapsedMs
+}
+
+@Composable
+private fun LiveCaptureHomeBanner(isPaused: Boolean) {
+    val pulseAlpha =
+        if (isPaused) {
+            1f
+        } else {
+            val infiniteTransition = rememberInfiniteTransition(label = "live_capture_pulse")
+            infiniteTransition.animateFloat(
+                initialValue = 0.35f,
+                targetValue = 1f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "live_capture_pulse_alpha",
+            ).value
+        }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = pulseAlpha)),
+            )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.rec_live_capture_banner_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    text =
+                        stringResource(
+                            if (isPaused) {
+                                R.string.rec_live_capture_banner_subtitle_paused
+                            } else {
+                                R.string.rec_live_capture_banner_subtitle_active
+                            },
+                        ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

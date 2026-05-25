@@ -127,6 +127,19 @@ class RecordingStateManagerTest {
     }
 
     @Test
+    fun onCaptureStopHandoff_releasesLockImmediately() {
+        val recordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = recordingId)
+
+        manager.onCaptureStopHandoff(recordingId)
+
+        assertTrue(manager.state.value is RecordingState.Idle)
+        assertTrue(manager.canStartRecording())
+        assertEquals(recordingId, manager.lastCompletedRecordingId.value)
+    }
+
+    @Test
     fun onRecordingCompleted_returnsToIdle() {
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.transitionToStopping()

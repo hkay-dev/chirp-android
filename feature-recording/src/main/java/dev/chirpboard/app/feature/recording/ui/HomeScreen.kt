@@ -92,7 +92,7 @@ import java.util.UUID
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
-    onRecordingClick: (UUID) -> Unit,
+    onRecordingClick: (RecordingDisplayItem) -> Unit,
     onRecordClick: () -> Unit,
     onQuickStartClick: (UUID) -> Unit,
     onSettingsClick: () -> Unit,
@@ -601,7 +601,8 @@ fun HomeScreen(
                             RecordingListItem(
                                 item = item,
                                 playbackState = playbackState,
-                                onClick = { onRecordingClick(item.id) },
+                                recordingState = recordingState,
+                                onClick = { onRecordingClick(item) },
                                 onPlayClick = { viewModel.playRecording(item) },
                                 onLongClick = { selectedItem = item },
                             )

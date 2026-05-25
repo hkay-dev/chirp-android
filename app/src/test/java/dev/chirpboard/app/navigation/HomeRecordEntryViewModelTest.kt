@@ -7,6 +7,8 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
 import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.feature.recording.RecordingManager
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -33,7 +35,9 @@ class HomeRecordEntryViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var modelReadinessGate: SpeechModelReadinessGate
+    private lateinit var recordingManager: RecordingManager
     private lateinit var readinessStateFlow: MutableStateFlow<ModelReadinessState>
+    private lateinit var recordingStateFlow: MutableStateFlow<RecordingState>
     private lateinit var viewModel: HomeRecordEntryViewModel
 
     @Before
@@ -44,9 +48,13 @@ class HomeRecordEntryViewModelTest {
         every { Log.e(any(), any()) } returns 0
         Dispatchers.setMain(testDispatcher)
         modelReadinessGate = mockk(relaxed = true)
+        recordingManager = mockk(relaxed = true)
         readinessStateFlow = MutableStateFlow(ModelReadinessState.Unknown)
+        recordingStateFlow = MutableStateFlow(RecordingState.Idle)
         every { modelReadinessGate.state } returns readinessStateFlow
-        viewModel = HomeRecordEntryViewModel(modelReadinessGate)
+        every { recordingManager.state } returns recordingStateFlow
+        every { recordingManager.hasActiveAppCapture } returns false
+        viewModel = HomeRecordEntryViewModel(modelReadinessGate, recordingManager)
     }
 
     @After
@@ -68,6 +76,20 @@ class HomeRecordEntryViewModelTest {
         
         viewModel.events.test {
             expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        coVerify(exactly = 0) { modelReadinessGate.ensureReady(any()) }
+    }
+
+    @Test
+    fun `onRecordTapped navigates to active record screen when app capture is live`() = runTest {
+        every { recordingManager.hasActiveAppCapture } returns true
+
+        viewModel.onRecordTapped()
+
+        viewModel.events.test {
+            assertEquals(HomeRecordEntryEvent.NavigateToRecord(autoStart = false), awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
 

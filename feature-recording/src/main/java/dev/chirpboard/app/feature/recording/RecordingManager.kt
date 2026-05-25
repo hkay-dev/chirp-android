@@ -31,6 +31,18 @@ class RecordingManager
         val canStartRecording: Boolean
             get() = stateManager.canStartRecording()
 
+        /** True when the main app holds an active capture session that can be resumed on RecordScreen. */
+        val hasActiveAppCapture: Boolean
+            get() =
+                when (val current = state.value) {
+                    is RecordingState.Starting,
+                    is RecordingState.Recording,
+                    is RecordingState.Paused,
+                    -> current.activeOrigin == RecordingOrigin.APP
+
+                    else -> false
+                }
+
         /** Current recording duration in milliseconds */
         val currentDurationMs: Long
             get() = stateManager.getCurrentDurationMs()

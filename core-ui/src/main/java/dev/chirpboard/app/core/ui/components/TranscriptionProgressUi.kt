@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Mic
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,7 @@ data class TranscriptionProgressCopy(
 
 enum class TranscriptionProgressKind {
     Finalizing,
+    Queued,
     Transcribing,
     Enhancing,
 }
@@ -72,12 +74,13 @@ fun TranscriptionProgressPanel(
 @Composable
 fun TranscriptionProgressBanner(
     copy: TranscriptionProgressCopy,
+    kind: TranscriptionProgressKind? = null,
     modifier: Modifier = Modifier,
 ) {
     MorphingTranscriptionProgress(
         compact = true,
         copy = copy,
-        kind = null,
+        kind = kind,
         modifier = modifier.fillMaxWidth(),
     )
 }
@@ -214,6 +217,14 @@ private fun ProgressLeadingIndicator(
                     tint = MaterialTheme.colorScheme.primary,
                 )
 
+            TranscriptionProgressKind.Queued ->
+                Icon(
+                    imageVector = Icons.Outlined.Schedule,
+                    contentDescription = null,
+                    modifier = Modifier.size(spinnerSize),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+
             TranscriptionProgressKind.Transcribing ->
                 Icon(
                     imageVector = Icons.Outlined.Mic,
@@ -319,6 +330,21 @@ fun RecordingStatus?.transcriptionProgressCopy(): TranscriptionProgressCopy? =
                 subtitle = stringResource(R.string.rec_recording_finalize_subtitle),
             )
 
+        TranscriptionProgressKind.Queued ->
+            when (this) {
+                RecordingStatus.PENDING_ENHANCEMENT ->
+                    TranscriptionProgressCopy(
+                        title = stringResource(R.string.rec_enhancement_queued_title),
+                        subtitle = stringResource(R.string.rec_enhancement_queued_subtitle),
+                    )
+
+                else ->
+                    TranscriptionProgressCopy(
+                        title = stringResource(R.string.rec_transcription_queued_title),
+                        subtitle = stringResource(R.string.rec_transcription_queued_subtitle),
+                    )
+            }
+
         TranscriptionProgressKind.Transcribing ->
             TranscriptionProgressCopy(
                 title = stringResource(R.string.rec_transcription_progress_title),
@@ -339,12 +365,12 @@ fun RecordingStatus?.transcriptionProgressKind(): TranscriptionProgressKind? =
         RecordingStatus.RECORDING -> TranscriptionProgressKind.Finalizing
 
         RecordingStatus.PENDING_TRANSCRIPTION,
-        RecordingStatus.TRANSCRIBING,
-        -> TranscriptionProgressKind.Transcribing
-
-        RecordingStatus.ENHANCING,
         RecordingStatus.PENDING_ENHANCEMENT,
-        -> TranscriptionProgressKind.Enhancing
+        -> TranscriptionProgressKind.Queued
+
+        RecordingStatus.TRANSCRIBING -> TranscriptionProgressKind.Transcribing
+
+        RecordingStatus.ENHANCING -> TranscriptionProgressKind.Enhancing
 
         else -> null
     }

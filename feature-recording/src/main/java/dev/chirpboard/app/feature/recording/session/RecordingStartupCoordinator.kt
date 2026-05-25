@@ -17,11 +17,13 @@ class RecordingStartupCoordinator
         private val sessionJournal: RecordingSessionJournal,
         private val pendingStopStore: KeyboardPendingStopStore,
         private val recordingStateManager: RecordingStateManager,
+        private val finalizeStartupReconciler: RecordingFinalizeStartupReconciler,
     ) {
         suspend fun onAppStart() {
             withContext(Dispatchers.IO) {
                 sessionJournal.pruneAbandonedEntries()
                 pendingStopStore.reconcileStale(recordingStateManager.state.value)
+                finalizeStartupReconciler.reconcilePendingFinalizations()
             }
             recoveryStore.refresh()
             orphanedAudioCleaner.cleanOrphanedFiles()

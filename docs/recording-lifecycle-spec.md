@@ -9,6 +9,8 @@ Operational summary for recording, recovery, and stop handoff. **Canonical requi
 - Applied: `openspec/changes/archive/2026-05-25-recording-edge-case-races/`
 - Applied: `openspec/changes/archive/2026-05-25-transcription-pipeline-hardening/`
 - Applied: `openspec/changes/archive/2026-05-25-nav-search-playback-polish/`
+- Applied: `openspec/changes/archive/2026-05-25-decouple-capture-finalize-queue/`
+- Applied: `openspec/changes/live-capture-home-presence/`
 - **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (remaining proposed changes)
 
 When editing behavior, update the OpenSpec change or baseline first, then mirror here.
@@ -18,11 +20,30 @@ When editing behavior, update the OpenSpec change or baseline first, then mirror
 Global coordination lives in `RecordingStateManager` (`core-contracts`):
 
 ```
-Idle → Starting → Recording ⇄ Paused → Stopping → Idle
-                                      ↘ Error → Idle
+Idle → Starting → Recording ⇄ Paused
+  → [capture stop handoff] → Idle   (lock released; DB row stays RECORDING until finalize worker)
+  ↘ Error → Idle
 ```
 
-Only one recording origin may hold the lock at a time (`APP`, `WIDGET`, `KEYBOARD`).
+`Stopping` remains for keyboard-origin inline stop UX only. APP/WIDGET service stops do **not** hold the lock through stitch.
+
+Only one **capture** session may hold the lock at a time (`APP`, `WIDGET`, `KEYBOARD`).
+
+## Processing phases on Home
+
+| DB status / capture | Visible on Home | Banner |
+|---------------------|-----------------|--------|
+| `RECORDING` (live APP capture) | Yes | Recording (pulsing red; tap returns to RecordScreen) |
+| `RECORDING` (background finalize) | Yes | Stitching your recording together |
+| `PENDING_TRANSCRIPTION` / `PENDING_ENHANCEMENT` | Yes | Waiting in line |
+| `TRANSCRIBING` / `ENHANCING` | Yes | Transcribing / Enhancing |
+
+### Browse home while recording
+
+1. User taps back/close on RecordScreen during active or paused capture.
+2. Dialog offers **Save**, **Discard**, or **Browse home**.
+3. Browse home pops to Home; mic capture continues.
+4. Home shows the live capture row; tap or record FAB returns to RecordScreen (`autoStart=false`).
 
 ## Capture backends
 
@@ -41,11 +62,12 @@ Only one recording origin may hold the lock at a time (`APP`, `WIDGET`, `KEYBOAR
 
 ## Stop
 
-1. `transitionToStopping()` then finalize capture → `RecordingStopOrchestrator.persistAndQueueRecording()`.
-2. Success: `markFinalized()` deletes journal → `onRecordingCompleted(recordingId)` → UI navigates to Processing Studio.
-3. **Done handoff:** On Done (or save-from-back), RecordScreen navigates **immediately** using `activeRecordingId` so Processing Studio shows the “Stitching” finalizing state while the service completes stop. `lastCompletedRecordingId` is fallback-only (deduped via `hasNavigatedToComplete`).
-4. Failure: `markAbandoned()` + delete in-progress row + `onRecordingError()`.
-5. Stopping timeout (service-owned): abandon journal, delete in-progress row, invalidate in-flight stop job, `finishStopLifecycle()`.
+1. Service stops the mic (`stopAndFinalize` on capture engine), marks session journal `STOPPING`, enqueues `RecordingFinalizeWorker` on the serial WorkManager pipeline (`recording_finalize_pipeline`), and calls `onCaptureStopHandoff(recordingId)` to release the global lock immediately.
+2. **Done handoff:** RecordScreen navigates immediately using `activeRecordingId` so Processing Studio and Home show Stitching while the finalize worker runs.
+3. Background finalize (`RecordingFinalizeWorker`): concat segments → validate → `finalizeInProgressRecording` → transcription enqueue via `RecordingStopOrchestrator`.
+4. Success: journal `markFinalized()`; row becomes `PENDING_TRANSCRIPTION` (Waiting in line on Home).
+5. Failure: journal abandon + delete in-progress row; reliability event only (no global Error if user already started a new capture).
+6. Startup: `RecordingFinalizeStartupReconciler` re-enqueues finalize work for `STOPPING` journals with in-progress DB rows after process death.
 
 ### Origin-aware stop routing
 

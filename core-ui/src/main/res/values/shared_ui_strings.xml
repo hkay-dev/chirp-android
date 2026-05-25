@@ -19,8 +19,12 @@
     <string name="rec_source_keyboard">Keyboard</string>
     <string name="rec_source_widget">Widget</string>
     <string name="rec_status_failed">Failed</string>
+    <string name="rec_transcription_queued_title">Waiting in line</string>
+    <string name="rec_transcription_queued_subtitle">Transcription will start after earlier recordings finish.</string>
     <string name="rec_transcription_progress_title">Transcribing</string>
     <string name="rec_transcription_progress_subtitle">Your transcript will appear here when processing finishes.</string>
+    <string name="rec_enhancement_queued_title">Waiting in line</string>
+    <string name="rec_enhancement_queued_subtitle">Enhancement will start after earlier work finishes.</string>
     <string name="rec_enhancement_progress_title">Enhancing</string>
     <string name="rec_enhancement_progress_subtitle">Title and summary updates run after transcription completes.</string>
     <string name="rec_recording_finalize_title">Stitching your recording together</string>

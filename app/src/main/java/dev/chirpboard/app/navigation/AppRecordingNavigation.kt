@@ -57,7 +57,10 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                 when (event) {
                     is HomeRecordEntryEvent.NavigateToRecord -> {
                         navController.navigate(
-                            Screen.Record.createRoute(profileId = event.profileId?.toString()),
+                            Screen.Record.createRoute(
+                                autoStart = event.autoStart,
+                                profileId = event.profileId?.toString(),
+                            ),
                         )
                     }
 
@@ -98,8 +101,12 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
         }
 
         HomeScreen(
-            onRecordingClick = { id ->
-                navController.navigateToStudio(id)
+            onRecordingClick = { item ->
+                if (item.isLiveCapture) {
+                    navController.navigate(Screen.Record.createRoute(autoStart = false))
+                } else {
+                    navController.navigateToStudio(item.id)
+                }
             },
             onRecordClick = {
                 recordEntryViewModel.onRecordTapped()

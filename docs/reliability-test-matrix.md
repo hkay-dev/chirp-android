@@ -6,7 +6,8 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 
 | Stage | Risk Class | Automated Coverage | Command |
 | --- | --- | --- | --- |
-| Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff; Done must navigate immediately to studio stitching UI | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest`, `RecordViewModelTest` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin` |
+| Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff; Done must navigate immediately to studio stitching UI; capture lock released before background finalize | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest`, `RecordViewModelTest`, `RecordingStateManagerTest.onCaptureStopHandoff_releasesLockImmediately` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin`, `:core-contracts:testDebugUnitTest` |
+| Background finalize queue | Stitch/persist/enqueue runs FIFO after capture stop; crash recovery re-enqueues STOPPING journals | `RecordingFinalizeStopOutcomeApplierTest`, `StopSnapshotWorkDataTest`, `RecordingStartupCoordinatorTest` | `:feature-recording:testDebugUnitTest` |
 | Queue recovery | Pending work orphaned or stale transcribing/enhancing states not recovered | `TranscriptionQueueReconciliationPolicyTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionWorkerSupportTest`, `TranscriptionOutcomeMappingTest`, `InlineTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription worker active wait | Worker does not block forever when another recording stays active | `TranscriptionWorkerSupportTest` active wait timeout | `:feature-transcription:testDebugUnitTest` |
@@ -70,6 +71,10 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Studio launchSingleTop | Repeated Home/search taps do not stack Studio entries | `StudioNavigation` helper + manual N1–N3 | Implemented |
 | Search excludes RECORDING | In-progress rows hidden from search results | `RecordingDaoTest.searchRecordings_excludesInProgressRows`, `HomeViewModelTest` | Implemented |
 | Mini player cross-studio | Opening Studio for B pauses playback of A | `ProcessingStudioViewModelTest`, manual N4 | Implemented |
+| Capture finalize decoupling | Lock released on handoff; background worker stitches/enqueues | `RecordingStateManagerTest.onCaptureStopHandoff_releasesLockImmediately`, `RecordingFinalizeStopOutcomeApplierTest` | Implemented |
+| Home stitching visibility | RECORDING rows visible during background finalize | `HomeViewModelTest` background finalize while idle | Implemented |
+| Finalize startup recovery | STOPPING journals re-enqueued on app start | `RecordingStartupCoordinatorTest` | Implemented |
+| Queued transcription UI | PENDING_* shows Waiting in line on Home | `TranscriptionProgressUiTest` | Implemented |
 
 ## Unit test standards
 
