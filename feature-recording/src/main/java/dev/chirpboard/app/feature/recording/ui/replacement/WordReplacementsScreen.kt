@@ -66,6 +66,7 @@ import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.WordReplacement
 import dev.chirpboard.app.core.ui.R as CoreR
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import dev.chirpboard.app.feature.recording.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -117,6 +118,7 @@ fun WordReplacementsScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
+            modifier = Modifier.animatePushDownLayout(),
             targetState = replacements.isEmpty(),
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith

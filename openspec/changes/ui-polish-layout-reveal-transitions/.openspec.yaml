@@ -1,0 +1,9 @@
+schema: spec-driven
+created: 2026-05-25
+change_id: ui-polish-layout-reveal-transitions
+title: UI polish — layout reveal transitions
+status: applied
+depends_on:
+  - ui-polish-regression-fixes
+  - ui-polish-nav-shell-stability
+  - ui-polish-studio-processing-ux

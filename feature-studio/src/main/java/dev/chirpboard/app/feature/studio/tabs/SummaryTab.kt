@@ -1,6 +1,9 @@
 package dev.chirpboard.app.feature.studio.tabs
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -111,7 +114,10 @@ private fun StructuredOutcomeSection(
         shape = MaterialTheme.shapes.large,
         tonalElevation = 2.dp,
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(
+            modifier = Modifier.padding(16.dp).animatePushDownLayout(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -133,84 +139,96 @@ private fun StructuredOutcomeSection(
                 )
             }
 
-            when {
-                !state.isVisible -> {
-                    StructuredOutcomeInfo(
-                        text = stringResource(R.string.rec_structured_unavailable),
-                    )
+            val sectionKey =
+                when {
+                    !state.isVisible -> "unavailable"
+                    !state.hasTranscriptText -> "no_transcript"
+                    state.isGenerating && !state.hasReadySnapshot -> "generating"
+                    !state.hasReadySnapshot && state.failureMessage != null -> "failed"
+                    !state.hasReadySnapshot -> "empty"
+                    else -> "ready"
                 }
 
-                !state.hasTranscriptText -> {
-                    Text(
-                        text = stringResource(R.string.rec_structured_no_transcript),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            AnimatedContent(
+                targetState = sectionKey,
+                transitionSpec = { ChirpMotion.studioContentCrossfade },
+                label = "structured_outcome_section",
+            ) { key ->
+                when (key) {
+                    "unavailable" -> {
+                        StructuredOutcomeInfo(
+                            text = stringResource(R.string.rec_structured_unavailable),
+                        )
+                    }
 
-                state.isGenerating && !state.hasReadySnapshot -> {
-                    StructuredOutcomeGeneratingProgress()
-                }
+                    "no_transcript" -> {
+                        Text(
+                            text = stringResource(R.string.rec_structured_no_transcript),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
 
-                !state.hasReadySnapshot && state.failureMessage != null -> {
-                    StructuredOutcomeInfo(
-                        text = stringResource(R.string.rec_structured_failed_message, state.failureMessage),
-                        isError = true,
-                    )
-                }
-
-                !state.hasReadySnapshot -> {
-                    StructuredOutcomeInfo(
-                        text = stringResource(R.string.rec_structured_empty_body),
-                    )
-                }
-
-                else -> {
-                    AnimatedVisibility(
-                        visible = state.isGenerating,
-                        enter = progressEnterTransition,
-                        exit = progressExitTransition,
-                    ) {
+                    "generating" -> {
                         StructuredOutcomeGeneratingProgress()
                     }
-                    if (state.isStale) {
+
+                    "failed" -> {
                         StructuredOutcomeInfo(
-                            text = stringResource(R.string.rec_structured_stale),
+                            text = stringResource(R.string.rec_structured_failed_message, state.failureMessage.orEmpty()),
                             isError = true,
                         )
                     }
-                    if (state.failureMessage != null) {
+
+                    "empty" -> {
                         StructuredOutcomeInfo(
-                            text = stringResource(R.string.rec_structured_failed_message, state.failureMessage),
-                            isError = true,
+                            text = stringResource(R.string.rec_structured_empty_body),
                         )
                     }
-                    if (!state.hasAnyGroups) {
-                        StructuredOutcomeInfo(
-                            text = stringResource(R.string.rec_structured_no_items),
+
+                    else -> {
+                        PushDownReveal(visible = state.isGenerating) {
+                            StructuredOutcomeGeneratingProgress()
+                        }
+                        if (state.isStale) {
+                            StructuredOutcomeInfo(
+                                text = stringResource(R.string.rec_structured_stale),
+                                isError = true,
+                            )
+                        }
+                        if (state.failureMessage != null) {
+                            StructuredOutcomeInfo(
+                                text = stringResource(R.string.rec_structured_failed_message, state.failureMessage),
+                                isError = true,
+                            )
+                        }
+                        if (!state.hasAnyGroups) {
+                            StructuredOutcomeInfo(
+                                text = stringResource(R.string.rec_structured_no_items),
+                            )
+                        }
+                        StructuredOutcomeGroupSection(
+                            title = stringResource(R.string.rec_structured_group_tasks),
+                            items = state.tasks,
+                            onCopyStructuredOutcome = onCopyStructuredOutcome,
+                            onShareStructuredOutcome = onShareStructuredOutcome,
+                            onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
+                        )
+                        StructuredOutcomeGroupSection(
+                            title = stringResource(R.string.rec_structured_group_decisions),
+                            items = state.decisions,
+                            onCopyStructuredOutcome = onCopyStructuredOutcome,
+                            onShareStructuredOutcome = onShareStructuredOutcome,
+                            onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
+                        )
+                        StructuredOutcomeGroupSection(
+                            title = stringResource(R.string.rec_structured_group_follow_ups),
+                            items = state.followUps,
+                            onCopyStructuredOutcome = onCopyStructuredOutcome,
+                            onShareStructuredOutcome = onShareStructuredOutcome,
+                            onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
                         )
                     }
-                    StructuredOutcomeGroupSection(
-                        title = stringResource(R.string.rec_structured_group_tasks),
-                        items = state.tasks,
-                        onCopyStructuredOutcome = onCopyStructuredOutcome,
-                        onShareStructuredOutcome = onShareStructuredOutcome,
-                        onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
-                    )
-                    StructuredOutcomeGroupSection(
-                        title = stringResource(R.string.rec_structured_group_decisions),
-                        items = state.decisions,
-                        onCopyStructuredOutcome = onCopyStructuredOutcome,
-                        onShareStructuredOutcome = onShareStructuredOutcome,
-                        onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
-                    )
-                    StructuredOutcomeGroupSection(
-                        title = stringResource(R.string.rec_structured_group_follow_ups),
-                        items = state.followUps,
-                        onCopyStructuredOutcome = onCopyStructuredOutcome,
-                        onShareStructuredOutcome = onShareStructuredOutcome,
-                        onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
-                    )
                 }
             }
         }

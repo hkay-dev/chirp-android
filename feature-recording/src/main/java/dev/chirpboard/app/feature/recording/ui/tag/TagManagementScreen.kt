@@ -63,6 +63,7 @@ import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.core.ui.R as CoreR
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import dev.chirpboard.app.feature.recording.R
 
 /**
@@ -107,6 +108,7 @@ fun TagManagementScreen(
         },
     ) { paddingValues ->
         AnimatedContent(
+            modifier = Modifier.animatePushDownLayout(),
             targetState = tags.isEmpty(),
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith

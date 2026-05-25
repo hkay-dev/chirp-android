@@ -2,16 +2,17 @@ package dev.chirpboard.app.feature.studio.tabs
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
 
 @Composable
 internal fun StudioProcessingHeader(
@@ -26,13 +27,9 @@ internal fun StudioProcessingHeader(
             modifier
                 .fillMaxWidth(),
     ) {
-        AnimatedVisibility(
-            visible = progressCopy != null && progressKind != null,
-            enter = progressEnterTransition,
-            exit = progressExitTransition,
-        ) {
-            val copy = progressCopy ?: return@AnimatedVisibility
-            val kind = progressKind ?: return@AnimatedVisibility
+        PushDownReveal(visible = progressCopy != null && progressKind != null) {
+            val copy = progressCopy ?: return@PushDownReveal
+            val kind = progressKind ?: return@PushDownReveal
             AnimatedContent(
                 targetState = kind,
                 transitionSpec = { ChirpMotion.studioContentCrossfade },
@@ -47,11 +44,7 @@ internal fun StudioProcessingHeader(
             }
         }
 
-        AnimatedVisibility(
-            visible = showPlayer,
-            enter = progressEnterTransition,
-            exit = progressExitTransition,
-        ) {
+        PushDownReveal(visible = showPlayer) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 HorizontalDivider(
                     modifier = Modifier.padding(top = 4.dp),

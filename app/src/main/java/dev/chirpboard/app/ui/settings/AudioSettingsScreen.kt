@@ -23,6 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -111,17 +113,21 @@ fun AudioSettingsScreen(
                 }
             }
 
-            if (inputDevicePolicy == AudioInputDevicePolicy.Manual) {
-                items(availableInputDevices, key = { it.id }) { device ->
-                    ListItem(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { viewModel.setManualInputDevice(device.address ?: device.id.toString()) },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        headlineContent = { Text(device.productName) },
-                        supportingContent = { Text(device.typeLabel) },
-                    )
+            item(key = "manual_input_devices") {
+                PushDownReveal(visible = inputDevicePolicy == AudioInputDevicePolicy.Manual) {
+                    Column(modifier = Modifier.animatePushDownLayout()) {
+                        availableInputDevices.forEach { device ->
+                            ListItem(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.setManualInputDevice(device.address ?: device.id.toString()) },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                headlineContent = { Text(device.productName) },
+                                supportingContent = { Text(device.typeLabel) },
+                            )
+                        }
+                    }
                 }
             }
 

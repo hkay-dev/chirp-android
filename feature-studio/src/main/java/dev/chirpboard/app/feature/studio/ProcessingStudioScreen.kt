@@ -1,8 +1,11 @@
 package dev.chirpboard.app.feature.studio
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -286,39 +289,51 @@ fun ProcessingStudioScreen(
                     ),
         ) {
             // Metadata Bar
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                if (state.isEditingTitle) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextField(
-                            value = state.editedTitle,
-                            onValueChange = viewModel::updateEditedTitle,
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            colors =
-                                TextFieldDefaults.colors(
-                                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                                ),
-                        )
-                        IconButton(onClick = viewModel::cancelEditingTitle) {
-                            Icon(Icons.Default.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).animatePushDownLayout()) {
+                AnimatedContent(
+                    targetState = Triple(state.isEditingTitle, showMetadataSkeleton, state.title),
+                    transitionSpec = { ChirpMotion.studioContentCrossfade },
+                    label = "studio_title_metadata",
+                ) { (editing, skeleton, title) ->
+                    when {
+                        editing -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextField(
+                                    value = state.editedTitle,
+                                    onValueChange = viewModel::updateEditedTitle,
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    colors =
+                                        TextFieldDefaults.colors(
+                                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        ),
+                                )
+                                IconButton(onClick = viewModel::cancelEditingTitle) {
+                                    Icon(Icons.Default.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
+                                }
+                                IconButton(onClick = viewModel::saveTitle) {
+                                    Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
+                                }
+                            }
                         }
-                        IconButton(onClick = viewModel::saveTitle) {
-                            Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
+
+                        skeleton -> {
+                            Text(
+                                text = stringResource(R.string.rec_studio_loading_title),
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        else -> {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
                         }
                     }
-                } else if (showMetadataSkeleton) {
-                    Text(
-                        text = stringResource(R.string.rec_studio_loading_title),
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        text = state.title,
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 if (showMetadataSkeleton) {
@@ -351,13 +366,8 @@ fun ProcessingStudioScreen(
                     state.audioPath.isNotBlank() &&
                     state.status != RecordingStatus.RECORDING
 
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = if (progressCopy != null || showPlayer) 72.dp else 0.dp),
-            ) {
             StudioProcessingHeader(
+                modifier = Modifier.fillMaxWidth(),
                 progressCopy = progressCopy,
                 progressKind = progressKind,
                 showPlayer = showPlayer,
@@ -382,11 +392,14 @@ fun ProcessingStudioScreen(
                     )
                 },
             )
-            }
 
-            if (state.errorMessage != null || state.recoveryActions.showPendingRecovery ||
-                state.recoveryActions.showEnhancementRecovery || state.recoveryActions.showFailedRetry
-            ) {
+            val showRecoverySection =
+                state.errorMessage != null ||
+                    state.recoveryActions.showPendingRecovery ||
+                    state.recoveryActions.showEnhancementRecovery ||
+                    state.recoveryActions.showFailedRetry
+
+            PushDownReveal(visible = showRecoverySection) {
                 TranscriptionRecoverySection(
                     recoveryActions = state.recoveryActions,
                     diagnostics = state.recoveryDiagnostics,
@@ -398,7 +411,7 @@ fun ProcessingStudioScreen(
                 )
             }
 
-            if (state.errorMessage != null) {
+            PushDownReveal(visible = state.errorMessage != null) {
                 val isFailure = state.status == RecordingStatus.FAILED
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -412,7 +425,7 @@ fun ProcessingStudioScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Error,
+                            imageVector = Icons.Default.Error,
                             contentDescription = stringResource(R.string.rec_processing_error),
                         )
                         Text(

@@ -45,6 +45,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.motion.ChirpMotion.layoutSizeSpring
+import dev.chirpboard.app.core.ui.motion.ChirpMotion.miniPlayerHideTransition
+import dev.chirpboard.app.core.ui.motion.ChirpMotion.miniPlayerRevealTransition
 import dev.chirpboard.app.core.ui.playback.RecordingMiniPlayerBar
 import dev.chirpboard.app.core.ui.playback.rememberRecordingPlaybackController
 import dev.chirpboard.app.core.ui.playback.shouldShowGlobalMiniPlayer
@@ -55,20 +58,6 @@ import kotlinx.coroutines.flow.collect
  * Durations are intentionally matched and slightly long to mask frame hitches.
  */
 private val navSlideDivisor = ChirpMotion.NAV_SLIDE_OFFSET_DIVISOR
-
-private const val MINI_PLAYER_ENTER_MS = 300
-private val miniPlayerEnterTransition =
-    fadeIn(tween(MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing)) +
-        slideInVertically(
-            initialOffsetY = { fullHeight -> fullHeight },
-            animationSpec = tween(MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing),
-        )
-private val miniPlayerExitTransition =
-    fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing)) +
-        slideOutVertically(
-            targetOffsetY = { fullHeight -> fullHeight },
-            animationSpec = tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
-        )
 
 private val sharedAudioOverlayFadeIn = fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = FastOutSlowInEasing))
 private val sharedAudioOverlayFadeOut = fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing))
@@ -128,7 +117,7 @@ internal fun AppNavHost(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .animateContentSize(),
+                    .animateContentSize(animationSpec = layoutSizeSpring),
         ) {
             NavHost(
                 navController = navController,
@@ -213,8 +202,8 @@ internal fun AppNavHost(
 
             AnimatedVisibility(
                 visible = showGlobalMiniPlayer,
-                enter = miniPlayerEnterTransition,
-                exit = miniPlayerExitTransition,
+                enter = miniPlayerRevealTransition,
+                exit = miniPlayerHideTransition,
             ) {
                 RecordingMiniPlayerBar(
                     state = playbackState,

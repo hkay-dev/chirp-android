@@ -8,6 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import java.util.UUID
 
 @Composable
@@ -41,11 +43,14 @@ fun RecordingFullPlayer(
         modifier =
             modifier
                 .fillMaxWidth()
+                .animatePushDownLayout()
                 .padding(vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (alternateAudioNotice != null) {
-            PlaybackNoticeBanner(message = alternateAudioNotice)
+        PushDownReveal(visible = alternateAudioNotice != null) {
+            alternateAudioNotice?.let { message ->
+                PlaybackNoticeBanner(message = message)
+            }
         }
 
         PlaybackTransportRow(

@@ -48,6 +48,8 @@ import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
+import dev.chirpboard.app.core.ui.motion.PushDownReveal
+import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -270,17 +272,20 @@ fun RecordScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 24.dp)
+                .animatePushDownLayout(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(24.dp))
 
-            activeProfile?.let { profile ->
-                ActiveProfileSessionBadge(
-                    profile = profile,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+            PushDownReveal(visible = activeProfile != null) {
+                activeProfile?.let { profile ->
+                    ActiveProfileSessionBadge(
+                        profile = profile,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
             }
 
             RecordingTimer(
