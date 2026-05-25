@@ -77,8 +77,8 @@ class HomeViewModelTest {
         every { sessionRecovery.pendingSessions } returns MutableStateFlow(emptyList())
         coEvery { sessionRecovery.refresh() } returns Unit
         val playbackController =
-            mockk<dev.chirpboard.app.core.audio.RecordingPlaybackController>(relaxed = true) {
-                every { state } returns MutableStateFlow(dev.chirpboard.app.core.audio.RecordingPlaybackState())
+            mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
             }
         savedStateHandle = SavedStateHandle()
 

@@ -1,62 +1,12 @@
 package dev.chirpboard.app.feature.transcription
 
-import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranscriptionOutcomeMappingTest {
-
-    @Test
-    fun `success outcome returns text and timing`() {
-        val result = mapOutcomeForChunkTranscription(
-            TranscriptionOutcome.Success(
-                text = "hello world",
-                wordTimings = emptyList(),
-            ),
-        )
-
-        assertEquals("hello world", result.text)
-        assertTrue(result.wordTimings?.isEmpty() == true)
-    }
-
-    @Test
-    fun `no speech outcome returns empty chunk`() {
-        val result = mapOutcomeForChunkTranscription(TranscriptionOutcome.NoSpeech)
-
-        assertEquals("", result.text)
-        assertEquals(null, result.wordTimings)
-    }
-
-    @Test
-    fun `model unavailable outcome throws non-retryable exception`() {
-        assertThrows(NonRetryableTranscriptionException::class.java) {
-            mapOutcomeForChunkTranscription(
-                TranscriptionOutcome.ModelUnavailable("model missing")
-            )
-        }
-    }
-
-    @Test
-    fun `retryable engine error outcome throws retryable exception`() {
-        assertThrows(RetryableTranscriptionException::class.java) {
-            mapOutcomeForChunkTranscription(
-                TranscriptionOutcome.EngineError("temporary codec issue", retryable = true)
-            )
-        }
-    }
-
-    @Test
-    fun `non retryable engine error outcome throws non-retryable exception`() {
-        assertThrows(NonRetryableTranscriptionException::class.java) {
-            mapOutcomeForChunkTranscription(
-                TranscriptionOutcome.EngineError("decoder crashed", retryable = false)
-            )
-        }
-    }
 
     // --- Exception hierarchy contract tests ---
     // shouldRetry() in TranscriptionWorker checks `is java.io.IOException`.

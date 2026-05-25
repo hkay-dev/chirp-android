@@ -1,4 +1,4 @@
-package dev.chirpboard.app.core.audio
+package dev.chirpboard.app.core.playback
 
 import java.util.UUID
 

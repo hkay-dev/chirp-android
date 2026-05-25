@@ -35,5 +35,4 @@ dependencies {
     testImplementation(project(":test-support"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation(libs.mockk)
-    testImplementation("app.cash.turbine:turbine:1.0.0")
 }

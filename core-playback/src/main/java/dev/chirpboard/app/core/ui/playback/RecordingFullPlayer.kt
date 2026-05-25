@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.core.audio.RecordingPlaybackState
+import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import java.util.UUID
 
 @Composable

@@ -40,6 +40,9 @@ fix_voice_recorder.sh
 .cursor/
 .device-audit/
 
+# Root-level agent audit Python scripts (local tooling)
+/*.py
+
 # Agent / desloppify audit outputs (regenerated locally, not committed)
 wontfix.json
 wontfix_remaining.json

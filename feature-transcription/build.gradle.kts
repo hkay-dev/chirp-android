@@ -67,7 +67,6 @@ dependencies {
 
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation(libs.guava)
 
     // Testing
     testImplementation("junit:junit:4.13.2")

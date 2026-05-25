@@ -14,7 +14,7 @@ import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
-import dev.chirpboard.app.core.audio.RecordingPlaybackController
+import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.collections.immutable.toImmutableList
@@ -61,7 +61,7 @@ class ProcessingStudioViewModel
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
 
-        val playbackState: StateFlow<dev.chirpboard.app.core.audio.RecordingPlaybackState> = playbackController.state
+        val playbackState: StateFlow<dev.chirpboard.app.core.playback.RecordingPlaybackState> = playbackController.state
 
         init {
             val recordingIdStr = savedStateHandle.get<String>("recordingId")
