@@ -39,7 +39,6 @@ class LlmPreferences
             private const val APP_PREFS_NAME = "chirp"
             private const val GEMINI_CREDENTIAL_PREF = "gemini_api_key"
             private const val KEY_GEMINI_MODEL = "gemini_model"
-            private const val DEFAULT_MODEL = "gemini-3.1-flash-lite-preview"
         }
 
         private val appPrefs: SharedPreferences by lazy {
@@ -55,6 +54,7 @@ class LlmPreferences
         private val _apiKey = MutableStateFlow<String?>(null)
 
         init {
+            migrateStoredModelNameIfNeeded()
             _apiKey.value = readStoredApiKey()
         }
 
@@ -74,7 +74,7 @@ class LlmPreferences
             return stored
         }
 
-        fun getModelName(): String = appPrefs.getString(KEY_GEMINI_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL
+        fun getModelName(): String = resolveGeminiModelName(appPrefs.getString(KEY_GEMINI_MODEL, null))
 
         val autoTitle: Flow<Boolean> =
             context.dataStore.data.map { preferences ->
@@ -112,7 +112,7 @@ class LlmPreferences
         }
 
         fun setModelName(modelName: String) {
-            appPrefs.edit().putString(KEY_GEMINI_MODEL, modelName).apply()
+            appPrefs.edit().putString(KEY_GEMINI_MODEL, resolveGeminiModelName(modelName)).apply()
         }
 
         suspend fun clearApiKey() {
@@ -144,6 +144,15 @@ class LlmPreferences
             }
 
         private fun readStoredApiKey(): String? = securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null)
+
+        private fun migrateStoredModelNameIfNeeded() {
+            val stored = appPrefs.getString(KEY_GEMINI_MODEL, null) ?: return
+            val resolved = resolveGeminiModelName(stored)
+            if (stored != resolved) {
+                Log.i(TAG, "Migrating Gemini model from $stored to $resolved")
+                appPrefs.edit().putString(KEY_GEMINI_MODEL, resolved).apply()
+            }
+        }
 
         /**
          * Check if an API key has been configured.
