@@ -7,7 +7,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.recording.service.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers

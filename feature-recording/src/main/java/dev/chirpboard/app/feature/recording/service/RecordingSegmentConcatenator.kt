@@ -7,6 +7,7 @@ import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.util.Log
 import dev.chirpboard.app.feature.recording.util.useCompat
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
 import java.nio.ByteBuffer
 import javax.inject.Inject

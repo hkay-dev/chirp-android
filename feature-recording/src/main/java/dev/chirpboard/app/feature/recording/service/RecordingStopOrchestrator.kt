@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import dev.chirpboard.app.feature.recording.util.useCompat
 import kotlinx.coroutines.Dispatchers

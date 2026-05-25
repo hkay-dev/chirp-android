@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.recording.service
+package dev.chirpboard.app.feature.recording.session.validation
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

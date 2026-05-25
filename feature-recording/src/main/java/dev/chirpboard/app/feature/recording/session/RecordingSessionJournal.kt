@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingOrigin
-import dev.chirpboard.app.feature.recording.service.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject

@@ -6,6 +6,7 @@ import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

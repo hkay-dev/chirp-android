@@ -4,6 +4,7 @@ import android.media.MediaRecorder
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
