@@ -29,6 +29,13 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 5. With Bluetooth headset connected, Automatic policy should prefer built-in mic.
 6. Trigger low storage (or use emulator disk quota) and confirm warning/stop before data loss.
 
+## Unit test standards
+
+- Do not enable `isReturnDefaultValues` in module `build.gradle.kts`; stub Android framework APIs explicitly (for example `mockkStatic(Log::class)` or fakes).
+- Prefer behavior assertions over constant-echo tests that only restate production literals.
+- Keep trivial wiring tests out of the matrix; each automated row should cover a reliability risk or non-obvious invariant.
+
+
 ## Matrix Runner
 
 Use `scripts/run-reliability-matrix.sh` to execute the gate locally.

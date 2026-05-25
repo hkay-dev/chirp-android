@@ -37,6 +37,8 @@ braces.txt
 dbg.txt
 result.txt
 fix_voice_recorder.sh
+.cursor/
+.device-audit/
 
 # Agent / desloppify audit outputs (regenerated locally, not committed)
 wontfix.json

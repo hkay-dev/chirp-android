@@ -2,9 +2,14 @@ package dev.chirpboard.app.core.recording
 
 import org.junit.Assert.assertEquals
 import org.junit.Before
+import org.junit.Rule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 
 class RecordingStateManagerSegmentTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     private lateinit var manager: RecordingStateManager
 
     @Before

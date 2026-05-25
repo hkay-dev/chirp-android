@@ -8,10 +8,15 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Rule
+import dev.chirpboard.app.feature.transcription.testing.MockAndroidLogRule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChunkedAudioProcessorTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
 
     @Test
     fun `process yields expected chunks`() = runTest {

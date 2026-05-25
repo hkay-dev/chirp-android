@@ -32,11 +32,16 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
+import org.junit.Rule
+import dev.chirpboard.app.feature.keyboard.testing.MockAndroidLogRule
 import org.junit.Test
 import java.io.File
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class KeyboardTranscriptionPipelineTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var recognizerProvider: TranscriberProvider
     private lateinit var textProcessor: TextProcessor
