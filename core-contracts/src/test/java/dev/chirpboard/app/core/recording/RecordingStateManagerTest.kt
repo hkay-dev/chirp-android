@@ -64,12 +64,28 @@ class RecordingStateManagerTest {
 
     @Test
     fun onRecordingStarted_transitionsToRecording() {
+        val recordingId = UUID.randomUUID()
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
-        manager.onRecordingStarted(audioFilePath = "path/to/file")
+        manager.onRecordingStarted(audioFilePath = "path/to/file", recordingId = recordingId)
         
         val state = manager.state.value
         assertTrue(state is RecordingState.Recording)
         assertEquals("path/to/file", (state as RecordingState.Recording).audioFilePath)
+        assertEquals(recordingId, state.recordingId)
+        assertEquals(recordingId, state.activeRecordingId)
+    }
+
+    @Test
+    fun transitionToStopping_preservesRecordingId() {
+        val recordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path/to/file", recordingId = recordingId)
+
+        manager.transitionToStopping()
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Stopping)
+        assertEquals(recordingId, (state as RecordingState.Stopping).recordingId)
     }
 
     @Test

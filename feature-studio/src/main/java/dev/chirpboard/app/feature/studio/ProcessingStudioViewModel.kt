@@ -16,6 +16,7 @@ import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
@@ -198,11 +199,13 @@ class ProcessingStudioViewModel
 
                         _uiState.value = refreshTranscriptInteractionState(stateWithRecovery)
 
-                        scheduleDeferredStudioPlayback(
-                            recordingId = recording.id,
-                            title = recording.title,
-                            audioPath = recording.audioPath,
-                        )
+                        if (recording.status != RecordingStatus.RECORDING) {
+                            scheduleDeferredStudioPlayback(
+                                recordingId = recording.id,
+                                title = recording.title,
+                                audioPath = recording.audioPath,
+                            )
+                        }
                     } else {
                         _uiState.value = _uiState.value.copy(isLoading = false)
                     }
@@ -770,7 +773,8 @@ class ProcessingStudioViewModel
         }
 
         private fun isTranscriptBusy(status: RecordingStatus?): Boolean =
-            status == RecordingStatus.PENDING_TRANSCRIPTION ||
+            status == RecordingStatus.RECORDING ||
+                status == RecordingStatus.PENDING_TRANSCRIPTION ||
                 status == RecordingStatus.TRANSCRIBING ||
                 status == RecordingStatus.ENHANCING ||
                 status == RecordingStatus.PENDING_ENHANCEMENT

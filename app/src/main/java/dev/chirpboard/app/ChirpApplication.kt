@@ -6,9 +6,9 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
-import dev.chirpboard.app.download.ModelReadinessGate
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
 import dev.chirpboard.app.feature.widget.WidgetStateObserver
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +30,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var apiKeyMigration: ApiKeyMigration
 
     @Inject
-    lateinit var modelReadinessGate: ModelReadinessGate
+    lateinit var modelReadinessGate: SpeechModelReadinessGate
     
     @Inject
     lateinit var recordingStartupCoordinator: RecordingStartupCoordinator

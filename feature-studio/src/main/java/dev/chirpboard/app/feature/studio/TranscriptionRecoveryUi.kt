@@ -1,6 +1,5 @@
 package dev.chirpboard.app.feature.studio
 
-import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -45,14 +44,6 @@ fun RecoveryDiagnostics.toUiModel(): RecoveryDiagnosticsUi =
         lastAttemptEpochMs = lastAttemptEpochMs,
         ownership = ownership,
     )
-
-fun ManualRecoveryResult.toUserMessage(success: String): String =
-    when (this) {
-        ManualRecoveryResult.ENQUEUED -> success
-        ManualRecoveryResult.BLOCKED_ACTIVE_WORK -> "Already processing. Recovery disabled while active work runs"
-        ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT -> "Could not verify processing ownership. Try again shortly"
-        ManualRecoveryResult.NOT_RECOVERABLE_STATE -> "Recovery is unavailable for this state"
-    }
 
 object TranscriptionRecoveryTestTags {
     const val PendingRecoverButton = "pending_recover_button"

@@ -124,7 +124,11 @@ class RecordingStateManager @Inject constructor() {
      * 
      * @param audioFilePath Path where audio is being recorded
      */
-    fun onRecordingStarted(audioFilePath: String, onTransition: (RecordingState) -> Unit = {}) {
+    fun onRecordingStarted(
+        audioFilePath: String,
+        recordingId: UUID? = null,
+        onTransition: (RecordingState) -> Unit = {},
+    ) {
         _state.update { current ->
             when (current) {
                 is RecordingState.Starting -> {
@@ -132,7 +136,8 @@ class RecordingStateManager @Inject constructor() {
                     RecordingState.Recording(
                         origin = current.origin,
                         profileId = current.profileId,
-                        audioFilePath = audioFilePath
+                        audioFilePath = audioFilePath,
+                        recordingId = recordingId,
                     ).also(onTransition)
 
 
@@ -164,7 +169,8 @@ class RecordingStateManager @Inject constructor() {
                 origin = current.origin,
                 profileId = current.profileId,
                 audioFilePath = current.audioFilePath,
-                accumulatedMs = totalAccumulated
+                accumulatedMs = totalAccumulated,
+                recordingId = current.recordingId,
             )
             if (_state.compareAndSet(current, nextState)) {
                 accumulatedSegmentMs.set(totalAccumulated)
@@ -188,6 +194,7 @@ class RecordingStateManager @Inject constructor() {
                         profileId = current.profileId,
                         startTimeMs = System.currentTimeMillis(),
                         audioFilePath = newAudioFilePath ?: current.audioFilePath,
+                        recordingId = current.recordingId,
                     )
                 }
                 else -> {
@@ -223,6 +230,11 @@ class RecordingStateManager @Inject constructor() {
                         audioFilePath = when (current) {
                             is RecordingState.Recording -> current.audioFilePath
                             is RecordingState.Paused -> current.audioFilePath
+                            else -> null
+                        },
+                        recordingId = when (current) {
+                            is RecordingState.Recording -> current.recordingId
+                            is RecordingState.Paused -> current.recordingId
                             else -> null
                         },
                     )
@@ -378,6 +390,7 @@ class RecordingStateManager @Inject constructor() {
                     profileId = current.profileId,
                     startTimeMs = System.currentTimeMillis(),
                     audioFilePath = newAudioFilePath,
+                    recordingId = current.recordingId,
                 )
             if (_state.compareAndSet(current, nextState)) {
                 accumulatedSegmentMs.set(totalAccumulated)

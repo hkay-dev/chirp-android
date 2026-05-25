@@ -29,6 +29,7 @@ import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -474,13 +475,7 @@ class HomeViewModel
                         }
                     }
 
-                _errorMessage.value =
-                    when (result) {
-                        ManualRecoveryResult.ENQUEUED -> "Recovery queued"
-                        ManualRecoveryResult.BLOCKED_ACTIVE_WORK -> "Already processing. Recovery skipped"
-                        ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT -> "Ownership check timed out. Try again"
-                        ManualRecoveryResult.NOT_RECOVERABLE_STATE -> "Recovery unavailable for this item"
-                    }
+                _errorMessage.value = result.toUserMessage("Recovery queued")
             }
         }
 

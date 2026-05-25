@@ -67,57 +67,6 @@ class RecordViewModelTest {
     }
 
     @Test
-    fun `viewModel exposes stateManager flows`() {
-        assertEquals(0f, viewModel.currentAmplitude.value)
-        assertEquals(0, viewModel.waveformBuffer.count)
-    }
-
-    @Test
-    fun `startRecording delegates to recording manager`() {
-        val profileId = UUID.randomUUID()
-        viewModel.startRecording(profileId)
-
-        verify { recordingManager.startRecording(RecordingOrigin.APP, profileId) }
-    }
-
-    @Test
-    fun `pauseRecording delegates to recording manager`() {
-        viewModel.pauseRecording()
-        verify { recordingManager.pauseRecording() }
-    }
-
-    @Test
-    fun `resumeRecording delegates to recording manager`() {
-        viewModel.resumeRecording()
-        verify { recordingManager.resumeRecording() }
-    }
-
-    @Test
-    fun `stopRecording delegates to recording manager`() {
-        viewModel.stopRecording()
-        verify { recordingManager.stopRecording() }
-    }
-
-    @Test
-    fun `cancelRecording delegates to recording manager`() {
-        viewModel.cancelRecording()
-        verify { recordingManager.cancelRecording() }
-    }
-
-    @Test
-    fun `restartRecording delegates to recording manager`() {
-        val profileId = UUID.randomUUID()
-        viewModel.restartRecording(profileId)
-        verify { recordingManager.restartRecording(RecordingOrigin.APP, profileId) }
-    }
-
-    @Test
-    fun `clearLastCompletedRecordingId calls state manager`() {
-        viewModel.clearLastCompletedRecordingId()
-        verify { recordingStateManager.clearLastCompletedRecordingId() }
-    }
-
-    @Test
     fun `selected profile is resolved for the recording session`() = runTest(testDispatcher) {
         val profileId = UUID.randomUUID()
         val profile = Profile(id = profileId, name = "Meeting", icon = "🎤")

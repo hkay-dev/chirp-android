@@ -1,5 +1,4 @@
 openspec/
-AGENTS.md
 .opencode/
 .claude/
 .rambles
@@ -42,6 +41,8 @@ fix_voice_recorder.sh
 
 # Root-level agent audit Python scripts (local tooling)
 /*.py
+*.py.bak
+*.orig
 
 # Agent / desloppify audit outputs (regenerated locally, not committed)
 wontfix.json

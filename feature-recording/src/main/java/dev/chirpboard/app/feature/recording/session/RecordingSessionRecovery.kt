@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.recording.session
 
-import android.media.MediaMetadataRetriever
-import android.util.Log
+import dev.chirpboard.app.feature.recording.util.probeDurationMs
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
@@ -12,7 +11,7 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
-import dev.chirpboard.app.feature.recording.util.useCompat
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -236,14 +235,6 @@ class RecordingSessionRecovery
                 File(RecordingFileValidator.recoveryPathFor(finalPath)).takeIf(File::exists)?.delete()
             }
         }
-
-        private fun probeDurationMs(file: File): Long =
-            runCatching {
-                MediaMetadataRetriever().useCompat { retriever ->
-                    retriever.setDataSource(file.absolutePath)
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                }
-            }.getOrNull()?.coerceAtLeast(0L) ?: 0L
 
         companion object {
             private const val TAG = "RecordingSessionRecovery"

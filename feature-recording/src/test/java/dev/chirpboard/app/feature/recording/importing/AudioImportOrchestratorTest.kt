@@ -27,7 +27,6 @@ class AudioImportOrchestratorTest {
     private lateinit var contentResolver: ContentResolver
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var transcriptionQueueManager: TranscriptionRecovery
-    private lateinit var metadataReader: ImportedAudioMetadataReader
     private lateinit var orchestrator: AudioImportOrchestrator
 
     private lateinit var tempDir: File
@@ -39,16 +38,14 @@ class AudioImportOrchestratorTest {
         contentResolver = mockk(relaxed = true)
         recordingRepository = mockk(relaxed = true)
         transcriptionQueueManager = mockk(relaxed = true)
-        metadataReader = mockk(relaxed = true)
         uri = mockk(relaxed = true)
         tempDir = createTempDir(prefix = "audio-import-test")
 
         every { context.filesDir } returns tempDir
         every { context.contentResolver } returns contentResolver
         every { contentResolver.getType(uri) } returns "audio/mpeg"
-        every { metadataReader.readDurationMs(any()) } returns 1234L
 
-        orchestrator = AudioImportOrchestrator(context, recordingRepository, transcriptionQueueManager, metadataReader)
+        orchestrator = AudioImportOrchestrator(context, recordingRepository, transcriptionQueueManager)
     }
 
     @After

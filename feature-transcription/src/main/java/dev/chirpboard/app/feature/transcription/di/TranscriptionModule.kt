@@ -6,19 +6,12 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
-import dev.chirpboard.app.core.transcription.TranscriptionScheduler
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class TranscriptionModule {
-    @Binds
-    @Singleton
-    abstract fun bindTranscriptionScheduler(
-        manager: TranscriptionQueueManager,
-    ): TranscriptionScheduler
-
     @Binds
     @Singleton
     abstract fun bindTranscriptionRecovery(

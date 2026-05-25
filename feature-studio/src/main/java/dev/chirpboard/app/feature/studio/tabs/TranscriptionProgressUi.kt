@@ -33,6 +33,7 @@ internal data class TranscriptionProgressCopy(
 )
 
 internal enum class TranscriptionProgressKind {
+    Finalizing,
     Transcribing,
     Enhancing,
 }
@@ -241,6 +242,12 @@ private fun AnimatedProgressCopy(
 @Composable
 internal fun RecordingStatus?.transcriptionProgressCopy(): TranscriptionProgressCopy? =
     when (transcriptionProgressKind()) {
+        TranscriptionProgressKind.Finalizing ->
+            TranscriptionProgressCopy(
+                title = stringResource(R.string.rec_recording_finalize_title),
+                subtitle = stringResource(R.string.rec_recording_finalize_subtitle),
+            )
+
         TranscriptionProgressKind.Transcribing ->
             TranscriptionProgressCopy(
                 title = stringResource(R.string.rec_transcription_progress_title),
@@ -258,6 +265,8 @@ internal fun RecordingStatus?.transcriptionProgressCopy(): TranscriptionProgress
 
 internal fun RecordingStatus?.transcriptionProgressKind(): TranscriptionProgressKind? =
     when (this) {
+        RecordingStatus.RECORDING -> TranscriptionProgressKind.Finalizing
+
         RecordingStatus.PENDING_TRANSCRIPTION,
         RecordingStatus.TRANSCRIBING,
         -> TranscriptionProgressKind.Transcribing

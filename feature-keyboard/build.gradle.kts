@@ -31,7 +31,6 @@ android {
 
 dependencies {
     // Internal modules
-    implementation(project(":core-contracts"))
     implementation(project(":core-audio"))
     implementation(project(":core-ui"))
     implementation(project(":feature-obsidian"))
@@ -43,7 +42,6 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Lifecycle
@@ -64,6 +62,7 @@ dependencies {
 
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
 
     // Tests
     testImplementation("junit:junit:4.13.2")

@@ -6,7 +6,7 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 
 | Stage | Risk Class | Automated Coverage | Command |
 | --- | --- | --- | --- |
-| Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff | `RecordingService` stop orchestration hardening compile path | `:feature-recording:compileDebugKotlin` |
+| Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin` |
 | Queue recovery | Pending work orphaned or stale transcribing/enhancing states not recovered | `TranscriptionQueueReconciliationPolicyTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionWorkerSupportTest`, `TranscriptionOutcomeMappingTest`, `KeyboardTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest`, `:feature-keyboard:testDebugUnitTest` |
 | Recognition persistence integrity | Partial write of recording without transcript | `RecordingRepositoryTransactionTest`, `RecognitionHistoryPersistenceTest` | `:data:compileDebugAndroidTestKotlin`, `:app:testDebugUnitTest` |

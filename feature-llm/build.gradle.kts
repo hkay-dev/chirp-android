@@ -30,7 +30,6 @@ android {
 
 dependencies {
     // Internal modules
-    implementation(project(":core-contracts"))
     implementation(project(":core-ui"))
     implementation(project(":data"))
 
@@ -38,7 +37,6 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Lifecycle
@@ -75,5 +73,4 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation(libs.mockk)
-    testImplementation("app.cash.turbine:turbine:1.0.0")
 }

@@ -78,7 +78,9 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.tabs.ChatTab
 import dev.chirpboard.app.feature.studio.tabs.SummaryTab
+import dev.chirpboard.app.feature.studio.tabs.TranscriptionProgressBanner
 import dev.chirpboard.app.feature.studio.tabs.TranscriptTab
+import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressCopy
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -370,7 +372,17 @@ fun ProcessingStudioScreen(
                 }
             }
 
-            if (screenRecordingId != null && state.audioPath.isNotBlank()) {
+            state.status.transcriptionProgressCopy()?.takeIf { state.status == RecordingStatus.RECORDING }?.let { copy ->
+                TranscriptionProgressBanner(
+                    copy = copy,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
+            if (screenRecordingId != null &&
+                state.audioPath.isNotBlank() &&
+                state.status != RecordingStatus.RECORDING
+            ) {
                 val alternateNotice =
                     playbackState.recordingId?.takeIf { it != screenRecordingId && playbackState.isPlaying }?.let { _ ->
                         stringResource(

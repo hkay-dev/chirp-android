@@ -45,9 +45,7 @@ import dev.chirpboard.app.core.ui.R
  */
 enum class SettingsBadge {
     NEW,
-    BETA,
     CONNECTED,
-    PRO,
 }
 
 /**
@@ -233,30 +231,12 @@ fun StatusBadge(badge: SettingsBadge) {
                 )
             }
 
-            SettingsBadge.BETA -> {
-                BadgeColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    text = stringResource(R.string.settings_badge_beta),
-                    showCheckmark = false,
-                )
-            }
-
             SettingsBadge.CONNECTED -> {
                 BadgeColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.primary,
                     text = stringResource(R.string.settings_badge_connected),
                     showCheckmark = true,
-                )
-            }
-
-            SettingsBadge.PRO -> {
-                BadgeColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    text = stringResource(R.string.settings_badge_pro),
-                    showCheckmark = false,
                 )
             }
         }

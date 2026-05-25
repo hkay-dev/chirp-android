@@ -1,3 +1,6 @@
+> **Archive note:** Historical paths below reference the pre-split `:core` module. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+>
+
 # Chirpboard: Future Features v2 (Product Roadmap)
 
 As we refine Chirpboard from a raw voice recording utility into a premium intelligence tool, our roadmap shifts away from system-wide floating bubbles and fully offline LLMs toward high-value post-processing and seamless daily workflows.

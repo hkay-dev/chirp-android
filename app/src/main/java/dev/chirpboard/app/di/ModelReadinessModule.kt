@@ -6,7 +6,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerifier
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import dev.chirpboard.app.download.ModelDownloader
@@ -30,18 +29,9 @@ object ModelReadinessModule {
 
     @Provides
     @Singleton
-    fun provideModelReadinessVerifier(
-        speechModelStore: SpeechModelStore,
-    ): ModelReadinessVerifier =
-        ModelReadinessVerifier {
-            speechModelStore.evaluateReadiness()
-        }
-
-    @Provides
-    @Singleton
     fun provideModelReadinessGate(
-        verifier: ModelReadinessVerifier,
-    ): ModelReadinessGate = ModelReadinessGate(verifier)
+        speechModelStore: SpeechModelStore,
+    ): ModelReadinessGate = ModelReadinessGate(speechModelStore)
 
     @Provides
     @Singleton

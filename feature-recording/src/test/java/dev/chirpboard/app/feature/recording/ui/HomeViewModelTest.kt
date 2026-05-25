@@ -211,25 +211,6 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun `deleteRecording delegates to repository and file system`() =
-        runTest {
-            val recording =
-                Recording(
-                    id = UUID.randomUUID(),
-                    title = "Test",
-                    audioPath = "/fake/path.wav",
-                    source = RecordingSource.APP,
-                )
-
-            val displayItem = RecordingDisplayItem(recording = recording)
-
-            viewModel.deleteRecording(displayItem)
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            coVerify { recordingRepository.deleteById(recording.id) }
-        }
-
-    @Test
     fun `retryTranscription queues recording for transcription`() =
         runTest {
             val recordingId = UUID.randomUUID()

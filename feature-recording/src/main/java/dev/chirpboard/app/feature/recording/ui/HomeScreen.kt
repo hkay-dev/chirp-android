@@ -622,6 +622,5 @@ internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String =
 
 object HomeScreenRecordEntryTestTags {
     const val RecordFab = "home_record_fab"
-    const val EmptyStateRecordButton = "home_empty_record_button"
     const val QuickStartSurface = "home_quick_start_surface"
 }

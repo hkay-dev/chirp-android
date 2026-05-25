@@ -4,7 +4,7 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
-import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerifier
+import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import io.mockk.coEvery
@@ -24,17 +24,17 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ModelReadinessGateTest {
-    private lateinit var verifier: ModelReadinessVerifier
+    private lateinit var speechModelStore: SpeechModelStore
     private lateinit var gate: ModelReadinessGate
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
 
     @Before
     fun setup() {
-        verifier = mockk()
+        speechModelStore = mockk()
         gate =
             ModelReadinessGate(
-                verifier = verifier,
+                speechModelStore = speechModelStore,
                 ioDispatcher = testDispatcher,
                 now = { 1000L },
                 gateScope = testScope,
@@ -44,7 +44,7 @@ class ModelReadinessGateTest {
     @Test
     fun `warmupIfNeeded calls ensureReady when state is Unknown`() =
         testScope.runTest {
-            coEvery { verifier.verify() } returns
+            coEvery { speechModelStore.evaluateReadiness() } returns
                 ModelReadinessEvaluation(
                     isReady = true,
                     verificationSource = ModelReadinessVerificationSource.PROCESS_CACHE,
@@ -57,13 +57,13 @@ class ModelReadinessGateTest {
             assertTrue(state is ModelReadinessState.Ready)
             assertEquals(ModelReadinessVerificationSource.PROCESS_CACHE, (state as ModelReadinessState.Ready).source)
 
-            coVerify(exactly = 1) { verifier.verify() }
+            coVerify(exactly = 1) { speechModelStore.evaluateReadiness() }
         }
 
     @Test
     fun `warmupIfNeeded does nothing if state is already Checking or Ready`() =
         testScope.runTest {
-            coEvery { verifier.verify() } returns ModelReadinessEvaluation(isReady = true)
+            coEvery { speechModelStore.evaluateReadiness() } returns ModelReadinessEvaluation(isReady = true)
 
             gate.warmupIfNeeded()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -72,13 +72,13 @@ class ModelReadinessGateTest {
             gate.warmupIfNeeded()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify(exactly = 1) { verifier.verify() }
+            coVerify(exactly = 1) { speechModelStore.evaluateReadiness() }
         }
 
     @Test
     fun `ensureReady returns Ready if verifier is successful`() =
         testScope.runTest {
-            coEvery { verifier.verify() } returns
+            coEvery { speechModelStore.evaluateReadiness() } returns
                 ModelReadinessEvaluation(
                     isReady = true,
                     verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION,
@@ -93,7 +93,7 @@ class ModelReadinessGateTest {
     @Test
     fun `ensureReady deduplicates concurrent verifications`() =
         testScope.runTest {
-            coEvery { verifier.verify() } coAnswers {
+            coEvery { speechModelStore.evaluateReadiness() } coAnswers {
                 delay(100)
                 ModelReadinessEvaluation(true, ModelReadinessVerificationSource.CHECKSUM_VERIFICATION)
             }
@@ -116,13 +116,13 @@ class ModelReadinessGateTest {
 
             assertTrue(result1 is ModelReadyResult.Ready)
             assertEquals(result1, result2)
-            coVerify(exactly = 1) { verifier.verify() }
+            coVerify(exactly = 1) { speechModelStore.evaluateReadiness() }
         }
 
     @Test
     fun `ensureReady handles verifier returning false`() =
         testScope.runTest {
-            coEvery { verifier.verify() } returns
+            coEvery { speechModelStore.evaluateReadiness() } returns
                 ModelReadinessEvaluation(
                     isReady = false,
                     unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
@@ -141,7 +141,7 @@ class ModelReadinessGateTest {
     @Test
     fun `ensureReady handles verifier exception`() =
         testScope.runTest {
-            coEvery { verifier.verify() } throws RuntimeException("Verification crashed")
+            coEvery { speechModelStore.evaluateReadiness() } throws RuntimeException("Verification crashed")
 
             val result = gate.ensureReady(VerificationTrigger.APP_STARTUP)
 

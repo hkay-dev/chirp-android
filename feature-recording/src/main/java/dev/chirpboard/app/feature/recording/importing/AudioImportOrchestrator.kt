@@ -1,13 +1,12 @@
 package dev.chirpboard.app.feature.recording.importing
 
 import android.content.Context
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
-import dev.chirpboard.app.feature.recording.util.useCompat
+import dev.chirpboard.app.feature.recording.util.probeDurationMs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,31 +33,12 @@ sealed interface AudioImportResult {
 }
 
 @Singleton
-class ImportedAudioMetadataReader
-    @Inject
-    constructor() {
-        fun readDurationMs(copiedFile: File): Long =
-            try {
-                MediaMetadataRetriever().useCompat { retriever ->
-                    retriever.setDataSource(copiedFile.absolutePath)
-                    retriever
-                        .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                        ?.toLongOrNull() ?: 0L
-                }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                0L
-            }
-    }
-
-@Singleton
 class AudioImportOrchestrator
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
         private val recordingRepository: RecordingRepository,
         private val transcriptionRecovery: TranscriptionRecovery,
-        private val metadataReader: ImportedAudioMetadataReader,
     ) {
         suspend fun import(uri: Uri): AudioImportResult =
             withContext(Dispatchers.IO) {
@@ -74,7 +54,7 @@ class AudioImportOrchestrator
                     return@withContext copiedFile
                 }
 
-                val durationMs = metadataReader.readDurationMs(outputFile)
+                val durationMs = probeDurationMs(outputFile)
                 val recording =
                     try {
                         recordingRepository.createRecording(
@@ -158,4 +138,3 @@ class AudioImportOrchestrator
             }
         }
     }
-
