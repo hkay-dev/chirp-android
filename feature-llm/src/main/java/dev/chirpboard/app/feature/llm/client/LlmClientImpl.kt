@@ -121,6 +121,11 @@ Transcript:
                             return@withContext Result.success(resultText.trim())
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
+                            if (e is HttpException && e.code() == 404) {
+                                return@withContext Result.failure(
+                                    Exception("Gemini model not found: $modelName"),
+                                )
+                            }
                             val shouldRetry =
                                 when (e) {
                                     is HttpException -> e.code() == 429 || e.code() == 503 || e.code() >= 500
