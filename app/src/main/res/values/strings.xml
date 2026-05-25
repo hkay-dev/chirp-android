@@ -48,7 +48,8 @@
     <!-- Debug / Settings -->
     <string name="dev_menu_title">Developer Menu</string>
     <string name="record_entry_model_required_title">Model Required</string>
-    <string name="record_entry_model_required_message">Download the transcription model in Settings before recording.</string>
+    <string name="record_entry_model_required_message">Download the speech model to start recording and transcribing.</string>
+    <string name="record_entry_download_model">Download model</string>
     <string name="record_entry_model_integrity_failed_title">Model Integrity Check Failed</string>
     <string name="record_entry_model_integrity_failed_message">Model files are corrupted. Re-download the model in Settings.</string>
     <string name="record_entry_model_check_error_title">Model Check Error</string>

@@ -30,7 +30,8 @@ import dev.chirpboard.app.feature.studio.ProcessingStudioScreen
 internal data class RecordEntryDialogContent(
     val title: String,
     val message: String,
-    val openSettingsOnConfirm: Boolean,
+    val confirmLabelRes: Int,
+    val navigateToTranscriptionDownload: Boolean,
 )
 
 internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostController) {
@@ -61,7 +62,8 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                     RecordEntryDialogContent(
                                         title = context.getString(R.string.record_entry_model_required_title),
                                         message = context.getString(R.string.record_entry_model_required_message),
-                                        openSettingsOnConfirm = true,
+                                        confirmLabelRes = R.string.record_entry_download_model,
+                                        navigateToTranscriptionDownload = true,
                                     )
                                 }
 
@@ -69,7 +71,8 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                     RecordEntryDialogContent(
                                         title = context.getString(R.string.record_entry_model_integrity_failed_title),
                                         message = context.getString(R.string.record_entry_model_integrity_failed_message),
-                                        openSettingsOnConfirm = true,
+                                        confirmLabelRes = R.string.record_entry_download_model,
+                                        navigateToTranscriptionDownload = true,
                                     )
                                 }
                             }
@@ -80,7 +83,8 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                             RecordEntryDialogContent(
                                 title = context.getString(R.string.record_entry_model_check_error_title),
                                 message = context.getString(R.string.record_entry_model_check_error_message, event.message),
-                                openSettingsOnConfirm = false,
+                                confirmLabelRes = R.string.dismiss,
+                                navigateToTranscriptionDownload = false,
                             )
                     }
                 }
@@ -115,20 +119,14 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val shouldOpenSettings = content?.openSettingsOnConfirm == true
+                            val shouldOpenDownload = content?.navigateToTranscriptionDownload == true
                             dialogContent = null
-                            if (shouldOpenSettings) {
-                                navController.navigate(Screen.Settings.route)
+                            if (shouldOpenDownload) {
+                                navController.navigate(Screen.TranscriptionSettings.createRoute(autoDownload = true))
                             }
                         },
                     ) {
-                        Text(
-                            if (content?.openSettingsOnConfirm == true) {
-                                stringResource(R.string.go_to_settings)
-                            } else {
-                                stringResource(R.string.dismiss)
-                            },
-                        )
+                        Text(stringResource(content?.confirmLabelRes ?: R.string.dismiss))
                     }
                 },
                 dismissButton = {
