@@ -1,6 +1,7 @@
 package dev.chirpboard.app.core.recording
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -70,6 +71,12 @@ class RecordingStateManager @Inject constructor() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var timeoutJob: Job? = null
     private var lastAmplitudeEmitMs = 0L
+    private val stoppingTimeoutHandlers =
+        mutableMapOf<RecordingOrigin, suspend (RecordingState.Stopping) -> Unit>()
+
+    /** Test-only override for stopping timeout duration. */
+    @VisibleForTesting
+    internal var stoppingTimeoutMsOverrideForTest: Long? = null
 
     companion object {
         private const val TAG = "RecordingStateManager"
@@ -117,6 +124,22 @@ class RecordingStateManager @Inject constructor() {
         }
         return RecordingStartResult.Success
     }
+
+    /**
+     * Assign the in-progress database recording ID while still in [RecordingState.Starting].
+     * Call after [createInProgressRecording] and before capture begins.
+     */
+    fun onRecordingIdAssigned(recordingId: UUID) {
+        _state.update { current ->
+            when (current) {
+                is RecordingState.Starting -> current.copy(recordingId = recordingId)
+                else -> {
+                    Log.w(TAG, "onRecordingIdAssigned called in wrong state: ${current::class.simpleName}")
+                    current
+                }
+            }
+        }
+    }
     
     /**
      * Transition from Starting to Recording state.
@@ -137,7 +160,7 @@ class RecordingStateManager @Inject constructor() {
                         origin = current.origin,
                         profileId = current.profileId,
                         audioFilePath = audioFilePath,
-                        recordingId = recordingId,
+                        recordingId = recordingId ?: current.recordingId,
                     ).also(onTransition)
 
 
@@ -233,6 +256,7 @@ class RecordingStateManager @Inject constructor() {
                             else -> null
                         },
                         recordingId = when (current) {
+                            is RecordingState.Starting -> current.recordingId
                             is RecordingState.Recording -> current.recordingId
                             is RecordingState.Paused -> current.recordingId
                             else -> null
@@ -250,19 +274,39 @@ class RecordingStateManager @Inject constructor() {
     }
 
     /**
+     * Register a handler invoked when stop exceeds its timeout budget for the given origin.
+     */
+    fun setStoppingTimeoutHandler(
+        origin: RecordingOrigin,
+        handler: (suspend (RecordingState.Stopping) -> Unit)?,
+    ) {
+        if (handler == null) {
+            stoppingTimeoutHandlers.remove(origin)
+        } else {
+            stoppingTimeoutHandlers[origin] = handler
+        }
+    }
+
+    /**
      * Begin stopping timeout after recorder release completes.
      */
     fun startStoppingTimeout(fileSizeBytes: Long): Job? {
-        val timeoutMs = computeStoppingTimeoutMs(fileSizeBytes)
+        val timeoutMs = stoppingTimeoutMsOverrideForTest ?: computeStoppingTimeoutMs(fileSizeBytes)
         timeoutJob?.cancel()
         timeoutJob =
             scope.launch {
                 delay(timeoutMs)
+                val stoppingState = _state.value
+                if (stoppingState !is RecordingState.Stopping) {
+                    return@launch
+                }
+                // Handler cleanup (journal abandon, row delete) must finish before Error + lock release.
+                stoppingTimeoutHandlers[stoppingState.origin]?.invoke(stoppingState)
                 var timedOut = false
                 _state.update { current ->
                     if (current is RecordingState.Stopping) {
                         timedOut = true
-                        Log.w(TAG, "Stopping state timed out after ${timeoutMs}ms, forcing to Idle")
+                        Log.w(TAG, "Stopping state timed out after ${timeoutMs}ms, forcing to Error")
                         RecordingState.Error(
                             current.activeOrigin ?: RecordingOrigin.APP,
                             "Failed to stop recording",
