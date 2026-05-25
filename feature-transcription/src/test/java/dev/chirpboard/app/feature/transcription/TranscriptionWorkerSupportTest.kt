@@ -2,15 +2,27 @@ package dev.chirpboard.app.feature.transcription
 
 import androidx.work.Data
 import androidx.work.ListenableWorker
+import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 import java.util.UUID
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TranscriptionWorkerSupportTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
 
     @Test
     fun `buildTranscriptionFailureResult returns failure with error output`() {
@@ -87,5 +99,49 @@ class TranscriptionWorkerSupportTest {
         assertEquals("transcription_progress", TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
         assertEquals(2001, TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID)
         assertEquals("Transcribing recording", transcriptionProgressNotificationTitle())
+    }
+
+    @Test
+    fun `computeActiveWaitTimeoutMs scales with duration and clamps to max`() {
+        assertEquals(TRANSCRIPTION_MIN_ACTIVE_WAIT_MS, computeActiveWaitTimeoutMs(0))
+        assertEquals(TRANSCRIPTION_MIN_ACTIVE_WAIT_MS + 120_000L, computeActiveWaitTimeoutMs(120_000L))
+        assertEquals(TRANSCRIPTION_MAX_ACTIVE_WAIT_MS, computeActiveWaitTimeoutMs(10 * 60 * 60 * 1000L))
+    }
+
+    @Test
+    fun `awaitRecordingInactive completes when recording becomes idle`() = runTest {
+        val manager = RecordingStateManager()
+        manager.tryStartRecording(RecordingOrigin.APP, null)
+        manager.onRecordingStarted(audioFilePath = "path/to/file")
+        val waitJob =
+            async {
+                awaitRecordingInactive(manager.state, timeoutMs = 5_000L)
+            }
+
+        manager.transitionToStopping()
+        manager.onRecordingCompleted()
+
+        waitJob.await()
+    }
+
+    @Test
+    fun `awaitRecordingInactive fails when active state persists beyond timeout`() = runTest {
+        val manager = RecordingStateManager()
+        manager.tryStartRecording(RecordingOrigin.APP, null)
+
+        var caught: Throwable? = null
+        val waitJob =
+            launch {
+                try {
+                    awaitRecordingInactive(manager.state, timeoutMs = 1_000L)
+                } catch (error: Throwable) {
+                    caught = error
+                }
+            }
+
+        advanceTimeBy(1_001L)
+        waitJob.join()
+
+        assertTrue(caught is ActiveRecordingWaitTimeoutException)
     }
 }

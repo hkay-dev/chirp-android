@@ -4,6 +4,7 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
+import dev.chirpboard.app.core.audio.WavFileWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -115,6 +117,9 @@ private fun validateFormat(format: MediaFormat): FormatValidationResult {
  * - Converts stereo to mono
  * - Processes in chunks for memory efficiency
  * - Normalizes samples to [-1.0, 1.0] range
+ *
+ * WAV inputs prefer direct PCM extraction (see [decodeWavPcmDirect]) because some OEM
+ * MediaCodec decoders fail on PCM-in-WAV containers. MediaCodec remains the fallback.
  */
 @Singleton
 class AudioDecoder @Inject constructor() {
@@ -151,6 +156,10 @@ class AudioDecoder @Inject constructor() {
         val file = File(filePath)
         if (!file.exists()) {
             throw AudioDecoderException("Audio file not found: $filePath")
+        }
+
+        if (file.extension.equals("wav", ignoreCase = true) && WavFileWriter.hasValidHeader(file)) {
+            return@withContext decodeWavPcmDirect(file, onChunk)
         }
 
         var extractor: MediaExtractor? = null
@@ -284,6 +293,10 @@ class AudioDecoder @Inject constructor() {
             throw e
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
+            if (file.extension.equals("wav", ignoreCase = true) && WavFileWriter.hasValidHeader(file)) {
+                Log.w(TAG, "MediaCodec WAV decode failed; retrying with direct PCM reader", e)
+                return@withContext decodeWavPcmDirect(file, onChunk)
+            }
             Log.e(TAG, "Failed to decode audio: ${e.message}", e)
             throw AudioDecoderException("Failed to decode audio: ${e.message}", e)
         } finally {
@@ -327,6 +340,51 @@ class AudioDecoder @Inject constructor() {
         }
         awaitClose { 
             Log.d(TAG, "Flow closed")
+        }
+    }
+
+    /**
+     * Decode 16-bit PCM WAV without MediaCodec. Used for app-produced WAV and as an OEM fallback.
+     */
+    private suspend fun decodeWavPcmDirect(
+        file: File,
+        onChunk: suspend (FloatArray) -> Unit,
+    ): Long = withContext(Dispatchers.IO) {
+        RandomAccessFile(file, "r").use { raf ->
+            if (raf.length() <= WavFileWriter.WAV_HEADER_BYTES) {
+                throw AudioDecoderException("Invalid WAV file: missing PCM data")
+            }
+
+            raf.seek(22)
+            val channelCount = raf.readShortLe().toInt().coerceAtLeast(1)
+            raf.seek(24)
+            val sourceSampleRate = raf.readIntLe().coerceAtLeast(1)
+
+            val resampler = Resampler(sourceSampleRate, TARGET_SAMPLE_RATE, channelCount)
+            val chunkBuffer = ChunkBuffer(CHUNK_SIZE)
+            var totalSamples = 0L
+
+            raf.seek(WavFileWriter.WAV_HEADER_BYTES.toLong())
+            val readBuffer = ByteArray(CHUNK_SIZE * channelCount * 2)
+            while (true) {
+                val bytesRead = raf.read(readBuffer)
+                if (bytesRead <= 0) break
+
+                val pcmData = readBuffer.copyOf(bytesRead)
+                val samples = resampler.process(pcmData)
+                chunkBuffer.add(samples) { chunk ->
+                    onChunk(chunk)
+                    totalSamples += chunk.size
+                }
+            }
+
+            chunkBuffer.flush { chunk ->
+                onChunk(chunk)
+                totalSamples += chunk.size
+            }
+
+            Log.d(TAG, "Direct WAV decode completed: $totalSamples samples from ${file.path}")
+            totalSamples
         }
     }
 
@@ -539,3 +597,18 @@ class AudioDecoderException(
     message: String,
     cause: Throwable? = null
 ) : Exception(message, cause)
+
+private fun RandomAccessFile.readIntLe(): Int {
+    val bytes = ByteArray(4)
+    readFully(bytes)
+    return (bytes[0].toInt() and 0xFF) or
+        ((bytes[1].toInt() and 0xFF) shl 8) or
+        ((bytes[2].toInt() and 0xFF) shl 16) or
+        ((bytes[3].toInt() and 0xFF) shl 24)
+}
+
+private fun RandomAccessFile.readShortLe(): Short {
+    val bytes = ByteArray(2)
+    readFully(bytes)
+    return ((bytes[0].toInt() and 0xFF) or ((bytes[1].toInt() and 0xFF) shl 8)).toShort()
+}

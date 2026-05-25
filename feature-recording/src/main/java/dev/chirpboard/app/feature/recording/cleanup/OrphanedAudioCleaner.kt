@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.session.RecordingRecoveryProtectedPathsStore
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ class OrphanedAudioCleaner
         @ApplicationContext private val context: Context,
         private val recordingRepository: RecordingRepository,
         private val sessionJournal: RecordingSessionJournal,
+        private val protectedPathsStore: RecordingRecoveryProtectedPathsStore,
     ) {
         suspend fun cleanOrphanedFiles() {
             withContext(Dispatchers.IO) {
@@ -35,6 +37,7 @@ class OrphanedAudioCleaner
                     val validPaths = recordingRepository.getAllAudioPaths().toSet()
                     val journalReferencedPaths = sessionJournal.getAllReferencedAudioPaths()
                     val safelistedPaths = sessionJournal.getSafelistedAudioPaths()
+                    val protectedPaths = protectedPathsStore.activeProtectedPaths()
                     val startedAtByPath = sessionJournal.startedAtByAudioPath()
                     val now = System.currentTimeMillis()
 
@@ -42,12 +45,13 @@ class OrphanedAudioCleaner
 
                     var deletedCount = 0
                     for (file in files) {
-                        if (file.extension != "m4a" && file.extension != "wav") continue
+                        if (file.extension !in ORPHAN_EXTENSIONS) continue
                         if (file.parentFile?.name == ".capture") continue
 
                         val absolutePath = file.absolutePath
                         if (validPaths.contains(absolutePath)) continue
                         if (safelistedPaths.contains(absolutePath)) continue
+                        if (protectedPaths.contains(absolutePath)) continue
                         if (journalReferencedPaths.contains(absolutePath)) continue
 
                         val ageReferenceMs = startedAtByPath[absolutePath] ?: file.lastModified()
@@ -89,6 +93,7 @@ class OrphanedAudioCleaner
 
         companion object {
             private const val TAG = "OrphanedAudioCleaner"
+            internal val ORPHAN_EXTENSIONS = setOf("m4a", "wav", "mp3")
             private const val DEFAULT_ORPHAN_GRACE_MS = 5 * 60 * 1000L
             private const val UNKNOWN_LARGE_ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000L
             private const val LARGE_ORPHAN_BYTES = 1_000_000L

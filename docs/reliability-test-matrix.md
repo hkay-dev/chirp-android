@@ -9,10 +9,12 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff; Done must navigate immediately to studio stitching UI | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest`, `RecordViewModelTest` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin` |
 | Queue recovery | Pending work orphaned or stale transcribing/enhancing states not recovered | `TranscriptionQueueReconciliationPolicyTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionWorkerSupportTest`, `TranscriptionOutcomeMappingTest`, `KeyboardTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest`, `:feature-keyboard:testDebugUnitTest` |
+| Transcription worker active wait | Worker does not block forever when another recording stays active | `TranscriptionWorkerSupportTest` active wait timeout | `:feature-transcription:testDebugUnitTest` |
 | Recognition persistence integrity | Partial write of recording without transcript | `RecordingRepositoryTransactionTest`, `RecognitionHistoryPersistenceTest` | `:data:compileDebugAndroidTestKotlin`, `:app:testDebugUnitTest` |
 | Model artifact integrity | Corrupt or interrupted model downloads accepted as ready | `ModelDownloaderIntegrityTest` | `:app:testDebugUnitTest` |
 | Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core-contracts:testDebugUnitTest` |
 | Session journal durability | Interrupted recordings deleted as orphans; stale journals reconciled; abandoned entries pruned; recover idempotent | `RecordingSessionJournalTest`, `RecordingSessionReconcilerTest`, `RecordingSessionRecoveryTest`, `RecordingSessionRecoveryLiveSessionTest`, `RecordingSessionRecoveryKeepSessionTest`, `RecordingSessionJournalCancelOrderingTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
+| Orphan cleaner format parity | Unreferenced mp3/wav/m4a orphans deleted; referenced and protected paths retained | `OrphanedAudioCleanerTest` mp3 cases | `:feature-recording:testDebugUnitTest` |
 | Recovery deferral persistence | Dismissed recovery prompts do not reappear after process death | `RecordingRecoveryDeferStore` (manual), `RecordingRecoveryStore` integration | `:feature-recording:testDebugUnitTest` |
 | Origin-aware stop routing | Widget stop reaches keyboard quick-capture without desyncing global state | `KeyboardRecordingStopBridgeTest`, `KeyboardPendingStopStoreTest` | `:core-contracts:testDebugUnitTest` |
 | Stop timeout cleanup | Hung finalize abandons journal/DB row and releases service resources | `RecordingStateManagerTest.stoppingTimeout_awaitsHandlerBeforeErrorTransition`, `RecordingServiceStopOutcomesTest` | `:core-contracts:testDebugUnitTest`, `:feature-recording:testDebugUnitTest` |
@@ -38,6 +40,7 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 9. *(Gap closure)* Widget stop during keyboard recording with Gboard focused — pending stop enqueued; switch to Chirp keyboard — dictation stops and transcribes.
 10. *(Gap closure)* Cancel recording then immediately start new one — no recovery prompt for canceled session.
 11. *(Gap closure)* Tag picker visible during first second of record screen auto-start; profile default tags already applied.
+12. *(Gap closure)* WAV recording transcribes on device — verify direct PCM decode path on 2+ OEMs (Samsung + Pixel or equivalent).
 
 ## Gap closure automated coverage
 
@@ -60,6 +63,8 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Studio missing recording | Null row after grace or delete shows NotFound | `ProcessingStudioViewModelTest` missing/deleted | Implemented |
 | Studio FAILED duplicate UI | Single error banner + retry; no recovery duplicate | `ProcessingStudioPresentationTest` | Implemented |
 | Home import studio handoff | Import success navigates to Processing Studio | `HomeViewModelTest` import navigates | Implemented |
+| Orphan cleaner mp3 coverage | Unreferenced mp3 deleted; referenced/protected retained | `OrphanedAudioCleanerTest` mp3 | Implemented |
+| Transcription worker active wait | Bounded wait fails with reliability event | `TranscriptionWorkerSupportTest` timeout | Implemented |
 
 ## Audit backlog (2026-05-25) — proposed OpenSpec changes
 
@@ -67,8 +72,6 @@ Index: `openspec/changes/AUDIT_INDEX.md`. Each row maps to a change folder with 
 
 | Priority | Risk class | OpenSpec change | Planned tests (on implement) |
 | --- | --- | --- | --- |
-| P2 | Orphan cleaner MP3 gap | `transcription-pipeline-hardening` | `OrphanedAudioCleanerTest` mp3 |
-| P2 | TranscriptionWorker active wait | `transcription-pipeline-hardening` | Worker timeout test |
 | P3 | Nav/search/mini player polish | `nav-search-playback-polish` | Manual + nav tests |
 | P3–P4 | Matrix drift, dead wrappers, coverage gaps | `docs-test-hygiene` | Matrix audit script |
 
