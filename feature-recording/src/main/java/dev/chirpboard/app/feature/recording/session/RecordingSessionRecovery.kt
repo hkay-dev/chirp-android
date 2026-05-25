@@ -2,11 +2,14 @@ package dev.chirpboard.app.feature.recording.session
 
 import dev.chirpboard.app.feature.recording.util.probeDurationMs
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
@@ -63,10 +66,17 @@ class RecordingSessionRecovery
         private val fileValidator: RecordingFileValidator,
         private val segmentFinalize: RecordingSegmentFinalize,
         private val capturePaths: RecordingCapturePaths,
+        private val sessionReconciler: RecordingSessionReconciler,
+        private val recordingStateManager: RecordingStateManager,
+        private val protectedPathsStore: RecordingRecoveryProtectedPathsStore,
     ) {
         suspend fun scanForRecoverableSessions(): List<RecoverableRecordingSession> =
             withContext(Dispatchers.IO) {
+                sessionReconciler.reconcileCompletedSessions()
                 sessionJournal.loadRecoverableSessions().mapNotNull { entry ->
+                    if (isLiveSession(entry)) {
+                        return@mapNotNull null
+                    }
                     val resolved = resolveRecoveryFile(entry)
                     if (resolved == null || resolved.length() < RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES) {
                         null
@@ -108,6 +118,7 @@ class RecordingSessionRecovery
 
                 val validation = fileValidator.validateForRecovery(exportFile)
                 if (validation.level == RecordingValidationLevel.INVALID) {
+                    sessionJournal.markAbandoned(sessionId)
                     return@withContext SessionRecoveryResult.Failed(
                         validation.failureReason ?: "Recording file could not be validated",
                     )
@@ -125,6 +136,24 @@ class RecordingSessionRecovery
                         RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
                         RecordingOrigin.WIDGET -> RecordingSource.WIDGET
                     }
+
+                entry.recordingId?.let { linkedRecordingId ->
+                    when (val existing = recordingRepository.getRecording(linkedRecordingId)) {
+                        null -> {
+                            sessionJournal.markAbandoned(sessionId)
+                            return@withContext SessionRecoveryResult.Failed(
+                                "Linked recording no longer exists",
+                            )
+                        }
+                        else ->
+                            if (existing.status != RecordingStatus.RECORDING) {
+                                sessionJournal.markFinalized(sessionId)
+                                return@withContext SessionRecoveryResult.Recovered(
+                                    recordingId = existing.id,
+                                )
+                            }
+                    }
+                }
 
                 return@withContext try {
                     val recording =
@@ -189,9 +218,23 @@ class RecordingSessionRecovery
 
         suspend fun keepSession(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
-                sessionJournal.markAbandoned(sessionId)
+                val entry = sessionJournal.findBySessionId(sessionId)
+                if (entry != null) {
+                    protectedPathsStore.protect(sessionJournal.referencedPathsFor(entry))
+                    entry.recordingId?.let { recordingRepository.deleteInProgressRecording(it) }
+                    sessionJournal.markFinalized(sessionId)
+                }
                 SessionRecoveryResult.Kept
             }
+
+        private fun isLiveSession(entry: RecordingSessionEntry): Boolean {
+            val state = recordingStateManager.state.value
+            if (!state.isActive) {
+                return false
+            }
+            val activeRecordingId = state.activeRecordingId ?: return false
+            return entry.recordingId == activeRecordingId
+        }
 
         private fun resolveRecoveryFile(entry: RecordingSessionEntry): File? {
             if (entry.usesSegmentCapture()) {

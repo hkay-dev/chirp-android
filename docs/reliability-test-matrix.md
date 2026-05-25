@@ -12,7 +12,7 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Recognition persistence integrity | Partial write of recording without transcript | `RecordingRepositoryTransactionTest`, `RecognitionHistoryPersistenceTest` | `:data:compileDebugAndroidTestKotlin`, `:app:testDebugUnitTest` |
 | Model artifact integrity | Corrupt or interrupted model downloads accepted as ready | `ModelDownloaderIntegrityTest` | `:app:testDebugUnitTest` |
 | Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core-contracts:testDebugUnitTest` |
-| Session journal durability | Interrupted recordings deleted as orphans; stale journals reconciled; abandoned entries pruned | `RecordingSessionJournalTest`, `RecordingSessionReconcilerTest`, `RecordingSessionRecoveryLiveSessionTest`, `RecordingSessionRecoveryKeepSessionTest`, `RecordingSessionJournalCancelOrderingTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
+| Session journal durability | Interrupted recordings deleted as orphans; stale journals reconciled; abandoned entries pruned; recover idempotent | `RecordingSessionJournalTest`, `RecordingSessionReconcilerTest`, `RecordingSessionRecoveryTest`, `RecordingSessionRecoveryLiveSessionTest`, `RecordingSessionRecoveryKeepSessionTest`, `RecordingSessionJournalCancelOrderingTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
 | Recovery deferral persistence | Dismissed recovery prompts do not reappear after process death | `RecordingRecoveryDeferStore` (manual), `RecordingRecoveryStore` integration | `:feature-recording:testDebugUnitTest` |
 | Origin-aware stop routing | Widget stop reaches keyboard quick-capture without desyncing global state | `KeyboardRecordingStopBridgeTest`, `KeyboardPendingStopStoreTest` | `:core-contracts:testDebugUnitTest` |
 | Stop timeout cleanup | Hung finalize abandons journal/DB row and releases service resources | `RecordingStateManagerTest.stoppingTimeout_awaitsHandlerBeforeErrorTransition`, `RecordingServiceStopOutcomesTest` | `:core-contracts:testDebugUnitTest`, `:feature-recording:testDebugUnitTest` |
@@ -46,7 +46,9 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Pending keyboard stop | Widget stop lost when IME unbound | `KeyboardPendingStopStoreTest` | Implemented |
 | Cancel ordering | Recovery prompt after cancel + restart | `RecordingSessionJournalCancelOrderingTest` | Implemented |
 | Starting-state tags | Tags unavailable at session start | `RecordingStateTest`, `RecordingStateManagerTest` | Implemented |
-| Keep files retention | Kept audio deleted before user intent expires | `RecordingSessionRecoveryKeepSessionTest` | Implemented |
+| Keep files retention | Kept audio deleted before user intent expires; in-progress row removed | `RecordingSessionRecoveryKeepSessionTest` | Implemented |
+| Recover session idempotency | Duplicate recover does not re-finalize or re-enqueue | `RecordingSessionRecoveryTest` | Implemented |
+| Reconciler orphan journal | Missing DB row finalizes stale journal | `RecordingSessionReconcilerTest` | Implemented |
 | NoAudioFile DB cleanup | Empty stop removes in-progress row | `RecordingServiceStopOutcomesTest` | Implemented |
 | Stop timeout vs persist race | Generation guard discards late persist | `RecordingServiceStopOutcomesTest` | Implemented |
 | Timeout handler await | Lock released after cleanup completes | `RecordingStateManagerTest.stoppingTimeout_awaitsHandlerBeforeErrorTransition` | Implemented |
@@ -57,15 +59,12 @@ Index: `openspec/changes/AUDIT_INDEX.md`. Each row maps to a change folder with 
 
 | Priority | Risk class | OpenSpec change | Planned tests (on implement) |
 | --- | --- | --- | --- |
-| P0 | recoverSession duplicate finalize | `recovery-data-integrity` | `RecordingSessionRecoveryTest` |
 | P0 | Studio invalid/missing recording trap | `processing-studio-resilience` | Studio ViewModel/Screen tests |
 | P1 | Cancel during Starting | `recording-edge-case-races` | Service cancel+start integration |
-| P1 | Keep files DB zombie | `recovery-data-integrity` | keepSession DB terminal status test |
 | P2 | Orphan cleaner MP3 gap | `transcription-pipeline-hardening` | `OrphanedAudioCleanerTest` mp3 |
 | P2 | Home import → Studio | `processing-studio-resilience` | `HomeViewModelTest` import nav |
 | P2 | FAILED Studio duplicate UI | `processing-studio-resilience` | Compose/UI test |
 | P2 | TranscriptionWorker active wait | `transcription-pipeline-hardening` | Worker timeout test |
-| P2 | Reconciler missing DB row | `recovery-data-integrity` | `RecordingSessionReconcilerTest` |
 | P3 | Early Done handoff | `recording-edge-case-races` | `RecordViewModelTest` Starting |
 | P3 | Pending stop reconcile mismatch | `recording-edge-case-races` | reconcile integration test |
 | P3 | Widget Stopping no-op | `recording-edge-case-races` | Widget receiver test |
