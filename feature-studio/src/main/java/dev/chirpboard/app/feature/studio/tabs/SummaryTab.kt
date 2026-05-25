@@ -1,12 +1,11 @@
 package dev.chirpboard.app.feature.studio.tabs
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,16 +14,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R as CoreR
-import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.StructuredOutcomeGroup
 import dev.chirpboard.app.feature.studio.StructuredOutcomeItemUi
@@ -33,7 +28,6 @@ import dev.chirpboard.app.feature.studio.StructuredOutcomeSectionState
 @Composable
 fun SummaryTab(
     summaryMarkdown: String,
-    status: RecordingStatus?,
     structuredOutcomeSection: StructuredOutcomeSectionState,
     onGenerateStructuredOutcomes: () -> Unit,
     onCopyStructuredOutcome: (StructuredOutcomeItemUi) -> Unit,
@@ -42,50 +36,23 @@ fun SummaryTab(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
-    val progressCopy = status.transcriptionProgressCopy()
-    val showProgress = progressCopy != null
-    val summaryAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (showProgress) 0f else 1f,
-        animationSpec = studioContentAlphaTween,
-        label = "summary_content_alpha",
-    )
-
-    Box(modifier = modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = summaryAlpha },
-            contentPadding = contentPadding,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item(key = "summary_body") {
-                SummaryBody(summaryMarkdown = summaryMarkdown)
-            }
-
-            item(key = "structured_outcomes") {
-                StructuredOutcomeSection(
-                    state = structuredOutcomeSection,
-                    onGenerateStructuredOutcomes = onGenerateStructuredOutcomes,
-                    onCopyStructuredOutcome = onCopyStructuredOutcome,
-                    onShareStructuredOutcome = onShareStructuredOutcome,
-                    onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
-                )
-            }
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item(key = "summary_body") {
+            SummaryBody(summaryMarkdown = summaryMarkdown)
         }
 
-        AnimatedVisibility(
-            visible = showProgress && progressCopy != null,
-            enter = progressEnterTransition,
-            exit = progressExitTransition,
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            if (progressCopy != null) {
-                TranscriptionProgressPanel(
-                    copy = progressCopy,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+        item(key = "structured_outcomes") {
+            StructuredOutcomeSection(
+                state = structuredOutcomeSection,
+                onGenerateStructuredOutcomes = onGenerateStructuredOutcomes,
+                onCopyStructuredOutcome = onCopyStructuredOutcome,
+                onShareStructuredOutcome = onShareStructuredOutcome,
+                onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
+            )
         }
     }
 }

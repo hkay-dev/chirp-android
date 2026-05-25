@@ -12,7 +12,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.outlined.GraphicEq
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,6 +51,7 @@ internal val studioContentAlphaTween = ChirpMotion.studioAlphaTween
 @Composable
 internal fun TranscriptionProgressPanel(
     copy: TranscriptionProgressCopy,
+    kind: TranscriptionProgressKind? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -58,6 +64,7 @@ internal fun TranscriptionProgressPanel(
         MorphingTranscriptionProgress(
             compact = false,
             copy = copy,
+            kind = kind,
         )
     }
 }
@@ -70,6 +77,7 @@ internal fun TranscriptionProgressBanner(
     MorphingTranscriptionProgress(
         compact = true,
         copy = copy,
+        kind = null,
         modifier = modifier.fillMaxWidth(),
     )
 }
@@ -106,6 +114,7 @@ internal fun AnimatedTranscriptionProgress(
             MorphingTranscriptionProgress(
                 compact = compact,
                 copy = progressCopy,
+                kind = null,
             )
         }
     }
@@ -115,6 +124,7 @@ internal fun AnimatedTranscriptionProgress(
 internal fun MorphingTranscriptionProgress(
     compact: Boolean,
     copy: TranscriptionProgressCopy,
+    kind: TranscriptionProgressKind? = null,
     modifier: Modifier = Modifier,
 ) {
     val cornerRadius by animateDpAsState(
@@ -148,6 +158,7 @@ internal fun MorphingTranscriptionProgress(
         if (compact) {
             ProgressRowContent(
                 copy = copy,
+                kind = kind,
                 spinnerSize = spinnerSize,
                 horizontalPadding = horizontalPadding,
                 verticalPadding = verticalPadding,
@@ -155,6 +166,7 @@ internal fun MorphingTranscriptionProgress(
         } else {
             ProgressColumnContent(
                 copy = copy,
+                kind = kind,
                 spinnerSize = spinnerSize,
                 horizontalPadding = horizontalPadding,
                 verticalPadding = verticalPadding,
@@ -164,8 +176,54 @@ internal fun MorphingTranscriptionProgress(
 }
 
 @Composable
+private fun ProgressLeadingIndicator(
+    kind: TranscriptionProgressKind?,
+    spinnerSize: androidx.compose.ui.unit.Dp,
+) {
+    if (kind == null) {
+        CircularProgressIndicator(
+            modifier = Modifier.size(spinnerSize),
+            strokeWidth = if (spinnerSize >= 28.dp) 3.dp else 2.dp,
+        )
+        return
+    }
+    AnimatedContent(
+        targetState = kind,
+        transitionSpec = { ChirpMotion.studioContentCrossfade },
+        label = "progress_phase_icon",
+    ) { phase ->
+        when (phase) {
+            TranscriptionProgressKind.Finalizing ->
+                Icon(
+                    imageVector = Icons.Outlined.GraphicEq,
+                    contentDescription = null,
+                    modifier = Modifier.size(spinnerSize),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+
+            TranscriptionProgressKind.Transcribing ->
+                Icon(
+                    imageVector = Icons.Outlined.Mic,
+                    contentDescription = null,
+                    modifier = Modifier.size(spinnerSize),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+
+            TranscriptionProgressKind.Enhancing ->
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(spinnerSize),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+        }
+    }
+}
+
+@Composable
 private fun ProgressColumnContent(
     copy: TranscriptionProgressCopy,
+    kind: TranscriptionProgressKind?,
     spinnerSize: androidx.compose.ui.unit.Dp,
     horizontalPadding: androidx.compose.ui.unit.Dp,
     verticalPadding: androidx.compose.ui.unit.Dp,
@@ -179,7 +237,7 @@ private fun ProgressColumnContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        CircularProgressIndicator(modifier = Modifier.size(spinnerSize))
+        ProgressLeadingIndicator(kind = kind, spinnerSize = spinnerSize)
         AnimatedProgressCopy(copy = copy, centered = true)
     }
 }
@@ -187,6 +245,7 @@ private fun ProgressColumnContent(
 @Composable
 private fun ProgressRowContent(
     copy: TranscriptionProgressCopy,
+    kind: TranscriptionProgressKind?,
     spinnerSize: androidx.compose.ui.unit.Dp,
     horizontalPadding: androidx.compose.ui.unit.Dp,
     verticalPadding: androidx.compose.ui.unit.Dp,
@@ -200,10 +259,7 @@ private fun ProgressRowContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(spinnerSize),
-            strokeWidth = 2.dp,
-        )
+        ProgressLeadingIndicator(kind = kind, spinnerSize = spinnerSize)
         AnimatedProgressCopy(copy = copy, centered = false)
     }
 }
@@ -216,7 +272,7 @@ private fun AnimatedProgressCopy(
     AnimatedContent(
         targetState = copy,
         transitionSpec = { ChirpMotion.studioContentCrossfade },
-        contentKey = { it.title },
+        contentKey = { "${it.title}\u0000${it.subtitle}" },
         label = "progress_copy",
     ) { currentCopy ->
         Column(

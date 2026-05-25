@@ -4,7 +4,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.StructuredOutcomeGroup
 import dev.chirpboard.app.feature.studio.StructuredOutcomeItemUi
 import dev.chirpboard.app.feature.studio.StructuredOutcomeSectionState
@@ -22,7 +21,6 @@ class SummaryTabTest {
             MaterialTheme {
                 SummaryTab(
                     summaryMarkdown = "",
-                    status = RecordingStatus.COMPLETED,
                     structuredOutcomeSection = StructuredOutcomeSectionState(isVisible = true, hasTranscriptText = true),
                     onGenerateStructuredOutcomes = {},
                     onCopyStructuredOutcome = {},
@@ -42,7 +40,6 @@ class SummaryTabTest {
             MaterialTheme {
                 SummaryTab(
                     summaryMarkdown = "Short summary",
-                    status = RecordingStatus.COMPLETED,
                     structuredOutcomeSection =
                         StructuredOutcomeSectionState(
                             isVisible = true,
@@ -67,7 +64,6 @@ class SummaryTabTest {
             MaterialTheme {
                 SummaryTab(
                     summaryMarkdown = "Short summary",
-                    status = RecordingStatus.COMPLETED,
                     structuredOutcomeSection =
                         StructuredOutcomeSectionState(
                             isVisible = true,
