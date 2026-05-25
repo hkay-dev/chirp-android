@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.keyboard.service
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
@@ -271,36 +272,33 @@ class ChirpKeyboardService :
     }
 
     override fun onCreateInputView(): View {
-        composeView?.disposeComposition()
-        val view =
-            ComposeView(this).apply {
-                // Set our custom recomposer so Compose doesn't look for ViewTreeLifecycleOwner
-                compositionContext = recomposer
-                setViewTreeLifecycleOwner(this@ChirpKeyboardService)
-                setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
-                setContent {
-                    val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
-                    val currentMode by _currentMode.collectAsStateWithLifecycle()
-                    val state by state.collectAsStateWithLifecycle()
-                    KeyboardUI(
-                        state = state,
-                        waveformBuffer = recorder.waveformBuffer,
-                        sampleCountFlow = recorder.sampleCountFlow,
-                        llmEnabled = llmEnabled,
-                        currentMode = currentMode,
-                        onTap = ::onTap,
-                        onCancel = ::cancelRecording,
-                        onRestart = ::restartRecording,
-                        onToggleLlm = ::toggleLlm,
-                        onModeChange = ::changeMode,
-                        onBackspace = ::onBackspace,
-                        onSpace = ::onSpace,
-                        onMoveCursor = ::onMoveCursor,
-                    )
-                }
+        return composeView ?: ComposeView(this).also { view ->
+            view.compositionContext = recomposer
+            view.setViewTreeLifecycleOwner(this@ChirpKeyboardService)
+            view.setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
+            view.setContent {
+                val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
+                val currentMode by _currentMode.collectAsStateWithLifecycle()
+                val state by state.collectAsStateWithLifecycle()
+                KeyboardUI(
+                    state = state,
+                    waveformBuffer = recorder.waveformBuffer,
+                    sampleCountFlow = recorder.sampleCountFlow,
+                    llmEnabled = llmEnabled,
+                    currentMode = currentMode,
+                    onTap = ::onTap,
+                    onCancel = ::cancelRecording,
+                    onRestart = ::restartRecording,
+                    onToggleLlm = ::toggleLlm,
+                    onModeChange = ::changeMode,
+                    onBackspace = ::onBackspace,
+                    onSpace = ::onSpace,
+                    onMoveCursor = ::onMoveCursor,
+                    onOpenApp = ::openMainActivity,
+                )
             }
-        composeView = view
-        return view
+            composeView = view
+        }
     }
 
     override fun onStartInputView(
@@ -332,8 +330,6 @@ class ChirpKeyboardService :
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
         Log.d(TAG, "onFinishInputView")
-        composeView?.disposeComposition()
-        composeView = null
 
         // Stop recording if active
         if (_state.value is KeyboardState.Recording) {
@@ -367,8 +363,18 @@ class ChirpKeyboardService :
         scope.cancel()
         persistenceScope.cancel()
 
+        composeView?.disposeComposition()
+        composeView = null
+
         recorder.close()
         super.onDestroy()
+    }
+
+    private fun openMainActivity() {
+        val intent = Intent().setClassName(this, MAIN_ACTIVITY_CLASS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
     }
 
     private fun onTap() {

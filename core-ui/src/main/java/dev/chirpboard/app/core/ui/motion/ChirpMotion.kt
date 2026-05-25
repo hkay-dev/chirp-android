@@ -60,4 +60,12 @@ object ChirpMotion {
     val studioContentCrossfade: ContentTransform =
         fadeIn(tween(durationMillis = STUDIO_REVEAL_MS, easing = FastOutSlowInEasing)) togetherWith
             fadeOut(tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing))
+
+    /**
+     * Crossfade for keyboard IME processing phases (transcribing ↔ polishing).
+     * Slightly shorter fade-out than fade-in so status text feels responsive without jarring cuts.
+     */
+    val keyboardProcessingCrossfade: ContentTransform =
+        fadeIn(tween(durationMillis = 250, easing = FastOutSlowInEasing)) togetherWith
+            fadeOut(tween(durationMillis = 200, easing = FastOutSlowInEasing))
 }

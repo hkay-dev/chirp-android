@@ -69,22 +69,22 @@ class RecordingWidgetProvider : AppWidgetProvider() {
                 is RecordingState.Starting -> {
                     views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
                     views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
-                    views.setChronometer(R.id.widget_status, 0, "Starting...", false)
+                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_starting), false)
                 }
                 is RecordingState.Stopping -> {
                     views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFF9E9E9E.toInt()) // Grey tint
-                    views.setChronometer(R.id.widget_status, 0, "Saving...", false)
+                    views.setInt(R.id.widget_button, "setColorFilter", 0xFF9E9E9E.toInt())
+                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_saving), false)
                 }
                 is RecordingState.Error -> {
                     views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
                     views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
-                    views.setChronometer(R.id.widget_status, 0, "Error", false)
+                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_error), false)
                 }
                 is RecordingState.Idle -> {
                     views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
                     views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
-                    views.setChronometer(R.id.widget_status, 0, "Tap to record", false)
+                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_idle), false)
                 }
             }
             
