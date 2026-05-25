@@ -21,5 +21,9 @@ subprojects {
         config.setFrom(files("$rootDir/detekt.yml"))
         buildUponDefaultConfig = false
         parallel = true
+        val baselineFile = file("detekt-baseline.xml")
+        if (baselineFile.exists()) {
+            baseline = baselineFile
+        }
     }
 }

@@ -7,7 +7,6 @@
     <string name="llm_testing">Testing...</string>
     <string name="llm_test_connection">Test Connection</string>
     <string name="llm_clear">Clear</string>
-    <string name="llm_desc_back">Back</string>
     <string name="llm_enable_processing_title">Enable AI</string>
     <string name="llm_enable_processing_enabled">AI features are active.</string>
     <string name="llm_enable_processing_disabled">AI features are disabled.</string>

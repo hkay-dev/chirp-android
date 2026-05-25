@@ -41,6 +41,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
@@ -90,12 +91,11 @@ fun RecordScreen(
         }
     }
 
-    LaunchedEffect(entryMessage) {
-        entryMessage?.let { message ->
-            snackbarHostState.showSnackbar(message = message)
-            viewModel.clearEntryMessage()
-        }
-    }
+    RepositoryErrorSnackbarEffect(
+        errorMessage = entryMessage,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearEntryMessage,
+    )
 
     BackHandler(enabled = isActive) {
         showBackDialog = true

@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.transcription.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -87,7 +88,7 @@ fun TranscriptionSettingsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.transcription_desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_back),
                         )
                     }
                 },

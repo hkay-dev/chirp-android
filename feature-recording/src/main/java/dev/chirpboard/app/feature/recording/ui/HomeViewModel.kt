@@ -126,48 +126,61 @@ class HomeViewModel
                 .unwrapRepositoryFlow { _errorMessage.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        private val searchResults: Flow<List<Recording>> =
-            _searchQuery.flatMapLatest { query ->
-                val flow =
-                    if (query.isBlank()) {
-                        recordingRepository.getAllRecordings()
-                    } else {
-                        recordingRepository.searchRecordings(query)
+        private val allRecordingsList: StateFlow<List<Recording>> =
+            recordingRepository
+                .getAllRecordings()
+                .unwrapRepositoryFlow { _errorMessage.value = it }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private val filteredRecordings: StateFlow<List<Recording>> =
+            combine(_searchQuery, allRecordingsList) { query, all ->
+                query to all
+            }.flatMapLatest { (query, all) ->
+                if (query.isBlank()) {
+                    kotlinx.coroutines.flow.flowOf(all)
+                } else {
+                    recordingRepository
+                        .searchRecordings(query)
+                        .unwrapRepositoryFlow { _errorMessage.value = it }
+                }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private val recordingsWithTagsAndTranscripts: StateFlow<List<RecordingDisplayItem>> =
+            filteredRecordings
+                .map { recordings ->
+                    withContext(Dispatchers.IO) {
+                        val recordingIds = recordings.map(Recording::id)
+                        val tagsByRecordingId = tagRepository.getTagsForRecordingIds(recordingIds)
+                        val transcriptsByRecordingId = recordingRepository.getTranscripts(recordingIds)
+
+                        recordings.map { recording ->
+                            val tags = tagsByRecordingId[recording.id].orEmpty()
+                            val transcript = transcriptsByRecordingId[recording.id]
+                            RecordingDisplayItem(
+                                recording = recording,
+                                tags = tags.toImmutableList(),
+                                summary =
+                                    transcript?.summary ?: transcript?.effectiveText?.take(120),
+                            )
+                        }
                     }
-                flow.unwrapRepositoryFlow { _errorMessage.value = it }
-            }
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         /** All recordings based on search, enriched with tags/summary/profile */
         private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
-            combine(searchResults, allProfiles) { recordings, profiles ->
-                recordings to profiles.associateBy(Profile::id)
-            }.map { (recordings, profilesById) ->
-                withContext(Dispatchers.IO) {
-                    val recordingIds = recordings.map(Recording::id)
-                    val tagsByRecordingId = tagRepository.getTagsForRecordingIds(recordingIds)
-                    val transcriptsByRecordingId = recordingRepository.getTranscripts(recordingIds)
-
-                    recordings.map { recording ->
-                        val tags = tagsByRecordingId[recording.id].orEmpty()
-                        val transcript = transcriptsByRecordingId[recording.id]
-                        val profile = recording.profileId?.let(profilesById::get)
-                        RecordingDisplayItem(
-                            recording = recording,
-                            tags = tags.toImmutableList(),
-                            summary =
-                                transcript?.summary ?: transcript?.effectiveText?.take(120),
-                            profileName = profile?.name,
-                            profileIcon = profile?.icon,
-                        )
-                    }
+            combine(recordingsWithTagsAndTranscripts, allProfiles) { items, profiles ->
+                val profilesById = profiles.associateBy(Profile::id)
+                items.map { item ->
+                    val profile = item.recording.profileId?.let(profilesById::get)
+                    item.copy(
+                        profileName = profile?.name,
+                        profileIcon = profile?.icon,
+                    )
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val quickStartProfiles: StateFlow<List<HomeQuickStartEntry>> =
-            combine(
-                allProfiles,
-                recordingRepository.getAllRecordings().unwrapRepositoryFlow { _errorMessage.value = it },
-            ) { profiles, recordings ->
+            combine(allProfiles, allRecordingsList) { profiles, recordings ->
                 deriveHomeQuickStarts(profiles = profiles, recordings = recordings)
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -194,9 +207,7 @@ class HomeViewModel
 
         /** Quick stats derived from recordings */
         val stats: StateFlow<HomeStats> =
-            recordingRepository
-                .getAllRecordings()
-                .unwrapRepositoryFlow { _errorMessage.value = it }
+            allRecordingsList
                 .map { recordings ->
                     HomeStats(
                         totalRecordings = recordings.size,

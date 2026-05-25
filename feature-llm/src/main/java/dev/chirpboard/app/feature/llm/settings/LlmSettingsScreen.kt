@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.llm.R
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -58,7 +59,7 @@ fun LlmSettingsScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.llm_desc_back)
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(CoreR.string.desc_back)
                         )
                     }
                 },

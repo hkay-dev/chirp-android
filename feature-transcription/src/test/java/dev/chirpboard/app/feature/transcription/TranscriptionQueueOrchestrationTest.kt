@@ -57,6 +57,7 @@ class TranscriptionQueueOrchestrationTest {
 
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
+        every { workManager.getWorkInfosByTag(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION) } returns Futures.immediateFuture(emptyList())
 
         val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
         every { readinessGate.state } returns kotlinx.coroutines.flow.MutableStateFlow(ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE))

@@ -27,19 +27,25 @@ internal class TranscriptionQueueReconciler(
     private val setActiveCount: (Int) -> Unit
 ) {
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
+    private var ownershipCache: Map<UUID, QueueOwnership>? = null
 
     suspend fun reconcileQueueHealth(trigger: ReconciliationTrigger) {
         Log.i(TAG, "Running queue reconciliation. trigger=$trigger")
 
-        recoverStaleTranscribing(trigger)
-        recoverStaleEnhancing(trigger)
-        reconcilePendingQueueOwnership()
-        updateActiveCount()
+        ownershipCache = buildOwnershipCache()
+        try {
+            recoverStaleTranscribing(trigger)
+            recoverStaleEnhancing(trigger)
+            reconcilePendingQueueOwnership()
+            updateActiveCount()
 
-        val pending = loadPendingRecordings()
-        if (pending.isNotEmpty()) {
-            val status = constraintChecker.checkConstraints()
-            setConstraintWarning(constraintChecker.getConstraintMessage(status))
+            val pending = loadPendingRecordings()
+            if (pending.isNotEmpty()) {
+                val status = constraintChecker.checkConstraints()
+                setConstraintWarning(constraintChecker.getConstraintMessage(status))
+            }
+        } finally {
+            ownershipCache = null
         }
     }
 
@@ -172,21 +178,67 @@ internal class TranscriptionQueueReconciler(
     }
 
     internal suspend fun inspectQueueOwnership(recordingId: UUID): QueueOwnership {
+        ownershipCache?.get(recordingId)?.let { return it }
+
         return try {
             val workInfos = loadWorkInfosWithTimeout(TranscriptionWorkRequest.workName(recordingId))
                 ?: return QueueOwnership.INSPECTION_TIMEOUT
 
-            val hasActiveWork = workInfos.any { info ->
-                info.state == WorkInfo.State.ENQUEUED ||
-                    info.state == WorkInfo.State.RUNNING ||
-                    info.state == WorkInfo.State.BLOCKED
-            }
-
-            if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
+            ownershipFromWorkInfos(workInfos)
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Failed to inspect queue ownership for $recordingId", e)
             QueueOwnership.INSPECTION_TIMEOUT
+        }
+    }
+
+    private suspend fun buildOwnershipCache(): Map<UUID, QueueOwnership> {
+        val allWorkInfos =
+            loadWorkInfosByTagWithTimeout(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION)
+                ?: return emptyMap()
+
+        return allWorkInfos
+            .flatMap { workInfo ->
+                workInfo.tags.mapNotNull { tag ->
+                    recordingIdFromWorkTag(tag)?.let { id -> id to workInfo }
+                }
+            }.groupBy({ it.first }, { it.second })
+            .mapValues { (_, infos) -> ownershipFromWorkInfos(infos) }
+    }
+
+    private fun recordingIdFromWorkTag(tag: String): UUID? {
+        if (!tag.startsWith(TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX)) {
+            return null
+        }
+        val rawId = tag.removePrefix(TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX)
+        return runCatching { UUID.fromString(rawId) }.getOrNull()
+    }
+
+    private fun ownershipFromWorkInfos(workInfos: List<WorkInfo>): QueueOwnership {
+        val hasActiveWork =
+            workInfos.any { info ->
+                info.state == WorkInfo.State.ENQUEUED ||
+                    info.state == WorkInfo.State.RUNNING ||
+                    info.state == WorkInfo.State.BLOCKED
+            }
+        return if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
+    }
+
+    private suspend fun loadWorkInfosByTagWithTimeout(tag: String): List<WorkInfo>? {
+        return withContext(Dispatchers.IO) {
+            val future = workManager.getWorkInfosByTag(tag)
+
+            withTimeoutOrNull(WORK_INFO_TIMEOUT_MS) {
+                while (!future.isDone && !future.isCancelled) {
+                    delay(WORK_INFO_POLL_INTERVAL_MS)
+                }
+
+                if (future.isCancelled) {
+                    emptyList()
+                } else {
+                    future.get()
+                }
+            }
         }
     }
 

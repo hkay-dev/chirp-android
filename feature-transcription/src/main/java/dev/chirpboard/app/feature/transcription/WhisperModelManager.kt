@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,6 +51,7 @@ class WhisperModelManager
         }
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val downloadMutex = Mutex()
 
         private val _modelStatus = MutableStateFlow<ModelStatus>(ModelStatus.NotDownloaded)
         val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
@@ -82,18 +85,20 @@ class WhisperModelManager
             }
 
         suspend fun downloadModel(onComplete: suspend () -> Unit = {}) {
-            _modelStatus.value = ModelStatus.Downloading(0f)
-            _downloadProgress.value = 0f
-            speechModelStore.downloadModel().collect { state ->
-                when (state) {
-                    is SpeechModelDownloadState.Progress -> updateDownloadProgress(state.progress)
-                    SpeechModelDownloadState.Complete -> {
-                        markDownloadComplete()
-                        readinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
-                        onComplete()
-                    }
+            downloadMutex.withLock {
+                _modelStatus.value = ModelStatus.Downloading(0f)
+                _downloadProgress.value = 0f
+                speechModelStore.downloadModel().collect { state ->
+                    when (state) {
+                        is SpeechModelDownloadState.Progress -> updateDownloadProgress(state.progress)
+                        SpeechModelDownloadState.Complete -> {
+                            markDownloadComplete()
+                            readinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+                            onComplete()
+                        }
 
-                    is SpeechModelDownloadState.Error -> markDownloadError(state.message)
+                        is SpeechModelDownloadState.Error -> markDownloadError(state.message)
+                    }
                 }
             }
         }
