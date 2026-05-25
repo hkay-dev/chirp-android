@@ -99,11 +99,13 @@ class TranscriptionWorker
             }
 
             if (recording.status == RecordingStatus.PENDING_ENHANCEMENT) {
+                setForeground(buildTranscriptionForegroundInfo(applicationContext))
                 return runEnhancementOnly(recordingId, recording, correlationId)
             }
 
             // Update status to TRANSCRIBING
             recordingRepository.updateStatus(recordingId, RecordingStatus.TRANSCRIBING)
+            setForeground(buildTranscriptionForegroundInfo(applicationContext))
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.TRANSCRIPTION,
                 outcome = ReliabilityOutcome.STARTED,

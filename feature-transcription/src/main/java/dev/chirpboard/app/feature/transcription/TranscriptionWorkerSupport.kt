@@ -1,12 +1,69 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.work.Data
+import androidx.work.ForegroundInfo
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
 import java.util.UUID
 
 internal const val TRANSCRIPTION_MAX_RETRY_COUNT = 3
+internal const val TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID = 2001
+internal const val TRANSCRIPTION_FOREGROUND_CHANNEL_ID = "transcription_progress"
+
+internal fun transcriptionProgressNotificationTitle(): String = "Transcribing recording"
+
+internal fun buildTranscriptionProgressNotification(context: Context): Notification {
+    ensureTranscriptionProgressChannel(context)
+    return NotificationCompat
+        .Builder(context, TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.stat_sys_download)
+        .setContentTitle(transcriptionProgressNotificationTitle())
+        .setContentText("Processing audio in the background")
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .build()
+}
+
+internal fun buildTranscriptionForegroundInfo(context: Context): ForegroundInfo {
+    val notification = buildTranscriptionProgressNotification(context)
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ForegroundInfo(
+            TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID,
+            notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        )
+    } else {
+        ForegroundInfo(TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID, notification)
+    }
+}
+
+private fun ensureTranscriptionProgressChannel(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+        return
+    }
+    val notificationManager = context.getSystemService(NotificationManager::class.java)
+    if (notificationManager.getNotificationChannel(TRANSCRIPTION_FOREGROUND_CHANNEL_ID) != null) {
+        return
+    }
+    val channel =
+        NotificationChannel(
+            TRANSCRIPTION_FOREGROUND_CHANNEL_ID,
+            "Transcription",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Shows while a recording is being transcribed"
+            setShowBadge(false)
+        }
+    notificationManager.createNotificationChannel(channel)
+}
 
 internal fun buildTranscriptionFailureResult(errorMessage: String): androidx.work.ListenableWorker.Result {
     return androidx.work.ListenableWorker.Result.failure(

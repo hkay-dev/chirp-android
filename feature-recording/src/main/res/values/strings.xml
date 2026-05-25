@@ -140,6 +140,8 @@
     <string name="rec_empty_state_subtitle">Tap Record to capture your first brilliant idea</string>
     <string name="rec_record_button_idle">Tap to record</string>
     <string name="rec_record_button_starting">Starting...</string>
+    <string name="rec_notification_starting_title">Starting recording</string>
+    <string name="rec_notification_starting_text">Preparing microphone</string>
     <string name="rec_record_button_recording">Recording</string>
     <string name="rec_record_button_paused">Paused</string>
     <string name="rec_record_button_stopping">Stopping...</string>

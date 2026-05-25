@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="database" path="chirp.db" />
+        <include domain="database" path="chirp.db-wal" />
+        <include domain="database" path="chirp.db-shm" />
+        <include domain="file" path="recordings/" />
+        <include domain="sharedpref" path="chirp.xml" />
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="database" path="chirp.db" />
+        <include domain="database" path="chirp.db-wal" />
+        <include domain="database" path="chirp.db-shm" />
+        <include domain="file" path="recordings/" />
+        <include domain="sharedpref" path="chirp.xml" />
+        <exclude domain="sharedpref" path="secure_prefs.xml" />
+    </device-transfer>
+</data-extraction-rules>
