@@ -261,6 +261,8 @@ class TranscriptionQueueManager
                     errorMessage = null,
                 )
 
+                warmUpTranscriberIfNeeded()
+
                 // Re-enqueue for processing
                 TranscriptionWorkRequest.enqueue(
                     context,
@@ -366,15 +368,30 @@ class TranscriptionQueueManager
             }
 
         override suspend fun recoverRecordingsWaitingForModel() {
+            if (!transcriberProvider.isModelDownloaded()) {
+                return
+            }
+            if (!warmUpTranscriberIfNeeded()) {
+                Log.w(TAG, "Speech model files are ready but recognizer init is still unavailable")
+                return
+            }
+
             val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
             failed.filter {
                 it.errorMessage?.startsWith("Model not downloaded") == true ||
-                it.errorMessage?.startsWith("Failed to initialize") == true ||
-                it.errorMessage?.startsWith("Speech model unavailable") == true ||
-                it.errorMessage?.startsWith("Recognizer not ready") == true
+                    it.errorMessage?.startsWith("Failed to initialize") == true ||
+                    it.errorMessage?.startsWith("Speech model unavailable") == true ||
+                    it.errorMessage?.startsWith("Recognizer not ready") == true
             }.forEach { recording ->
                 retry(recording.id)
             }
+        }
+
+        private suspend fun warmUpTranscriberIfNeeded(): Boolean {
+            if (transcriberProvider.isReady()) {
+                return true
+            }
+            return transcriberProvider.initialize()
         }
 
         /**

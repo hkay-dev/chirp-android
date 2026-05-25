@@ -17,6 +17,7 @@ enum class VerificationTrigger {
     APP_STARTUP,
     HOME_VISIBLE,
     HOME_RECORD_TAP,
+    KEYBOARD_DICTATION,
 }
 
 sealed interface ModelReadinessState {

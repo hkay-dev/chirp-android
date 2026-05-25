@@ -4,8 +4,10 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.feature.transcription.inline.InlineTranscriptionCoordinatorImpl
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import javax.inject.Singleton
 
@@ -23,4 +25,10 @@ abstract class TranscriptionModule {
     abstract fun bindTranscriptionQueueLifecycle(
         manager: TranscriptionQueueManager,
     ): TranscriptionQueueLifecycle
+
+    @Binds
+    @Singleton
+    abstract fun bindInlineTranscriptionCoordinator(
+        impl: InlineTranscriptionCoordinatorImpl,
+    ): InlineTranscriptionCoordinator
 }

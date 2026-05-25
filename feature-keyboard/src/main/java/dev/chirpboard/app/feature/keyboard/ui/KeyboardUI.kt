@@ -1,25 +1,24 @@
 package dev.chirpboard.app.feature.keyboard.ui
 
-import androidx.compose.animation.AnimatedContent
+import androidx.annotation.StringRes
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.FastOutSlowInEasing
-import dev.chirpboard.app.core.ui.motion.PushDownReveal
-import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,12 +28,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
@@ -42,12 +41,16 @@ import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -56,181 +59,195 @@ import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
-import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.ThinkingDots
-import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
-import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.feature.keyboard.R
-import dev.chirpboard.app.feature.keyboard.state.KeyboardState
+import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
+import dev.chirpboard.app.feature.keyboard.session.KeyboardUiState
+import dev.chirpboard.app.feature.keyboard.session.ModelBannerState
+import dev.chirpboard.app.feature.keyboard.session.VoicePanelPhase
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.StateFlow
-import dev.chirpboard.app.core.recording.WaveformBuffer
-import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
-import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
+import kotlinx.coroutines.launch
+
+private val KeyboardPanelShape = RoundedCornerShape(20.dp)
+private val RecordingActionsHeight = 64.dp
+private const val VoiceTransitionMs = 280
+private val SpaceCursorDragStep = 10.dp
+private const val SpaceCursorDragStartThresholdPx = 2f
 
 private enum class ProcessingPhase {
     Transcribing,
     Polishing,
 }
 
-private enum class KeyboardAnimatedTarget {
-    Idle,
-    Recording,
-    Processing,
-    Downloading,
-    ModelNotReady,
-    Error,
-    LlmError,
-}
-
-private fun KeyboardState.toAnimatedTarget(): KeyboardAnimatedTarget =
+private fun VoicePanelPhase.processingPhase(): ProcessingPhase? =
     when (this) {
-        is KeyboardState.Idle -> KeyboardAnimatedTarget.Idle
-        is KeyboardState.Recording -> KeyboardAnimatedTarget.Recording
-        is KeyboardState.Transcribing,
-        is KeyboardState.Polishing,
-        -> KeyboardAnimatedTarget.Processing
-        is KeyboardState.Downloading -> KeyboardAnimatedTarget.Downloading
-        is KeyboardState.ModelNotReady -> KeyboardAnimatedTarget.ModelNotReady
-        is KeyboardState.Error -> KeyboardAnimatedTarget.Error
-        is KeyboardState.LlmError -> KeyboardAnimatedTarget.LlmError
+        VoicePanelPhase.Transcribing -> ProcessingPhase.Transcribing
+        VoicePanelPhase.Polishing -> ProcessingPhase.Polishing
+        else -> null
     }
 
-private fun KeyboardState.processingPhase(): ProcessingPhase =
-    if (this is KeyboardState.Polishing) ProcessingPhase.Polishing else ProcessingPhase.Transcribing
+private data class KeyboardModeOption(
+    val id: String,
+    @StringRes val labelRes: Int,
+)
+
+private fun keyboardModeOptions(): List<KeyboardModeOption> =
+    listOf(
+        KeyboardModeOption("proofread", R.string.keyboard_mode_proofread),
+        KeyboardModeOption("formal", R.string.keyboard_mode_formal),
+        KeyboardModeOption("casual", R.string.keyboard_mode_casual),
+        KeyboardModeOption("email", R.string.keyboard_mode_email),
+        KeyboardModeOption("code", R.string.keyboard_mode_code),
+        KeyboardModeOption("smart", R.string.keyboard_mode_smart),
+    )
 
 @Composable
-fun KeyboardUI(
-    state: KeyboardState,
+fun KeyboardScreen(
+    uiState: KeyboardUiState,
     waveformBuffer: WaveformBuffer,
     sampleCountFlow: StateFlow<Long>,
-    llmEnabled: Boolean,
-    currentMode: ProcessingMode?,
-    onTap: () -> Unit,
+    onMicTap: () -> Unit,
     onCancel: () -> Unit = {},
     onRestart: () -> Unit = {},
     onToggleLlm: () -> Unit,
     onModeChange: (ProcessingMode) -> Unit,
     onBackspace: () -> Unit = {},
+    onBackspaceWord: () -> Unit = {},
     onSpace: () -> Unit = {},
     onMoveCursor: (Int) -> Unit = {},
     onOpenApp: () -> Unit = {},
+    onDismissError: () -> Unit = {},
 ) {
     KeyboardTheme {
-        val modeScrollState = rememberScrollState()
-        val showModeControls =
-            currentMode != null &&
-                (state is KeyboardState.Idle || state is KeyboardState.Recording)
         val outlineColor = MaterialTheme.colorScheme.outlineVariant
+        val voicePhase = uiState.voicePanel
+        val recordingVisual by animateFloatAsState(
+            targetValue = if (uiState.showRecordingActions) 1f else 0f,
+            animationSpec = tween(VoiceTransitionMs, easing = FastOutSlowInEasing),
+            label = "recordingActionsVisual",
+        )
+
         Surface(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 200.dp, max = 280.dp)
+                    .heightIn(min = 284.dp, max = 320.dp)
                     .drawBehind {
                         drawLine(
                             color = outlineColor,
                             start = Offset(0f, 0f),
                             end = Offset(size.width, 0f),
-                            strokeWidth = 1.dp.toPx()
+                            strokeWidth = 1.dp.toPx(),
                         )
                     },
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 0.dp,
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(top = 1.dp).animatePushDownLayout(),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            KeyboardMainPanel(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
+                KeyboardTopBar(
+                    uiState = uiState,
+                    onToggleLlm = onToggleLlm,
+                    onModeChange = onModeChange,
+                )
+
+                if (uiState.modelBanner != ModelBannerState.None && voicePhase == VoicePanelPhase.Idle) {
+                    KeyboardModelBanner(
+                        modelBanner = uiState.modelBanner,
+                        initFailedMessage = uiState.modelInitFailedMessage,
+                        onOpenApp = onOpenApp,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    )
+                }
+
                 Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    val animatedTarget = state.toAnimatedTarget()
-                    AnimatedContent(
-                        targetState = animatedTarget,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) togetherWith
-                                fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
-                        },
-                        label = "keyboardStateTransition",
-                    ) { target ->
-                        when (target) {
-                            KeyboardAnimatedTarget.Idle -> {
-                                IdleContent(
-                                    onTap = onTap,
-                                    onBackspace = onBackspace,
-                                    onSpace = onSpace,
-                                    onMoveCursor = onMoveCursor,
-                                )
-                            }
+                    when {
+                        uiState.errorOverlay != null -> {
+                            ErrorContent(uiState.errorOverlay, onDismissError)
+                        }
 
-                            KeyboardAnimatedTarget.Recording -> {
-                                RecordingContent(
-                                    waveformBuffer = waveformBuffer,
-                                    sampleCountFlow = sampleCountFlow,
-                                    onStop = onTap,
-                                    onCancel = onCancel,
-                                    onRestart = onRestart,
-                                )
-                            }
+                        voicePhase == VoicePanelPhase.LlmError && uiState.llmErrorMessage != null -> {
+                            LlmErrorContent(uiState.llmErrorMessage, onDismissError)
+                        }
 
-                            KeyboardAnimatedTarget.Processing -> {
-                                KeyboardProcessingContent(state.processingPhase())
-                            }
+                        voicePhase == VoicePanelPhase.Error && uiState.errorMessage != null -> {
+                            ErrorContent(uiState.errorMessage, onMicTap)
+                        }
 
-                            KeyboardAnimatedTarget.Downloading -> {
-                                val downloading = state as? KeyboardState.Downloading
-                                DownloadingContent(downloading?.progress ?: 0f)
-                            }
-
-                            KeyboardAnimatedTarget.ModelNotReady -> {
-                                ModelNotReadyContent(onTap = onTap, onOpenApp = onOpenApp)
-                            }
-
-                            KeyboardAnimatedTarget.Error -> {
-                                val error = state as? KeyboardState.Error
-                                ErrorContent(error?.message.orEmpty(), onTap)
-                            }
-
-                            KeyboardAnimatedTarget.LlmError -> {
-                                val llmError = state as? KeyboardState.LlmError
-                                LlmErrorContent(llmError?.message.orEmpty(), onTap)
-                            }
+                        else -> {
+                            UnifiedVoicePanel(
+                                phase = voicePhase,
+                                recordingVisual = recordingVisual,
+                                modelLoadProgress = uiState.modelLoadProgress,
+                                waveformBuffer = waveformBuffer,
+                                sampleCountFlow = sampleCountFlow,
+                                onStart = onMicTap,
+                            )
                         }
                     }
                 }
 
-                PushDownReveal(visible = showModeControls) {
-                    ModeControlsRow(
-                        scrollState = modeScrollState,
-                        llmEnabled = llmEnabled,
-                        currentMode = currentMode!!,
-                        onToggleLlm = onToggleLlm,
-                        onModeChange = onModeChange,
+                if (uiState.showTypingControls) {
+                    if (recordingVisual > 0.01f) {
+                        RecordingActionsRow(
+                            visibility = recordingVisual,
+                            onStop = onMicTap,
+                            onCancel = onCancel,
+                            onRestart = onRestart,
+                            modifier = Modifier.fillMaxWidth().zIndex(1f),
+                        )
+                    }
+
+                    KeyboardControls(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp)
+                                .zIndex(2f),
+                        onBackspace = onBackspace,
+                        onBackspaceWord = onBackspaceWord,
+                        onSpace = onSpace,
+                        onMoveCursor = onMoveCursor,
                     )
                 }
             }
@@ -239,350 +256,695 @@ fun KeyboardUI(
 }
 
 @Composable
-private fun ModeControlsRow(
-    scrollState: ScrollState,
-    llmEnabled: Boolean,
-    currentMode: ProcessingMode,
+private fun KeyboardMainPanel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier =
+            modifier
+                .clip(KeyboardPanelShape)
+                .background(MaterialTheme.colorScheme.surfaceContainer)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun KeyboardTopBar(
+    uiState: KeyboardUiState,
     onToggleLlm: () -> Unit,
     onModeChange: (ProcessingMode) -> Unit,
 ) {
+    val statusLabelRes = uiState.statusLabelRes()
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        LlmToggle(
-            enabled = llmEnabled,
-            currentMode = currentMode,
-            onClick = onToggleLlm,
+        Box(
+            modifier = Modifier.height(20.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Crossfade(
+                targetState = statusLabelRes ?: 0,
+                animationSpec = tween(VoiceTransitionMs, easing = FastOutSlowInEasing),
+                label = "keyboardStatusLabel",
+            ) { labelRes ->
+                if (labelRes != 0) {
+                    Text(
+                        text = stringResource(labelRes),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        KeyboardAiSettingsMenu(
+            llmEnabled = uiState.llmEnabled,
+            currentMode = uiState.processingMode,
+            enabled = uiState.settingsEnabled,
+            onToggleLlm = onToggleLlm,
+            onModeChange = onModeChange,
         )
-        if (llmEnabled) {
-            Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
-            ModeSelector(
-                scrollState = scrollState,
-                currentMode = currentMode,
-                onModeChange = onModeChange,
+    }
+}
+
+@Composable
+private fun KeyboardAiSettingsMenu(
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode,
+    enabled: Boolean,
+    onToggleLlm: () -> Unit,
+    onModeChange: (ProcessingMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val modes = remember { keyboardModeOptions() }
+
+    Box {
+        FilledTonalIconButton(
+            onClick = { if (enabled) expanded = true },
+            enabled = enabled,
+            modifier = Modifier.size(40.dp),
+            colors =
+                IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor =
+                        if (llmEnabled) {
+                            MaterialTheme.colorScheme.tertiaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        },
+                    contentColor =
+                        if (llmEnabled) {
+                            MaterialTheme.colorScheme.onTertiaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                ),
+        ) {
+            Icon(
+                Icons.Filled.AutoAwesome,
+                contentDescription = stringResource(R.string.keyboard_ai_settings),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (llmEnabled) {
+                            stringResource(R.string.keyboard_ai_disable)
+                        } else {
+                            stringResource(R.string.keyboard_ai_enable)
+                        },
+                    )
+                },
+                onClick = {
+                    onToggleLlm()
+                    expanded = false
+                },
+                leadingIcon = {
+                    Icon(Icons.Filled.AutoAwesome, contentDescription = null)
+                },
+                trailingIcon = {
+                    if (llmEnabled) {
+                        Icon(Icons.Filled.Check, contentDescription = null)
+                    }
+                },
+            )
+
+            HorizontalDivider()
+
+            modes.forEach { option ->
+                val mode = ProcessingMode.fromId(option.id)
+                DropdownMenuItem(
+                    text = { Text(stringResource(option.labelRes)) },
+                    enabled = llmEnabled,
+                    onClick = {
+                        onModeChange(mode)
+                        expanded = false
+                    },
+                    leadingIcon =
+                        if (currentMode.id == option.id) {
+                            { Icon(Icons.Filled.Check, contentDescription = null) }
+                        } else {
+                            null
+                        },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeyboardModelBanner(
+    modelBanner: ModelBannerState,
+    initFailedMessage: String?,
+    onOpenApp: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    when (modelBanner) {
+        ModelBannerState.None -> Unit
+
+        ModelBannerState.Initializing -> {
+            Row(
+                modifier =
+                    modifier
+                        .clip(ChirpShapes.Small)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                LinearProgressIndicator(
+                    modifier = Modifier.weight(1f).height(3.dp),
+                )
+                Text(
+                    stringResource(R.string.keyboard_loading_speech_model),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        ModelBannerState.NotDownloaded -> {
+            Row(
+                modifier =
+                    modifier
+                        .clip(ChirpShapes.Small)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    stringResource(R.string.keyboard_model_not_ready),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                FilledTonalButton(onClick = onOpenApp) {
+                    Text(
+                        stringResource(R.string.keyboard_open_app_to_download),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        }
+
+        ModelBannerState.InitFailed -> {
+            Text(
+                initFailedMessage ?: stringResource(R.string.keyboard_model_not_ready),
+                modifier = modifier,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }
 }
 
 @Composable
-private fun LlmToggle(
-    enabled: Boolean,
-    currentMode: ProcessingMode,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
+private fun UnifiedVoicePanel(
+    phase: VoicePanelPhase,
+    recordingVisual: Float,
+    modelLoadProgress: Float?,
+    waveformBuffer: WaveformBuffer,
+    sampleCountFlow: StateFlow<Long>,
+    onStart: () -> Unit,
 ) {
-    FilterChip(
-        selected = enabled,
-        onClick = onClick,
-        label = {
-            Text(
-                text =
-                    if (enabled) {
-                        stringResource(R.string.keyboard_llm_mode, currentMode.displayName)
-                    } else {
-                        stringResource(R.string.keyboard_llm_enable)
-                    },
-                style = MaterialTheme.typography.labelMedium,
-            )
-        },
-        leadingIcon =
-            if (enabled) {
-                {
-                    Icon(
-                        Icons.Filled.AutoAwesome,
-                        contentDescription = null,
-                        Modifier.size(FilterChipDefaults.IconSize),
+    val sampleCount by sampleCountFlow.collectAsStateWithLifecycle()
+    val processingVisual by animateFloatAsState(
+        targetValue = if (phase.processingPhase() != null) 1f else 0f,
+        animationSpec = tween(VoiceTransitionMs, easing = FastOutSlowInEasing),
+        label = "processingVisual",
+    )
+    val loadingVisual by animateFloatAsState(
+        targetValue = if (phase == VoicePanelPhase.LoadingModel) 1f else 0f,
+        animationSpec = tween(VoiceTransitionMs, easing = FastOutSlowInEasing),
+        label = "loadingVisual",
+    )
+    val idleVisual =
+        (1f - recordingVisual).coerceIn(0f, 1f) *
+            (1f - processingVisual).coerceIn(0f, 1f) *
+            (1f - loadingVisual).coerceIn(0f, 1f)
+    val waveformVisual = recordingVisual * (1f - processingVisual).coerceIn(0f, 1f) * (1f - loadingVisual).coerceIn(0f, 1f)
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        KeyboardRecordingGlow(
+            modifier = Modifier.matchParentSize(),
+            strength = recordingVisual,
+        )
+
+        if (waveformVisual > 0.01f) {
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = waveformVisual },
+                contentAlignment = Alignment.Center,
+            ) {
+                AudioWaveform(
+                    waveformBuffer = waveformBuffer,
+                    sampleCount = sampleCount,
+                    isActive = phase == VoicePanelPhase.Recording,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    minBarHeight = 4.dp,
+                    maxBarHeight = 40.dp,
+                    showIdlePlaceholder = false,
+                )
+            }
+        }
+
+        if (processingVisual > 0.01f) {
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = processingVisual },
+                contentAlignment = Alignment.Center,
+            ) {
+                when (val processingPhase = phase.processingPhase()) {
+                    null -> Unit
+                    else -> VoiceProcessingContent(processingPhase)
+                }
+            }
+        }
+
+        if (loadingVisual > 0.01f) {
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = loadingVisual },
+                contentAlignment = Alignment.Center,
+            ) {
+                ModelLoadingContent(progress = modelLoadProgress)
+            }
+        }
+
+        if (phase == VoicePanelPhase.Idle && idleVisual > 0.01f) {
+            Box(
+                modifier =
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = idleVisual },
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FloatingActionButton(
+                        onClick = onStart,
+                        modifier = Modifier.size(56.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Mic,
+                            stringResource(R.string.keyboard_desc_start_recording),
+                            Modifier.size(28.dp),
+                        )
+                    }
+                    Text(
+                        stringResource(R.string.keyboard_tap_to_speak),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
                 }
-            } else {
-                null
-            },
-        modifier = modifier,
-        colors =
-            FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            ),
-    )
+            }
+        }
+    }
 }
 
 @Composable
-private fun IdleContent(
-    onTap: () -> Unit,
-    onBackspace: () -> Unit,
-    onSpace: () -> Unit,
-    onMoveCursor: (Int) -> Unit,
+private fun RecordingActionsRow(
+    visibility: Float,
+    onStop: () -> Unit,
+    onCancel: () -> Unit,
+    onRestart: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "recordingStopPulse")
+    val stopPulse by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
+        label = "stopPulse",
+    )
+    val stopScale = 1f + (stopPulse - 1f) * visibility
+    val touchEnabled = visibility > 0.5f
+
+    Box(
+        modifier = modifier.height(RecordingActionsHeight),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        alpha = visibility
+                        if (visibility <= 0.01f) {
+                            clip = true
+                        }
+                    },
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = onCancel,
+                enabled = touchEnabled,
+                modifier =
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small)
+                        .size(42.dp),
+            ) {
+                Icon(Icons.Filled.Close, "Cancel recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+
+            FloatingActionButton(
+                onClick = { if (touchEnabled) onStop() },
+                modifier =
+                    Modifier
+                        .size(56.dp)
+                        .graphicsLayer {
+                            scaleX = stopScale
+                            scaleY = stopScale
+                        },
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
+            ) {
+                Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(28.dp))
+            }
+
+            IconButton(
+                onClick = onRestart,
+                enabled = touchEnabled,
+                modifier =
+                    Modifier
+                        .background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small)
+                        .size(42.dp),
+            ) {
+                Icon(Icons.Filled.Refresh, "Restart recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoiceProcessingContent(phase: ProcessingPhase) {
+    val message =
+        when (phase) {
+            ProcessingPhase.Transcribing -> stringResource(R.string.keyboard_transcribing)
+            ProcessingPhase.Polishing -> stringResource(R.string.keyboard_polishing)
+        }
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        LargeFloatingActionButton(
-            onClick = onTap,
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        ) {
-            Icon(
-                Icons.Filled.Mic,
-                stringResource(R.string.keyboard_desc_start_recording),
-                Modifier.size(36.dp),
-            )
-        }
-        Text(
-            stringResource(R.string.keyboard_tap_to_speak),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        KeyboardControls(
-            onBackspace = onBackspace,
-            onSpace = onSpace,
-            onMoveCursor = onMoveCursor,
-        )
+        ThinkingDots(color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
 private fun KeyboardControls(
     onBackspace: () -> Unit,
+    onBackspaceWord: () -> Unit,
     onSpace: () -> Unit,
     onMoveCursor: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val dragOffset = remember { mutableFloatStateOf(0f) }
-
     Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Backspace button
-        IconButton(
-            onClick = onBackspace,
+        BackspaceKey(
+            onDeleteCharacter = onBackspace,
+            onDeleteWord = onBackspaceWord,
             modifier =
                 Modifier
                     .background(
                         MaterialTheme.colorScheme.secondaryContainer,
                         ChirpShapes.Small,
                     ).size(48.dp),
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.Backspace,
-                contentDescription = stringResource(R.string.keyboard_desc_delete),
-                tint = MaterialTheme.colorScheme.onSecondaryContainer,
-            )
-        }
+        )
 
-        // Space button with swipe gesture
-        FilledTonalButton(
-            onClick = onSpace,
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .height(48.dp)
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { dragOffset.floatValue = 0f },
-                            onDragEnd = {
-                                // Reset offset
-                                dragOffset.floatValue = 0f
-                            },
-                            onHorizontalDrag = { _, dragAmount ->
-                                dragOffset.floatValue += dragAmount
-                                // Move cursor when drag exceeds threshold
-                                val threshold = 30f
-                                if (kotlin.math.abs(dragOffset.floatValue) >= threshold) {
-                                    val direction = if (dragOffset.floatValue > 0) 1 else -1
-                                    onMoveCursor(direction)
-                                    dragOffset.floatValue = 0f
+        SpaceBarKey(
+            onSpace = onSpace,
+            onMoveCursor = onMoveCursor,
+            modifier = Modifier.weight(1f).height(48.dp),
+        )
+    }
+}
+
+@Composable
+private fun BackspaceKey(
+    onDeleteCharacter: () -> Unit,
+    onDeleteWord: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+
+    Box(
+        modifier =
+            modifier
+                .clip(ChirpShapes.Small)
+                .minimumInteractiveComponentSize()
+                .pointerInput(onDeleteCharacter, onDeleteWord) {
+                    coroutineScope {
+                        while (true) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                var isPressed = true
+                                val pressStart = System.currentTimeMillis()
+                                var wordMode = false
+                                var repeatCount = 0
+
+                                HapticFeedback.onBackspace(context)
+                                onDeleteCharacter()
+
+                                val repeatJob =
+                                    this@coroutineScope.launch {
+                                        delay(BackspaceInitialRepeatDelayMs)
+                                        while (isPressed) {
+                                            val holdDuration = System.currentTimeMillis() - pressStart
+                                            if (!wordMode && shouldEnterBackspaceWordMode(holdDuration)) {
+                                                wordMode = true
+                                                HapticFeedback.onBackspaceWordMode(context)
+                                            }
+
+                                            if (wordMode) {
+                                                onDeleteWord()
+                                            } else {
+                                                onDeleteCharacter()
+                                            }
+
+                                            repeatCount++
+                                            if (repeatCount % 4 == 0) {
+                                                HapticFeedback.onBackspace(context)
+                                            }
+
+                                            delay(backspaceRepeatIntervalMs(holdDuration, wordMode))
+                                        }
+                                    }
+
+                                try {
+                                    do {
+                                        val event = awaitPointerEvent()
+                                    } while (event.changes.first().pressed)
+                                } finally {
+                                    isPressed = false
+                                    repeatJob.cancel()
                                 }
-                            },
-                        )
-                    },
-            colors =
-                ButtonDefaults.filledTonalButtonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+                            }
+                        }
+                    }
+                },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Filled.Backspace,
+            contentDescription = stringResource(R.string.keyboard_desc_delete),
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+@Composable
+private fun SpaceBarKey(
+    onSpace: () -> Unit,
+    onMoveCursor: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val cursorStepPx = with(density) { SpaceCursorDragStep.toPx() }
+
+    Box(
+        modifier =
+            modifier
+                .clip(ChirpShapes.Small)
+                .background(MaterialTheme.colorScheme.secondaryContainer)
+                .pointerInput(onSpace, onMoveCursor, cursorStepPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var cursorMode = false
+                        var cursorAccumulated = 0f
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.first()
+                            if (!change.pressed) {
+                                if (!cursorMode) {
+                                    onSpace()
+                                }
+                                break
+                            }
+
+                            val dx = change.position.x - down.position.x
+                            val dy = change.position.y - down.position.y
+                            if (!cursorMode && (dx * dx + dy * dy) > SpaceCursorDragStartThresholdPx * SpaceCursorDragStartThresholdPx) {
+                                cursorMode = true
+                            }
+
+                            if (cursorMode) {
+                                val dragDelta = change.position.x - change.previousPosition.x
+                                change.consume()
+                                cursorAccumulated += dragDelta
+                                while (cursorAccumulated >= cursorStepPx) {
+                                    onMoveCursor(1)
+                                    HapticFeedback.onCursorStep(context)
+                                    cursorAccumulated -= cursorStepPx
+                                }
+                                while (cursorAccumulated <= -cursorStepPx) {
+                                    onMoveCursor(-1)
+                                    HapticFeedback.onCursorStep(context)
+                                    cursorAccumulated += cursorStepPx
+                                }
+                            }
+                        }
+                    }
+                },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.Filled.SpaceBar,
                 contentDescription = stringResource(R.string.keyboard_desc_space),
                 modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.keyboard_desc_space), style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@Composable
-private fun ModeSelector(
-    scrollState: ScrollState,
-    currentMode: ProcessingMode,
-    onModeChange: (ProcessingMode) -> Unit,
-) {
-    val currentId = currentMode.id
-
-    Row(
-        modifier = Modifier.horizontalScroll(scrollState),
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-    ) {
-        ModeChip("proofread", stringResource(R.string.keyboard_mode_proofread), currentId, onModeChange)
-        ModeChip("formal", stringResource(R.string.keyboard_mode_formal), currentId, onModeChange)
-        ModeChip("casual", stringResource(R.string.keyboard_mode_casual), currentId, onModeChange)
-        ModeChip("email", stringResource(R.string.keyboard_mode_email), currentId, onModeChange)
-        ModeChip("code", stringResource(R.string.keyboard_mode_code), currentId, onModeChange)
-        ModeChip("smart", stringResource(R.string.keyboard_mode_smart), currentId, onModeChange)
-    }
-}
-
-@Composable
-private fun ModeChip(
-    id: String,
-    label: String,
-    currentId: String?,
-    onModeChange: (ProcessingMode) -> Unit,
-) {
-    val mode = remember(id) { ProcessingMode.fromId(id) }
-    FilterChip(
-        selected = currentId == id,
-        onClick = { onModeChange(mode) },
-        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-        modifier = Modifier.height(28.dp),
-        colors =
-            FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            ),
-    )
-}
-
-@Composable
-private fun RecordingContent(
-    waveformBuffer: WaveformBuffer,
-    sampleCountFlow: StateFlow<Long>,
-    onStop: () -> Unit,
-    onCancel: () -> Unit,
-    onRestart: () -> Unit,
-) {
-    val sampleCount by sampleCountFlow.collectAsStateWithLifecycle()
-    val elapsedMs = (sampleCount * 1000L) / VoiceRecorder.SAMPLE_RATE
-    val infiniteTransition = rememberInfiniteTransition(label = "recording")
-    val scale =
-        infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.1f,
-            animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
-            label = "pulse",
-        )
-    Box(modifier = Modifier.fillMaxSize()) {
-        RecordingGlowBackground(modifier = Modifier.fillMaxSize())
-        Column(
-            modifier = Modifier.fillMaxSize().padding(top = 8.dp, bottom = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
             Text(
-                text = elapsedMs.formatAsDuration(),
-                style =
-                    MaterialTheme.typography.displaySmall.copy(
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Light,
-                        letterSpacing = 2.sp,
-                    ),
-                color = MaterialTheme.colorScheme.error,
+                stringResource(R.string.keyboard_desc_space),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
-            AudioWaveform(
-                waveformBuffer = waveformBuffer,
-                sampleCount = sampleCount,
-                isActive = true,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.weight(1f).padding(horizontal = 24.dp),
-                minBarHeight = 4.dp,
-                maxBarHeight = 64.dp,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = onCancel,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp),
-                ) {
-                    Icon(Icons.Filled.Close, "Cancel recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                LargeFloatingActionButton(
-                    onClick = onStop,
-                    modifier =
-                        Modifier.graphicsLayer {
-                            scaleX = scale.value
-                            scaleY = scale.value
-                        },
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                ) {
-                    Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
-                }
-
-                IconButton(
-                    onClick = onRestart,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp),
-                ) {
-                    Icon(Icons.Filled.Refresh, "Restart recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun KeyboardProcessingContent(phase: ProcessingPhase) {
-    AnimatedContent(
-        targetState = phase,
-        transitionSpec = { ChirpMotion.keyboardProcessingCrossfade },
-        label = "keyboardProcessingPhase",
-    ) { currentPhase ->
-        val message =
-            when (currentPhase) {
-                ProcessingPhase.Transcribing -> stringResource(R.string.keyboard_transcribing)
-                ProcessingPhase.Polishing -> stringResource(R.string.keyboard_polishing)
-            }
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            ThinkingDots(color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+private fun KeyboardRecordingGlow(
+    modifier: Modifier = Modifier,
+    strength: Float = 1f,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "keyboardRecordingGlow")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.12f,
+        targetValue = 0.32f,
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(1200, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+        label = "keyboardGlowAlpha",
+    )
+    val glowAlpha = pulseAlpha * strength
+    val errorContainer = MaterialTheme.colorScheme.errorContainer
+    val error = MaterialTheme.colorScheme.error
+
+    Canvas(modifier = modifier) {
+        val cornerRadius = CornerRadius(20.dp.toPx(), 20.dp.toPx())
+        drawRoundRect(
+            brush =
+                Brush.radialGradient(
+                    colors =
+                        listOf(
+                            error.copy(alpha = glowAlpha),
+                            errorContainer.copy(alpha = glowAlpha * 0.45f),
+                            Color.Transparent,
+                        ),
+                    center = Offset(size.width / 2f, size.height * 0.72f),
+                    radius = size.maxDimension * 0.85f,
+                ),
+            cornerRadius = cornerRadius,
+        )
+        drawRoundRect(
+            brush =
+                Brush.verticalGradient(
+                    colors =
+                        listOf(
+                            Color.Transparent,
+                            errorContainer.copy(alpha = glowAlpha * 0.25f),
+                            error.copy(alpha = glowAlpha * 0.4f),
+                        ),
+                    startY = size.height * 0.35f,
+                    endY = size.height,
+                ),
+            cornerRadius = cornerRadius,
+        )
     }
 }
 
 @Composable
-private fun DownloadingContent(progress: Float) {
+private fun ModelLoadingContent(progress: Float?) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.padding(horizontal = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        )
-        Text(
-            stringResource(R.string.keyboard_downloading_model_progress, (progress * 100).toInt()),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (progress != null) {
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+            Text(
+                stringResource(R.string.keyboard_downloading_model_progress, (progress * 100).toInt()),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            )
+            Text(
+                stringResource(R.string.keyboard_loading_speech_model),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -637,35 +999,5 @@ private fun LlmErrorContent(
     ) {
         Icon(Icons.Filled.Warning, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
         Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
-    }
-}
-
-@Composable
-private fun ModelNotReadyContent(
-    onTap: () -> Unit,
-    onOpenApp: () -> Unit,
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.padding(horizontal = 24.dp),
-    ) {
-        Icon(
-            Icons.Filled.ErrorOutline,
-            contentDescription = null,
-            Modifier
-                .size(48.dp)
-                .clickable(onClick = onTap),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            stringResource(R.string.keyboard_model_not_ready),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        FilledTonalButton(onClick = onOpenApp) {
-            Text(stringResource(R.string.keyboard_open_app_to_download))
-        }
     }
 }

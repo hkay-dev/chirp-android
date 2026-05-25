@@ -9,10 +9,48 @@ import org.junit.Test
 
 class KeyboardInputConnectionActionsTest {
     @Test
-    fun `deletePreviousCharacter calls deleteSurroundingText`() {
+    fun `deletePreviousCharacter deletes selected text`() {
         val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns "hello"
+
         deletePreviousCharacter(connection)
+
+        verify { connection.commitText("", 1) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter deletes one code unit`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(2, 0) } returns "a"
+        every { connection.deleteSurroundingText(1, 0) } returns true
+
+        deletePreviousCharacter(connection)
+
         verify { connection.deleteSurroundingText(1, 0) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter deletes surrogate pair`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(2, 0) } returns "😀"
+        every { connection.deleteSurroundingText(2, 0) } returns true
+
+        deletePreviousCharacter(connection)
+
+        verify { connection.deleteSurroundingText(2, 0) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter sends delete key when buffer empty`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns null
+        every { connection.getTextBeforeCursor(2, 0) } returns ""
+
+        deletePreviousCharacter(connection)
+
+        verify(exactly = 2) { connection.sendKeyEvent(any()) }
     }
 
     @Test
@@ -23,11 +61,96 @@ class KeyboardInputConnectionActionsTest {
     }
 
     @Test
-    fun `moveCursor moves selection within bounds`() {
+    fun `deletePreviousWord removes previous word`() {
         val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(512, 0) } returns "hello world"
+        every { connection.deleteSurroundingText(5, 0) } returns true
+
+        deletePreviousWord(connection)
+
+        verify { connection.deleteSurroundingText(5, 0) }
+    }
+
+    @Test
+    fun `deletePreviousWord skips trailing whitespace`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(512, 0) } returns "hello world  "
+        every { connection.deleteSurroundingText(7, 0) } returns true
+
+        deletePreviousWord(connection)
+
+        verify { connection.deleteSurroundingText(7, 0) }
+    }
+
+    @Test
+    fun `deletePreviousWord deletes selected text`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns "hello"
+
+        deletePreviousWord(connection)
+
+        verify { connection.commitText("", 1) }
+    }
+
+    @Test
+    fun `moveCursor uses setSelection when extracted text available`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "hello"
+                selectionStart = 2
+                selectionEnd = 2
+            }
+        every { connection.setSelection(3, 3) } returns true
+
+        moveCursor(connection, 1)
+
+        verify { connection.setSelection(3, 3) }
+        verify(exactly = 0) { connection.sendKeyEvent(any()) }
+    }
+
+    @Test
+    fun `moveCursor clamps at text end`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "hello"
+                selectionStart = 5
+                selectionEnd = 5
+            }
+
+        moveCursor(connection, 1)
+
+        verify(exactly = 0) { connection.setSelection(any(), any()) }
+        verify(exactly = 0) { connection.sendKeyEvent(any()) }
+    }
+
+    @Test
+    fun `moveCursor repairs out of bounds selection before moving`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "hello"
+                selectionStart = 8
+                selectionEnd = 8
+            }
+        every { connection.setSelection(any(), any()) } returns true
+
+        moveCursor(connection, -1)
+
+        verify { connection.setSelection(5, 5) }
+        verify { connection.setSelection(4, 4) }
+    }
+
+    @Test
+    fun `moveCursor falls back to key events when extracted text unavailable`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns null
+
         moveCursor(connection, 2)
 
-        // 2 DOWN events and 2 UP events = 4 total calls
         verify(exactly = 4) { connection.sendKeyEvent(any()) }
     }
 }

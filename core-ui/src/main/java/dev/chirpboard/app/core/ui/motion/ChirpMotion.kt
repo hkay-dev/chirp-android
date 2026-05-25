@@ -83,21 +83,13 @@ object ChirpMotion {
 
     private const val MINI_PLAYER_ENTER_MS = 300
 
-    /** Global mini player slides up from the bottom while fading in. */
+    /** Global mini player fades in when playback starts. */
     val miniPlayerRevealTransition: EnterTransition =
-        fadeIn(tween(durationMillis = MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing)) +
-            slideInVertically(
-                animationSpec = tween(durationMillis = MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing),
-                initialOffsetY = { fullHeight -> fullHeight },
-            )
+        fadeIn(tween(durationMillis = MINI_PLAYER_ENTER_MS, easing = FastOutSlowInEasing))
 
-    /** Global mini player slides down while fading out. */
+    /** Global mini player fades out when dismissed (e.g. close on home). */
     val miniPlayerHideTransition: ExitTransition =
-        fadeOut(tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing)) +
-            slideOutVertically(
-                animationSpec = tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
-                targetOffsetY = { fullHeight -> fullHeight },
-            )
+        fadeOut(tween(durationMillis = STUDIO_HIDE_MS, easing = FastOutSlowInEasing))
 
     val studioContentCrossfade: ContentTransform =
         fadeIn(tween(durationMillis = STUDIO_REVEAL_MS, easing = FastOutSlowInEasing)) togetherWith

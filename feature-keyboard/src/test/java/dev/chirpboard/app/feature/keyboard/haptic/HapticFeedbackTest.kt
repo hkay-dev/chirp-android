@@ -30,6 +30,7 @@ class HapticFeedbackTest {
         val mockEffect = mockk<VibrationEffect>()
         every { VibrationEffect.createOneShot(any(), any()) } returns mockEffect
         every { VibrationEffect.createWaveform(any(), any(), any()) } returns mockEffect
+        every { VibrationEffect.createPredefined(any()) } returns mockEffect
     }
 
     @After
@@ -46,6 +47,12 @@ class HapticFeedbackTest {
     @Test
     fun `onRecordStop vibrates vibrator`() {
         HapticFeedback.onRecordStop(context)
+        verify { vibrator.vibrate(any<VibrationEffect>()) }
+    }
+
+    @Test
+    fun `onCursorStep vibrates vibrator`() {
+        HapticFeedback.onCursorStep(context)
         verify { vibrator.vibrate(any<VibrationEffect>()) }
     }
 }

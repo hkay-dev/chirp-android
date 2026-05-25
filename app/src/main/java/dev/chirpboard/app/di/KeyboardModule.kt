@@ -36,27 +36,33 @@ class SherpaRecognizerProvider(
 ) : TranscriberProvider {
     private var recognizer: SherpaRecognizer? = null
 
-    override fun isReady(): Boolean = recognizer?.isReady == true
+    override fun isReady(): Boolean =
+        recognizer?.isReady == true || RecognizerManager.peekReadyRecognizer() != null
 
     override fun isModelDownloaded(): Boolean = downloader.isModelDownloaded()
 
     override suspend fun initialize(): Boolean {
-        if (recognizer == null) {
-            recognizer = RecognizerManager.getRecognizer(context)
-        }
-        return recognizer?.isReady == true
+        val success = RecognizerManager.initializeRecognizer(context.applicationContext)
+        recognizer =
+            if (success) {
+                RecognizerManager.peekReadyRecognizer()
+            } else {
+                null
+            }
+        return success
     }
 
     override suspend fun transcribe(
         samples: FloatArray,
         sampleRate: Int,
     ): TranscriptionOutcome {
-        val activeRecognizer = recognizer
+        val activeRecognizer =
+            recognizer ?: RecognizerManager.peekReadyRecognizer()?.also { recognizer = it }
         return activeRecognizer?.transcribeOutcome(samples, sampleRate)
             ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
     }
+
     override suspend fun release() {
-        recognizer?.release()
         recognizer = null
         RecognizerManager.releaseRecognizer()
     }

@@ -10,36 +10,45 @@ import kotlinx.coroutines.withContext
 /**
  * Singleton manager for SherpaRecognizer to ensure model is loaded once
  * and shared across keyboard service and voice recognition activity.
+ *
+ * Failed initialization attempts are not cached so callers can retry once
+ * model files become available or a concurrent load finishes.
  */
 object RecognizerManager {
     private const val TAG = "RecognizerManager"
-    
+
     @Volatile
     private var recognizer: SherpaRecognizer? = null
-    
+
     private val mutex = Mutex()
-    
-    suspend fun getRecognizer(context: Context): SherpaRecognizer {
-        recognizer?.let { return it }
-        
-        return mutex.withLock {
-            recognizer ?: createRecognizer(context).also {
-                recognizer = it
+
+    fun peekReadyRecognizer(): SherpaRecognizer? = recognizer?.takeIf { it.isReady }
+
+    suspend fun initializeRecognizer(context: Context): Boolean =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                recognizer?.takeIf { it.isReady }?.let { return@withContext true }
+
+                recognizer?.let { stale ->
+                    Log.d(TAG, "Discarding stale recognizer before re-initialization")
+                    stale.release()
+                    recognizer = null
+                }
+
+                Log.d(TAG, "Creating SherpaRecognizer singleton...")
+                val rec = SherpaRecognizer(context.applicationContext)
+                val success = rec.initialize()
+                if (success) {
+                    recognizer = rec
+                    Log.d(TAG, "Recognizer initialized successfully")
+                } else {
+                    rec.release()
+                    Log.e(TAG, "Failed to initialize recognizer")
+                }
+                success
             }
         }
-    }
-    
-    private suspend fun createRecognizer(context: Context): SherpaRecognizer = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Creating SherpaRecognizer singleton...")
-        val rec = SherpaRecognizer(context.applicationContext)
-        val success = rec.initialize()
-        if (!success) {
-            Log.e(TAG, "Failed to initialize recognizer")
-        } else {
-            Log.d(TAG, "Recognizer initialized successfully")
-        }
-        rec
-    }
+
     suspend fun releaseRecognizer() {
         mutex.withLock {
             Log.d(TAG, "Releasing SherpaRecognizer singleton from memory...")
@@ -47,5 +56,4 @@ object RecognizerManager {
             recognizer = null
         }
     }
-
 }

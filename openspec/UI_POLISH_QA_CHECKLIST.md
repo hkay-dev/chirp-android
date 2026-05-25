@@ -36,8 +36,8 @@ Run on a physical device **before merging** any PR that touches home list, recor
 
 ## Nav shell (when touched)
 
-- [ ] Start playback from list — mini player slides in from bottom; content height adjusts smoothly
-- [ ] Stop playback — mini player exits without jank
+- [ ] Start playback from list — mini player **fades in**; content height adjusts smoothly
+- [ ] Tap **X** on mini player — bar **fades out** smoothly (not an instant snap)
 - [ ] Share audio into app — scrim overlay appears; Home/NavHost stays mounted underneath
 
 ## Keyboard & voice
