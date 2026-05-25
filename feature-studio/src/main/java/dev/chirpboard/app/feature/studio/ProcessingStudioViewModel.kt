@@ -384,7 +384,7 @@ class ProcessingStudioViewModel
         }
 
         fun onStructuredOutcomeCopied() {
-            _message.value = "Copied to clipboard"
+            _message.value = context.getString(R.string.rec_copied_to_clipboard)
         }
 
         fun onTranscriptCopied() {

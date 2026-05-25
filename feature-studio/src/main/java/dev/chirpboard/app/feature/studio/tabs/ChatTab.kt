@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.studio.tabs
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,8 +29,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.feature.llm.model.ChatMessage
+import dev.chirpboard.app.feature.studio.R
 import kotlinx.collections.immutable.ImmutableList
 
 @Composable
@@ -40,6 +44,7 @@ fun ChatTab(
     onSendMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
+    isTyping: Boolean = false,
 ) {
     Column(
         modifier =
@@ -56,6 +61,16 @@ fun ChatTab(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             reverseLayout = true,
         ) {
+            item(key = "typing_indicator") {
+                AnimatedVisibility(
+                    visible = isTyping,
+                    enter = progressEnterTransition,
+                    exit = progressExitTransition,
+                ) {
+                    AssistantTypingBubble()
+                }
+            }
+
             items(messages.reversed(), key = { it.id }) { message ->
                 ChatMessageBubble(message = message)
             }
@@ -76,7 +91,7 @@ fun ChatTab(
                     value = draftMessage,
                     onValueChange = onDraftMessageChange,
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Ask about this recording...") },
+                    placeholder = { Text(stringResource(R.string.rec_chat_placeholder)) },
                     maxLines = 3,
                 )
 
@@ -92,10 +107,29 @@ fun ChatTab(
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send message",
+                        contentDescription = stringResource(R.string.rec_chat_send),
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AssistantTypingBubble() {
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            shape = RoundedCornerShape(16.dp, 16.dp, 16.dp, 4.dp),
+            modifier = Modifier.widthIn(max = 280.dp),
+        ) {
+            ThinkingDots(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            )
         }
     }
 }
