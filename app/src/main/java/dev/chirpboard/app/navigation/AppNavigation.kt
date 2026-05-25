@@ -32,7 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -87,6 +89,10 @@ internal fun AppNavHost(
             currentRoute = currentRoute,
             studioRecordingId = studioRecordingId,
         )
+    var miniPlayerDisplayState by remember { mutableStateOf(playbackState) }
+    if (playbackState.isActive || playbackState.isLoading) {
+        miniPlayerDisplayState = playbackState
+    }
     val showSharedAudioOverlay =
         sharedAudioState is SharedAudioIntakeState.Loading ||
             sharedAudioState is SharedAudioIntakeState.Failure
@@ -206,7 +212,7 @@ internal fun AppNavHost(
                 exit = miniPlayerHideTransition,
             ) {
                 RecordingMiniPlayerBar(
-                    state = playbackState,
+                    state = miniPlayerDisplayState,
                     onPlayPause = playbackController::togglePlayPause,
                     onSeek = playbackController::seekTo,
                     onStop = playbackController::stop,

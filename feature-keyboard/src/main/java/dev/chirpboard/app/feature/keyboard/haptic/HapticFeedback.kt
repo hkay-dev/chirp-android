@@ -38,6 +38,49 @@ object HapticFeedback {
         vibrator.vibrate(effect)
     }
 
+    /**
+     * Distinct pulse when backspace switches to word-delete mode.
+     */
+    fun onBackspaceWordMode(context: Context) {
+        val vibrator = getVibrator(context) ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
+            return
+        }
+
+        vibrator.vibrate(VibrationEffect.createOneShot(18, VibrationEffect.DEFAULT_AMPLITUDE))
+    }
+
+    /**
+     * Light tick when backspace is pressed.
+     */
+    fun onBackspace(context: Context) {
+        val vibrator = getVibrator(context) ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
+            return
+        }
+
+        vibrator.vibrate(VibrationEffect.createOneShot(12, VibrationEffect.DEFAULT_AMPLITUDE))
+    }
+
+    /**
+     * Very subtle tick while sliding the spacebar to move the cursor.
+     */
+    fun onCursorStep(context: Context) {
+        val vibrator = getVibrator(context) ?: return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
+            return
+        }
+
+        val amplitude = (VibrationEffect.DEFAULT_AMPLITUDE * 0.35f).toInt().coerceAtLeast(1)
+        vibrator.vibrate(VibrationEffect.createOneShot(8, amplitude))
+    }
+
     private fun getVibrator(context: Context): Vibrator? {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager

@@ -155,17 +155,22 @@ class TranscriptionWorker
                 Log.d(TAG, "Initializing transcriber...")
                 val initialized = transcriberProvider.initialize()
                 if (!initialized) {
-                    recordingRepository.updateStatusWithError(
-                        recordingId,
-                        RecordingStatus.FAILED,
-                        "Failed to initialize speech recognition model",
-                    )
                     ReliabilityEventLogger.log(
                         stage = ReliabilityStage.TRANSCRIPTION,
                         outcome = ReliabilityOutcome.FAILURE,
                         correlationId = correlationId,
                         recordingId = recordingId,
                         reasonCode = "model_init_failed",
+                    )
+                    if (transcriberProvider.isModelDownloaded()) {
+                        throw RetryableTranscriptionException(
+                            "Failed to initialize speech recognition model",
+                        )
+                    }
+                    recordingRepository.updateStatusWithError(
+                        recordingId,
+                        RecordingStatus.FAILED,
+                        "Failed to initialize speech recognition model",
                     )
                     return buildTranscriptionFailureResult("Failed to initialize model")
                 }

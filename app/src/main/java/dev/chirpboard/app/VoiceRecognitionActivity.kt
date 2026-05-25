@@ -15,11 +15,13 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
+import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
-import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
@@ -39,7 +41,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
 
-    @Inject lateinit var llmPreferences: LlmPreferences
+    @Inject lateinit var inlineTranscription: InlineTranscriptionCoordinator
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
@@ -47,15 +49,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var modeRepository: ProcessingModeRepository
 
-    @Inject lateinit var textProcessor: TextProcessor
-
-    private val transcriptionPipeline by lazy {
-        VoiceRecognitionPipeline(
-            tag = TAG,
-            transcriberProvider = transcriberProvider,
-            textProcessor = textProcessor,
-        )
-    }
+    @Inject lateinit var llmPreferences: LlmPreferences
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     private val _shouldDismiss = MutableStateFlow(false)
     private val _partialTranscript = MutableStateFlow("")
@@ -168,32 +162,57 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 val samples = recorder.stop()
                 Log.d(TAG, "Got ${samples.size} audio samples")
 
-                when (
-                    val result =
-                        transcriptionPipeline.process(
+                if (samples.isEmpty()) {
+                    returnError(SpeechRecognizer.ERROR_NO_MATCH)
+                    return@launch
+                }
+
+                var resultText = ""
+                inlineTranscription.transcribe(
+                    request =
+                        InlineTranscriptionRequest(
                             samples = samples,
                             llmEnabled = llmEnabled,
-                            processingMode = processingMode,
-                            onPartialTranscript = { _partialTranscript.value = it },
-                        )
-                ) {
-                    is VoiceRecognitionPipelineResult.Success -> {
-                        Log.d(TAG, "Returning result to caller: '${result.text}'")
-                        dismissWithResult(
-                            resultCode = Activity.RESULT_OK,
-                            data =
-                                Intent().apply {
-                                    putStringArrayListExtra(
-                                        RecognizerIntent.EXTRA_RESULTS,
-                                        arrayListOf(result.text),
-                                    )
-                                },
-                        )
+                            processingModeId = processingMode.id,
+                            correlationPrefix = "voice",
+                        ),
+                    persistence = null,
+                    commitText = { text ->
+                        resultText = text
+                        _partialTranscript.value = text.trim()
+                    },
+                    onRecordingCompleted = {
+                        _recordingState.value = RecordingState.Idle
+                    },
+                    onRecordingError = { message ->
+                        Log.e(TAG, message)
+                    },
+                )
+
+                when (inlineTranscription.phase.value) {
+                    is InlineTranscriptionPhase.Error,
+                    is InlineTranscriptionPhase.LlmError,
+                    -> returnError(SpeechRecognizer.ERROR_CLIENT)
+
+                    InlineTranscriptionPhase.Idle -> {
+                        if (resultText.isBlank()) {
+                            returnError(SpeechRecognizer.ERROR_NO_MATCH)
+                        } else {
+                            Log.d(TAG, "Returning result to caller: '$resultText'")
+                            dismissWithResult(
+                                resultCode = Activity.RESULT_OK,
+                                data =
+                                    Intent().apply {
+                                        putStringArrayListExtra(
+                                            RecognizerIntent.EXTRA_RESULTS,
+                                            arrayListOf(resultText),
+                                        )
+                                    },
+                            )
+                        }
                     }
 
-                    is VoiceRecognitionPipelineResult.Error -> {
-                        returnError(result.code)
-                    }
+                    else -> returnError(SpeechRecognizer.ERROR_CLIENT)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e

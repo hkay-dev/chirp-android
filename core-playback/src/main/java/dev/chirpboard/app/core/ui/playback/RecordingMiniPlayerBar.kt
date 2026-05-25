@@ -60,8 +60,6 @@ fun RecordingMiniPlayerBar(
     onOpenRecording: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (!state.isActive && !state.isLoading) return
-
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
