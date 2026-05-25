@@ -2,7 +2,6 @@ package dev.chirpboard.app.core.playback
 
 import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -223,7 +222,8 @@ class RecordingPlaybackController
         }
 
         private suspend fun createController(): MediaController {
-            context.startForegroundService(Intent(context, RecordingPlaybackService::class.java))
+            // MediaController connects via bindService; do not call startForegroundService here.
+            // Prepare-only playback never promotes the session to foreground, which would ANR.
             val sessionToken =
                 SessionToken(
                     context,

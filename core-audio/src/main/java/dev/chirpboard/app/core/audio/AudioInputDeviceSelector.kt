@@ -126,6 +126,7 @@ class AudioInputDeviceSelector
         fun clearActiveDevice() {
             activeDeviceId = null
             _activeDeviceLabel.value = null
+            onActiveDeviceLost = null
         }
 
         companion object {
