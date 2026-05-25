@@ -150,6 +150,14 @@ class RecordingPlaybackController
             syncFromPlayer()
         }
 
+        /** Pause when another recording is actively playing (e.g. opening a different Studio). */
+        fun pauseIfDifferentRecording(recordingId: UUID) {
+            val current = _state.value
+            if (current.recordingId != null && current.recordingId != recordingId && current.isPlaying) {
+                pause()
+            }
+        }
+
         fun seekTo(positionMs: Long) {
             controller?.seekTo(positionMs.coerceAtLeast(0L))
             syncFromPlayer()

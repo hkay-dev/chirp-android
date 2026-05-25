@@ -44,9 +44,7 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
 
         LaunchedEffect(openStudioForRecordingId) {
             val recordingId = openStudioForRecordingId ?: return@LaunchedEffect
-            navController.navigate(Screen.ProcessingStudio.createRoute(recordingId.toString())) {
-                launchSingleTop = true
-            }
+            navController.navigateToStudio(recordingId)
             homeViewModel.consumeOpenStudioNavigation()
         }
 
@@ -101,7 +99,7 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
 
         HomeScreen(
             onRecordingClick = { id ->
-                navController.navigate(Screen.ProcessingStudio.createRoute(id.toString()))
+                navController.navigateToStudio(id)
             },
             onRecordClick = {
                 recordEntryViewModel.onRecordTapped()
@@ -165,9 +163,8 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
         RecordScreen(
             onNavigateBack = { navController.popBackStack() },
             onRecordingComplete = { recordingId ->
-                navController.navigate(Screen.ProcessingStudio.createRoute(recordingId)) {
+                navController.navigateToStudio(recordingId) {
                     popUpTo(Screen.Home.route) { inclusive = false }
-                    launchSingleTop = true
                 }
             },
             autoStart = autoStart,

@@ -9,6 +9,7 @@ import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.feature.recording.RecordingManager
@@ -24,6 +25,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -278,6 +283,59 @@ class HomeViewModelTest {
                 viewModel.errorMessage.value,
             )
             assertEquals(recordingId, viewModel.openStudioForRecordingId.value)
+        }
+
+    @Test
+    fun `search excludes in-progress RECORDING rows`() =
+        runBlocking {
+            Dispatchers.setMain(Dispatchers.Unconfined)
+            val localViewModel =
+                HomeViewModel(
+                    recordingRepository,
+                    recordingManager,
+                    tagRepository,
+                    profileRepository,
+                    transcriptionQueueManager,
+                    recordingTextEnrichment,
+                    audioImportOrchestrator,
+                    sessionRecovery,
+                    playbackController =
+                        mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                            every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
+                        },
+                    savedStateHandle = SavedStateHandle(),
+                )
+            val collector = launch { localViewModel.displayItems.collect { } }
+
+            val completed =
+                Recording(
+                    id = UUID.randomUUID(),
+                    title = "Team sync",
+                    audioPath = "/tmp/done.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                )
+            val inProgress =
+                Recording(
+                    id = UUID.randomUUID(),
+                    title = "Team sync live",
+                    audioPath = "/tmp/live.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                )
+
+            every { recordingRepository.searchRecordings("team") } returns
+                flowOf(
+                    RepositoryFlowState(listOf(completed, inProgress)),
+                )
+            coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
+            coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
+
+            localViewModel.onSearchQueryChange("team")
+            delay(300)
+
+            assertEquals(listOf(completed.id), localViewModel.displayItems.value.map { it.id })
+            collector.cancel()
         }
 
     @Test

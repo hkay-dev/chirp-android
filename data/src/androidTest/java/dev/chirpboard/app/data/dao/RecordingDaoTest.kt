@@ -77,4 +77,31 @@ class RecordingDaoTest {
         assertEquals(1, pendingOnly.size)
         assertEquals("Pending", pendingOnly.single().title)
     }
+
+    @Test
+    fun searchRecordings_excludesInProgressRows() = runTest {
+        val inProgress =
+            Recording(
+                id = UUID.randomUUID(),
+                title = "Live standup",
+                audioPath = "/tmp/live.m4a",
+                source = RecordingSource.APP,
+                status = RecordingStatus.RECORDING,
+            )
+        val completed =
+            Recording(
+                id = UUID.randomUUID(),
+                title = "Live standup notes",
+                audioPath = "/tmp/done.m4a",
+                source = RecordingSource.APP,
+                status = RecordingStatus.COMPLETED,
+            )
+        dao.insert(inProgress)
+        dao.insert(completed)
+
+        val results = dao.searchRecordings("Live").first()
+
+        assertEquals(1, results.size)
+        assertEquals(completed.id, results.single().id)
+    }
 }

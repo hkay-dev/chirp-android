@@ -49,6 +49,24 @@ class RecordingPlaybackControllerTest {
     }
 
     @Test
+    fun pauseIfDifferentRecording_noOpWhenIdle() {
+        val controller = RecordingPlaybackController(testContext())
+        controller.pauseIfDifferentRecording(UUID.randomUUID())
+        assertTrue(controller.state.value.isIdle)
+    }
+
+    @Test
+    fun pauseIfDifferentRecording_noOpWhenSameRecordingPrepared() {
+        val controller = RecordingPlaybackController(testContext())
+        val recordingId = UUID.randomUUID()
+
+        controller.prepare(recordingId, "Same clip", "/does/not/exist.m4a")
+        controller.pauseIfDifferentRecording(recordingId)
+
+        assertEquals(recordingId, controller.state.value.recordingId)
+    }
+
+    @Test
     fun stop_clearsActivePlaybackState() {
         val controller = RecordingPlaybackController(testContext())
         val recordingId = UUID.randomUUID()

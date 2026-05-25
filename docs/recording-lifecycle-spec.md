@@ -8,6 +8,7 @@ Operational summary for recording, recovery, and stop handoff. **Canonical requi
 - Applied: `openspec/changes/archive/2026-05-25-recovery-data-integrity/`
 - Applied: `openspec/changes/archive/2026-05-25-recording-edge-case-races/`
 - Applied: `openspec/changes/archive/2026-05-25-transcription-pipeline-hardening/`
+- Applied: `openspec/changes/archive/2026-05-25-nav-search-playback-polish/`
 - **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (remaining proposed changes)
 
 When editing behavior, update the OpenSpec change or baseline first, then mirror here.
@@ -158,6 +159,16 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | TranscriptionWorker unbounded active wait | `awaitRecordingInactive` with duration-scaled timeout; `active_recording_wait_timeout` reliability event |
 | WAV MediaCodec device risk | `AudioDecoder.decodeWavPcmDirect` bypasses MediaCodec for valid PCM WAV; MediaCodec failure retries direct read |
 
+## Resolved (nav-search-playback-polish)
+
+| Gap | Resolution |
+|-----|------------|
+| Home list item → Studio without `launchSingleTop` | `NavController.navigateToStudio` with `launchSingleTop` + `restoreState` from Home, search, import, share, mini player |
+| Search may show `RECORDING` rows list hides | `RecordingDao.searchRecordings` excludes `RECORDING`; `HomeViewModel` defense filter |
+| Mini player keeps playing when opening different Studio | `ProcessingStudioViewModel.loadRecording` calls `pauseIfDifferentRecording` |
+| Checklist: keyboard mode row expand vs crossfade | `openspec/UI_POLISH_QA_CHECKLIST.md` M1 |
+| Checklist: player pushes content not tab row | `openspec/UI_POLISH_QA_CHECKLIST.md` M2 |
+
 ## Audit backlog (2026-05-25)
 
 Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
@@ -178,9 +189,6 @@ _(none — see Resolved transcription-pipeline-hardening)_
 
 | Gap | Change |
 |-----|--------|
-| Home list item → Studio without `launchSingleTop` | `nav-search-playback-polish` |
-| Search may show `RECORDING` rows list hides | `nav-search-playback-polish` |
-| Mini player keeps playing when opening different Studio | `nav-search-playback-polish` |
 | Reliability matrix cites wrong tests for some rows | `docs-test-hygiene` |
 | Unused `TranscriptionProgressPanel` wrappers | `docs-test-hygiene` |
 
@@ -188,8 +196,6 @@ _(none — see Resolved transcription-pipeline-hardening)_
 
 | Gap | Change |
 |-----|--------|
-| Checklist: keyboard mode row expand vs crossfade | `nav-search-playback-polish` |
-| Checklist: player pushes content not tab row | `nav-search-playback-polish` |
 | Gapless capture / protected-path store untested | `docs-test-hygiene` |
 | Migration tests omit structured_outcome DAO open | `docs-test-hygiene` |
 | `AudioSettingsStore` outputFormat not written on legacy migration | `docs-test-hygiene` |

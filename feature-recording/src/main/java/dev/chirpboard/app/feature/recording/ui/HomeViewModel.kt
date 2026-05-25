@@ -158,6 +158,9 @@ class HomeViewModel
                     recordingRepository
                         .searchRecordings(query)
                         .unwrapRepositoryFlow { _errorMessage.value = it }
+                        .map { recordings ->
+                            recordings.filter { it.status != RecordingStatus.RECORDING }
+                        }
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
