@@ -33,7 +33,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -162,7 +162,7 @@ fun HomeScreen(
     }
 
     recoveryPromptSession?.let { session ->
-        AlertDialog(
+        AnimatedAlertDialog(
             onDismissRequest = { recoveryPromptSession = null },
             title = { Text(stringResource(R.string.rec_recovery_title)) },
             text = {
