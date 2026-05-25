@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="core_retry">Retry</string>
     <string name="desc_recordings">Recordings</string>
     <string name="desc_total_duration">Total duration</string>
     <string name="desc_processing">Processing</string>

@@ -1,7 +1,6 @@
 package dev.chirpboard.app.core.util
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Calendar
@@ -17,28 +16,6 @@ class ExtensionsTest {
         assertEquals("1:01:05", 3665000L.formatAsDuration())
     }
 
-    @Test
-    fun testIsDefaultDateTitle() {
-        assertTrue("Jan 29, 10:30 AM".isDefaultDateTitle())
-        assertTrue("Feb 5, 2:15 PM".isDefaultDateTitle())
-        assertFalse("My Meeting".isDefaultDateTitle())
-        assertTrue("Jan 29, 10:30 AM".isDefaultDateTitle())
-    }
-
-    @Test
-    fun testTruncate() {
-        assertEquals("Hello", "Hello".truncate(10))
-        assertEquals("Hello", "Hello".truncate(6))
-        assertEquals("...", "Long".truncate(4))
-    }
-
-    @Test
-    fun testTitleCase() {
-        assertEquals("Hello World", "hello world".titleCase())
-        assertEquals("A B C", "a b c".titleCase())
-        assertEquals("Already Title", "Already Title".titleCase())
-    }
-    
     @Test
     fun testFormatRelativeToday() {
         val now = Calendar.getInstance().time

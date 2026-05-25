@@ -14,12 +14,6 @@ object ChirpFabDefaults {
 
     val onPrimaryContainerColor: Color
         @Composable get() = MaterialTheme.colorScheme.onPrimaryContainer
-
-    val secondaryContainerColor: Color
-        @Composable get() = MaterialTheme.colorScheme.secondaryContainer
-
-    val onSecondaryContainerColor: Color
-        @Composable get() = MaterialTheme.colorScheme.onSecondaryContainer
 }
 
 @Composable
