@@ -38,8 +38,17 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
         val recordEntryViewModel: HomeRecordEntryViewModel = hiltViewModel()
         val homeViewModel: HomeViewModel = hiltViewModel()
         val readinessState by recordEntryViewModel.readinessState.collectAsStateWithLifecycle()
+        val openStudioForRecordingId by homeViewModel.openStudioForRecordingId.collectAsStateWithLifecycle()
         val context = LocalContext.current
         var dialogContent by remember { mutableStateOf<RecordEntryDialogContent?>(null) }
+
+        LaunchedEffect(openStudioForRecordingId) {
+            val recordingId = openStudioForRecordingId ?: return@LaunchedEffect
+            navController.navigate(Screen.ProcessingStudio.createRoute(recordingId.toString())) {
+                launchSingleTop = true
+            }
+            homeViewModel.consumeOpenStudioNavigation()
+        }
 
         LaunchedEffect(recordEntryViewModel) {
             recordEntryViewModel.warmupOnHomeVisible()

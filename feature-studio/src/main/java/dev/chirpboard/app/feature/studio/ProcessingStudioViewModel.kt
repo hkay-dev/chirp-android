@@ -49,6 +49,8 @@ class ProcessingStudioViewModel
     ) : ViewModel() {
         private var currentRecordingId: UUID? = null
         private var currentTranscript: Transcript? = null
+        private var recordingObservationJob: Job? = null
+        private var missingRecordingJob: Job? = null
 
         private val _message = MutableStateFlow<String?>(null)
         val message: StateFlow<String?> = _message.asStateFlow()
@@ -66,12 +68,18 @@ class ProcessingStudioViewModel
 
         init {
             val recordingIdStr = savedStateHandle.get<String>("recordingId")
-            if (!recordingIdStr.isNullOrEmpty() && recordingIdStr != "-1") {
-                try {
-                    loadRecording(UUID.fromString(recordingIdStr))
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    // Invalid UUID
+            when {
+                recordingIdStr.isNullOrEmpty() || recordingIdStr == "-1" -> {
+                    markInvalidRecordingId()
+                }
+
+                else -> {
+                    val parsedId = runCatching { UUID.fromString(recordingIdStr) }.getOrNull()
+                    if (parsedId == null) {
+                        markInvalidRecordingId()
+                    } else {
+                        loadRecording(parsedId)
+                    }
                 }
             }
 
@@ -105,12 +113,47 @@ class ProcessingStudioViewModel
             }
         }
 
+        private fun markInvalidRecordingId() {
+            currentRecordingId = null
+            _uiState.value =
+                ProcessingStudioState(
+                    loadState = ProcessingStudioLoadState.InvalidId,
+                    isLoading = false,
+                )
+            cancelRecordingObservation()
+        }
+
+        private fun markRecordingNotFound() {
+            currentRecordingId = null
+            _uiState.value =
+                ProcessingStudioState(
+                    loadState = ProcessingStudioLoadState.NotFound,
+                    isLoading = false,
+                )
+            cancelRecordingObservation()
+        }
+
+        private fun cancelRecordingObservation() {
+            missingRecordingJob?.cancel()
+            missingRecordingJob = null
+            recordingObservationJob?.cancel()
+            recordingObservationJob = null
+        }
+
         private fun loadRecording(id: UUID) {
-            viewModelScope.launch {
+            cancelRecordingObservation()
+            recordingObservationJob =
+                viewModelScope.launch {
                 currentRecordingId = id
                 currentTranscript = null
+                var sawRecording = false
 
-                _uiState.value = ProcessingStudioState(isLoading = true, playerRevealReady = false)
+                _uiState.value =
+                    ProcessingStudioState(
+                        loadState = ProcessingStudioLoadState.Loading,
+                        isLoading = true,
+                        playerRevealReady = false,
+                    )
                 combine(
                     repository.getRecordingFlow(id),
                     repository.getTranscriptFlow(id),
@@ -132,12 +175,18 @@ class ProcessingStudioViewModel
                         isStructuredOutcomeGenerating = isStructuredOutcomeGenerating,
                     )
                 }.collectLatest { loadState ->
+                    if (_uiState.value.loadState == ProcessingStudioLoadState.NotFound) {
+                        return@collectLatest
+                    }
                     val recording = loadState.recording
                     val transcript = loadState.transcript
                     val timings = loadState.timings
                     val structuredOutcomeSnapshot = loadState.structuredOutcomeSnapshot
                     val isStructuredOutcomeGenerating = loadState.isStructuredOutcomeGenerating
                     if (recording != null) {
+                        missingRecordingJob?.cancel()
+                        missingRecordingJob = null
+                        sawRecording = true
                         val currentState = _uiState.value
                         currentTranscript = transcript
                         val effectiveTranscriptText = transcript?.effectiveText.orEmpty()
@@ -163,6 +212,7 @@ class ProcessingStudioViewModel
 
                         var nextState =
                             currentState.copy(
+                                loadState = ProcessingStudioLoadState.Ready,
                                 isLoading = false,
                                 status = recording.status,
                                 errorMessage = recording.errorMessage,
@@ -198,9 +248,7 @@ class ProcessingStudioViewModel
                                 nextState.recoveryDiagnostics == null
                         val stateWithRecovery =
                             if (shouldRefreshRecovery) {
-                                withContext(Dispatchers.IO) {
-                                    refreshRecoveryState(nextState, recording.id, recording.status)
-                                }
+                                refreshRecoveryState(nextState, recording.id, recording.status)
                             } else {
                                 nextState
                             }
@@ -215,10 +263,32 @@ class ProcessingStudioViewModel
                             )
                         }
                     } else {
-                        _uiState.value = _uiState.value.copy(isLoading = false)
+                        if (sawRecording) {
+                            markRecordingNotFound()
+                        } else {
+                            scheduleMissingRecordingCheck(id)
+                        }
                     }
                 }
             }
+        }
+
+        private fun scheduleMissingRecordingCheck(id: UUID) {
+            if (missingRecordingJob?.isActive == true) return
+            _uiState.value =
+                _uiState.value.copy(
+                    loadState = ProcessingStudioLoadState.Loading,
+                    isLoading = true,
+                )
+            missingRecordingJob =
+                viewModelScope.launch {
+                    delay(MISSING_RECORDING_GRACE_MS)
+                    if (currentRecordingId != id) return@launch
+                    val stillMissing = repository.getRecording(id) == null
+                    if (stillMissing) {
+                        markRecordingNotFound()
+                    }
+                }
         }
 
         private fun scheduleDeferredStudioPlayback(
@@ -782,6 +852,7 @@ class ProcessingStudioViewModel
         }
 
         override fun onCleared() {
+            cancelRecordingObservation()
             super.onCleared()
         }
 

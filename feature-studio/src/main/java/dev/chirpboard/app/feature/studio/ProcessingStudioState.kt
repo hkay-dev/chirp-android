@@ -10,6 +10,7 @@ import kotlinx.collections.immutable.persistentListOf
 
 @Stable
 data class ProcessingStudioState(
+    val loadState: ProcessingStudioLoadState = ProcessingStudioLoadState.Loading,
     val isLoading: Boolean = false,
     val status: RecordingStatus? = null,
     val errorMessage: String? = null,

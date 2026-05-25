@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -67,7 +69,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
-import dev.chirpboard.app.core.ui.components.LoadingState
+import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.MetadataPillRow
 import dev.chirpboard.app.core.ui.playback.RecordingFullPlayer
 import dev.chirpboard.app.data.model.RecordingSource
@@ -94,12 +96,42 @@ fun ProcessingStudioScreen(
     val message by viewModel.message.collectAsStateWithLifecycle()
     val screenRecordingId = remember(recordingId) { runCatching { UUID.fromString(recordingId) }.getOrNull() }
 
-    if (screenRecordingId == null) {
-        LoadingState()
-        return
+    when (state.loadState) {
+        ProcessingStudioLoadState.InvalidId -> {
+            ProcessingStudioBarrierScreen(
+                title = stringResource(R.string.rec_studio_invalid_recording_title),
+                description = stringResource(R.string.rec_studio_invalid_recording_message),
+                onNavigateBack = onNavigateBack,
+            )
+            return
+        }
+
+        ProcessingStudioLoadState.NotFound -> {
+            ProcessingStudioBarrierScreen(
+                title = stringResource(R.string.rec_studio_recording_not_found_title),
+                description = stringResource(R.string.rec_studio_recording_not_found_message),
+                onNavigateBack = onNavigateBack,
+            )
+            return
+        }
+
+        ProcessingStudioLoadState.Loading -> Unit
+        ProcessingStudioLoadState.Ready -> Unit
     }
 
-    val showMetadataSkeleton = state.isLoading || state.title.isBlank()
+    val failurePresentation =
+        remember(state.status, state.errorMessage, state.recoveryActions) {
+            studioFailurePresentation(
+                status = state.status,
+                errorMessage = state.errorMessage,
+                recoveryActions = state.recoveryActions,
+            )
+        }
+
+    val showMetadataSkeleton =
+        state.loadState == ProcessingStudioLoadState.Loading ||
+            state.isLoading ||
+            state.title.isBlank()
 
     val tabs = listOf(stringResource(R.string.rec_transcript), stringResource(R.string.rec_summary), stringResource(R.string.rec_chat))
     val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -393,13 +425,7 @@ fun ProcessingStudioScreen(
                 },
             )
 
-            val showRecoverySection =
-                state.errorMessage != null ||
-                    state.recoveryActions.showPendingRecovery ||
-                    state.recoveryActions.showEnhancementRecovery ||
-                    state.recoveryActions.showFailedRetry
-
-            PushDownReveal(visible = showRecoverySection) {
+            PushDownReveal(visible = failurePresentation.showRecoverySection) {
                 TranscriptionRecoverySection(
                     recoveryActions = state.recoveryActions,
                     diagnostics = state.recoveryDiagnostics,
@@ -411,7 +437,7 @@ fun ProcessingStudioScreen(
                 )
             }
 
-            PushDownReveal(visible = state.errorMessage != null) {
+            PushDownReveal(visible = failurePresentation.showErrorBanner) {
                 val isFailure = state.status == RecordingStatus.FAILED
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -419,19 +445,37 @@ fun ProcessingStudioScreen(
                     color = if (isFailure) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
                     contentColor = if (isFailure) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Error,
-                            contentDescription = stringResource(R.string.rec_processing_error),
-                        )
-                        Text(
-                            text = state.errorMessage.asProcessingMessage() ?: stringResource(CoreR.string.rec_status_failed),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Error,
+                                contentDescription = stringResource(R.string.rec_processing_error),
+                            )
+                            Text(
+                                text = state.errorMessage.asProcessingMessage() ?: stringResource(CoreR.string.rec_status_failed),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        if (failurePresentation.showRetryOnErrorBanner) {
+                            FilledTonalButton(
+                                onClick = viewModel::retryTranscription,
+                                enabled = state.recoveryActions.actionsEnabled,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.rec_retry_transcription_cap))
+                            }
+                        }
                     }
                 }
             }
@@ -511,6 +555,39 @@ fun ProcessingStudioScreen(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ProcessingStudioBarrierScreen(
+    title: String,
+    description: String,
+    onNavigateBack: () -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.rec_details)) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(CoreR.string.desc_navigate_back),
+                        )
+                    }
+                },
+            )
+        },
+    ) { paddingValues ->
+        EmptyState(
+            icon = Icons.Default.Error,
+            title = title,
+            description = description,
+            modifier = Modifier.padding(paddingValues),
+            actionLabel = stringResource(R.string.rec_studio_go_back),
+            onAction = onNavigateBack,
+        )
     }
 }
 

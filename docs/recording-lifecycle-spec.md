@@ -130,16 +130,22 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Reconciler skips journal when DB row missing | Reconciler finalizes orphan journals and deletes capture artifacts |
 | `RecordingRecoveryDeferStore` fire-and-forget persist (minor) | Spec requirement documented; await persist deferred to follow-up |
 
+## Resolved (processing-studio-resilience)
+
+| Gap | Resolution |
+|-----|------------|
+| Studio invalid UUID → spinner with no back | `ProcessingStudioLoadState.InvalidId` + barrier screen with back |
+| Studio missing/deleted recording → eternal skeleton | Grace-period / delete detection → `NotFound` state; observation cancelled |
+| Home import does not open Studio | `HomeViewModel.openStudioForRecordingId` + Home navigation handoff |
+| FAILED Studio duplicate error + recovery blocks | `studioFailurePresentation` consolidates retry on error banner |
+
 ## Audit backlog (2026-05-25)
 
 Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
 
 ### P0 — Data loss / corruption / trap
 
-| Gap | Change |
-|-----|--------|
-| Studio invalid UUID → spinner with no back | `processing-studio-resilience` |
-| Studio missing/deleted recording → eternal skeleton | `processing-studio-resilience` |
+_(none — see Resolved processing-studio-resilience)_
 
 ### P1 — High-risk lifecycle / hidden state
 
@@ -152,8 +158,6 @@ Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDI
 | Gap | Change |
 |-----|--------|
 | Orphan cleaner skips `.mp3` | `transcription-pipeline-hardening` |
-| Home import does not open Studio (share does) | `processing-studio-resilience` |
-| FAILED Studio shows duplicate error + recovery blocks | `processing-studio-resilience` |
 | TranscriptionWorker waits forever on stuck active state | `transcription-pipeline-hardening` |
 
 ### P3 — Edge cases / polish risks

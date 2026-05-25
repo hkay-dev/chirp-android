@@ -127,6 +127,13 @@ class HomeViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+        private val _openStudioForRecordingId = MutableStateFlow<UUID?>(null)
+        val openStudioForRecordingId: StateFlow<UUID?> = _openStudioForRecordingId.asStateFlow()
+
+        fun consumeOpenStudioNavigation() {
+            _openStudioForRecordingId.value = null
+        }
+
         private val allProfiles: StateFlow<List<Profile>> =
             profileRepository
                 .getAllProfiles()
@@ -244,7 +251,7 @@ class HomeViewModel
         private val _isImporting = MutableStateFlow(false)
         val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
 
-        private val _recoverableSessions = sessionRecovery.pendingSessions
+        private val _recoverableSessions = sessionRecovery.actionablePendingSessions
         val recoverableSessions: StateFlow<List<RecoverableRecordingSession>> = _recoverableSessions
         val playbackState: StateFlow<dev.chirpboard.app.core.playback.RecordingPlaybackState> = playbackController.state
 
@@ -270,6 +277,7 @@ class HomeViewModel
                     }
                     is SessionRecoveryResult.Failed -> {
                         _errorMessage.value = result.message
+                        refreshRecoverableSessions()
                     }
                     else -> refreshRecoverableSessions()
                 }
@@ -288,6 +296,10 @@ class HomeViewModel
                 sessionRecovery.keepSession(sessionId)
                 refreshRecoverableSessions()
             }
+        }
+
+        fun deferInterruptedSession(sessionId: UUID) {
+            sessionRecovery.deferSession(sessionId)
         }
 
         fun playRecording(item: RecordingDisplayItem) {
@@ -565,10 +577,11 @@ class HomeViewModel
                         }
 
                         is AudioImportResult.SavedAndQueued -> {
-                            Unit
+                            _openStudioForRecordingId.value = result.recordingId
                         }
 
                         is AudioImportResult.SavedPendingRecovery -> {
+                            _openStudioForRecordingId.value = result.recordingId
                             _errorMessage.value = result.message
                         }
                     }

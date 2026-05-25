@@ -52,6 +52,10 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | NoAudioFile DB cleanup | Empty stop removes in-progress row | `RecordingServiceStopOutcomesTest` | Implemented |
 | Stop timeout vs persist race | Generation guard discards late persist | `RecordingServiceStopOutcomesTest` | Implemented |
 | Timeout handler await | Lock released after cleanup completes | `RecordingStateManagerTest.stoppingTimeout_awaitsHandlerBeforeErrorTransition` | Implemented |
+| Studio invalid recording id | Malformed deep link shows barrier, not infinite loading | `ProcessingStudioViewModelTest` invalid id | Implemented |
+| Studio missing recording | Null row after grace or delete shows NotFound | `ProcessingStudioViewModelTest` missing/deleted | Implemented |
+| Studio FAILED duplicate UI | Single error banner + retry; no recovery duplicate | `ProcessingStudioPresentationTest` | Implemented |
+| Home import studio handoff | Import success navigates to Processing Studio | `HomeViewModelTest` import navigates | Implemented |
 
 ## Audit backlog (2026-05-25) — proposed OpenSpec changes
 
@@ -59,11 +63,8 @@ Index: `openspec/changes/AUDIT_INDEX.md`. Each row maps to a change folder with 
 
 | Priority | Risk class | OpenSpec change | Planned tests (on implement) |
 | --- | --- | --- | --- |
-| P0 | Studio invalid/missing recording trap | `processing-studio-resilience` | Studio ViewModel/Screen tests |
 | P1 | Cancel during Starting | `recording-edge-case-races` | Service cancel+start integration |
 | P2 | Orphan cleaner MP3 gap | `transcription-pipeline-hardening` | `OrphanedAudioCleanerTest` mp3 |
-| P2 | Home import → Studio | `processing-studio-resilience` | `HomeViewModelTest` import nav |
-| P2 | FAILED Studio duplicate UI | `processing-studio-resilience` | Compose/UI test |
 | P2 | TranscriptionWorker active wait | `transcription-pipeline-hardening` | Worker timeout test |
 | P3 | Early Done handoff | `recording-edge-case-races` | `RecordViewModelTest` Starting |
 | P3 | Pending stop reconcile mismatch | `recording-edge-case-races` | reconcile integration test |
