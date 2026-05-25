@@ -13,12 +13,12 @@
 - [x] 2.3 Wrap existing `SharedAudioIntakeFailure` UI in the same scrim overlay pattern with matching enter/exit transitions
 - [x] 2.4 Confirm `onStartupPromptGateChanged` still suppresses prompts during loading/failure/navigation target pending
 
-## 3. Record Done — single navigation path
+## 3. Record Done — immediate navigation with dedupe (corrected)
 
-- [x] 3.1 In `RecordScreen.kt`, remove synchronous `onRecordingComplete(...)` call from `RecordingActionRow.onStopRecording`; leave `viewModel.stopRecording()` only
-- [x] 3.2 Ensure `LaunchedEffect(lastCompletedRecordingId)` is the sole caller of `onRecordingComplete`, clearing ID after navigate (not before)
-- [x] 3.3 Manual test: Done on active recording → exactly one Studio navigation, back returns to Home without duplicate stack entries
-- [x] 3.4 Review `AppRecordingNavigation.kt` `onRecordingComplete` lambda — no additional dedupe needed if RecordScreen fixed
+- [x] 3.1 In `RecordScreen.kt`, restore synchronous `onRecordingComplete(activeRecordingId)` on Done with `hasNavigatedToComplete` guard
+- [x] 3.2 Keep `LaunchedEffect(lastCompletedRecordingId)` as fallback only; clear ID after navigate; skip if already navigated
+- [x] 3.3 Manual test: Done on active recording → immediate Studio navigation, exactly one stack entry (see `openspec/UI_POLISH_QA_CHECKLIST.md`)
+- [x] 3.4 ~~Remove inline navigate from onStopRecording~~ — reverted; original task caused release regression
 
 ## 4. VoiceRecognitionDialog polish
 
@@ -44,3 +44,4 @@
 
 - [x] 7.1 Run `./gradlew :app:compileDebugKotlin :feature-recording:compileDebugKotlin :core-playback:compileDebugKotlin` — clean compile
 - [x] 7.2 Device smoke: share audio into app (overlay fade, navigate to studio), record Done flow, global mini player show/hide while browsing Home
+- [x] 7.3 Before future UI polish merges: complete `openspec/UI_POLISH_QA_CHECKLIST.md` on device

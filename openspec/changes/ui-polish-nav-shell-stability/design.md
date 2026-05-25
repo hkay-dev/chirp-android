@@ -72,25 +72,45 @@ Recovery prompts on Home and Record still use stock `AlertDialog` while cancel/r
 
 **Gating:** `onStartupPromptGateChanged` logic unchanged — prompts remain suppressed while `sharedAudioState != Idle` or navigation target pending.
 
-### 3. Record Done: single navigation via `lastCompletedRecordingId`
+### 3. Record Done: immediate navigation with dedupe (corrected)
 
-**Choice:** Remove synchronous `onRecordingComplete` from `onStopRecording`. Keep only:
+**Original choice (regressed UX):** Remove synchronous `onRecordingComplete` from `onStopRecording` and navigate only via `LaunchedEffect(lastCompletedRecordingId)`. That prevented double `navigate()` but left users on Record until background finalize completed — unacceptable for record→studio handoff.
+
+**Corrected choice:** Navigate immediately on Done using `recordingState.activeRecordingId`, and keep `LaunchedEffect(lastCompletedRecordingId)` as a **fallback only** when immediate ID is unavailable. Guard with `hasNavigatedToComplete` so exactly one navigation fires per stop:
 
 ```kotlin
+var hasNavigatedToComplete by remember { mutableStateOf(false) }
+
+onStopRecording = {
+    val recordingId = recordingState.activeRecordingId
+    viewModel.stopRecording()
+    if (recordingId != null && !hasNavigatedToComplete) {
+        hasNavigatedToComplete = true
+        onRecordingComplete(recordingId.toString())
+    }
+}
+
 LaunchedEffect(lastCompletedRecordingId) {
+    if (hasNavigatedToComplete) {
+        viewModel.clearLastCompletedRecordingId()
+        return@LaunchedEffect
+    }
     val recordingId = lastCompletedRecordingId ?: return@LaunchedEffect
+    hasNavigatedToComplete = true
     onRecordingComplete(recordingId.toString())
     viewModel.clearLastCompletedRecordingId()
 }
 ```
 
-**Rationale:** Navigation fires after `RecordingStateManager` confirms persistence and publishes ID — authoritative and avoids racing `activeRecordingId` before stop completes. Clearing ID after navigation (not before) avoids `LaunchedEffect` key cancellation mid-flight (see NAVIGATION_AUTOPSY).
+**Rationale:** Product requires instant Processing Studio with finalizing/stitching status. Dedupe at the screen layer fixes double-navigation without delaying UX. Clearing `lastCompletedRecordingId` after navigation (not before) avoids `LaunchedEffect` cancellation mid-flight (see NAVIGATION_AUTOPSY).
 
 **Alternatives considered:**
-- Keep `onStopRecording` path only — rejected; ID may not be persisted yet when stop is invoked.
-- Debounce/dedupe in `AppRecordingNavigation` — rejected; treats symptom not cause.
+- LaunchedEffect-only — rejected after release regression; too slow.
+- Dedupe only in `AppRecordingNavigation` — rejected; treats symptom; screen must still navigate immediately.
 
-**AppRecordingNavigation:** No change required to route definition; verify `onRecordingComplete` still pops to home and opens studio with `launchSingleTop`.
+**AppRecordingNavigation:** No route change required; verify `onRecordingComplete` still opens studio with `launchSingleTop` and back stack is sane.
+
+**Verification:** See `openspec/UI_POLISH_QA_CHECKLIST.md` — Record → Done → Studio section.
 
 ### 4. VoiceRecognitionDialog: symmetric lifecycle + animated sub-regions
 
@@ -121,7 +141,7 @@ LaunchedEffect(lastCompletedRecordingId) {
 
 | Risk | Mitigation |
 |------|------------|
-| Double navigation if both Done paths remain | Code review + manual Done flow test; remove inline `onRecordingComplete` from `onStopRecording` |
+| Double navigation if both Done paths remain | `hasNavigatedToComplete` guard + manual Done flow test (see UI polish QA checklist) |
 | `LaunchedEffect` cancelled before navigate | Clear `lastCompletedRecordingId` only after `onRecordingComplete` |
 | Shared-audio scrim allows accidental nav taps | Scrim consumes clicks; use full-size clickable overlay with `indication = null` |
 | `AnimatedVisibility` mini player + `animateContentSize` jank on low-end devices | Use GPU-friendly slide/fade only; avoid simultaneous complex nav transitions |

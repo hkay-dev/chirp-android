@@ -62,8 +62,6 @@ fun TranscriptTab(
     contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
     val isProcessing = status.transcriptionProgressKind() != null
-    val progressCopy = status.transcriptionProgressCopy()
-    val progressKind = status.transcriptionProgressKind()
     val hasTranscriptContent = transcript != ProcessingStudioTranscript.Empty
     val showTranscriptChrome = hasTranscriptContent && !isEditingTranscript && !isProcessing
     val showEmptyCompleted =
@@ -117,14 +115,7 @@ fun TranscriptTab(
         Box(modifier = Modifier.weight(1f, fill = true).fillMaxWidth()) {
             when {
                 isProcessing && !isEditingTranscript -> {
-                    if (progressCopy != null && progressKind != null) {
-                        TranscriptionProgressPanel(
-                            copy = progressCopy,
-                            kind = progressKind,
-                        )
-                    } else {
-                        TranscriptProcessingSkeleton()
-                    }
+                    TranscriptProcessingSkeleton()
                 }
 
                 showTranscriptChrome -> {

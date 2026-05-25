@@ -11,8 +11,8 @@ The system SHALL show transcription progress to users in notifications and in th
 
 #### Scenario: Show progress in UI
 - **WHEN** user views a recording being transcribed in Processing Studio
-- **THEN** the detail screen shows transcription progress in the processing header
-- **AND** the Transcript tab body shows a non-empty processing fallback (`TranscriptionProgressPanel` or skeleton lines) while `transcriptionProgressKind()` is non-null
+- **THEN** the detail screen shows transcription progress in the processing header (compact morphing banner)
+- **AND** the Transcript tab body shows **skeleton lines only** while `transcriptionProgressKind()` is non-null — not a second full progress panel
 - **AND** progress copy reflects the active phase (finalizing, transcribing, or enhancing)
 
 #### Scenario: Phase-specific progress presentation
@@ -30,8 +30,8 @@ While transcription pipeline progress is active, the Transcript tab SHALL NOT re
 - **WHEN** user is on the Transcript tab
 - **AND** `transcriptionProgressKind()` returns a non-null kind
 - **AND** transcript content is not yet available for display
-- **THEN** `TranscriptionProgressPanel` (or equivalent expanded morph progress) fills the tab body
-- **AND** compact progress may simultaneously appear in the studio header without replacing the tab body
+- **THEN** skeleton placeholder lines fill the tab body
+- **AND** compact progress appears **only** in the studio header (not duplicated in the tab body)
 
 #### Scenario: Processing before phase kind resolves
 - **WHEN** transcript tab is waiting during initial studio load with processing expected

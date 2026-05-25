@@ -80,7 +80,9 @@
     <string name="rec_profile_chip_obsidian">Obsidian</string>
     <string name="rec_word_replacements_empty_title">No word replacements</string>
     <string name="rec_transcribing">Transcribing...</string>
-    <string name="rec_processing">Processing...</string>
+    <string name="rec_filter_empty_title">No recordings match this filter</string>
+    <string name="rec_filter_clear">Clear filter</string>
+    <string name="rec_filter_processing">Processing</string>
     <string name="rec_waiting_to_transcribe">Waiting to transcribe...</string>
     <string name="rec_waiting_to_process">Waiting to process...</string>
     <string name="rec_status_transcribing_short">Transcribing</string>

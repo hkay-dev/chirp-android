@@ -23,11 +23,11 @@
 - [ ] 4.1 Set `beyondViewportPageCount = 1` on studio `HorizontalPager`
 - [ ] 4.2 Manually verify first switch to Summary and Chat tabs shows no flash
 
-## 5. Transcript tab processing fallback
+## 5. Transcript tab processing fallback (corrected)
 
-- [ ] 5.1 Add processing branch in `TranscriptTab`: when `isProcessing && !isEditingTranscript`, show `TranscriptionProgressPanel` if copy/kind available
-- [ ] 5.2 Add skeleton line fallback when processing expected but kind/copy not yet available
-- [ ] 5.3 Replace `animateFloatAsState` + `graphicsLayer { alpha }` on transcript chrome with `AnimatedVisibility` using `progressEnterTransition` / `progressExitTransition`
+- [x] 5.1 When `isProcessing && !isEditingTranscript`, show `TranscriptProcessingSkeleton` only — **not** `TranscriptionProgressPanel` (header owns progress)
+- [x] 5.2 Skeleton line fallback when processing expected but kind/copy not yet available (same composable)
+- [x] 5.3 Replace `animateFloatAsState` + `graphicsLayer { alpha }` on transcript chrome with `AnimatedVisibility` using `progressEnterTransition` / `progressExitTransition`
 
 ## 6. Progress UI phase icons
 

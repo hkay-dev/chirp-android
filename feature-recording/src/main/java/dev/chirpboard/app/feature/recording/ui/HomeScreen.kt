@@ -44,6 +44,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
@@ -210,53 +211,25 @@ fun HomeScreen(
         )
     }
 
-    val showEmptyState = displayItems.isEmpty() && searchQuery.isBlank()
+    val showEmptyState =
+        stats.totalRecordings == 0 &&
+            searchQuery.isBlank() &&
+            listFilter == ListFilterMode.ALL
+    val hasActiveListFilter = listFilter != ListFilterMode.ALL || searchQuery.isNotBlank()
+    val appBarScrollBehavior = if (searchActive) null else scrollBehavior
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier =
+            if (appBarScrollBehavior != null) {
+                Modifier.nestedScroll(appBarScrollBehavior.nestedScrollConnection)
+            } else {
+                Modifier
+            },
         topBar = {
-            val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
-            MediumTopAppBar(
-                title = {
-                    if (searchActive) {
-                        SearchBarDefaults.InputField(
-                            query = searchQuery,
-                            onQueryChange = viewModel::onSearchQueryChange,
-                            onSearch = { searchActive = false },
-                            expanded = true,
-                            onExpandedChange = { searchActive = it },
-                            placeholder = { Text(stringResource(R.string.search_recordings)) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = stringResource(R.string.desc_search),
-                                )
-                            },
-                            trailingIcon = {
-                                IconButton(
-                                    onClick = {
-                                        if (searchQuery.isNotEmpty()) {
-                                            viewModel.onSearchQueryChange("")
-                                        } else {
-                                            searchActive = false
-                                        }
-                                    },
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription =
-                                            stringResource(
-                                                if (searchQuery.isNotEmpty()) {
-                                                    R.string.desc_clear_search
-                                                } else {
-                                                    R.string.desc_close
-                                                },
-                                            ),
-                                    )
-                                }
-                            },
-                        )
-                    } else {
+            val collapsed = appBarScrollBehavior?.state?.collapsedFraction?.let { it > 0.5f } ?: false
+            Column(modifier = Modifier.fillMaxWidth()) {
+                MediumTopAppBar(
+                    title = {
                         Text(
                             text =
                                 if (collapsed) {
@@ -272,65 +245,115 @@ fun HomeScreen(
                                 },
                             fontWeight = FontWeight.Bold,
                         )
-                    }
-                },
-                actions = {
-                    if (!searchActive) {
-                        IconButton(onClick = { searchActive = true }) {
+                    },
+                    actions = {
+                        if (!searchActive) {
+                            IconButton(onClick = { searchActive = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = stringResource(R.string.desc_search),
+                                    tint =
+                                        if (searchQuery.isNotBlank()) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                )
+                            }
+                        } else {
+                            IconButton(onClick = { searchActive = false }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.desc_close),
+                                )
+                            }
+                        }
+
+                        Box {
+                            IconButton(onClick = { showImportMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = stringResource(R.string.rec_import_audio),
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showImportMenu,
+                                onDismissRequest = { showImportMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.rec_import_audio)) },
+                                    onClick = {
+                                        showImportMenu = false
+                                        launcher.launch("audio/*")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AudioFile,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                )
+                            }
+                        }
+
+                        IconButton(onClick = onSettingsClick) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = stringResource(R.string.desc_settings),
+                            )
+                        }
+                    },
+                    scrollBehavior = appBarScrollBehavior,
+                    colors =
+                        TopAppBarDefaults.mediumTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                )
+                if (searchActive) {
+                    SearchBarDefaults.InputField(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        query = searchQuery,
+                        onQueryChange = viewModel::onSearchQueryChange,
+                        onSearch = { searchActive = false },
+                        expanded = true,
+                        onExpandedChange = { searchActive = it },
+                        placeholder = { Text(stringResource(R.string.search_recordings)) },
+                        leadingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = stringResource(R.string.desc_search),
-                                tint =
-                                    if (searchQuery.isNotBlank()) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
                             )
-                        }
-                    }
-
-                    Box {
-                        IconButton(onClick = { showImportMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = stringResource(R.string.rec_import_audio),
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showImportMenu,
-                            onDismissRequest = { showImportMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.rec_import_audio)) },
+                        },
+                        trailingIcon = {
+                            IconButton(
                                 onClick = {
-                                    showImportMenu = false
-                                    launcher.launch("audio/*")
+                                    if (searchQuery.isNotEmpty()) {
+                                        viewModel.onSearchQueryChange("")
+                                    } else {
+                                        searchActive = false
+                                    }
                                 },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.AudioFile,
-                                        contentDescription = null,
-                                    )
-                                },
-                            )
-                        }
-                    }
-
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.desc_settings),
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-                colors =
-                    TopAppBarDefaults.mediumTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surface,
-                    ),
-            )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription =
+                                        stringResource(
+                                            if (searchQuery.isNotEmpty()) {
+                                                R.string.desc_clear_search
+                                            } else {
+                                                R.string.desc_close
+                                            },
+                                        ),
+                                )
+                            }
+                        },
+                    )
+                }
+            }
         },
         floatingActionButton = {
             Column(
@@ -448,11 +471,38 @@ fun HomeScreen(
                                 totalDurationMs = stats.totalDurationMs,
                                 processingCount = stats.processingCount,
                                 onProcessingClick = { viewModel.onProcessingClick() },
+                                processingFilterActive = listFilter == ListFilterMode.PROCESSING,
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = 8.dp, vertical = 8.dp),
                             )
+                        }
+
+                        if (listFilter == ListFilterMode.PROCESSING) {
+                            item(key = "processing_filter_chip", contentType = "processing_filter_chip") {
+                                Row(
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    InputChip(
+                                        selected = true,
+                                        onClick = { viewModel.setListFilter(ListFilterMode.ALL) },
+                                        label = { Text(stringResource(R.string.rec_filter_processing)) },
+                                        trailingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = stringResource(R.string.rec_filter_clear),
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        },
+                                    )
+                                }
+                            }
                         }
 
                         if (searchQuery.isBlank() && listFilter == ListFilterMode.PROCESSING && stuckCount > 0) {
@@ -489,6 +539,33 @@ fun HomeScreen(
                                     Modifier
                                         .padding(horizontal = 8.dp, vertical = 8.dp),
                             )
+                        }
+                    }
+
+                    if (displayItems.isEmpty() && hasActiveListFilter) {
+                        item(key = "filter_empty", contentType = "filter_empty") {
+                            Column(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.rec_filter_empty_title),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                TextButton(
+                                    onClick = {
+                                        viewModel.clearListFilters()
+                                        searchActive = false
+                                    },
+                                ) {
+                                    Text(stringResource(R.string.rec_filter_clear))
+                                }
+                            }
                         }
                     }
 

@@ -69,6 +69,7 @@ fun RecordScreen(
     var showRestartDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
     var recoveryPromptSession by remember { mutableStateOf<RecoverableRecordingSession?>(null) }
+    var hasNavigatedToComplete by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     val isRecording =
@@ -96,7 +97,12 @@ fun RecordScreen(
     }
 
     LaunchedEffect(lastCompletedRecordingId) {
+        if (hasNavigatedToComplete) {
+            viewModel.clearLastCompletedRecordingId()
+            return@LaunchedEffect
+        }
         val recordingId = lastCompletedRecordingId ?: return@LaunchedEffect
+        hasNavigatedToComplete = true
         onRecordingComplete(recordingId.toString())
         viewModel.clearLastCompletedRecordingId()
     }
@@ -327,7 +333,12 @@ fun RecordScreen(
                     }
                 },
                 onStopRecording = {
+                    val recordingId = recordingState.activeRecordingId
                     viewModel.stopRecording()
+                    if (recordingId != null && !hasNavigatedToComplete) {
+                        hasNavigatedToComplete = true
+                        onRecordingComplete(recordingId.toString())
+                    }
                 },
                 onRestartRecording = { showRestartDialog = true },
                 modifier = Modifier
