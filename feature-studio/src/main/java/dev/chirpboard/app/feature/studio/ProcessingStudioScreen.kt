@@ -79,8 +79,8 @@ import dev.chirpboard.app.feature.studio.tabs.ChatTab
 import dev.chirpboard.app.feature.studio.tabs.SummaryTab
 import dev.chirpboard.app.feature.studio.tabs.StudioProcessingHeader
 import dev.chirpboard.app.feature.studio.tabs.TranscriptTab
-import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressCopy
-import dev.chirpboard.app.feature.studio.tabs.transcriptionProgressKind
+import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
+import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import kotlinx.coroutines.launch
 import java.util.UUID
 

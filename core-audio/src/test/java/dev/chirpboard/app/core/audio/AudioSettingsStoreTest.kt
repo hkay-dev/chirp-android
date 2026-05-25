@@ -1,7 +1,9 @@
 package dev.chirpboard.app.core.audio
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.cash.turbine.test
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -77,6 +79,43 @@ class AudioSettingsStoreTest {
             assertEquals(
                 RecordingQualityPreset.DEFAULT.storageValue,
                 dataStore.data.first()[stringPreferencesKey("recording_quality_preset")],
+            )
+        }
+
+    @Test
+    fun `output format defaults to m4a and can be updated`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_format.preferences_pb")
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            assertEquals(RecordingOutputFormat.M4A, store.currentOutputFormat())
+            store.setOutputFormat(RecordingOutputFormat.WAV)
+            assertEquals(RecordingOutputFormat.WAV, store.currentOutputFormat())
+        }
+
+    @Test
+    fun `legacy DataStore without outputFormat persists default on first read`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_legacy_format.preferences_pb")
+            dataStore.edit { preferences ->
+                preferences[floatPreferencesKey("microphone_gain")] = 1.0f
+                preferences[stringPreferencesKey("recording_quality_preset")] = RecordingQualityPreset.High.storageValue
+                preferences[booleanPreferencesKey("audio_settings_migration_complete")] = true
+            }
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            assertEquals(RecordingOutputFormat.M4A, store.currentOutputFormat())
+            assertEquals(
+                RecordingOutputFormat.M4A.storageValue,
+                dataStore.data.first()[stringPreferencesKey("output_format")],
             )
         }
 

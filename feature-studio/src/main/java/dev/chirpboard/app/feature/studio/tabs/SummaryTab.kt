@@ -27,7 +27,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.CopyActionButton
+import dev.chirpboard.app.core.ui.components.MorphingTranscriptionProgress
 import dev.chirpboard.app.core.ui.components.StudioOutlinedAction
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressCopy
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.StructuredOutcomeItemUi
 import dev.chirpboard.app.feature.studio.StructuredOutcomeSectionState

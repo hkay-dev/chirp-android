@@ -63,11 +63,13 @@ enum class RecordingQualityPreset(
 data class AudioSettings(
     val microphoneGain: Float = DEFAULT_MICROPHONE_GAIN,
     val recordingQualityPreset: RecordingQualityPreset = RecordingQualityPreset.DEFAULT,
-    val savedFormatLabel: String = SAVED_RECORDING_FORMAT_LABEL,
+    val outputFormat: RecordingOutputFormat = RecordingOutputFormat.DEFAULT,
     val inputDevicePolicy: AudioInputDevicePolicy = AudioInputDevicePolicy.DEFAULT,
     val manualDeviceAddress: String? = null,
     val batteryOptimizationPromptShown: Boolean = false,
-)
+) {
+    val savedFormatLabel: String get() = outputFormat.displayLabel
+}
 
 interface AudioSettingsMigrationSource {
     suspend fun readLegacyKeyboardMicrophoneGain(): Float?
@@ -85,6 +87,7 @@ class AudioSettingsStore
         private object Keys {
             val microphoneGain = floatPreferencesKey("microphone_gain")
             val recordingQualityPreset = stringPreferencesKey("recording_quality_preset")
+            val outputFormat = stringPreferencesKey("output_format")
             val inputDevicePolicy = stringPreferencesKey("input_device_policy")
             val manualDeviceAddress = stringPreferencesKey("manual_device_address")
             val batteryOptimizationPromptShown = booleanPreferencesKey("battery_optimization_prompt_shown")
@@ -102,6 +105,8 @@ class AudioSettingsStore
 
         val recordingQualityPreset: Flow<RecordingQualityPreset> = settings.map { it.recordingQualityPreset }
 
+        val outputFormat: Flow<RecordingOutputFormat> = settings.map { it.outputFormat }
+
         suspend fun setMicrophoneGain(gain: Float) {
             ensureMigrated()
             dataStore.edit { preferences ->
@@ -113,6 +118,13 @@ class AudioSettingsStore
             ensureMigrated()
             dataStore.edit { preferences ->
                 preferences[Keys.recordingQualityPreset] = preset.storageValue
+            }
+        }
+
+        suspend fun setOutputFormat(format: RecordingOutputFormat) {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                preferences[Keys.outputFormat] = format.storageValue
             }
         }
 
@@ -150,6 +162,8 @@ class AudioSettingsStore
 
         suspend fun currentRecordingQualityPreset(): RecordingQualityPreset = currentSettings().recordingQualityPreset
 
+        suspend fun currentOutputFormat(): RecordingOutputFormat = currentSettings().outputFormat
+
         private fun dataFlow(transform: (Preferences) -> AudioSettings): Flow<AudioSettings> =
             flow {
                 ensureMigrated()
@@ -160,6 +174,11 @@ class AudioSettingsStore
             migrationMutex.withLock {
                 val currentPreferences = dataStore.data.first()
                 if (currentPreferences[Keys.migrationComplete] == true) {
+                    if (currentPreferences[Keys.outputFormat] == null) {
+                        dataStore.edit { preferences ->
+                            preferences[Keys.outputFormat] = RecordingOutputFormat.DEFAULT.storageValue
+                        }
+                    }
                     return
                 }
 
@@ -177,6 +196,9 @@ class AudioSettingsStore
                         preferences[Keys.microphoneGain] = migratedMicrophoneGain
                     }
                     preferences[Keys.recordingQualityPreset] = normalizedPreset.storageValue
+                    if (preferences[Keys.outputFormat] == null) {
+                        preferences[Keys.outputFormat] = RecordingOutputFormat.DEFAULT.storageValue
+                    }
                     preferences[Keys.migrationComplete] = true
                 }
             }
@@ -186,6 +208,7 @@ class AudioSettingsStore
             AudioSettings(
                 microphoneGain = readMicrophoneGain(),
                 recordingQualityPreset = readRecordingQualityPreset(),
+                outputFormat = readOutputFormat(),
                 inputDevicePolicy = AudioInputDevicePolicy.fromStorageValue(this[Keys.inputDevicePolicy]),
                 manualDeviceAddress = this[Keys.manualDeviceAddress],
                 batteryOptimizationPromptShown = this[Keys.batteryOptimizationPromptShown] == true,
@@ -196,5 +219,8 @@ class AudioSettingsStore
 
         private fun Preferences.readRecordingQualityPreset(): RecordingQualityPreset =
             RecordingQualityPreset.fromStorageValue(this[Keys.recordingQualityPreset])
+
+        private fun Preferences.readOutputFormat(): RecordingOutputFormat =
+            RecordingOutputFormat.fromStorageValue(this[Keys.outputFormat])
 
     }

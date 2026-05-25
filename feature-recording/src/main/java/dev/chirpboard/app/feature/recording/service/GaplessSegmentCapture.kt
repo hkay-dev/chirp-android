@@ -19,15 +19,12 @@ import kotlin.math.abs
 
 /**
  * Continuous AudioRecord → AAC → M4A capture with gapless segment rotation.
- *
- * Timer rotation swaps only the [MediaMuxer] while [AudioRecord] and [MediaCodec] keep running,
- * so no mic samples are dropped at segment boundaries.
  */
-class GaplessSegmentCapture(
+class GaplessAacSegmentCapture(
     private val inputDeviceSelector: AudioInputDeviceSelector,
     private val sampleRate: Int,
     private val bitRate: Int,
-) {
+) : GaplessSegmentCaptureEngine {
     private val lock = Any()
     private val running = AtomicBoolean(false)
     private val paused = AtomicBoolean(false)
@@ -57,10 +54,10 @@ class GaplessSegmentCapture(
 
     private val recentMaxAmplitude = AtomicInteger(0)
 
-    val maxAmplitude: Int
+    override val maxAmplitude: Int
         get() = recentMaxAmplitude.get()
 
-    suspend fun start(segmentFile: File) {
+    override suspend fun start(segmentFile: File) {
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         val minBufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
@@ -100,7 +97,7 @@ class GaplessSegmentCapture(
     }
 
     /** Rotate to [nextSegmentFile] without stopping the mic; blocks until the swap completes. */
-    fun rotateSegment(nextSegmentFile: File): SegmentRotationResult {
+    override fun rotateSegment(nextSegmentFile: File): SegmentRotationResult {
         synchronized(lock) {
             if (!running.get()) {
                 return SegmentRotationResult.Failed("Capture not running")
@@ -136,14 +133,14 @@ class GaplessSegmentCapture(
         }
     }
 
-    fun cancelPendingRotation() {
+    override fun cancelPendingRotation() {
         synchronized(lock) {
             cancelPendingRotationLocked()
         }
     }
 
     /** Finalize the active segment and stop capture hardware (used on user pause). */
-    fun pauseAndFinalizeSegment(): File? {
+    override fun pauseAndFinalizeSegment(): File? {
         synchronized(lock) {
             cancelPendingRotationLocked()
             if (!running.get()) return currentSegmentFile
@@ -159,10 +156,9 @@ class GaplessSegmentCapture(
     }
 
     /** Start a new segment after [pauseAndFinalizeSegment]. */
-    suspend fun resume(nextSegmentFile: File) = start(nextSegmentFile)
+    override suspend fun resume(nextSegmentFile: File) = start(nextSegmentFile)
 
-    /** Finalize the active segment and tear down capture (used on stop). */
-    fun stopAndFinalize(): File? {
+    override fun stopAndFinalize(): File? {
         synchronized(lock) {
             cancelPendingRotationLocked()
             if (!running.get() && audioRecord == null) {
@@ -178,7 +174,7 @@ class GaplessSegmentCapture(
         }
     }
 
-    fun releaseWithoutSave() {
+    override fun releaseWithoutSave() {
         synchronized(lock) {
             cancelPendingRotationLocked()
             running.set(false)
@@ -395,7 +391,7 @@ class GaplessSegmentCapture(
     }
 
     companion object {
-        private const val TAG = "GaplessSegmentCapture"
+        private const val TAG = "GaplessAacSegmentCapture"
         private const val MIME_TYPE = "audio/mp4a-latm"
         private const val CODEC_TIMEOUT_US = 10_000L
         private const val CAPTURE_JOIN_TIMEOUT_MS = 5_000L

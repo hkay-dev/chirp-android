@@ -32,6 +32,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.ThinkingDots
+import dev.chirpboard.app.core.ui.components.progressEnterTransition
+import dev.chirpboard.app.core.ui.components.progressExitTransition
 import dev.chirpboard.app.feature.llm.model.ChatMessage
 import dev.chirpboard.app.feature.studio.R
 import kotlinx.collections.immutable.ImmutableList
