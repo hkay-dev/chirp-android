@@ -75,6 +75,7 @@ class HomeViewModelTest {
         audioImportOrchestrator = mockk(relaxed = true)
         sessionRecovery = mockk(relaxed = true)
         every { sessionRecovery.pendingSessions } returns MutableStateFlow(emptyList())
+        every { sessionRecovery.actionablePendingSessions } returns MutableStateFlow(emptyList())
         coEvery { sessionRecovery.refresh() } returns Unit
         val playbackController =
             mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
@@ -276,5 +277,21 @@ class HomeViewModelTest {
                 "Import finished, but queue handoff failed. Recovery is ready on startup.",
                 viewModel.errorMessage.value,
             )
+            assertEquals(recordingId, viewModel.openStudioForRecordingId.value)
+        }
+
+    @Test
+    fun `importAudio navigates to studio after successful import`() =
+        runTest {
+            val uri = mockk<android.net.Uri>()
+            val recordingId = UUID.randomUUID()
+
+            coEvery { audioImportOrchestrator.import(uri) } returns
+                AudioImportResult.SavedAndQueued(recordingId)
+
+            viewModel.importAudio(uri)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(recordingId, viewModel.openStudioForRecordingId.value)
         }
 }
