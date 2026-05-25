@@ -2,4 +2,10 @@
 <resources>
     <string name="widget_name">Chirp Recording</string>
     <string name="widget_description">Quick access to start and stop voice recordings</string>
+    <string name="widget_title">Chirp</string>
+    <string name="widget_status_idle">Tap to record</string>
+    <string name="widget_status_starting">Starting…</string>
+    <string name="widget_status_saving">Saving…</string>
+    <string name="widget_status_error">Error</string>
+    <string name="widget_desc_toggle_recording">Toggle recording</string>
 </resources>

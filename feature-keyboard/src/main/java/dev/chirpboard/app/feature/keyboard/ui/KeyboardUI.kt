@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.keyboard.ui
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -29,10 +28,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
@@ -40,7 +40,6 @@ import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -61,7 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
@@ -71,7 +69,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.core.ui.components.ThinkingDots
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
+import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
@@ -82,6 +87,37 @@ import kotlinx.coroutines.flow.StateFlow
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
+
+private enum class ProcessingPhase {
+    Transcribing,
+    Polishing,
+}
+
+private enum class KeyboardAnimatedTarget {
+    Idle,
+    Recording,
+    Processing,
+    Downloading,
+    ModelNotReady,
+    Error,
+    LlmError,
+}
+
+private fun KeyboardState.toAnimatedTarget(): KeyboardAnimatedTarget =
+    when (this) {
+        is KeyboardState.Idle -> KeyboardAnimatedTarget.Idle
+        is KeyboardState.Recording -> KeyboardAnimatedTarget.Recording
+        is KeyboardState.Transcribing,
+        is KeyboardState.Polishing,
+        -> KeyboardAnimatedTarget.Processing
+        is KeyboardState.Downloading -> KeyboardAnimatedTarget.Downloading
+        is KeyboardState.ModelNotReady -> KeyboardAnimatedTarget.ModelNotReady
+        is KeyboardState.Error -> KeyboardAnimatedTarget.Error
+        is KeyboardState.LlmError -> KeyboardAnimatedTarget.LlmError
+    }
+
+private fun KeyboardState.processingPhase(): ProcessingPhase =
+    if (this is KeyboardState.Polishing) ProcessingPhase.Polishing else ProcessingPhase.Transcribing
 
 @Composable
 fun KeyboardUI(
@@ -98,8 +134,13 @@ fun KeyboardUI(
     onBackspace: () -> Unit = {},
     onSpace: () -> Unit = {},
     onMoveCursor: (Int) -> Unit = {},
+    onOpenApp: () -> Unit = {},
 ) {
     KeyboardTheme {
+        val modeScrollState = rememberScrollState()
+        val showModeControls =
+            currentMode != null &&
+                (state is KeyboardState.Idle || state is KeyboardState.Recording)
         val outlineColor = MaterialTheme.colorScheme.outlineVariant
         Surface(
             modifier =
@@ -118,74 +159,77 @@ fun KeyboardUI(
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 0.dp,
         ) {
-            Box(modifier = Modifier.fillMaxSize().padding(top = 1.dp)) {
-                // Main content
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+            Column(
+                modifier = Modifier.fillMaxSize().padding(top = 1.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
                 ) {
+                    val animatedTarget = state.toAnimatedTarget()
                     AnimatedContent(
-                        targetState = state,
+                        targetState = animatedTarget,
                         transitionSpec = {
                             fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) togetherWith
                                 fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
                         },
                         label = "keyboardStateTransition",
-                    ) { currentState ->
-                        when (currentState) {
-                            is KeyboardState.Idle -> {
+                    ) { target ->
+                        when (target) {
+                            KeyboardAnimatedTarget.Idle -> {
                                 IdleContent(
                                     onTap = onTap,
-                                    llmEnabled = llmEnabled,
-                                    onToggleLlm = onToggleLlm,
-                                    currentMode = currentMode,
-                                    onModeChange = onModeChange,
                                     onBackspace = onBackspace,
                                     onSpace = onSpace,
                                     onMoveCursor = onMoveCursor,
                                 )
                             }
 
-                            is KeyboardState.Recording -> {
+                            KeyboardAnimatedTarget.Recording -> {
                                 RecordingContent(
                                     waveformBuffer = waveformBuffer,
                                     sampleCountFlow = sampleCountFlow,
                                     onStop = onTap,
                                     onCancel = onCancel,
                                     onRestart = onRestart,
-                                    llmEnabled = llmEnabled,
-                                    currentMode = currentMode,
-                                    onToggleLlm = onToggleLlm,
-                                    onModeChange = onModeChange
                                 )
                             }
 
-                            is KeyboardState.Transcribing -> {
-                                ProcessingContent(stringResource(R.string.keyboard_transcribing))
+                            KeyboardAnimatedTarget.Processing -> {
+                                KeyboardProcessingContent(state.processingPhase())
                             }
 
-                            is KeyboardState.Polishing -> {
-                                ProcessingContent(stringResource(R.string.keyboard_polishing))
+                            KeyboardAnimatedTarget.Downloading -> {
+                                val downloading = state as? KeyboardState.Downloading
+                                DownloadingContent(downloading?.progress ?: 0f)
                             }
 
-                            is KeyboardState.Downloading -> {
-                                DownloadingContent(currentState.progress)
+                            KeyboardAnimatedTarget.ModelNotReady -> {
+                                ModelNotReadyContent(onTap = onTap, onOpenApp = onOpenApp)
                             }
 
-                            is KeyboardState.ModelNotReady -> {
-                                ModelNotReadyContent()
+                            KeyboardAnimatedTarget.Error -> {
+                                val error = state as? KeyboardState.Error
+                                ErrorContent(error?.message.orEmpty(), onTap)
                             }
 
-                            is KeyboardState.Error -> {
-                                ErrorContent(currentState.message, onTap)
-                            }
-
-                            is KeyboardState.LlmError -> {
-                                LlmErrorContent(currentState.message, onTap)
+                            KeyboardAnimatedTarget.LlmError -> {
+                                val llmError = state as? KeyboardState.LlmError
+                                LlmErrorContent(llmError?.message.orEmpty(), onTap)
                             }
                         }
                     }
+                }
+
+                if (showModeControls) {
+                    ModeControlsRow(
+                        scrollState = modeScrollState,
+                        llmEnabled = llmEnabled,
+                        currentMode = currentMode!!,
+                        onToggleLlm = onToggleLlm,
+                        onModeChange = onModeChange,
+                    )
                 }
             }
         }
@@ -193,18 +237,64 @@ fun KeyboardUI(
 }
 
 @Composable
+private fun ModeControlsRow(
+    scrollState: ScrollState,
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode,
+    onToggleLlm: () -> Unit,
+    onModeChange: (ProcessingMode) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        LlmToggle(
+            enabled = llmEnabled,
+            currentMode = currentMode,
+            onClick = onToggleLlm,
+        )
+        if (llmEnabled) {
+            Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            ModeSelector(
+                scrollState = scrollState,
+                currentMode = currentMode,
+                onModeChange = onModeChange,
+            )
+        }
+    }
+}
+
+@Composable
 private fun LlmToggle(
     enabled: Boolean,
+    currentMode: ProcessingMode,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     FilterChip(
         selected = enabled,
         onClick = onClick,
-        label = { Text(stringResource(R.string.keyboard_llm_label), style = MaterialTheme.typography.labelMedium) },
+        label = {
+            Text(
+                text =
+                    if (enabled) {
+                        stringResource(R.string.keyboard_llm_mode, currentMode.displayName)
+                    } else {
+                        stringResource(R.string.keyboard_llm_enable)
+                    },
+                style = MaterialTheme.typography.labelMedium,
+            )
+        },
         leadingIcon =
             if (enabled) {
-                { Icon(Icons.Filled.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
+                {
+                    Icon(
+                        Icons.Filled.AutoAwesome,
+                        contentDescription = null,
+                        Modifier.size(FilterChipDefaults.IconSize),
+                    )
+                }
             } else {
                 null
             },
@@ -220,10 +310,6 @@ private fun LlmToggle(
 @Composable
 private fun IdleContent(
     onTap: () -> Unit,
-    llmEnabled: Boolean,
-    onToggleLlm: () -> Unit,
-    currentMode: ProcessingMode?,
-    onModeChange: (ProcessingMode) -> Unit,
     onBackspace: () -> Unit,
     onSpace: () -> Unit,
     onMoveCursor: (Int) -> Unit,
@@ -249,27 +335,11 @@ private fun IdleContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        // Keyboard controls
         KeyboardControls(
             onBackspace = onBackspace,
             onSpace = onSpace,
             onMoveCursor = onMoveCursor,
         )
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            LlmToggle(enabled = llmEnabled, onClick = onToggleLlm)
-            if (llmEnabled && currentMode != null) {
-                Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                ModeSelector(
-                    currentMode = currentMode,
-                    onModeChange = onModeChange,
-                )
-            }
-        }
     }
 }
 
@@ -351,16 +421,14 @@ private fun KeyboardControls(
 
 @Composable
 private fun ModeSelector(
-    currentMode: ProcessingMode?,
+    scrollState: ScrollState,
+    currentMode: ProcessingMode,
     onModeChange: (ProcessingMode) -> Unit,
 ) {
-    val scrollState = rememberScrollState()
-    val currentId = currentMode?.id
+    val currentId = currentMode.id
 
     Row(
-        modifier =
-            Modifier
-                .horizontalScroll(scrollState),
+        modifier = Modifier.horizontalScroll(scrollState),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
     ) {
         ModeChip("proofread", stringResource(R.string.keyboard_mode_proofread), currentId, onModeChange)
@@ -400,12 +468,9 @@ private fun RecordingContent(
     onStop: () -> Unit,
     onCancel: () -> Unit,
     onRestart: () -> Unit,
-    llmEnabled: Boolean,
-    currentMode: ProcessingMode?,
-    onToggleLlm: () -> Unit,
-    onModeChange: (ProcessingMode) -> Unit
 ) {
     val sampleCount by sampleCountFlow.collectAsStateWithLifecycle()
+    val elapsedMs = (sampleCount * 1000L) / VoiceRecorder.SAMPLE_RATE
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
     val scale =
         infiniteTransition.animateFloat(
@@ -417,10 +482,20 @@ private fun RecordingContent(
     Box(modifier = Modifier.fillMaxSize()) {
         RecordingGlowBackground(modifier = Modifier.fillMaxSize())
         Column(
-            modifier = Modifier.fillMaxSize().padding(top = 16.dp, bottom = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(top = 8.dp, bottom = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            Text(
+                text = elapsedMs.formatAsDuration(),
+                style =
+                    MaterialTheme.typography.displaySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Light,
+                        letterSpacing = 2.sp,
+                    ),
+                color = MaterialTheme.colorScheme.error,
+            )
             AudioWaveform(
                 waveformBuffer = waveformBuffer,
                 sampleCount = sampleCount,
@@ -433,46 +508,33 @@ private fun RecordingContent(
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 IconButton(
                     onClick = onCancel,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp)
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp),
                 ) {
                     Icon(Icons.Filled.Close, "Cancel recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
                 LargeFloatingActionButton(
                     onClick = onStop,
-                    modifier = Modifier.graphicsLayer {
-                        scaleX = scale.value
-                        scaleY = scale.value
-                    },
+                    modifier =
+                        Modifier.graphicsLayer {
+                            scaleX = scale.value
+                            scaleY = scale.value
+                        },
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer,
                 ) {
-                    Icon(Icons.Filled.Check, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
+                    Icon(Icons.Filled.Stop, stringResource(R.string.keyboard_desc_stop_recording), Modifier.size(36.dp))
                 }
 
                 IconButton(
                     onClick = onRestart,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp)
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small).size(48.dp),
                 ) {
                     Icon(Icons.Filled.Refresh, "Restart recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                LlmToggle(enabled = llmEnabled, onClick = onToggleLlm)
-                if (llmEnabled && currentMode != null) {
-                    Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                    ModeSelector(
-                        currentMode = currentMode,
-                        onModeChange = onModeChange,
-                    )
                 }
             }
         }
@@ -480,15 +542,24 @@ private fun RecordingContent(
 }
 
 @Composable
-private fun ProcessingContent(message: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        CircularProgressIndicator(
-            modifier = Modifier.size(48.dp),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            strokeWidth = 4.dp,
-        )
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun KeyboardProcessingContent(phase: ProcessingPhase) {
+    AnimatedContent(
+        targetState = phase,
+        transitionSpec = { ChirpMotion.keyboardProcessingCrossfade },
+        label = "keyboardProcessingPhase",
+    ) { currentPhase ->
+        val message =
+            when (currentPhase) {
+                ProcessingPhase.Transcribing -> stringResource(R.string.keyboard_transcribing)
+                ProcessingPhase.Polishing -> stringResource(R.string.keyboard_polishing)
+            }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            ThinkingDots(color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -568,18 +639,31 @@ private fun LlmErrorContent(
 }
 
 @Composable
-private fun ModelNotReadyContent() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(Icons.Filled.ErrorOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun ModelNotReadyContent(
+    onTap: () -> Unit,
+    onOpenApp: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.padding(horizontal = 24.dp),
+    ) {
+        Icon(
+            Icons.Filled.ErrorOutline,
+            contentDescription = null,
+            Modifier
+                .size(48.dp)
+                .clickable(onClick = onTap),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
             stringResource(R.string.keyboard_model_not_ready),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
         )
-        Text(
-            stringResource(R.string.keyboard_open_app_to_download),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        FilledTonalButton(onClick = onOpenApp) {
+            Text(stringResource(R.string.keyboard_open_app_to_download))
+        }
     }
 }

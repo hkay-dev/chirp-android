@@ -8,7 +8,8 @@
     <string name="keyboard_desc_stop_recording">Stop recording</string>
     <string name="keyboard_tap_to_speak">Tap to speak</string>
     <string name="keyboard_tap_to_stop">Tap to stop</string>
-    <string name="keyboard_llm_label">LLM</string>
+    <string name="keyboard_llm_enable">Enhance with AI</string>
+    <string name="keyboard_llm_mode">AI: %1$s</string>
     <string name="keyboard_downloading_model_progress">Downloading model... %1$d%%</string>
     <string name="keyboard_model_not_ready">Model not ready</string>
     <string name="keyboard_open_app_to_download">Open app to download</string>
