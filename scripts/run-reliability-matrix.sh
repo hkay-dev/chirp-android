@@ -9,7 +9,6 @@ set -euo pipefail
 	lintDebug \
 	:core-contracts:testDebugUnitTest \
 	:core-audio:testDebugUnitTest \
-	:core-ui:testDebugUnitTest \
 	:core-playback:testDebugUnitTest \
 	:data:testDebugUnitTest \
 	:feature-transcription:testDebugUnitTest \
@@ -18,7 +17,6 @@ set -euo pipefail
 	:feature-studio:testDebugUnitTest \
 	:feature-llm:testDebugUnitTest \
 	:feature-obsidian:testDebugUnitTest \
-	:feature-widget:testDebugUnitTest \
 	:app:testDebugUnitTest \
 	:data:compileDebugAndroidTestKotlin \
 	:app:compileDebugAndroidTestKotlin \

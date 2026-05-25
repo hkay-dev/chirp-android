@@ -49,17 +49,3 @@ fun LoadingState(
         }
     }
 }
-
-/**
- * Inline loading indicator for smaller contexts.
- */
-@Composable
-fun InlineLoading(
-    modifier: Modifier = Modifier
-) {
-    CircularProgressIndicator(
-        modifier = modifier.size(24.dp),
-        strokeWidth = 2.dp,
-        color = MaterialTheme.colorScheme.primary
-    )
-}
