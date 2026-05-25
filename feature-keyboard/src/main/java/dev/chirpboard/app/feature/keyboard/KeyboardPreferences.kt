@@ -1,20 +1,17 @@
 package dev.chirpboard.app.feature.keyboard
 
-import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.RecordingQualityPreset
+import dev.chirpboard.app.core.di.KeyboardPreferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
-
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "keyboard_preferences")
 
 /**
  * Keyboard-specific preferences.
@@ -22,70 +19,75 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
  */
 @Singleton
 class KeyboardPreferences @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
+    @KeyboardPreferencesDataStore private val dataStore: DataStore<Preferences>,
+    private val audioSettingsStore: AudioSettingsStore,
+ ) {
     private object Keys {
-        val SAVE_KEYBOARD_RECORDINGS = booleanPreferencesKey("save_keyboard_recordings")
-        val DEFAULT_PROCESSING_MODE = stringPreferencesKey("default_processing_mode")
-        val LLM_ENABLED = booleanPreferencesKey("llm_enabled")
-        val MICROPHONE_GAIN = floatPreferencesKey("microphone_gain")
+        val saveKeyboardRecordings = booleanPreferencesKey("save_keyboard_recordings")
+        val defaultProcessingMode = stringPreferencesKey("default_processing_mode")
+        val llmEnabled = booleanPreferencesKey("llm_enabled")
     }
 
     /**
      * When ON: After transcription, save M4A file and create Recording entity with SOURCE = KEYBOARD.
      * When OFF (default): Keep current in-memory transcription behavior.
      */
-    val saveKeyboardRecordings: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.SAVE_KEYBOARD_RECORDINGS] ?: false
+    val saveKeyboardRecordings: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[Keys.saveKeyboardRecordings] ?: false
     }
 
     /**
      * Default processing mode for keyboard transcriptions.
      * null means use the global/default processing mode.
      */
-    val defaultProcessingMode: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[Keys.DEFAULT_PROCESSING_MODE]
+    val defaultProcessingMode: Flow<String?> = dataStore.data.map { preferences ->
+        preferences[Keys.defaultProcessingMode]
     }
 
     /**
      * Whether LLM post-processing is enabled for keyboard transcriptions.
      */
-    val llmEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[Keys.LLM_ENABLED] ?: true
+    val llmEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[Keys.llmEnabled] ?: true
     }
 
     /**
-     * Microphone gain multiplier (1.0 = no boost, up to 5.0 = 5x boost).
+     * Shared microphone gain multiplier (1.0 = no boost, up to 5.0 = 5x boost).
      */
-    val microphoneGain: Flow<Float> = context.dataStore.data.map { preferences ->
-        preferences[Keys.MICROPHONE_GAIN] ?: 1.0f
-    }
+    val microphoneGain: Flow<Float> = audioSettingsStore.microphoneGain
+
+    /**
+     * Shared recording quality preset for saved recordings.
+     */
+    val recordingQualityPreset: Flow<RecordingQualityPreset> = audioSettingsStore.recordingQualityPreset
 
     suspend fun setSaveKeyboardRecordings(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.SAVE_KEYBOARD_RECORDINGS] = enabled
+        dataStore.edit { preferences ->
+            preferences[Keys.saveKeyboardRecordings] = enabled
         }
     }
 
     suspend fun setDefaultProcessingMode(mode: String?) {
-        context.dataStore.edit { preferences ->
+        dataStore.edit { preferences ->
             if (mode != null) {
-                preferences[Keys.DEFAULT_PROCESSING_MODE] = mode
+                preferences[Keys.defaultProcessingMode] = mode
             } else {
-                preferences.remove(Keys.DEFAULT_PROCESSING_MODE)
+                preferences.remove(Keys.defaultProcessingMode)
             }
         }
     }
 
     suspend fun setLlmEnabled(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.LLM_ENABLED] = enabled
+        dataStore.edit { preferences ->
+            preferences[Keys.llmEnabled] = enabled
         }
     }
 
     suspend fun setMicrophoneGain(gain: Float) {
-        context.dataStore.edit { preferences ->
-            preferences[Keys.MICROPHONE_GAIN] = gain.coerceIn(1.0f, 5.0f)
-        }
+        audioSettingsStore.setMicrophoneGain(gain)
+    }
+
+    suspend fun setRecordingQualityPreset(preset: RecordingQualityPreset) {
+        audioSettingsStore.setRecordingQualityPreset(preset)
     }
 }

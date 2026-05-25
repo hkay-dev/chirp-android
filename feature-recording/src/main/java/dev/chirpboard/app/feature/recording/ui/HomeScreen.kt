@@ -1,24 +1,15 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import android.net.Uri
-import java.util.UUID
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,31 +18,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Summarize
-import androidx.compose.material.icons.filled.Title
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FabPosition
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
@@ -62,13 +45,13 @@ import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -80,38 +63,26 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.StatsPillRow
-import dev.chirpboard.app.core.util.formatAsDuration
-import dev.chirpboard.app.core.util.formatRelative
-import dev.chirpboard.app.data.entity.Recording
-import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     onRecordingClick: (UUID) -> Unit,
     onRecordClick: () -> Unit,
+    onQuickStartClick: (UUID) -> Unit,
     onSettingsClick: () -> Unit,
     onImportAudio: (Uri) -> Unit = {},
     isRecordEntryChecking: Boolean = false,
@@ -125,17 +96,20 @@ fun HomeScreen(
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
 
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            onImportAudio(uri)
+    val launcher =
+        rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            if (uri != null) {
+                onImportAudio(uri)
+            }
         }
-    }
 
     var searchActive by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var showFilterMenu by remember { mutableStateOf(false) }
 
     // FAB expand/collapse based on scroll
     val fabExpanded by remember {
@@ -169,20 +143,57 @@ fun HomeScreen(
         }
     }
 
+    val showEmptyState = displayItems.isEmpty() && searchQuery.isBlank()
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            Column {
-                MediumTopAppBar(
-                    title = {
-                        // Animated title based on collapse state
-                        val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
+            val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
+            MediumTopAppBar(
+                title = {
+                    if (searchActive) {
+                        SearchBarDefaults.InputField(
+                            query = searchQuery,
+                            onQueryChange = viewModel::onSearchQueryChange,
+                            onSearch = { searchActive = false },
+                            expanded = true,
+                            onExpandedChange = { searchActive = it },
+                            placeholder = { Text(stringResource(R.string.search_recordings)) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = stringResource(R.string.desc_search),
+                                )
+                            },
+                            trailingIcon = {
+                                IconButton(
+                                    onClick = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            viewModel.onSearchQueryChange("")
+                                        } else {
+                                            searchActive = false
+                                        }
+                                    },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription =
+                                            stringResource(
+                                                if (searchQuery.isNotEmpty()) {
+                                                    R.string.desc_clear_search
+                                                } else {
+                                                    R.string.desc_close
+                                                },
+                                            ),
+                                    )
+                                }
+                            },
+                        )
+                    } else {
                         Text(
                             text =
                                 if (collapsed) {
-                                    stringResource(
-                                        R.string.rec_recordings_title_collapsed,
-                                    )
+                                    stringResource(R.string.rec_recordings_title_collapsed)
                                 } else {
                                     stringResource(R.string.rec_recordings_title_expanded)
                                 },
@@ -194,104 +205,128 @@ fun HomeScreen(
                                 },
                             fontWeight = FontWeight.Bold,
                         )
-                    },
-                    actions = {
-                        val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
-                        if (collapsed && !searchActive) {
-                            IconButton(onClick = { searchActive = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = stringResource(R.string.desc_search),
-                                )
-                            }
-                        }
-                        IconButton(onClick = onSettingsClick) {
+                    }
+                },
+                actions = {
+                    if (!searchActive) {
+                        IconButton(onClick = { searchActive = true }) {
                             Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = stringResource(R.string.desc_settings),
+                                imageVector = Icons.Default.Search,
+                                contentDescription = stringResource(R.string.desc_search),
+                                tint =
+                                    if (searchQuery.isNotBlank()) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                             )
                         }
-                    },
-                    scrollBehavior = scrollBehavior,
-                    colors =
-                        TopAppBarDefaults.mediumTopAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            scrolledContainerColor = MaterialTheme.colorScheme.surface,
-                        ),
-                )
+                    }
 
-                // Docked search bar (visible when expanded or active)
-                val collapsed = scrollBehavior.state.collapsedFraction > 0.5f
-                AnimatedVisibility(
-                    visible = !collapsed || searchActive,
-                ) {
-                    DockedSearchBar(
-                        inputField = {
-                            SearchBarDefaults.InputField(
-                                query = searchQuery,
-                                onQueryChange = viewModel::onSearchQueryChange,
-                                onSearch = { searchActive = false },
-                                expanded = searchActive,
-                                onExpandedChange = { searchActive = it },
-                                placeholder = { Text(stringResource(R.string.search_recordings)) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = stringResource(R.string.desc_search),
-                                    )
+                    Box {
+                        IconButton(onClick = { showFilterMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.FilterList,
+                                contentDescription = stringResource(R.string.desc_filters),
+                                tint =
+                                    if (listFilter == ListFilterMode.PROCESSING) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showFilterMenu,
+                            onDismissRequest = { showFilterMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.rec_filter_all)) },
+                                onClick = {
+                                    showFilterMenu = false
+                                    viewModel.setListFilter(ListFilterMode.ALL)
                                 },
-                                trailingIcon = {
-                                    if (searchActive || searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = {
-                                            viewModel.onSearchQueryChange("")
-                                            searchActive = false
-                                        }) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = stringResource(R.string.desc_clear_search),
-                                            )
-                                        }
+                                leadingIcon = {
+                                    if (listFilter == ListFilterMode.ALL) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                        )
                                     }
                                 },
                             )
-                        },
-                        expanded = searchActive,
-                        onExpandedChange = { searchActive = it },
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        // Search suggestions could go here
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.rec_filter_processing)) },
+                                onClick = {
+                                    showFilterMenu = false
+                                    viewModel.setListFilter(ListFilterMode.PROCESSING)
+                                },
+                                leadingIcon = {
+                                    if (listFilter == ListFilterMode.PROCESSING) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                        )
+                                    }
+                                },
+                            )
+                        }
                     }
-                }
-            }
-        },
-        floatingActionButton = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Box(
-                    modifier = Modifier.size(48.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    SmallFloatingActionButton(
-                        onClick = { launcher.launch("audio/*") },
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    ) {
+
+                    IconButton(onClick = onSettingsClick) {
                         Icon(
-                            imageVector = Icons.Default.AudioFile,
-                            contentDescription = stringResource(R.string.rec_import_audio)
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = stringResource(R.string.desc_settings),
                         )
                     }
+                },
+                scrollBehavior = scrollBehavior,
+                colors =
+                    TopAppBarDefaults.mediumTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surface,
+                    ),
+            )
+        },
+        floatingActionButton = {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (!showEmptyState && shouldShowHomeQuickStartSurface(quickStarts)) {
+                    HomeQuickStartSurface(
+                        quickStarts = quickStarts,
+                        onQuickStartClick = onQuickStartClick,
+                        isRecordEntryChecking = isRecordEntryChecking,
+                    )
                 }
-                BreathingExtendedFab(
-                    expanded = fabExpanded,
-                    isChecking = isRecordEntryChecking,
-                    onClick = onRecordClick,
-                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        SmallFloatingActionButton(
+                            onClick = { launcher.launch("audio/*") },
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AudioFile,
+                                contentDescription = stringResource(R.string.rec_import_audio),
+                            )
+                        }
+                    }
+                    BreathingExtendedFab(
+                        expanded = fabExpanded,
+                        isChecking = isRecordEntryChecking,
+                        onClick = onRecordClick,
+                    )
+                }
             }
         },
         floatingActionButtonPosition = FabPosition.End,
@@ -299,7 +334,7 @@ fun HomeScreen(
     ) { paddingValues ->
         AnimatedContent(
             modifier = Modifier.padding(paddingValues),
-            targetState = displayItems.isEmpty() && searchQuery.isBlank(),
+            targetState = showEmptyState,
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
@@ -309,6 +344,8 @@ fun HomeScreen(
             if (showEmpty) {
                 AnimatedEmptyState(
                     onRecordClick = onRecordClick,
+                    onQuickStartClick = onQuickStartClick,
+                    quickStarts = quickStarts,
                     isRecordEntryChecking = isRecordEntryChecking,
                     modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
                 )
@@ -385,7 +422,7 @@ fun HomeScreen(
                                 onLongClick = { selectedItem = item },
                             )
                             HorizontalDivider(
-                                modifier = Modifier.padding(start = 72.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             )
                         }
@@ -469,444 +506,11 @@ fun HomeScreen(
         }
     }
 }
-/**
- * Individual recording list item - no card wrapper.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun RecordingListItem(
-    item: RecordingDisplayItem,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-
-    Row(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .semantics(mergeDescendants = true) {}
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick,
-                ).padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        // Profile emoji in 40dp touch target with secondaryContainer background
-        Box(
-            modifier =
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (item.profileIcon != null) {
-                Text(
-                    text = item.profileIcon,
-                    style = MaterialTheme.typography.titleSmall,
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(16.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            // Title
-            Text(
-                text = item.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            // Metadata line: "3h ago · 4:32"
-            val metadataText = remember(item.createdAtMs, item.durationMs) {
-                "${java.util.Date(item.createdAtMs).formatRelative()} · ${item.durationMs.formatAsDuration()}"
-            }
-            Text(
-                text = metadataText,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            // Summary (2 lines, 60% alpha)
-            if (item.summary != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = item.summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            if (shouldShowStuckRecoveryAction(item.status)) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text =
-                        item.errorMessage
-                            ?: stringResource(
-                                R.string.rec_stuck_recovery_message,
-                                item.status.name
-                                    .lowercase()
-                                    .replace('_', ' '),
-                            ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
-            // Tags (max 3 + overflow)
-            if (item.tags.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    item.tags.take(3).forEach { tag ->
-                        CompactTagChip(name = tag.name, colorHex = tag.color)
-                    }
-                    if (item.tags.size > 3) {
-                        Text(
-                            text = "+${item.tags.size - 3}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
- * Compact tag chip for list items.
- */
-@Composable
-private fun CompactTagChip(
-    name: String,
-    colorHex: String?,
-) {
-    // Memoize color parsing to avoid redundant computation during list scrolling
-    // Color.parseColor is expensive and list items recompose frequently during scroll
-    val defaultColor = MaterialTheme.colorScheme.tertiary
-    val tagColor =
-        remember(colorHex, defaultColor) {
-            colorHex?.let {
-                try {
-                    Color(android.graphics.Color.parseColor(it))
-                } catch (_: Exception) {
-                    defaultColor
-                }
-            } ?: defaultColor
-        }
-
-    Row(
-        modifier =
-            Modifier
-                .background(
-                    color = tagColor.copy(alpha = 0.12f),
-                    shape = MaterialTheme.shapes.small,
-                ).padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(6.dp)
-                    .clip(CircleShape)
-                    .background(tagColor),
-        )
-        Text(
-            text = name,
-            style = MaterialTheme.typography.labelSmall,
-            color = tagColor,
-            maxLines = 1,
-        )
-    }
-}
-
-/**
- * Bottom sheet with recording actions.
- */
-@Composable
-private fun RecordingActionsSheet(
-    item: RecordingDisplayItem,
-    onShare: () -> Unit,
-    onDelete: () -> Unit,
-    onRetryTranscription: (() -> Unit)?,
-    onGenerateTitle: (() -> Unit)?,
-    onGenerateSummary: (() -> Unit)?,
-    onRecoverStuck: (() -> Unit)?,
-) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp),
-    ) {
-        // Header
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-
-        HorizontalDivider()
-
-        // Share
-        SheetActionItem(
-            icon = Icons.Default.Share,
-            text = stringResource(R.string.rec_share),
-            onClick = onShare,
-        )
-
-        // AI Options (for completed recordings)
-        if (onGenerateTitle != null || onGenerateSummary != null) {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
-
-            if (onGenerateTitle != null) {
-                SheetActionItem(
-                    icon = Icons.Default.Title,
-                    text = stringResource(R.string.rec_gen_title),
-                    onClick = onGenerateTitle,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-
-            if (onGenerateSummary != null) {
-                SheetActionItem(
-                    icon = Icons.Default.Summarize,
-                    text = stringResource(R.string.rec_gen_summary),
-                    onClick = onGenerateSummary,
-                    tint = MaterialTheme.colorScheme.tertiary,
-                )
-            }
-        }
-
-        // Retry (for failed recordings)
-        if (onRetryTranscription != null) {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
-            SheetActionItem(
-                icon = Icons.Default.Refresh,
-                text = stringResource(R.string.rec_retry_transcription),
-                onClick = onRetryTranscription,
-            )
-        }
-
-        if (onRecoverStuck != null) {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
-            SheetActionItem(
-                icon = Icons.Default.Refresh,
-                text = stringResource(R.string.rec_recover_stuck_processing),
-                onClick = onRecoverStuck,
-            )
-        }
-
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
-
-        // Delete
-        SheetActionItem(
-            icon = Icons.Default.Delete,
-            text = stringResource(R.string.rec_delete),
-            onClick = onDelete,
-            tint = MaterialTheme.colorScheme.error,
-        )
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun SheetActionItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    onClick: () -> Unit,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
-) {
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .semantics(mergeDescendants = true) {}
-                .combinedClickable(onClick = onClick)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-        )
-        Text(
-            text = text,
-            style = MaterialTheme.typography.bodyLarge,
-            color = tint,
-        )
-    }
-}
-
-/**
- * Extended FAB with breathing animation.
- */
-@Composable
-fun BreathingExtendedFab(
-    expanded: Boolean,
-    isChecking: Boolean,
-    onClick: () -> Unit,
-) {
-    val scaleAnimation =
-        if (!isChecking) {
-            val infiniteTransition = rememberInfiniteTransition(label = "breathing")
-            infiniteTransition.animateFloat(
-                initialValue = 1f,
-                targetValue = 1.03f,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(durationMillis = 2000, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                label = "fab_scale",
-            )
-        } else {
-            null
-        }
-
-    ExtendedFloatingActionButton(
-        onClick = {
-            if (isRecordEntryActionEnabled(isChecking)) {
-                onClick()
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-        expanded = expanded,
-        icon = {
-            if (isChecking) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                )
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = null,
-                )
-            }
-        },
-        text = {
-            Text(recordFabLabel(isChecking))
-        },
-        modifier =
-            Modifier
-                .graphicsLayer {
-                    val scale = scaleAnimation?.value ?: 1f
-                    scaleX = scale
-                    scaleY = scale
-                }.testTag(HomeScreenRecordEntryTestTags.RecordFab),
-    )
-}
-
-/**
- * Animated empty state with floating mic icon.
- */
-@Composable
-fun AnimatedEmptyState(
-    onRecordClick: () -> Unit,
-    isRecordEntryChecking: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "floating")
-    val offsetY =
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 8f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "float_offset",
-        )
-
-    Column(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Floating mic icon
-        Icon(
-            imageVector = Icons.Default.Mic,
-            contentDescription = null,
-            modifier =
-                Modifier
-                    .size(80.dp)
-                    .graphicsLayer { translationY = -offsetY.value },
-            tint = MaterialTheme.colorScheme.primary,
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = stringResource(R.string.rec_empty_state_title),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Medium,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = stringResource(R.string.rec_empty_state_subtitle),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        FilledTonalButton(
-            onClick = onRecordClick,
-            enabled = isRecordEntryActionEnabled(isRecordEntryChecking),
-            modifier = Modifier.testTag(HomeScreenRecordEntryTestTags.EmptyStateRecordButton),
-        ) {
-            if (isRecordEntryChecking) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
-                }
-            } else {
-                Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
-            }
-        }
-    }
-}
 
 internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean =
     status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.ENHANCING
+
+internal fun quickStartTestTag(profileId: UUID): String = "home_quick_start_$profileId"
 
 internal fun isRecordEntryActionEnabled(isChecking: Boolean): Boolean = !isChecking
 
@@ -929,4 +533,5 @@ internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String =
 object HomeScreenRecordEntryTestTags {
     const val RecordFab = "home_record_fab"
     const val EmptyStateRecordButton = "home_empty_record_button"
+    const val QuickStartSurface = "home_quick_start_surface"
 }

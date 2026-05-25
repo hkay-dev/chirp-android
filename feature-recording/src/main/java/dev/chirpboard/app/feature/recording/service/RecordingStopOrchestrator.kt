@@ -6,7 +6,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -21,7 +21,7 @@ class RecordingStopOrchestrator
     @Inject
     constructor(
         private val recordingRepository: RecordingRepository,
-        private val transcriptionQueueManager: TranscriptionQueueManager,
+        private val transcriptionRecovery: TranscriptionRecovery,
     ) {
         suspend fun persistAndQueueRecording(snapshot: StopSnapshot): StopPersistenceResult {
             val audioPath = snapshot.audioFilePath ?: return StopPersistenceResult.NoAudioFile
@@ -54,13 +54,6 @@ class RecordingStopOrchestrator
                     }
                     throw e
                 }
-                    recordingRepository.createRecording(
-                        title = title,
-                        audioPath = audioPath,
-                        source = source,
-                        profileId = snapshot.profileId,
-                        durationMs = snapshot.durationMs,
-                    )
 
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.PERSISTENCE_SAVE,
@@ -71,12 +64,12 @@ class RecordingStopOrchestrator
                 )
 
                 try {
-                    transcriptionQueueManager.enqueue(recording.id, snapshot.correlationId)
+                    transcriptionRecovery.enqueue(recording.id, snapshot.correlationId)
                     StopPersistenceResult.SavedAndQueued(recording.id)
                 } catch (enqueueError: Exception) {
                     if (enqueueError is kotlinx.coroutines.CancellationException) throw enqueueError
                     val reason = "Queue handoff failed during stop. Will retry automatically on startup."
-                    transcriptionQueueManager.markPendingForQueueRecovery(recording.id, reason, enqueueError)
+                    transcriptionRecovery.markPendingForQueueRecovery(recording.id, reason, enqueueError)
                     StopPersistenceResult.SavedPendingRecovery(recording.id, reason, enqueueError)
                 }
             }

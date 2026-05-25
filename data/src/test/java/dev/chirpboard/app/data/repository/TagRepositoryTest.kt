@@ -30,7 +30,7 @@ class TagRepositoryTest {
         val expected = listOf(Tag(id = UUID.randomUUID(), name = "Tag1"))
         coEvery { tagDao.getAllTags() } returns flowOf(expected)
         val result = repository.getAllTags().first()
-        assertEquals(expected, result)
+        assertEquals(expected, result.value)
     }
 
     @Test
@@ -102,7 +102,7 @@ class TagRepositoryTest {
         val expected = listOf(Tag(id = UUID.randomUUID(), name = "Tag1"))
         coEvery { tagDao.getTagsForRecording(id) } returns flowOf(expected)
         val result = repository.getTagsForRecording(id).first()
-        assertEquals(expected, result)
+        assertEquals(expected, result.value)
     }
 
     @Test

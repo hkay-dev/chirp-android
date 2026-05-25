@@ -2,31 +2,20 @@
 <resources>
     <string name="rec_word_replacements">Word Replacements</string>
     <string name="rec_tag_name">Tag name</string>
-    <string name="rec_save">Save</string>
-    <string name="rec_cancel">Cancel</string>
     <string name="rec_original_word">Original word/phrase</string>
     <string name="rec_original_word_desc">The word or phrase to find</string>
     <string name="rec_replacement">Replacement</string>
     <string name="rec_replacement_desc">What to replace it with (leave empty to remove)</string>
     <string name="rec_tags">Tags</string>
-    <string name="rec_share">Share</string>
     <string name="rec_gen_title">Generate title</string>
     <string name="rec_gen_summary">Generate summary</string>
     <string name="rec_retry_transcription">Retry transcription</string>
     <string name="rec_retry_transcription_cap">Retry Transcription</string>
-    <string name="rec_delete">Delete</string>
     <string name="rec_loading_audio">Loading audio...</string>
     <string name="rec_no_audio_loaded">No audio loaded</string>
-    <string name="rec_source_app">App</string>
-    <string name="rec_source_keyboard">Keyboard</string>
-    <string name="rec_source_widget">Widget</string>
-    <string name="rec_source_imported">Imported</string>
     <string name="rec_source_unknown">Unknown</string>
     <string name="rec_import_audio">Import audio</string>
     <string name="rec_edit_title">Edit title</string>
-    <string name="rec_share_audio">Share audio</string>
-    <string name="rec_share_transcript">Share transcript</string>
-    <string name="rec_share_both">Share both</string>
     <string name="rec_recover_queue">Recover Queue</string>
     <string name="rec_recover_stuck">Recover stuck (%1$d)</string>
     <string name="rec_profile_name">Name *</string>
@@ -40,26 +29,25 @@
     <string name="rec_delete_recording_desc">This action cannot be undone. The audio file and any transcription will be permanently deleted.</string>
     <string name="rec_delete_profile">Delete Profile</string>
     <string name="rec_profiles">Profiles</string>
+    <string name="rec_home_quick_starts_title">Quick starts</string>
+    <string name="rec_profile_quick_start_title">Pin to Home quick starts</string>
+    <string name="rec_profile_quick_start_description">Keep this profile in the home quick-start row even when it is not recent</string>
     
     <string name="desc_selected">Selected</string>
     <string name="desc_remove_tag">Remove tag</string>
-    <string name="desc_back">Back</string>
     <string name="desc_add_replacement">Add replacement</string>
-    <string name="desc_delete">Delete</string>
-    <string name="desc_edit">Edit</string>
     <string name="desc_add_tag">Add tag</string>
     <string name="desc_edit_tag">Edit tag</string>
     <string name="desc_skip_back">Skip back 10 seconds</string>
     <string name="desc_skip_forward">Skip forward 10 seconds</string>
-    <string name="desc_share">Share</string>
-    <string name="desc_cancel">Cancel</string>
-    <string name="desc_save">Save</string>
-    <string name="desc_more_options">More options</string>
     <string name="desc_close">Close</string>
     <string name="desc_search">Search</string>
     <string name="search_recordings">Search recordings</string>
+    <string name="desc_filters">Filters</string>
     <string name="desc_settings">Settings</string>
     <string name="desc_clear_search">Clear search</string>
+    <string name="rec_filter_all">All recordings</string>
+    <string name="rec_filter_processing">Processing only</string>
     <string name="desc_skip_backward">Skip backward 10 seconds</string>
     <string name="desc_playback_error">Playback error</string>
     <string name="desc_done">Done - save and transcribe</string>
@@ -124,12 +112,15 @@
     <string name="rec_status_enhancing">Enhancing</string>
     <string name="rec_status_pending">Pending</string>
     <string name="rec_status_completed">Completed</string>
-    <string name="rec_status_failed">Failed</string>
     <string name="rec_waiting_for_transcription">Waiting for transcription...</string>
     <string name="rec_transcription_failed">Transcription failed</string>
     <string name="rec_no_transcript_available">No transcript available</string>
     <string name="rec_recover">Recover</string>
     <string name="rec_retranscribe">Re-transcribe</string>
+    <string name="rec_select_text">Select text</string>
+    <string name="rec_transcript_selection_done">Done</string>
+    <string name="rec_transcript_selection_prompt">Select a passage below to run transcript tools.</string>
+    <string name="rec_transcript_retranscribe_confirmation">A new transcription will replace the pipeline transcript. Your saved manual correction stays visible until the new transcript finishes successfully.</string>
     <string name="rec_recovery_latest_reason">Latest reason: %1$s</string>
     <string name="rec_recovery_no_reason">No reason available</string>
     <string name="rec_recovery_unknown">Unknown</string>
@@ -160,6 +151,7 @@
     <string name="rec_record_screen_status_saving">Saving...</string>
     <string name="rec_record_screen_status_saved">Saved</string>
     <string name="rec_record_screen_status_ready">Ready</string>
+    <string name="rec_active_profile_label">Recording with profile</string>
     <string name="rec_default_voice_memo_title">Voice Memo</string>
     <string name="rec_color">Color</string>
     <string name="rec_no_tags_yet">No tags yet</string>
@@ -177,6 +169,23 @@
 
 
     <string name="rec_delete_profile_confirm">Are you sure you want to delete "%1$s"? This cannot be undone.</string>
+
+    <string name="rec_structured_unavailable">Structured outcomes are available after processing finishes.</string>
+    <string name="rec_ask_ai">Ask AI</string>
+    <string name="rec_structured_no_summary">No summary available yet.</string>
+    <string name="rec_structured_outcomes">Structured outcomes</string>
+    <string name="rec_structured_generate">Generate</string>
+    <string name="rec_structured_regenerate">Regenerate</string>
+    <string name="rec_structured_try_again">Try again</string>
+    <string name="rec_structured_empty_body">Generate tasks, decisions, and follow-ups from the latest transcript.</string>
+    <string name="rec_structured_no_transcript">Structured outcomes need transcript text first.</string>
+    <string name="rec_structured_generating">Generating structured outcomes...</string>
+    <string name="rec_structured_failed_message">Couldn’t generate structured outcomes. %1$s</string>
+    <string name="rec_structured_stale">These structured outcomes are out of date. Regenerate them from the latest transcript.</string>
+    <string name="rec_structured_no_items">No tasks, decisions, or follow-ups were found in the latest snapshot.</string>
+    <string name="rec_structured_group_tasks">Tasks</string>
+    <string name="rec_structured_group_decisions">Decisions</string>
+    <string name="rec_structured_group_follow_ups">Follow-ups</string>
 
     <plurals name="rec_search_results_count">
         <item quantity="one">%1$d result</item>

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desc_back">Back</string>
+    <string name="desc_cancel">Cancel</string>
+    <string name="desc_delete">Delete</string>
+    <string name="desc_edit">Edit</string>
+    <string name="desc_more_options">More options</string>
+    <string name="desc_save">Save</string>
+    <string name="desc_share">Share</string>
+    <string name="rec_cancel">Cancel</string>
+    <string name="rec_copy">Copy</string>
+    <string name="rec_delete">Delete</string>
+    <string name="rec_save">Save</string>
+    <string name="rec_share">Share</string>
+    <string name="rec_share_audio">Share audio</string>
+    <string name="rec_share_both">Share both</string>
+    <string name="rec_share_transcript">Share transcript</string>
+    <string name="rec_source_app">App</string>
+    <string name="rec_source_imported">Imported</string>
+    <string name="rec_source_keyboard">Keyboard</string>
+    <string name="rec_source_widget">Widget</string>
+    <string name="rec_status_failed">Failed</string>
+</resources>

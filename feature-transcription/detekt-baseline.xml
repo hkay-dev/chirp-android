@@ -1,0 +1,14 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>InstanceOfCheckForException:AudioDecoder.kt$AudioDecoder$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:AudioDecoder.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TranscriptionQueueManager.kt$TranscriptionQueueManager$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TranscriptionQueueReconciler.kt$TranscriptionQueueReconciler$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TranscriptionSettingsViewModel.kt$TranscriptionSettingsViewModel$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TranscriptionWorker.kt$TranscriptionWorker$e is CancellationException</ID>
+    <ID>InstanceOfCheckForException:TranscriptionWorker.kt$TranscriptionWorker$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:WorkConstraintChecker.kt$WorkConstraintChecker$e is kotlinx.coroutines.CancellationException</ID>
+  </CurrentIssues>
+</SmellBaseline>

@@ -51,6 +51,7 @@ dependencies {
     implementation(project(":core"))
     implementation(project(":data"))
     implementation(project(":feature-recording"))
+    implementation(project(":feature-studio"))
     implementation(project(":feature-transcription"))
     implementation(project(":feature-llm"))
     implementation(project(":feature-keyboard"))

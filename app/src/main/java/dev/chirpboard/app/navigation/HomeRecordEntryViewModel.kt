@@ -4,77 +4,80 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.chirpboard.app.download.ModelReadinessGate
-import dev.chirpboard.app.download.ModelReadinessState
-import dev.chirpboard.app.download.ModelReadinessUnavailableReason
-import dev.chirpboard.app.download.ModelReadyResult
-import dev.chirpboard.app.download.VerificationTrigger
-import javax.inject.Inject
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.receiveAsFlow
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
+import java.util.UUID
+import javax.inject.Inject
 
 @HiltViewModel
-class HomeRecordEntryViewModel @Inject constructor(
-    private val modelReadinessGate: ModelReadinessGate
-) : ViewModel() {
+class HomeRecordEntryViewModel
+    @Inject
+    constructor(
+        private val modelReadinessGate: SpeechModelReadinessGate,
+    ) : ViewModel() {
+        val readinessState: StateFlow<ModelReadinessState> = modelReadinessGate.state
 
-    val readinessState: StateFlow<ModelReadinessState> = modelReadinessGate.state
+        private val _events = Channel<HomeRecordEntryEvent>(Channel.BUFFERED)
+        val events: Flow<HomeRecordEntryEvent> = _events.receiveAsFlow()
 
-    private val _events = Channel<HomeRecordEntryEvent>(Channel.BUFFERED)
-    val events: Flow<HomeRecordEntryEvent> = _events.receiveAsFlow()
-
-    fun warmupOnHomeVisible() {
-        modelReadinessGate.warmupIfNeeded(VerificationTrigger.HOME_VISIBLE)
-    }
-
-    fun onRecordTapped() {
-        if (readinessState.value is ModelReadinessState.Checking) {
-            return
+        fun warmupOnHomeVisible() {
+            modelReadinessGate.warmupIfNeeded(VerificationTrigger.HOME_VISIBLE)
         }
 
-        val tapStartedNs = System.nanoTime()
-        Log.d(TAG, "record_tap_received")
+        fun onRecordTapped(profileId: UUID? = null) {
+            if (readinessState.value is ModelReadinessState.Checking) {
+                return
+            }
 
-        viewModelScope.launch {
-            when (val result = modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP)) {
-                is ModelReadyResult.Ready -> {
-                    val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
-                    Log.d(TAG, "record_navigation_allowed in ${elapsedMs}ms (source=${result.source})")
-                    _events.send(HomeRecordEntryEvent.NavigateToRecord)
-                }
+            val tapStartedNs = System.nanoTime()
+            Log.d(TAG, "record_tap_received")
 
-                is ModelReadyResult.Unavailable -> {
-                    val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
-                    Log.w(TAG, "record_navigation_blocked in ${elapsedMs}ms (reason=${result.reason})")
-                    _events.send(HomeRecordEntryEvent.ShowModelRequired(result.reason))
-                }
+            viewModelScope.launch {
+                when (val result = modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP)) {
+                    is ModelReadyResult.Ready -> {
+                        val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
+                        Log.d(TAG, "record_navigation_allowed in ${elapsedMs}ms (source=${result.source})")
+                        _events.send(HomeRecordEntryEvent.NavigateToRecord(profileId))
+                    }
 
-                is ModelReadyResult.Error -> {
-                    val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
-                    Log.e(TAG, "record_navigation_error in ${elapsedMs}ms")
-                    _events.send(HomeRecordEntryEvent.ShowError(result.message))
+                    is ModelReadyResult.Unavailable -> {
+                        val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
+                        Log.w(TAG, "record_navigation_blocked in ${elapsedMs}ms (reason=${result.reason})")
+                        _events.send(HomeRecordEntryEvent.ShowModelRequired(result.reason))
+                    }
+
+                    is ModelReadyResult.Error -> {
+                        val elapsedMs = (System.nanoTime() - tapStartedNs) / 1_000_000
+                        Log.e(TAG, "record_navigation_error in ${elapsedMs}ms")
+                        _events.send(HomeRecordEntryEvent.ShowError(result.message))
+                    }
                 }
             }
         }
-    }
 
-    companion object {
-        private const val TAG = "HomeRecordEntryVM"
+        companion object {
+            private const val TAG = "HomeRecordEntryVM"
+        }
     }
-}
 
 sealed interface HomeRecordEntryEvent {
-    data object NavigateToRecord : HomeRecordEntryEvent
+    data class NavigateToRecord(
+        val profileId: UUID? = null,
+    ) : HomeRecordEntryEvent
 
     data class ShowModelRequired(
-        val reason: ModelReadinessUnavailableReason
+        val reason: ModelReadinessUnavailableReason,
     ) : HomeRecordEntryEvent
 
     data class ShowError(
-        val message: String
+        val message: String,
     ) : HomeRecordEntryEvent
 }

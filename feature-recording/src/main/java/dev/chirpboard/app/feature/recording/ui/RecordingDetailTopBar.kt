@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,22 +85,22 @@ internal fun RecordingDetailTopBar(
             IconButton(onClick = onBackClick) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.desc_back),
+                    contentDescription = stringResource(CoreR.string.desc_back),
                 )
             }
         },
         actions = {
             if (isEditing) {
                 IconButton(onClick = onCancelEditing) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_cancel))
+                    Icon(Icons.Default.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
                 }
                 IconButton(onClick = onSaveTitle) {
-                    Icon(Icons.Default.Check, contentDescription = stringResource(R.string.desc_save))
+                    Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
                 }
             } else {
                 Box {
                     IconButton(onClick = { showOverflowMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.desc_more_options))
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(CoreR.string.desc_more_options))
                     }
 
                     DropdownMenu(
@@ -117,7 +118,7 @@ internal fun RecordingDetailTopBar(
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.rec_delete)) },
+                            text = { Text(stringResource(CoreR.string.rec_delete)) },
                             onClick = {
                                 showOverflowMenu = false
                                 onDeleteRequested()

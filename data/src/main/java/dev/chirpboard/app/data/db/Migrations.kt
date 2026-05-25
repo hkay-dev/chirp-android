@@ -28,17 +28,80 @@ object Migrations {
         }
     }
 
+    val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE profiles ADD COLUMN isQuickStartPinned INTEGER NOT NULL DEFAULT 0"
+            )
+        }
+    }
+
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `transcript_timings` (
+                    `recordingId` TEXT NOT NULL,
+                    `sequenceIndex` INTEGER NOT NULL,
+                    `text` TEXT NOT NULL,
+                    `startOffsetMs` INTEGER NOT NULL,
+                    `endOffsetMs` INTEGER NOT NULL,
+                    PRIMARY KEY(`recordingId`, `sequenceIndex`),
+                    FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_transcript_timings_recordingId` ON `transcript_timings` (`recordingId`)"
+            )
+        }
+    }
+
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE transcripts ADD COLUMN manualCorrectionText TEXT DEFAULT NULL"
+            )
+            db.execSQL(
+                "ALTER TABLE transcripts ADD COLUMN manualCorrectionSourceText TEXT DEFAULT NULL"
+            )
+        }
+    }
+
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `structured_outcome_snapshots` (
+                    `recordingId` TEXT NOT NULL,
+                    `sourceTranscriptRevision` TEXT,
+                    `generationStatus` TEXT NOT NULL,
+                    `generatedAt` INTEGER,
+                    `lastAttemptedAt` INTEGER NOT NULL,
+                    `failureMessage` TEXT,
+                    `taskItemsPayload` TEXT,
+                    `decisionItemsPayload` TEXT,
+                    `followUpItemsPayload` TEXT,
+                    PRIMARY KEY(`recordingId`),
+                    FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+        }
+    }
+
     /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
     val ALL: Array<Migration> =
         arrayOf(
-            // Add migrations here as they're created, e.g.:
             MIGRATION_1_2,
-            // MIGRATION_2_3,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
         )
-
     // Example migration template (uncomment and modify when needed):
     /*
     val MIGRATION_1_2 = object : Migration(1, 2) {

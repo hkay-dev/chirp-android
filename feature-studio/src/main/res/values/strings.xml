@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rec_ask_ai">Ask AI</string>
+    <string name="rec_chat">Chat</string>
+    <string name="rec_details">Details</string>
+    <string name="rec_edit_title">Edit title</string>
+    <string name="rec_no_transcript_available">No transcript available</string>
+    <string name="rec_retranscribe">Re-transcribe</string>
+    <string name="rec_select_text">Select text</string>
+    <string name="rec_structured_empty_body">Generate tasks, decisions, and follow-ups from the latest transcript.</string>
+    <string name="rec_structured_failed_message">Couldn’t generate structured outcomes. %1$s</string>
+    <string name="rec_structured_generate">Generate</string>
+    <string name="rec_structured_generating">Generating structured outcomes...</string>
+    <string name="rec_structured_group_decisions">Decisions</string>
+    <string name="rec_structured_group_follow_ups">Follow-ups</string>
+    <string name="rec_structured_group_tasks">Tasks</string>
+    <string name="rec_structured_no_items">No tasks, decisions, or follow-ups were found in the latest snapshot.</string>
+    <string name="rec_structured_no_summary">No summary available yet.</string>
+    <string name="rec_structured_no_transcript">Structured outcomes need transcript text first.</string>
+    <string name="rec_structured_outcomes">Structured outcomes</string>
+    <string name="rec_structured_regenerate">Regenerate</string>
+    <string name="rec_structured_stale">These structured outcomes are out of date. Regenerate them from the latest transcript.</string>
+    <string name="rec_structured_try_again">Try again</string>
+    <string name="rec_structured_unavailable">Structured outcomes are available after processing finishes.</string>
+    <string name="rec_summary">Summary</string>
+    <string name="rec_transcript">Transcript</string>
+    <string name="rec_transcript_retranscribe_confirmation">A new transcription will replace the pipeline transcript. Your saved manual correction stays visible until the new transcript finishes successfully.</string>
+    <string name="rec_transcript_selection_done">Done</string>
+    <string name="rec_transcript_selection_prompt">Select a passage below to run transcript tools.</string>
+</resources>

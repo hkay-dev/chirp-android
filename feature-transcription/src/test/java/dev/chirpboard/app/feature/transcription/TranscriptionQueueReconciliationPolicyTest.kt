@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus

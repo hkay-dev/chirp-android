@@ -2,6 +2,7 @@ package dev.chirpboard.app.ui.settings
 
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.core.content.pm.PackageInfoCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,55 +16,56 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class SettingsViewModel @Inject constructor(
-    private val application: android.app.Application,
-    private val obsidianPreferences: ObsidianPreferences
-) : ViewModel() {
+class SettingsViewModel
+    @Inject
+    constructor(
+        private val application: android.app.Application,
+        private val obsidianPreferences: ObsidianPreferences,
+    ) : ViewModel() {
+        data class UiState(
+            val appVersion: String = "",
+            val buildNumber: String = "",
+            val isObsidianConnected: Boolean = false,
+            val isDebugBuild: Boolean = false,
+        )
 
-    data class UiState(
-        val appVersion: String = "",
-        val buildNumber: String = "",
-        val isObsidianConnected: Boolean = false,
-        val isDebugBuild: Boolean = false
-    )
+        private val _uiState = MutableStateFlow(UiState())
+        val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
-    private val _uiState = MutableStateFlow(UiState())
-    val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+        init {
+            loadAppInfo()
+            observeObsidianConnection()
+        }
 
-    init {
-        loadAppInfo()
-        observeObsidianConnection()
-    }
-
-    private fun loadAppInfo() {
-        try {
-            val packageInfo = application.packageManager.getPackageInfo(application.packageName, 0)
-            val appInfo = application.applicationInfo
-            val isDebug = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
-            _uiState.update { state ->
-                state.copy(
-                    appVersion = packageInfo.versionName ?: "Unknown",
-                    buildNumber = packageInfo.longVersionCode.toString(),
-                    isDebugBuild = isDebug
-                )
-            }
-        } catch (e: PackageManager.NameNotFoundException) {
-            _uiState.update { state ->
-                state.copy(
-                    appVersion = "Unknown",
-                    buildNumber = "Unknown"
-                )
+        private fun loadAppInfo() {
+            try {
+                val packageInfo = application.packageManager.getPackageInfo(application.packageName, 0)
+                val appInfo = application.applicationInfo
+                val isDebug = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                _uiState.update { state ->
+                    state.copy(
+                        appVersion = packageInfo.versionName ?: "Unknown",
+                        buildNumber = PackageInfoCompat.getLongVersionCode(packageInfo).toString(),
+                        isDebugBuild = isDebug,
+                    )
+                }
+            } catch (e: PackageManager.NameNotFoundException) {
+                _uiState.update { state ->
+                    state.copy(
+                        appVersion = "Unknown",
+                        buildNumber = "Unknown",
+                    )
+                }
             }
         }
-    }
 
-    private fun observeObsidianConnection() {
-        viewModelScope.launch {
-            obsidianPreferences.globalVaultUri.collect { vaultUri ->
-                _uiState.update { state ->
-                    state.copy(isObsidianConnected = vaultUri != null)
+        private fun observeObsidianConnection() {
+            viewModelScope.launch {
+                obsidianPreferences.globalVaultUri.collect { vaultUri ->
+                    _uiState.update { state ->
+                        state.copy(isObsidianConnected = vaultUri != null)
+                    }
                 }
             }
         }
     }
-}

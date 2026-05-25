@@ -1,0 +1,41 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>InstanceOfCheckForException:AudioImportOrchestrator.kt$AudioImportOrchestrator$e is CancellationException</ID>
+    <ID>InstanceOfCheckForException:AudioImportOrchestrator.kt$ImportedAudioMetadataReader$e is CancellationException</ID>
+    <ID>InstanceOfCheckForException:AudioPlayer.kt$AudioPlayer$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:HomeViewModel.kt$HomeViewModel$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ProfileEditorViewModel.kt$ProfileEditorViewModel$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:RecordingDetailViewModel.kt$RecordingDetailViewModel$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:RecordingService.kt$RecordingService$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:RecordingStopOrchestrator.kt$RecordingStopOrchestrator$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:RecordingStopOrchestrator.kt$RecordingStopOrchestrator$enqueueError is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TagChip.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TagEditorDialog.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TagManagementScreen.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>WildcardImport:AudioPlayerCard.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:AudioPlayerCard.kt$import androidx.compose.material.icons.filled.*</ID>
+    <ID>WildcardImport:AudioPlayerCard.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:AudioPlayerCard.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:HomeViewModelTest.kt$import org.junit.Assert.*</ID>
+    <ID>WildcardImport:ProfileCard.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ProfileCard.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:ProfileEditorScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ProfileEditorScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ProfileEditorScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:ProfileListScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ProfileListScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ProfileListScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:RecordButton.kt$import androidx.compose.animation.core.*</ID>
+    <ID>WildcardImport:RecordButton.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:RecordButton.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:RecordButton.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:RecordingDetailScreen.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:RecordingDetailScreen.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:RecordingDetailScreen.kt$import androidx.compose.runtime.*</ID>
+    <ID>WildcardImport:RecordingDetailViewModel.kt$import kotlinx.coroutines.flow.*</ID>
+    <ID>WildcardImport:SectionHeader.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:SectionHeader.kt$import androidx.compose.material3.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

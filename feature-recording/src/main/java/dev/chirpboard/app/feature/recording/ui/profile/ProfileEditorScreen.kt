@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 private val ProfileProcessingModeIds = listOf(null, "enhance", "summarize", "meeting_notes", "action_items")
@@ -76,7 +77,7 @@ fun ProfileEditorScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_back),
                         )
                     }
                 },
@@ -87,7 +88,7 @@ fun ProfileEditorScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = stringResource(R.string.desc_save),
+                            contentDescription = stringResource(CoreR.string.desc_save),
                         )
                     }
                 },
@@ -144,6 +145,13 @@ fun ProfileEditorScreen(
                         ),
                     modifier = Modifier.fillMaxWidth(),
                     supportingText = { Text(stringResource(R.string.rec_profile_icon_desc)) },
+                )
+
+                SettingToggle(
+                    title = stringResource(R.string.rec_profile_quick_start_title),
+                    description = stringResource(R.string.rec_profile_quick_start_description),
+                    checked = uiState.quickStartPinned,
+                    onCheckedChange = { viewModel.updateQuickStartPinned(it) },
                 )
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))

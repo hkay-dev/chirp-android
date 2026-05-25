@@ -1,5 +1,6 @@
 package dev.chirpboard.app.ui.settings
 
+import android.app.Application
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
@@ -8,7 +9,6 @@ import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import android.app.Application
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +22,6 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
-
     private val application = mockk<Application>()
     private val packageManager = mockk<PackageManager>()
     private val obsidianPreferences = mockk<ObsidianPreferences>()
@@ -45,6 +44,7 @@ class SettingsViewModelTest {
     fun `initializes with correct app info`() {
         val packageInfo = mockk<PackageInfo>()
         packageInfo.versionName = "1.0.0"
+        packageInfo.versionCode = 100
         every { packageInfo.longVersionCode } returns 100L
 
         val appInfo = mockk<ApplicationInfo>()

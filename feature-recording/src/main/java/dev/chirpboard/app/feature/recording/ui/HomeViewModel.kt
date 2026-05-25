@@ -1,16 +1,14 @@
 package dev.chirpboard.app.feature.recording.ui
 
-import android.net.Uri
-import android.media.MediaMetadataRetriever
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
@@ -21,15 +19,19 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
+import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.recording.RecordingManager
-import dev.chirpboard.app.feature.transcription.ManualRecoveryResult
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
+import dev.chirpboard.app.feature.recording.importing.AudioImportResult
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -42,7 +44,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 /**
@@ -83,6 +84,14 @@ enum class ListFilterMode {
     PROCESSING,
 }
 
+@androidx.compose.runtime.Stable
+data class HomeQuickStartEntry(
+    val id: UUID,
+    val name: String,
+    val icon: String? = null,
+    val isPinned: Boolean = false,
+)
+
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel
@@ -92,8 +101,9 @@ class HomeViewModel
         private val recordingManager: RecordingManager,
         private val tagRepository: TagRepository,
         private val profileRepository: ProfileRepository,
-        private val transcriptionQueueManager: TranscriptionQueueManager,
+        private val transcriptionRecovery: TranscriptionRecovery,
         private val llmClient: LlmClient,
+        private val audioImportOrchestrator: AudioImportOrchestrator,
         private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         /** Search query */
@@ -107,43 +117,59 @@ class HomeViewModel
                     ListFilterMode.valueOf(it)
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListFilterMode.ALL)
 
-        /** Cached profiles for fast lookup */
-        private val profileCache = ConcurrentHashMap<UUID, Profile?>()
+        private val _errorMessage = MutableStateFlow<String?>(null)
+        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-        /** All recordings based on search, enriched with tags/summary/profile */
-        private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
-            _searchQuery
-                .flatMapLatest { query ->
+        private val allProfiles: StateFlow<List<Profile>> =
+            profileRepository
+                .getAllProfiles()
+                .unwrapRepositoryFlow { _errorMessage.value = it }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private val searchResults: Flow<List<Recording>> =
+            _searchQuery.flatMapLatest { query ->
+                val flow =
                     if (query.isBlank()) {
                         recordingRepository.getAllRecordings()
                     } else {
                         recordingRepository.searchRecordings(query)
                     }
-                }.map { recordings ->
-                    withContext(Dispatchers.IO) {
-                        val profileIds = recordings.mapNotNull { it.profileId }.distinct()
-                        val missingProfileIds = profileIds.filterNot(profileCache::containsKey)
-                        profileCache.putAll(profileRepository.getProfiles(missingProfileIds))
+                flow.unwrapRepositoryFlow { _errorMessage.value = it }
+            }
 
-                        val recordingIds = recordings.map { it.id }
-                        val tagsByRecordingId = tagRepository.getTagsForRecordingIds(recordingIds)
-                        val transcriptsByRecordingId = recordingRepository.getTranscripts(recordingIds)
+        /** All recordings based on search, enriched with tags/summary/profile */
+        private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
+            combine(searchResults, allProfiles) { recordings, profiles ->
+                recordings to profiles.associateBy(Profile::id)
+            }.map { (recordings, profilesById) ->
+                withContext(Dispatchers.IO) {
+                    val recordingIds = recordings.map(Recording::id)
+                    val tagsByRecordingId = tagRepository.getTagsForRecordingIds(recordingIds)
+                    val transcriptsByRecordingId = recordingRepository.getTranscripts(recordingIds)
 
-                        recordings.map { recording ->
-                            val tags = tagsByRecordingId[recording.id].orEmpty()
-                            val transcript = transcriptsByRecordingId[recording.id]
-                            val profile = recording.profileId?.let { profileCache[it] }
-                            RecordingDisplayItem(
-                                recording = recording,
-                                tags = tags.toImmutableList(),
-                                summary =
-                                    transcript?.summary ?: transcript?.processedText?.take(120)
-                                        ?: transcript?.rawText?.take(120),
-                                profileName = profile?.name,
-                            )
-                        }
+                    recordings.map { recording ->
+                        val tags = tagsByRecordingId[recording.id].orEmpty()
+                        val transcript = transcriptsByRecordingId[recording.id]
+                        val profile = recording.profileId?.let(profilesById::get)
+                        RecordingDisplayItem(
+                            recording = recording,
+                            tags = tags.toImmutableList(),
+                            summary =
+                                transcript?.summary ?: transcript?.effectiveText?.take(120),
+                            profileName = profile?.name,
+                            profileIcon = profile?.icon,
+                        )
                     }
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        val quickStartProfiles: StateFlow<List<HomeQuickStartEntry>> =
+            combine(
+                allProfiles,
+                recordingRepository.getAllRecordings().unwrapRepositoryFlow { _errorMessage.value = it },
+            ) { profiles, recordings ->
+                deriveHomeQuickStarts(profiles = profiles, recordings = recordings)
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val displayItems: StateFlow<List<RecordingDisplayItem>> =
             combine(
@@ -170,6 +196,7 @@ class HomeViewModel
         val stats: StateFlow<HomeStats> =
             recordingRepository
                 .getAllRecordings()
+                .unwrapRepositoryFlow { _errorMessage.value = it }
                 .map { recordings ->
                     HomeStats(
                         totalRecordings = recordings.size,
@@ -197,9 +224,6 @@ class HomeViewModel
         private val _isImporting = MutableStateFlow(false)
         val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
 
-        private val _errorMessage = MutableStateFlow<String?>(null)
-        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-
         /** Update search query */
         fun onSearchQueryChange(query: String) {
             savedStateHandle["searchQuery"] = query
@@ -215,13 +239,19 @@ class HomeViewModel
             savedStateHandle["listFilter"] = newListFilter
         }
 
+        fun setListFilter(filter: ListFilterMode) {
+            savedStateHandle["listFilter"] = filter.name
+        }
+
         /**
          * Toggle recording on/off.
          */
         fun toggleRecording(profileId: UUID? = null) {
             val result = recordingManager.toggleRecording(RecordingOrigin.APP, profileId)
 
-            if (result is dev.chirpboard.app.feature.recording.ToggleResult.Started && result.startResult is RecordingStartResult.AlreadyRecording) {
+            if (result is dev.chirpboard.app.feature.recording.ToggleResult.Started &&
+                result.startResult is RecordingStartResult.AlreadyRecording
+            ) {
                 val originText =
                     when (result.startResult.currentOrigin) {
                         RecordingOrigin.APP -> "the app"
@@ -314,7 +344,7 @@ class HomeViewModel
                                     appendLine()
                                 }
                                 appendLine("## Transcript")
-                                appendLine(transcript.processedText ?: transcript.rawText)
+                                appendLine(transcript.effectiveText)
                             }
                         } else {
                             recording.title
@@ -348,7 +378,7 @@ class HomeViewModel
         fun retryTranscription(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 if (recording.status == RecordingStatus.FAILED) {
-                    transcriptionQueueManager.retry(recording.id)
+                    transcriptionRecovery.retry(recording.id)
                     _errorMessage.value = "Re-queued for transcription"
                 }
             }
@@ -359,11 +389,11 @@ class HomeViewModel
                 val result =
                     when (recording.status) {
                         RecordingStatus.PENDING_TRANSCRIPTION -> {
-                            transcriptionQueueManager.recoverPendingTranscription(recording.id)
+                            transcriptionRecovery.recoverPendingTranscription(recording.id)
                         }
 
                         RecordingStatus.ENHANCING -> {
-                            transcriptionQueueManager.recoverEnhancing(recording.id)
+                            transcriptionRecovery.recoverEnhancing(recording.id)
                         }
 
                         else -> {
@@ -383,7 +413,7 @@ class HomeViewModel
 
         fun recoverAllStuck() {
             viewModelScope.launch {
-                val recoveredCount = transcriptionQueueManager.recoverStuckRecordings()
+                val recoveredCount = transcriptionRecovery.recoverStuckRecordings()
                 _errorMessage.value =
                     if (recoveredCount > 0) {
                         "Queued recovery for $recoveredCount recording${if (recoveredCount == 1) "" else "s"}"
@@ -406,7 +436,7 @@ class HomeViewModel
 
                 _errorMessage.value = "Generating title..."
 
-                val text = transcript.processedText ?: transcript.rawText
+                val text = transcript.effectiveText
                 val result = llmClient.generateTitle(text)
 
                 result.fold(
@@ -434,7 +464,7 @@ class HomeViewModel
 
                 _errorMessage.value = "Generating summary..."
 
-                val text = transcript.processedText ?: transcript.rawText
+                val text = transcript.effectiveText
                 val result = llmClient.generateSummary(text)
 
                 result.fold(
@@ -448,53 +478,23 @@ class HomeViewModel
                 )
             }
         }
-        fun importAudio(uri: Uri, context: Context) {
+
+        fun importAudio(uri: Uri) {
             _isImporting.value = true
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch {
                 try {
-                    val outputDir = File(context.filesDir, "recordings").apply { mkdirs() }
-                    val outputFile = File(outputDir, "imported_${System.currentTimeMillis()}.m4a")
-                    
-                    try {
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            outputFile.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
+                    when (val result = audioImportOrchestrator.import(uri)) {
+                        is AudioImportResult.FailedBeforePersistence -> {
+                            _errorMessage.value = result.message
                         }
 
-                        val durationMs = try {
-                            val mmr = MediaMetadataRetriever()
-                            try {
-                                mmr.setDataSource(context, uri)
-                                val durationStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                                durationStr?.toLongOrNull() ?: 0L
-                            } finally {
-                                mmr.release()
-                            }
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            0L
+                        is AudioImportResult.SavedAndQueued -> {
+                            Unit
                         }
 
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                            val recording = dev.chirpboard.app.data.entity.Recording(
-                                title = "Imported Audio",
-                                audioPath = outputFile.absolutePath,
-                                source = dev.chirpboard.app.data.model.RecordingSource.IMPORTED,
-                                durationMs = durationMs
-                            )
-
-                            recordingRepository.insert(recording)
-                            transcriptionQueueManager.enqueue(recording.id, UUID.randomUUID().toString())
+                        is AudioImportResult.SavedPendingRecovery -> {
+                            _errorMessage.value = result.message
                         }
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                            if (outputFile.exists()) {
-                                outputFile.delete()
-                            }
-                        }
-                        throw e
                     }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
@@ -505,6 +505,7 @@ class HomeViewModel
                 }
             }
         }
+
         companion object {
             private const val TAG = "HomeViewModel"
         }
@@ -518,3 +519,44 @@ internal fun isProcessingOrStuckStatus(status: RecordingStatus): Boolean =
             RecordingStatus.PENDING_TRANSCRIPTION,
             RecordingStatus.PENDING_ENHANCEMENT,
         )
+
+internal fun deriveHomeQuickStarts(
+    profiles: List<Profile>,
+    recordings: List<Recording>,
+): List<HomeQuickStartEntry> {
+    if (profiles.isEmpty()) {
+        return emptyList()
+    }
+
+    val profilesById = profiles.associateBy(Profile::id)
+    val pinnedProfiles =
+        profiles
+            .asSequence()
+            .filter(Profile::isQuickStartPinned)
+            .sortedWith(compareBy(Profile::sortOrder, Profile::name))
+            .toList()
+
+    val pinnedIds = pinnedProfiles.map(Profile::id).toSet()
+    val recentProfiles =
+        recordings
+            .asSequence()
+            .mapNotNull(Recording::profileId)
+            .filter(profilesById::containsKey)
+            .filterNot(pinnedIds::contains)
+            .distinct()
+            .mapNotNull(profilesById::get)
+            .toList()
+
+    return (pinnedProfiles + recentProfiles)
+        .take(4)
+        .map { profile ->
+            HomeQuickStartEntry(
+                id = profile.id,
+                name = profile.name,
+                icon = profile.icon,
+                isPinned = profile.isQuickStartPinned,
+            )
+        }
+}
+
+internal fun shouldShowHomeQuickStartSurface(quickStarts: List<HomeQuickStartEntry>): Boolean = quickStarts.isNotEmpty()

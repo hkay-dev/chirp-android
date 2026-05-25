@@ -4,12 +4,14 @@ import android.content.Context
 import android.util.Log
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.data.repository.RepositoryFlowState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -56,10 +58,10 @@ internal class TranscriptionQueueReconciler(
     private suspend fun loadPendingRecordings(): List<Recording> {
         val pendingTranscription = recordingRepository
             .getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION)
-            .first()
+            .firstValueOrLog("PENDING_TRANSCRIPTION")
         val pendingEnhancement = recordingRepository
             .getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT)
-            .first()
+            .firstValueOrLog("PENDING_ENHANCEMENT")
 
         return mergePendingRecordings(pendingTranscription, pendingEnhancement)
     }
@@ -68,7 +70,7 @@ internal class TranscriptionQueueReconciler(
         val now = System.currentTimeMillis()
         val transcribing = recordingRepository
             .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
-            .first()
+            .firstValueOrLog("TRANSCRIBING")
 
         transcribing.forEach { recording ->
             val ownership = inspectQueueOwnership(recording.id)
@@ -96,7 +98,7 @@ internal class TranscriptionQueueReconciler(
         val now = System.currentTimeMillis()
         val enhancing = recordingRepository
             .getRecordingsByStatus(RecordingStatus.ENHANCING)
-            .first()
+            .firstValueOrLog("ENHANCING")
 
         enhancing.forEach { recording ->
             val ownership = inspectQueueOwnership(recording.id)
@@ -217,7 +219,7 @@ internal class TranscriptionQueueReconciler(
     private suspend fun updateActiveCount() {
         val transcribing = recordingRepository
             .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
-            .first()
+            .firstValueOrLog("TRANSCRIBING")
         setActiveCount(transcribing.size)
     }
 
@@ -234,4 +236,14 @@ internal class TranscriptionQueueReconciler(
         private const val TRANSCRIBING_STALE_THRESHOLD_MS = 15 * 60_000L
         private const val ENHANCING_STALE_THRESHOLD_MS = 10 * 60_000L
     }
+}
+
+private suspend fun kotlinx.coroutines.flow.Flow<RepositoryFlowState<List<Recording>>>.firstValueOrLog(
+    statusLabel: String,
+): List<Recording> {
+    val state = first()
+    state.errorMessage?.let { message ->
+        Log.e("TranscriptionQueueReconciler", "Failed to load $statusLabel recordings: $message")
+    }
+    return state.value
 }

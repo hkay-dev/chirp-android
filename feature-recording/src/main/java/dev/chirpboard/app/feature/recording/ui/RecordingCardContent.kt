@@ -41,6 +41,7 @@ import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -141,8 +142,8 @@ internal fun RecordingCardMetadata(
             Text(
                 text =
                     when (source) {
-                        RecordingSource.KEYBOARD -> stringResource(R.string.rec_source_keyboard)
-                        RecordingSource.WIDGET -> stringResource(R.string.rec_source_widget)
+                        RecordingSource.KEYBOARD -> stringResource(CoreR.string.rec_source_keyboard)
+                        RecordingSource.WIDGET -> stringResource(CoreR.string.rec_source_widget)
                         else -> ""
                     },
                 style = MaterialTheme.typography.bodySmall,
@@ -214,7 +215,7 @@ internal fun RecordingErrorMessage(errorMessage: String?) {
             tint = MaterialTheme.colorScheme.error,
         )
         Text(
-            text = errorMessage ?: stringResource(R.string.rec_status_failed),
+            text = errorMessage ?: stringResource(CoreR.string.rec_status_failed),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
             maxLines = 1,

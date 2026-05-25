@@ -127,9 +127,11 @@ fun RecordingDetailScreen(
             // Metadata pill row
             Spacer(modifier = Modifier.height(8.dp))
             MetadataPillRow(
+                createdAtMs = rec.createdAt.time,
                 durationMs = rec.durationMs,
                 source = rec.source,
                 status = rec.status,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
 
             Spacer(modifier = Modifier.height(16.dp))

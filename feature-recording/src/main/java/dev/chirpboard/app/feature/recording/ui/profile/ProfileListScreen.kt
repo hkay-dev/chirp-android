@@ -24,6 +24,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import java.util.UUID
 
@@ -41,7 +43,15 @@ fun ProfileListScreen(
     onNavigateBack: () -> Unit,
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
+    RepositoryErrorSnackbarEffect(
+        errorMessage = errorMessage,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearError,
+    )
 
     var profileToDelete by remember { mutableStateOf<dev.chirpboard.app.data.entity.Profile?>(null) }
 
@@ -62,12 +72,12 @@ fun ProfileListScreen(
                             contentColor = MaterialTheme.colorScheme.error,
                         ),
                 ) {
-                    Text(stringResource(R.string.rec_delete))
+                    Text(stringResource(CoreR.string.rec_delete))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { profileToDelete = null }) {
-                    Text(stringResource(R.string.rec_cancel))
+                    Text(stringResource(CoreR.string.rec_cancel))
                 }
             },
         )
@@ -82,7 +92,7 @@ fun ProfileListScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_back),
                         )
                     }
                 },
@@ -101,6 +111,7 @@ fun ProfileListScreen(
                 )
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
             targetState = profiles.isEmpty(),

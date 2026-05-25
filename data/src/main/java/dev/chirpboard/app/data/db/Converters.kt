@@ -3,6 +3,7 @@ package dev.chirpboard.app.data.db
 import androidx.room.TypeConverter
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
 import java.util.Date
 import java.util.UUID
 
@@ -34,4 +35,12 @@ class Converters {
 
     @TypeConverter
     fun toRecordingStatus(value: String?): RecordingStatus? = value?.let { RecordingStatus.valueOf(it) }
+
+    // StructuredOutcomeGenerationStatus converters
+    @TypeConverter
+    fun fromStructuredOutcomeGenerationStatus(status: StructuredOutcomeGenerationStatus?): String? = status?.name
+
+    @TypeConverter
+    fun toStructuredOutcomeGenerationStatus(value: String?): StructuredOutcomeGenerationStatus? =
+        value?.let { StructuredOutcomeGenerationStatus.valueOf(it) }
 }

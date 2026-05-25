@@ -3,19 +3,23 @@ package dev.chirpboard.app.feature.recording.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,11 +28,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,7 +46,6 @@ import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
-import dev.chirpboard.app.core.util.formatTimeMs
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,11 +58,15 @@ fun RecordScreen(
 ) {
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
+    val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
+    val isProfileHandoffResolved by viewModel.isProfileHandoffResolved.collectAsStateWithLifecycle()
+    val entryMessage by viewModel.entryMessage.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var showCancelDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
     var showBackDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val isRecording =
         recordingState is RecordingState.Recording ||
@@ -70,8 +75,8 @@ fun RecordScreen(
     val isPaused = recordingState is RecordingState.Paused
     val isActive = isRecording || isPaused
 
-    LaunchedEffect(autoStart) {
-        if (autoStart && recordingState is RecordingState.Idle) {
+    LaunchedEffect(autoStart, isProfileHandoffResolved) {
+        if (autoStart && isProfileHandoffResolved && recordingState is RecordingState.Idle) {
             viewModel.startRecording(context)
         }
     }
@@ -82,6 +87,13 @@ fun RecordScreen(
             delay(200)
             onRecordingComplete(recordingId.toString())
             viewModel.clearLastCompletedRecordingId()
+        }
+    }
+
+    LaunchedEffect(entryMessage) {
+        entryMessage?.let { message ->
+            snackbarHostState.showSnackbar(message = message)
+            viewModel.clearEntryMessage()
         }
     }
 
@@ -168,7 +180,7 @@ fun RecordScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("New Recording") },
+                title = { Text(stringResource(R.string.new_recording_title)) },
                 navigationIcon = {
                     IconButton(
                         onClick = {
@@ -177,16 +189,17 @@ fun RecordScreen(
                             } else {
                                 onNavigateBack()
                             }
-                        }
+                        },
                     ) {
                         Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_close))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -196,6 +209,14 @@ fun RecordScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(24.dp))
+
+            activeProfile?.let { profile ->
+                ActiveProfileSessionBadge(
+                    profile = profile,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             RecordingTimer(
                 recordingState = recordingState,
@@ -239,7 +260,7 @@ fun RecordScreen(
                     if (isPaused || !isActive) {
                         if (isActive) {
                             viewModel.resumeRecording(context)
-                        } else {
+                        } else if (isProfileHandoffResolved) {
                             viewModel.startRecording(context)
                         }
                     } else {
@@ -252,6 +273,50 @@ fun RecordScreen(
                     .fillMaxWidth()
                     .padding(bottom = 32.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ActiveProfileSessionBadge(
+    profile: ActiveRecordingProfile,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.rec_active_profile_label),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val icon = profile.icon
+                if (!icon.isNullOrBlank()) {
+                    Text(
+                        text = icon,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = null,
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Text(
+                    text = profile.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                )
+            }
         }
     }
 }

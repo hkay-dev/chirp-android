@@ -5,9 +5,9 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.download.ModelReadinessGate
-import dev.chirpboard.app.download.VerificationTrigger
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import dev.chirpboard.app.feature.recording.cleanup.OrphanedAudioCleaner
 import dev.chirpboard.app.feature.widget.WidgetStateObserver
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +23,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var workerFactory: HiltWorkerFactory
     
     @Inject
-    lateinit var transcriptionQueueManager: TranscriptionQueueManager
+    lateinit var transcriptionQueueLifecycle: TranscriptionQueueLifecycle
     
     @Inject
     lateinit var apiKeyMigration: ApiKeyMigration
@@ -55,8 +55,8 @@ class ChirpApplication : Application(), Configuration.Provider {
         // Recover any stuck transcriptions from previous session
         applicationScope.launch {
             try {
-                transcriptionQueueManager.processPendingOnStartup()
-                transcriptionQueueManager.startContinuousReconciliation(applicationScope)
+                transcriptionQueueLifecycle.processPendingOnStartup()
+                transcriptionQueueLifecycle.startContinuousReconciliation(applicationScope)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to recover transcriptions on startup", e)

@@ -1,0 +1,17 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>ImplicitDefaultLocale:Extensions.kt$String.format("%d:%02d", minutes, seconds)</ID>
+    <ID>ImplicitDefaultLocale:Extensions.kt$String.format("%d:%02d:%02d", hours, minutes, seconds)</ID>
+    <ID>ImplicitDefaultLocale:TimeUtils.kt$String.format("%02d:%02d", mins, secs)</ID>
+    <ID>ImplicitDefaultLocale:TimeUtils.kt$String.format("%d:%02d:%02d", hrs, mins, secs)</ID>
+    <ID>WildcardImport:ConfirmationDialog.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:EmptyState.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:EmptyState.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ErrorView.kt$import androidx.compose.foundation.layout.*</ID>
+    <ID>WildcardImport:ErrorView.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:ScreenScaffold.kt$import androidx.compose.material3.*</ID>
+    <ID>WildcardImport:Theme.kt$import androidx.compose.material3.*</ID>
+  </CurrentIssues>
+</SmellBaseline>

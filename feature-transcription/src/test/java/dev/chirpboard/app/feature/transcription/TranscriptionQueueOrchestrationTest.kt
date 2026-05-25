@@ -4,9 +4,13 @@ import android.content.Context
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.common.util.concurrent.Futures
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.entity.Recording
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -54,9 +58,9 @@ class TranscriptionQueueOrchestrationTest {
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
 
-        val mockModelManager = mockk<WhisperModelManager>(relaxed = true)
-        every { mockModelManager.modelStatus } returns kotlinx.coroutines.flow.MutableStateFlow(WhisperModelManager.ModelStatus.Ready)
-        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), mockModelManager)
+        val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
+        every { readinessGate.state } returns kotlinx.coroutines.flow.MutableStateFlow(ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE))
+        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), readinessGate)
         reconciler = TranscriptionQueueReconciler(
             context, recordingRepository, constraintChecker, {}, {}
         )
@@ -77,10 +81,10 @@ class TranscriptionQueueOrchestrationTest {
         // 20 minutes ago
         every { staleRecording.createdAt } returns Date(System.currentTimeMillis() - 20 * 60_000L)
         
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(listOf(staleRecording))
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(emptyList())
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(emptyList())
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(emptyList())
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(listOf(staleRecording)))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
 
         val workInfo = mockk<WorkInfo>()
         every { workInfo.state } returns WorkInfo.State.FAILED
@@ -101,10 +105,10 @@ class TranscriptionQueueOrchestrationTest {
         every { pendingRecording.status } returns RecordingStatus.PENDING_TRANSCRIPTION
         every { pendingRecording.errorMessage } returns null
         
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(emptyList())
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(listOf(pendingRecording))
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(emptyList())
-        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(emptyList())
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(listOf(pendingRecording)))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
 
         val workInfo = mockk<WorkInfo>()
         every { workInfo.state } returns WorkInfo.State.CANCELLED

@@ -37,6 +37,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -56,7 +58,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 /**
@@ -75,6 +79,14 @@ fun TagManagementScreen(
     onNavigateBack: () -> Unit,
 ) {
     val tags by viewModel.tags.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    RepositoryErrorSnackbarEffect(
+        errorMessage = errorMessage,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearError,
+    )
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingTag by remember { mutableStateOf<Tag?>(null) }
@@ -87,7 +99,7 @@ fun TagManagementScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_back),
                         )
                     }
                 },
@@ -103,6 +115,7 @@ fun TagManagementScreen(
                 )
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
             targetState = tags.isEmpty(),
@@ -215,7 +228,7 @@ private fun SwipeableTagItem(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.desc_delete),
+                    contentDescription = stringResource(CoreR.string.desc_delete),
                     tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }

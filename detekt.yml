@@ -1,0 +1,58 @@
+build:
+  maxIssues: 0
+
+config:
+  validation: true
+
+complexity:
+  active: false
+
+naming:
+  active: false
+
+performance:
+  active: false
+
+empty-blocks:
+  active: false
+
+comments:
+  active: false
+
+exceptions:
+  active: true
+  SwallowedException:
+    active: false
+  TooGenericExceptionCaught:
+    active: false
+  InstanceOfCheckForException:
+    active: true
+
+potential-bugs:
+  active: true
+  UnreachableCode:
+    active: true
+  WrongEqualsTypeParameter:
+    active: true
+  ImplicitDefaultLocale:
+    active: true
+  IgnoredReturnValue:
+    active: true
+
+style:
+  active: true
+  MaxLineLength:
+    active: false
+  MagicNumber:
+    active: false
+  WildcardImport:
+    active: true
+  UnusedPrivateMember:
+    active: true
+
+coroutines:
+  active: true
+  GlobalCoroutineUsage:
+    active: false
+  RedundantSuspendModifier:
+    active: true

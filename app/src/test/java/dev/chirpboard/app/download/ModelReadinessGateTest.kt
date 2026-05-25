@@ -1,5 +1,12 @@
 package dev.chirpboard.app.download
 
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerifier
+import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk

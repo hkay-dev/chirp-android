@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.Closeable
 import dev.chirpboard.app.core.recording.WaveformBuffer
@@ -103,84 +104,85 @@ class VoiceRecorder(
     val sampleCountFlow: StateFlow<Long> = _sampleCountFlow.asStateFlow()
 
     @SuppressLint("MissingPermission")
-    fun start(): Boolean {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            hasError = true
-            onRecordingError?.invoke(RecordingError.PermissionDenied)
-            return false
-        }
-        if (isRecording.get()) return false
+    suspend fun start(): Boolean =
+        withContext(Dispatchers.IO) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                hasError = true
+                onRecordingError?.invoke(RecordingError.PermissionDenied)
+                return@withContext false
+            }
+            if (isRecording.get()) return@withContext false
 
-        // Reset synchronization
-        recordingReady = CompletableDeferred()
-        hasError = false
+            // Reset synchronization
+            recordingReady = CompletableDeferred()
+            hasError = false
 
-        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-        if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
-            recordingReady.completeExceptionally(IllegalStateException("Invalid buffer size"))
-            return false
-        }
+            val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                recordingReady.completeExceptionally(IllegalStateException("Invalid buffer size"))
+                return@withContext false
+            }
 
-        return try {
-            var retryCount = 0
-            val maxRetries = 3
-            var initException: Exception? = null
+            try {
+                var retryCount = 0
+                val maxRetries = 3
+                var initException: Exception? = null
 
-            while (retryCount < maxRetries) {
-                try {
-                    audioRecord =
-                        AudioRecord(
-                            MediaRecorder.AudioSource.MIC,
-                            SAMPLE_RATE,
-                            CHANNEL_CONFIG,
-                            AUDIO_FORMAT,
-                            bufferSize * 2,
-                        )
-                    if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
-                        break
+                while (retryCount < maxRetries) {
+                    try {
+                        audioRecord =
+                            AudioRecord(
+                                MediaRecorder.AudioSource.MIC,
+                                SAMPLE_RATE,
+                                CHANNEL_CONFIG,
+                                AUDIO_FORMAT,
+                                bufferSize * 2,
+                            )
+                        if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
+                            break
+                        }
+                        audioRecord?.release()
+                        audioRecord = null
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        initException = e
+                        audioRecord?.release()
+                        audioRecord = null
                     }
-                    audioRecord?.release()
-                    audioRecord = null
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    initException = e
-                    audioRecord?.release()
-                    audioRecord = null
+
+                    retryCount++
+                    if (retryCount < maxRetries) {
+                        delay(150)
+                    }
                 }
 
-                retryCount++
-                if (retryCount < maxRetries) {
-                    Thread.sleep(150)
+                if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                    recordingReady.completeExceptionally(initException ?: IllegalStateException("AudioRecord not initialized after retries"))
+                    return@withContext false
                 }
+
+                synchronized(sampleLock) {
+                    sampleCount = 0
+                }
+                waveformBuffer.clear()
+                _sampleCountFlow.value = 0L
+                audioRecord?.startRecording()
+                isRecording.set(true)
+                recordingStartTimeMs = System.currentTimeMillis()
+
+                // Signal that recording is ready for collection
+                recordingReady.complete(Unit)
+
+                true
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to start recording", e)
+                audioRecord?.release()
+                audioRecord = null
+                recordingReady.completeExceptionally(e)
+                false
             }
-
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                recordingReady.completeExceptionally(initException ?: IllegalStateException("AudioRecord not initialized after retries"))
-                return false
-            }
-
-            synchronized(sampleLock) {
-                sampleCount = 0
-            }
-            waveformBuffer.clear()
-            _sampleCountFlow.value = 0L
-            audioRecord?.startRecording()
-            isRecording.set(true)
-            recordingStartTimeMs = System.currentTimeMillis()
-
-            // Signal that recording is ready for collection
-            recordingReady.complete(Unit)
-
-            true
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.e(TAG, "Failed to start recording", e)
-            audioRecord?.release()
-            audioRecord = null
-            recordingReady.completeExceptionally(e)
-            false
         }
-    }
 
     suspend fun collectSamples() =
         withContext(Dispatchers.IO) {

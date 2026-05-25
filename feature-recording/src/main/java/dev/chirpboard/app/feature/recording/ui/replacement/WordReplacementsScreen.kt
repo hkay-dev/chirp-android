@@ -38,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
@@ -61,7 +63,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.WordReplacement
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -71,6 +75,14 @@ fun WordReplacementsScreen(
     onNavigateBack: () -> Unit,
 ) {
     val replacements by viewModel.replacements.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    RepositoryErrorSnackbarEffect(
+        errorMessage = errorMessage,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearError,
+    )
 
     var showEditorDialog by remember { mutableStateOf(false) }
     var editingReplacement by remember { mutableStateOf<WordReplacement?>(null) }
@@ -83,7 +95,7 @@ fun WordReplacementsScreen(
                     IconButton(onClick = onNavigateBack) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
+                            contentDescription = stringResource(CoreR.string.desc_back),
                         )
                     }
                 },
@@ -102,6 +114,7 @@ fun WordReplacementsScreen(
                 )
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
             targetState = replacements.isEmpty(),
@@ -224,7 +237,7 @@ private fun SwipeableReplacementItem(
             ) {
                 Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.desc_delete),
+                    contentDescription = stringResource(CoreR.string.desc_delete),
                     tint = MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
@@ -319,7 +332,7 @@ private fun ReplacementItemCard(
             IconButton(onClick = onEdit) {
                 Icon(
                     imageVector = Icons.Default.Edit,
-                    contentDescription = stringResource(R.string.desc_edit),
+                    contentDescription = stringResource(CoreR.string.desc_edit),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

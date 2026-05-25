@@ -23,7 +23,8 @@ object KeyboardModule {
     @Singleton
     fun provideTranscriberProvider(
         @ApplicationContext context: Context,
-    ): TranscriberProvider = SherpaRecognizerProvider(context)
+        modelDownloader: ModelDownloader,
+    ): TranscriberProvider = SherpaRecognizerProvider(context, modelDownloader)
 }
 
 /**
@@ -31,9 +32,9 @@ object KeyboardModule {
  */
 class SherpaRecognizerProvider(
     private val context: Context,
+    private val downloader: ModelDownloader,
 ) : TranscriberProvider {
     private var recognizer: SherpaRecognizer? = null
-    private val downloader = ModelDownloader(context)
 
     override fun isReady(): Boolean = recognizer?.isReady == true
 

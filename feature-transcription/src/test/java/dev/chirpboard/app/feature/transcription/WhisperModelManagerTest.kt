@@ -1,151 +1,91 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
-import android.os.Environment
+import app.cash.turbine.test
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.unmockkAll
-import org.junit.After
+import io.mockk.verify
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
 
 class WhisperModelManagerTest {
-
-    @get:Rule
-    val tempFolder = TemporaryFolder()
-
-    private lateinit var mockContext: Context
-    private lateinit var filesDir: File
-    private lateinit var docsDir: File
-    private lateinit var persistentDir: File
-    private lateinit var legacyDir: File
+    private lateinit var speechModelStore: SpeechModelStore
+    private lateinit var readinessGate: SpeechModelReadinessGate
     private lateinit var classUnderTest: WhisperModelManager
 
     @Before
     fun setup() {
-        mockContext = mockk(relaxed = true)
-        
-        filesDir = tempFolder.newFolder("files")
-        docsDir = tempFolder.newFolder("docs")
-        
-        every { mockContext.filesDir } returns filesDir
-        
-        mockkStatic(Environment::class)
-        every { Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS) } returns docsDir
-        
-        persistentDir = File(docsDir, ".chirpboard/models/parakeet-tdt-0.6b-v2")
-        legacyDir = File(filesDir, "models/parakeet-tdt-0.6b-v2")
-        
-        classUnderTest = WhisperModelManager(mockContext)
-    }
-
-    @After
-    fun tearDown() {
-        unmockkAll()
-    }
-
-    private fun setFileLength(dir: File, ratio: Float = 1.0f) {
-        dir.mkdirs()
-        val files = listOf(
-            Pair("encoder.int8.onnx", 650_000_000L),
-            Pair("decoder.int8.onnx", 7_000_000L),
-            Pair("joiner.int8.onnx", 1_700_000L),
-            Pair("tokens.txt", 9_000L)
-        )
-        
-        for ((name, expectedSize) in files) {
-            val file = File(dir, name)
-            java.io.RandomAccessFile(file, "rw").use {
-                it.setLength((expectedSize * ratio).toLong())
-            }
-        }
+        speechModelStore = mockk(relaxed = true)
+        readinessGate = mockk(relaxed = true)
+        coEvery { speechModelStore.evaluateReadiness() } returns
+            ModelReadinessEvaluation(
+                isReady = false,
+                unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
+            )
+        classUnderTest = WhisperModelManager(speechModelStore, readinessGate)
     }
 
     @Test
-    fun `isModelDownloaded returns false when no files exist`() = runTest {
-        assertFalse(classUnderTest.isModelDownloaded())
-        assertEquals(WhisperModelManager.ModelStatus.NotDownloaded, classUnderTest.modelStatus.value)
-    }
+    fun `isModelDownloaded delegates to store`() = runTest {
+        coEvery { speechModelStore.evaluateReadiness() } returns
+            ModelReadinessEvaluation(
+                isReady = true,
+                verificationSource = ModelReadinessVerificationSource.CHECKSUM_VERIFICATION,
+            )
 
-    @Test
-    fun `isModelDownloaded returns true when persistent files are complete`() = runTest {
-        setFileLength(persistentDir, 1.0f)
-        classUnderTest.refreshStatus()
-        assertTrue(classUnderTest.isModelDownloaded())
-        assertEquals(WhisperModelManager.ModelStatus.Ready, classUnderTest.modelStatus.value)
-    }
-
-    @Test
-    fun `isModelDownloaded returns false when files are too small`() = runTest {
-        setFileLength(persistentDir, 0.5f)
-        classUnderTest.refreshStatus()
-        assertFalse(classUnderTest.isModelDownloaded())
-    }
-
-    @Test
-    fun `isModelDownloaded returns true when legacy files are complete`() = runTest {
-        setFileLength(legacyDir, 1.0f)
-        classUnderTest.refreshStatus()
         assertTrue(classUnderTest.isModelDownloaded())
     }
 
     @Test
-    fun `getDownloadedSize returns total size`() = runTest {
-        setFileLength(persistentDir, 1.0f)
-        val expectedTotal = 650_000_000L + 7_000_000L + 1_700_000L + 9_000L
-        assertEquals(expectedTotal, classUnderTest.getDownloadedSize())
-    }
+    fun `deleteModel invalidates cache and refreshes gate`() = runTest {
+        coEvery { speechModelStore.deleteModel() } returns true
+        coEvery { speechModelStore.evaluateReadiness() } returns
+            ModelReadinessEvaluation(
+                isReady = false,
+                unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
+            )
 
-    @Test
-    fun `deleteModel removes all model directories and updates status`() = runTest {
-        setFileLength(persistentDir, 1.0f)
-        setFileLength(legacyDir, 1.0f)
-        
         val result = classUnderTest.deleteModel()
-        
+
         assertTrue(result)
-        // Due to getModelDir creating the directory on access during refreshStatus(),
-        // we verify the state is correctly updated to NotDownloaded instead of directory non-existence.
-        assertEquals(WhisperModelManager.ModelStatus.NotDownloaded, classUnderTest.modelStatus.value)
-        assertFalse(classUnderTest.isModelDownloaded())
-        
-        // Legacy directory is definitely not recreated, so we can assert it is gone
-        assertFalse(legacyDir.exists())
+        verify { speechModelStore.invalidateVerificationCache() }
+        verify { readinessGate.warmupIfNeeded(any()) }
     }
 
     @Test
-    fun `updateDownloadProgress updates state flow`() {
-        classUnderTest.updateDownloadProgress(0.5f)
-        assertEquals(0.5f, classUnderTest.downloadProgress.value)
-        assertTrue(classUnderTest.modelStatus.value is WhisperModelManager.ModelStatus.Downloading)
-        assertEquals(0.5f, (classUnderTest.modelStatus.value as WhisperModelManager.ModelStatus.Downloading).progress)
-    }
+    fun `downloadModel forwards progress and completion`() = runTest {
+        coEvery { speechModelStore.downloadModel() } returns
+            flowOf(
+                SpeechModelDownloadState.Progress("encoder.int8.onnx", 0.5f),
+                SpeechModelDownloadState.Complete,
+            )
 
-    @Test
-    fun `markDownloadComplete updates state flow`() {
-        classUnderTest.updateDownloadProgress(0.9f)
-        classUnderTest.markDownloadComplete()
-        
-        assertEquals(0f, classUnderTest.downloadProgress.value)
+        classUnderTest.downloadModel()
+
         assertEquals(WhisperModelManager.ModelStatus.Ready, classUnderTest.modelStatus.value)
+        verify { readinessGate.warmupIfNeeded(any()) }
     }
 
     @Test
-    fun `markDownloadError updates state flow`() {
-        classUnderTest.updateDownloadProgress(0.5f)
-        classUnderTest.markDownloadError("Failed")
-        
-        assertEquals(0f, classUnderTest.downloadProgress.value)
+    fun `downloadModel surfaces store errors`() = runTest {
+        coEvery { speechModelStore.downloadModel() } returns
+            flowOf(SpeechModelDownloadState.Error("Download failed"))
+
+        classUnderTest.downloadModel()
+
         val status = classUnderTest.modelStatus.value
         assertTrue(status is WhisperModelManager.ModelStatus.Error)
-        assertEquals("Failed", (status as WhisperModelManager.ModelStatus.Error).message)
+        assertEquals("Download failed", (status as WhisperModelManager.ModelStatus.Error).message)
     }
 }

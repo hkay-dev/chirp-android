@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.transcription.settings
 
 import app.cash.turbine.test
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.feature.transcription.WhisperModelManager
 import dev.chirpboard.app.feature.transcription.WhisperModelManager.ModelStatus
 import io.mockk.coEvery
@@ -29,6 +30,7 @@ class TranscriptionSettingsViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var mockModelManager: WhisperModelManager
     private lateinit var mockStatusFlow: MutableStateFlow<ModelStatus>
+    private lateinit var mockTranscriptionRecovery: TranscriptionRecovery
     private lateinit var viewModel: TranscriptionSettingsViewModel
 
     @Before
@@ -38,7 +40,9 @@ class TranscriptionSettingsViewModelTest {
         mockStatusFlow = MutableStateFlow(ModelStatus.NotDownloaded)
         every { mockModelManager.modelStatus } returns mockStatusFlow
         
-        viewModel = TranscriptionSettingsViewModel(mockModelManager, mockk(relaxed = true))
+        mockTranscriptionRecovery = mockk(relaxed = true)
+        
+        viewModel = TranscriptionSettingsViewModel(mockModelManager, mockTranscriptionRecovery)
     }
 
     @After

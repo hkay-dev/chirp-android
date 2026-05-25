@@ -1,5 +1,8 @@
 package dev.chirpboard.app.feature.transcription
 
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
+import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 import dev.chirpboard.app.data.entity.Recording
 
 internal const val MANUAL_RECOVERY_PREFIX = "manual_recovery:"
@@ -56,25 +59,6 @@ internal fun QueueOwnership.toRecoveryOwnershipState(): RecoveryOwnershipState =
         QueueOwnership.MISSING_OR_TERMINAL -> RecoveryOwnershipState.MISSING_OR_TERMINAL
         QueueOwnership.INSPECTION_TIMEOUT -> RecoveryOwnershipState.INSPECTION_TIMEOUT
     }
-
-enum class ManualRecoveryResult {
-    ENQUEUED,
-    BLOCKED_ACTIVE_WORK,
-    BLOCKED_OWNERSHIP_TIMEOUT,
-    NOT_RECOVERABLE_STATE,
-}
-
-enum class RecoveryOwnershipState {
-    ACTIVE,
-    MISSING_OR_TERMINAL,
-    INSPECTION_TIMEOUT,
-}
-
-data class RecoveryDiagnostics(
-    val latestReason: String?,
-    val lastAttemptEpochMs: Long?,
-    val ownership: RecoveryOwnershipState,
-)
 
 internal enum class ReconciliationTrigger {
     STARTUP,

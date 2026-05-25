@@ -6,6 +6,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.res.stringResource
 
@@ -33,12 +34,12 @@ internal fun RecordingDetailDeleteDialog(
                         contentColor = MaterialTheme.colorScheme.error,
                     ),
             ) {
-                Text(stringResource(R.string.rec_delete))
+                Text(stringResource(CoreR.string.rec_delete))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismissRequest) {
-                Text(stringResource(R.string.rec_cancel))
+                Text(stringResource(CoreR.string.rec_cancel))
             }
         },
     )

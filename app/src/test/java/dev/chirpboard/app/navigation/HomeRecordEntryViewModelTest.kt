@@ -1,12 +1,12 @@
 package dev.chirpboard.app.navigation
 
 import app.cash.turbine.test
-import dev.chirpboard.app.download.ModelReadinessGate
-import dev.chirpboard.app.download.ModelReadinessState
-import dev.chirpboard.app.download.ModelReadinessUnavailableReason
-import dev.chirpboard.app.download.ModelReadyResult
-import dev.chirpboard.app.download.ModelReadinessVerificationSource
-import dev.chirpboard.app.download.VerificationTrigger
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -27,11 +27,12 @@ import android.util.Log
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 
+import java.util.UUID
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeRecordEntryViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var modelReadinessGate: ModelReadinessGate
+    private lateinit var modelReadinessGate: SpeechModelReadinessGate
     private lateinit var readinessStateFlow: MutableStateFlow<ModelReadinessState>
     private lateinit var viewModel: HomeRecordEntryViewModel
 
@@ -79,9 +80,23 @@ class HomeRecordEntryViewModelTest {
         coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Ready(ModelReadinessVerificationSource.PROCESS_CACHE)
 
         viewModel.onRecordTapped()
-        
+
         viewModel.events.test {
-            assertEquals(HomeRecordEntryEvent.NavigateToRecord, awaitItem())
+            assertEquals(HomeRecordEntryEvent.NavigateToRecord(), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun `onRecordTapped keeps selected profile id when ready`() = runTest {
+        val profileId = UUID.randomUUID()
+        readinessStateFlow.value = ModelReadinessState.Ready(System.currentTimeMillis(), ModelReadinessVerificationSource.PROCESS_CACHE)
+        coEvery { modelReadinessGate.ensureReady(VerificationTrigger.HOME_RECORD_TAP) } returns ModelReadyResult.Ready(ModelReadinessVerificationSource.PROCESS_CACHE)
+
+        viewModel.onRecordTapped(profileId)
+
+        viewModel.events.test {
+            assertEquals(HomeRecordEntryEvent.NavigateToRecord(profileId), awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
     }

@@ -16,9 +16,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
@@ -39,6 +41,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
     @Inject lateinit var transcriberProvider: TranscriberProvider
 
     @Inject lateinit var prefs: Preferences
+
+    @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
     @Inject lateinit var modeRepository: ProcessingModeRepository
 
@@ -117,18 +121,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
             Log.w(TAG, "Already recording, ignoring start request")
             return
         }
-        if (androidx.core.content.ContextCompat
-                .checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             Log.e(TAG, "Recording permission missing")
             returnError(SpeechRecognizer.ERROR_AUDIO)
             return
         }
         lifecycleScope.launch {
             try {
-                // Set microphone gain before recording
-                recorder.gainMultiplier = prefs.microphoneGain
+                recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
 
                 if (!recorder.start()) {
                     Log.e(TAG, "Failed to start recording")

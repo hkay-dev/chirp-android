@@ -2,6 +2,14 @@ package dev.chirpboard.app.download
 
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerifier
+import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -16,82 +24,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-fun interface ModelReadinessVerifier {
-    suspend fun verify(): ModelReadinessEvaluation
-}
-
-data class ModelReadinessEvaluation(
-    val isReady: Boolean,
-    val verificationSource: ModelReadinessVerificationSource? = null,
-    val unavailableReason: ModelReadinessUnavailableReason? = null,
-)
-
-enum class ModelReadinessVerificationSource {
-    PROCESS_CACHE,
-    PERSISTED_CACHE,
-    CHECKSUM_VERIFICATION,
-}
-
-enum class ModelReadinessUnavailableReason {
-    MISSING_MODEL_FILES,
-    INTEGRITY_MISMATCH,
-}
-
-enum class VerificationTrigger {
-    APP_STARTUP,
-    HOME_VISIBLE,
-    HOME_RECORD_TAP,
-}
-
-sealed interface ModelReadinessState {
-    data object Unknown : ModelReadinessState
-
-    data class Checking(
-        val trigger: VerificationTrigger,
-        val startedAtEpochMs: Long,
-    ) : ModelReadinessState
-
-    data class Ready(
-        val verifiedAtEpochMs: Long,
-        val source: ModelReadinessVerificationSource,
-    ) : ModelReadinessState
-
-    data class Unavailable(
-        val reason: ModelReadinessUnavailableReason,
-    ) : ModelReadinessState
-
-    data class Error(
-        val message: String,
-    ) : ModelReadinessState
-}
-
-sealed interface ModelReadyResult {
-    data class Ready(
-        val source: ModelReadinessVerificationSource,
-    ) : ModelReadyResult
-
-    data class Unavailable(
-        val reason: ModelReadinessUnavailableReason,
-    ) : ModelReadyResult
-
-    data class Error(
-        val message: String,
-    ) : ModelReadyResult
-}
-
 class ModelReadinessGate(
     private val verifier: ModelReadinessVerifier,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val now: () -> Long = { System.currentTimeMillis() },
     private val gateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-) {
+) : SpeechModelReadinessGate {
     private val inFlightMutex = Mutex()
     private var inFlightVerification: Deferred<ModelReadyResult>? = null
 
     private val _state = MutableStateFlow<ModelReadinessState>(ModelReadinessState.Unknown)
-    val state: StateFlow<ModelReadinessState> = _state.asStateFlow()
+    override val state: StateFlow<ModelReadinessState> = _state.asStateFlow()
 
-    fun warmupIfNeeded(trigger: VerificationTrigger = VerificationTrigger.APP_STARTUP) {
+    override fun warmupIfNeeded(trigger: VerificationTrigger) {
         if (_state.value !is ModelReadinessState.Unknown) {
             return
         }
@@ -100,7 +45,7 @@ class ModelReadinessGate(
         }
     }
 
-    suspend fun ensureReady(trigger: VerificationTrigger): ModelReadyResult {
+    override suspend fun ensureReady(trigger: VerificationTrigger): ModelReadyResult {
         val current = _state.value
         if (current is ModelReadinessState.Ready) {
             return ModelReadyResult.Ready(current.source)

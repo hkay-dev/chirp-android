@@ -18,11 +18,27 @@ class WordReplacementRepository
     constructor(
         private val wordReplacementDao: WordReplacementDao,
     ) {
-        fun getAllReplacements(): Flow<List<WordReplacement>> = wordReplacementDao.getAllReplacements()
+        companion object {
+            private const val TAG = "WordReplacementRepository"
+        }
+
+        fun getAllReplacements(): Flow<RepositoryFlowState<List<WordReplacement>>> =
+            wordReplacementDao.getAllReplacements().catchRepositoryFlowState(TAG, emptyList())
 
         suspend fun getEnabledReplacements(): List<WordReplacement> = wordReplacementDao.getEnabledReplacements()
 
         suspend fun getReplacement(id: UUID): WordReplacement? = wordReplacementDao.getReplacement(id)
+
+        suspend fun getEquivalentReplacement(
+            original: String,
+            replacement: String,
+            caseSensitive: Boolean = false,
+        ): WordReplacement? =
+            wordReplacementDao.getEquivalentReplacement(
+                original = original,
+                replacement = replacement,
+                caseSensitive = caseSensitive,
+            )
 
         suspend fun createReplacement(
             original: String,

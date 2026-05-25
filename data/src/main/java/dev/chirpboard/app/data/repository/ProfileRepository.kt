@@ -2,9 +2,7 @@ package dev.chirpboard.app.data.repository
 
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.entity.Profile
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,11 +16,12 @@ class ProfileRepository
     constructor(
         private val profileDao: ProfileDao,
     ) {
-        fun getAllProfiles(): Flow<List<Profile>> =
-            profileDao.getAllProfiles().catch {
-                if (it is CancellationException) throw it
-                emit(emptyList())
-            }
+        companion object {
+            private const val TAG = "ProfileRepository"
+        }
+
+        fun getAllProfiles(): Flow<RepositoryFlowState<List<Profile>>> =
+            profileDao.getAllProfiles().catchRepositoryFlowState(TAG, emptyList())
 
         suspend fun getAllProfilesList(): List<Profile> = profileDao.getAllProfilesList()
 
@@ -35,11 +34,8 @@ class ProfileRepository
                 profileDao.getProfiles(ids).associateBy { it.id }
             }
 
-        fun getProfileFlow(id: UUID): Flow<Profile?> =
-            profileDao.getProfileFlow(id).catch {
-                if (it is CancellationException) throw it
-                emit(null)
-            }
+        fun getProfileFlow(id: UUID): Flow<RepositoryFlowState<Profile?>> =
+            profileDao.getProfileFlow(id).catchRepositoryFlowState(TAG, null)
 
         data class CreateProfileRequest(
             val name: String,
@@ -51,6 +47,7 @@ class ProfileRepository
             val obsidianVaultPath: String? = null,
             val autoExportToObsidian: Boolean = false,
             val defaultTagIds: List<UUID> = emptyList(),
+            val quickStartPinned: Boolean = false,
         )
 
         suspend fun createProfile(request: CreateProfileRequest): Profile {
@@ -66,6 +63,7 @@ class ProfileRepository
                     obsidianVaultPath = request.obsidianVaultPath,
                     autoExportToObsidian = request.autoExportToObsidian,
                     sortOrder = maxOrder + 1,
+                    isQuickStartPinned = request.quickStartPinned,
                 ).withDefaultTags(request.defaultTagIds)
             profileDao.insert(profile)
             return profile

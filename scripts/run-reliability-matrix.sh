@@ -3,8 +3,16 @@ set -euo pipefail
 
 ./gradlew \
 	:core:testDebugUnitTest \
+	:data:testDebugUnitTest \
 	:feature-transcription:testDebugUnitTest \
 	:feature-keyboard:testDebugUnitTest \
+	:feature-recording:testDebugUnitTest \
+	:feature-studio:testDebugUnitTest \
+	:feature-llm:testDebugUnitTest \
+	:feature-obsidian:testDebugUnitTest \
 	:app:testDebugUnitTest \
-	:feature-recording:compileDebugKotlin \
-	:data:compileDebugAndroidTestKotlin
+	:data:compileDebugAndroidTestKotlin \
+	:app:compileDebugAndroidTestKotlin \
+	:feature-recording:compileDebugAndroidTestKotlin \
+	:feature-studio:compileDebugAndroidTestKotlin \
+	detekt
