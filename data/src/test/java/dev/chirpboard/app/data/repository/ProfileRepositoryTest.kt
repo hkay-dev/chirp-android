@@ -9,7 +9,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
@@ -30,7 +32,7 @@ class ProfileRepositoryTest {
             val expected = listOf(Profile(id = UUID.randomUUID(), name = "Test"))
             coEvery { profileDao.getAllProfiles() } returns flowOf(expected)
             val result = repository.getAllProfiles().first()
-            assertEquals(expected, result)
+            assertEquals(expected, result.value)
         }
 
     @Test
@@ -60,7 +62,7 @@ class ProfileRepositoryTest {
             val expected = Profile(id = id, name = "Test Profile")
             coEvery { profileDao.getProfileFlow(id) } returns flowOf(expected)
             val result = repository.getProfileFlow(id).first()
-            assertEquals(expected, result)
+            assertEquals(expected, result.value)
         }
 
     @Test
@@ -71,7 +73,29 @@ class ProfileRepositoryTest {
             assertNotNull(result)
             assertEquals("New Profile", result.name)
             assertEquals(6, result.sortOrder)
+            assertFalse(result.isQuickStartPinned)
             coVerify(exactly = 1) { profileDao.insert(any()) }
+        }
+
+    @Test
+    fun `createProfile persists quick start pin membership`() =
+        runTest {
+            coEvery { profileDao.getMaxSortOrder() } returns 0
+
+            val result =
+                repository.createProfile(
+                    ProfileRepository.CreateProfileRequest(
+                        name = "Pinned Profile",
+                        quickStartPinned = true,
+                    ),
+                )
+
+            assertTrue(result.isQuickStartPinned)
+            coVerify {
+                profileDao.insert(match<Profile> {
+                    it.name == "Pinned Profile" && it.isQuickStartPinned
+                })
+            }
         }
 
     @Test

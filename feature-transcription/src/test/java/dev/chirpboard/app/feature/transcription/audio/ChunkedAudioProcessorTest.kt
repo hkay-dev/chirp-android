@@ -1,10 +1,13 @@
 package dev.chirpboard.app.feature.transcription.audio
 
+import dev.chirpboard.app.core.transcription.RecognizedWordTiming
+import dev.chirpboard.app.feature.transcription.ChunkTranscription
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -12,17 +15,11 @@ class ChunkedAudioProcessorTest {
 
     @Test
     fun `process yields expected chunks`() = runTest {
-        // chunk duration 2s, overlap 1s, sample rate 10 -> chunk size 20, overlap 10
         val processor = ChunkedAudioProcessor(
             chunkDurationMs = 2000,
             overlapDurationMs = 1000,
-            sampleRate = 10
+            sampleRate = 10,
         )
-
-        // total 35 samples -> should make chunks
-        // C1: 0..19
-        // C2: 10..29
-        // final chunk: 20..34 (15 samples)
         val sourceSamples = FloatArray(35) { it.toFloat() }
         val flowSource = flowOf(sourceSamples)
 
@@ -67,19 +64,19 @@ class ChunkedAudioProcessorTest {
         val joined = processor.joinTranscripts(parts)
         assertEquals("Hello world HOW ARE you doing", joined)
     }
-    
+
     @Test
     fun `processAndJoin processes and joins all chunks`() = runTest {
         val processor = ChunkedAudioProcessor(
             chunkDurationMs = 2000,
             overlapDurationMs = 1000,
-            sampleRate = 10
+            sampleRate = 10,
         )
         val sourceSamples = FloatArray(35) { it.toFloat() }
         val flowSource = flowOf(sourceSamples)
-        
+
         var callCount = 0
-        val joined = processor.processAndJoin(flowSource) { chunk ->
+        val joined = processor.processAndJoin(flowSource) {
             callCount++
             when (callCount) {
                 1 -> "First part of the"
@@ -87,12 +84,89 @@ class ChunkedAudioProcessorTest {
                 else -> "part finally ends"
             }
         }
-        
-        // "First part of the" + "of the second part" -> "First part of the second part"
-        // "First part of the second part" + "part finally ends" -> "First part of the second part finally ends"
+
         assertEquals("First part of the second part finally ends", joined)
     }
-    
+
+    @Test
+    fun `processAndJoinDetailed keeps recording relative word timing`() = runTest {
+        val processor = ChunkedAudioProcessor(
+            chunkDurationMs = 2000,
+            overlapDurationMs = 1000,
+            sampleRate = 10,
+        )
+        val sourceSamples = FloatArray(35) { it.toFloat() }
+        val flowSource = flowOf(sourceSamples)
+
+        var callCount = 0
+        val joined = processor.processAndJoinDetailed(flowSource) {
+            callCount++
+            when (callCount) {
+                1 -> ChunkTranscription(
+                    text = "First part of the",
+                    wordTimings = listOf(
+                        RecognizedWordTiming("First", 0L, 100L),
+                        RecognizedWordTiming("part", 100L, 200L),
+                        RecognizedWordTiming("of", 200L, 300L),
+                        RecognizedWordTiming("the", 300L, 400L),
+                    ),
+                )
+                2 -> ChunkTranscription(
+                    text = "of the second part",
+                    wordTimings = listOf(
+                        RecognizedWordTiming("of", 0L, 100L),
+                        RecognizedWordTiming("the", 100L, 200L),
+                        RecognizedWordTiming("second", 200L, 300L),
+                        RecognizedWordTiming("part", 300L, 400L),
+                    ),
+                )
+                else -> ChunkTranscription(
+                    text = "part finally ends",
+                    wordTimings = listOf(
+                        RecognizedWordTiming("part", 0L, 100L),
+                        RecognizedWordTiming("finally", 100L, 200L),
+                        RecognizedWordTiming("ends", 200L, 300L),
+                    ),
+                )
+            }
+        }
+
+        assertEquals("First part of the second part finally ends", joined.text)
+        requireNotNull(joined.wordTimings)
+        assertEquals(8, joined.wordTimings.size)
+        assertEquals(1200L, joined.wordTimings[4].startTimestampMs)
+        assertEquals(2200L, joined.wordTimings[7].startTimestampMs)
+    }
+
+    @Test
+    fun `processAndJoinDetailed drops timing when a chunk is untimed`() = runTest {
+        val processor = ChunkedAudioProcessor(
+            chunkDurationMs = 2000,
+            overlapDurationMs = 1000,
+            sampleRate = 10,
+        )
+        val sourceSamples = FloatArray(25) { it.toFloat() }
+        val flowSource = flowOf(sourceSamples)
+
+        var callCount = 0
+        val joined = processor.processAndJoinDetailed(flowSource) {
+            callCount++
+            when (callCount) {
+                1 -> ChunkTranscription(
+                    text = "hello there",
+                    wordTimings = listOf(
+                        RecognizedWordTiming("hello", 0L, 100L),
+                        RecognizedWordTiming("there", 100L, 200L),
+                    ),
+                )
+                else -> ChunkTranscription(text = "there world", wordTimings = null)
+            }
+        }
+
+        assertEquals("hello there world", joined.text)
+        assertNull(joined.wordTimings)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `init fails with invalid chunk duration`() {
         ChunkedAudioProcessor(chunkDurationMs = -100)

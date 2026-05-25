@@ -27,6 +27,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.data.entity.Profile
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileItemState
 
@@ -101,7 +102,7 @@ fun ProfileCard(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
-                        contentDescription = stringResource(R.string.desc_more_options),
+                        contentDescription = stringResource(CoreR.string.desc_more_options),
                     )
                 }
 
@@ -110,7 +111,7 @@ fun ProfileCard(
                     onDismissRequest = { showMenu = false },
                 ) {
                     DropdownMenuItem(
-                        text = { Text(stringResource(R.string.rec_delete)) },
+                        text = { Text(stringResource(CoreR.string.rec_delete)) },
                         onClick = {
                             showMenu = false
                             onDelete()

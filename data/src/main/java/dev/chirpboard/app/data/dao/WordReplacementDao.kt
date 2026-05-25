@@ -24,6 +24,15 @@ interface WordReplacementDao {
     @Query("SELECT * FROM word_replacements WHERE original = :original")
     suspend fun getReplacementByOriginal(original: String): WordReplacement?
 
+    @Query(
+        "SELECT * FROM word_replacements WHERE original = :original AND replacement = :replacement AND caseSensitive = :caseSensitive LIMIT 1",
+    )
+    suspend fun getEquivalentReplacement(
+        original: String,
+        replacement: String,
+        caseSensitive: Boolean,
+    ): WordReplacement?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(replacement: WordReplacement)
 

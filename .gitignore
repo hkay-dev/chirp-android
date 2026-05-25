@@ -31,3 +31,9 @@ scorecard.png
 
 # OS
 .DS_Store
+
+# Local scratch artifacts
+braces.txt
+dbg.txt
+result.txt
+fix_voice_recorder.sh

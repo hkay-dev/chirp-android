@@ -1,5 +1,7 @@
 package dev.chirpboard.app.ui.settings
 
+import app.cash.turbine.test
+import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -16,7 +18,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
-import app.cash.turbine.test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AudioSettingsViewModelTest {
@@ -27,8 +28,8 @@ class AudioSettingsViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         keyboardPreferences = mockk()
-        val flow = MutableStateFlow(1.5f)
-        every { keyboardPreferences.microphoneGain } returns flow
+        every { keyboardPreferences.microphoneGain } returns MutableStateFlow(1.5f)
+        every { keyboardPreferences.recordingQualityPreset } returns MutableStateFlow(RecordingQualityPreset.Balanced)
     }
 
     @After
@@ -37,11 +38,15 @@ class AudioSettingsViewModelTest {
     }
 
     @Test
-    fun `initializes with preferences value`() =
+    fun `initializes with preferences values`() =
         runTest {
             val viewModel = AudioSettingsViewModel(keyboardPreferences)
             viewModel.microphoneGain.test {
-                assertEquals(1.5f, awaitItem()) // from flow
+                assertEquals(1.5f, awaitItem())
+                cancelAndIgnoreRemainingEvents()
+            }
+            viewModel.recordingQualityPreset.test {
+                assertEquals(RecordingQualityPreset.Balanced, awaitItem())
                 cancelAndIgnoreRemainingEvents()
             }
         }
@@ -55,5 +60,16 @@ class AudioSettingsViewModelTest {
             viewModel.setMicrophoneGain(2.0f)
 
             coVerify { keyboardPreferences.setMicrophoneGain(2.0f) }
+        }
+
+    @Test
+    fun `setRecordingQualityPreset calls preferences`() =
+        runTest {
+            coEvery { keyboardPreferences.setRecordingQualityPreset(any()) } returns Unit
+            val viewModel = AudioSettingsViewModel(keyboardPreferences)
+
+            viewModel.setRecordingQualityPreset(RecordingQualityPreset.High)
+
+            coVerify { keyboardPreferences.setRecordingQualityPreset(RecordingQualityPreset.High) }
         }
 }

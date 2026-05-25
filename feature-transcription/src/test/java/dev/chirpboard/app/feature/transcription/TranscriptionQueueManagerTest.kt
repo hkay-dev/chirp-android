@@ -2,6 +2,9 @@ package dev.chirpboard.app.feature.transcription
 
 import android.content.Context
 import androidx.work.WorkManager
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -50,9 +53,9 @@ class TranscriptionQueueManagerTest {
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
 
-        val mockModelManager = mockk<WhisperModelManager>(relaxed = true)
-        every { mockModelManager.modelStatus } returns kotlinx.coroutines.flow.MutableStateFlow(WhisperModelManager.ModelStatus.Ready)
-        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), mockModelManager)
+        val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
+        every { readinessGate.state } returns kotlinx.coroutines.flow.MutableStateFlow(ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE))
+        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), readinessGate)
     }
 
     @After

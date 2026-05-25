@@ -5,7 +5,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.entity.Recording
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -30,7 +30,7 @@ import java.util.UUID
 class RecordingStopOrchestratorTest {
 
     private lateinit var recordingRepository: RecordingRepository
-    private lateinit var transcriptionQueueManager: TranscriptionQueueManager
+    private lateinit var transcriptionQueueManager: TranscriptionRecovery
     private lateinit var orchestrator: RecordingStopOrchestrator
 
     @Before
@@ -92,6 +92,9 @@ class RecordingStopOrchestratorTest {
         assertTrue(result is StopPersistenceResult.SavedAndQueued)
         assertEquals(recordingId, (result as StopPersistenceResult.SavedAndQueued).recordingId)
 
+        coVerify(exactly = 1) {
+            recordingRepository.createRecording(any(), file.absolutePath, any(), any(), any())
+        }
         coVerify { transcriptionQueueManager.enqueue(recordingId, "corr-id") }
         
         file.delete()

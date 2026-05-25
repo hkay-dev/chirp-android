@@ -37,6 +37,7 @@ import dev.chirpboard.app.feature.keyboard.recorder.AudioFocusManager
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardUI
+import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
@@ -49,8 +50,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -173,7 +175,7 @@ class ChirpKeyboardService :
         phoneCallHandler =
             KeyboardServiceStartup.registerPhoneCallInterrupts(
                 telephonyManager = telephonyManager,
-                mainExecutor = mainExecutor,
+                mainExecutor = ContextCompat.getMainExecutor(this),
                 tag = TAG,
                 currentState = { _state.value },
                 onRecordingInterrupted = ::stopAndTranscribe,
@@ -277,11 +279,10 @@ class ChirpKeyboardService :
                     val llmEnabled by _llmEnabled.collectAsStateWithLifecycle()
                     val currentMode by _currentMode.collectAsStateWithLifecycle()
                     val state by state.collectAsStateWithLifecycle()
-                    val sampleCount by recorder.sampleCountFlow.collectAsStateWithLifecycle()
                     KeyboardUI(
                         state = state,
                         waveformBuffer = recorder.waveformBuffer,
-                        sampleCount = sampleCount,
+                        sampleCountFlow = recorder.sampleCountFlow,
                         llmEnabled = llmEnabled,
                         currentMode = currentMode,
                         onTap = ::onTap,
@@ -307,10 +308,8 @@ class ChirpKeyboardService :
         Log.d(TAG, "onStartInputView, current state: ${_state.value}")
 
         // Check mic permission
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            _state.value = KeyboardState.Error("Microphone permission required")
+        if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
+            _state.value = KeyboardState.Error(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
             return
         }
 
@@ -400,8 +399,8 @@ class ChirpKeyboardService :
         Log.d(TAG, "Starting recording")
 
         // Check mic permission
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            _state.value = KeyboardState.Error("Microphone permission required")
+        if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
+            _state.value = KeyboardState.Error(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
             return
         }
 
@@ -460,21 +459,23 @@ class ChirpKeyboardService :
             }
         }
 
-        if (!recorder.start()) {
-            _state.value = KeyboardState.Error("Failed to start recording")
-            recordingStateManager.onRecordingError("Failed to start recording")
-            audioFocusManager.abandonFocus()
-            return
-        }
-
-        HapticFeedback.onRecordStart(this)
-        _state.value = KeyboardState.Recording
-        recordingStateManager.onRecordingStarted("keyboard_temp_recording")
-
-        recordingJob =
-            scope.launch {
-                recorder.collectSamples()
+        scope.launch {
+            if (!recorder.start()) {
+                _state.value = KeyboardState.Error("Failed to start recording")
+                recordingStateManager.onRecordingError("Failed to start recording")
+                audioFocusManager.abandonFocus()
+                return@launch
             }
+
+            HapticFeedback.onRecordStart(this@ChirpKeyboardService)
+            _state.value = KeyboardState.Recording
+            recordingStateManager.onRecordingStarted("keyboard_temp_recording")
+
+            recordingJob =
+                scope.launch {
+                    recorder.collectSamples()
+                }
+        }
     }
 
     private fun stopAndTranscribe() {
@@ -556,18 +557,25 @@ class ChirpKeyboardService :
     }
 
     private fun awaitPendingPersistence() {
-        runBlocking {
-            val completed =
-                withTimeoutOrNull(SHUTDOWN_PERSISTENCE_TIMEOUT_MS) {
-                    finalizationJob?.join()
-                    persistenceJob?.join()
-                }
-
-            if (completed == null &&
-                ((finalizationJob?.isActive == true) || (persistenceJob?.isActive == true))
-            ) {
-                Log.w(TAG, "Timed out waiting for keyboard recording persistence during shutdown")
+        val latch = CountDownLatch(1)
+        persistenceScope.launch {
+            try {
+                awaitPendingPersistenceSuspend()
+            } finally {
+                latch.countDown()
             }
+        }
+        if (!latch.await(SHUTDOWN_PERSISTENCE_TIMEOUT_MS, TimeUnit.MILLISECONDS) &&
+            ((finalizationJob?.isActive == true) || (persistenceJob?.isActive == true))
+        ) {
+            Log.w(TAG, "Timed out waiting for keyboard recording persistence during shutdown")
+        }
+    }
+
+    private suspend fun awaitPendingPersistenceSuspend() {
+        withTimeoutOrNull(SHUTDOWN_PERSISTENCE_TIMEOUT_MS) {
+            finalizationJob?.join()
+            persistenceJob?.join()
         }
     }
 }

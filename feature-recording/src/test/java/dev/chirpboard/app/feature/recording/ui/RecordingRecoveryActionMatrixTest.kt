@@ -1,7 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui
 
 import dev.chirpboard.app.data.model.RecordingStatus
-import dev.chirpboard.app.feature.transcription.RecoveryOwnershipState
+import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

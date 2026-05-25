@@ -17,7 +17,12 @@ class TagRepository
     constructor(
         private val tagDao: TagDao,
     ) {
-        fun getAllTags(): Flow<List<Tag>> = tagDao.getAllTags()
+        companion object {
+            private const val TAG = "TagRepository"
+        }
+
+        fun getAllTags(): Flow<RepositoryFlowState<List<Tag>>> =
+            tagDao.getAllTags().catchRepositoryFlowState(TAG, emptyList())
 
         suspend fun getAllTagsList(): List<Tag> = tagDao.getAllTagsList()
 
@@ -42,7 +47,8 @@ class TagRepository
 
         suspend fun deleteById(id: UUID) = tagDao.deleteById(id)
 
-        fun getTagsForRecording(recordingId: UUID): Flow<List<Tag>> = tagDao.getTagsForRecording(recordingId)
+        fun getTagsForRecording(recordingId: UUID): Flow<RepositoryFlowState<List<Tag>>> =
+            tagDao.getTagsForRecording(recordingId).catchRepositoryFlowState(TAG, emptyList())
 
         suspend fun getTagsForRecordingIds(recordingIds: List<UUID>): Map<UUID, List<Tag>> =
             if (recordingIds.isEmpty()) {

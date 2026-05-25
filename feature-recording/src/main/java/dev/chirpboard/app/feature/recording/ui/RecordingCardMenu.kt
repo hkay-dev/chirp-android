@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import androidx.compose.ui.res.stringResource
 
@@ -33,7 +34,7 @@ internal fun RecordingCardMenu(
         onDismissRequest = onDismissRequest,
     ) {
         DropdownMenuItem(
-            text = { Text(stringResource(R.string.rec_share)) },
+            text = { Text(stringResource(CoreR.string.rec_share)) },
             onClick = {
                 onDismissRequest()
                 onShare()
@@ -107,7 +108,7 @@ internal fun RecordingCardMenu(
         HorizontalDivider()
 
         DropdownMenuItem(
-            text = { Text(stringResource(R.string.rec_delete)) },
+            text = { Text(stringResource(CoreR.string.rec_delete)) },
             onClick = {
                 onDismissRequest()
                 onDelete()

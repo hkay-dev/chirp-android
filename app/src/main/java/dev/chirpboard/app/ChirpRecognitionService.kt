@@ -1,13 +1,12 @@
 package dev.chirpboard.app
 
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognitionService
 import android.speech.SpeechRecognizer
 import android.util.Log
-import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -25,11 +24,6 @@ import javax.inject.Inject
 class ChirpRecognitionService : RecognitionService() {
     companion object {
         private const val TAG = "ChirpRecognition"
-
-        // Error codes matching android.speech.SpeechRecognizer
-        private const val ERROR_AUDIO = 3
-        private const val ERROR_SERVER = 4 // Model not ready
-        private const val ERROR_RECOGNIZER_BUSY = 7
     }
 
     private val recorder by lazy { VoiceRecorder(this, scope) }
@@ -83,18 +77,18 @@ class ChirpRecognitionService : RecognitionService() {
         // Check if model is ready before allowing recording
         if (!transcriberProvider.isReady()) {
             Log.w(TAG, "Recognizer not ready yet (model still loading)")
-            listener.error(ERROR_SERVER)
+            listener.error(SpeechRecognizer.ERROR_SERVER)
             return
         }
 
         // Check if already recording
         if (recorder.isRecording()) {
             Log.w(TAG, "Recorder already busy")
-            listener.error(ERROR_RECOGNIZER_BUSY)
+            listener.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
             return
         }
 
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             Log.w(TAG, "RECORD_AUDIO permission not granted")
             listener.error(SpeechRecognizer.ERROR_CLIENT)
             return
@@ -108,7 +102,7 @@ class ChirpRecognitionService : RecognitionService() {
                 // Start recording
                 if (!recorder.start()) {
                     Log.e(TAG, "Failed to start recording")
-                    listener.error(ERROR_AUDIO)
+                    listener.error(SpeechRecognizer.ERROR_AUDIO)
                     return@launch
                 }
 
@@ -139,7 +133,7 @@ class ChirpRecognitionService : RecognitionService() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error in onStartListening", e)
-                listener.error(ERROR_AUDIO)
+                listener.error(SpeechRecognizer.ERROR_AUDIO)
             }
         }
     }
@@ -156,14 +150,14 @@ class ChirpRecognitionService : RecognitionService() {
 
                 if (samples.isEmpty()) {
                     Log.w(TAG, "No audio samples")
-                    listener.error(ERROR_AUDIO)
+                    listener.error(SpeechRecognizer.ERROR_AUDIO)
                     return@launch
                 }
 
                 // Check if recognizer is ready
                 if (!transcriberProvider.isReady()) {
                     Log.w(TAG, "Recognizer not ready")
-                    listener.error(ERROR_SERVER)
+                    listener.error(SpeechRecognizer.ERROR_SERVER)
                     return@launch
                 }
 
@@ -177,19 +171,19 @@ class ChirpRecognitionService : RecognitionService() {
 
                         TranscriptionOutcome.NoSpeech -> {
                             Log.w(TAG, "No speech detected")
-                            listener.error(ERROR_AUDIO)
+                            listener.error(SpeechRecognizer.ERROR_AUDIO)
                             return@launch
                         }
 
                         is TranscriptionOutcome.ModelUnavailable -> {
                             Log.w(TAG, "Model unavailable: ${outcome.reason}")
-                            listener.error(ERROR_SERVER)
+                            listener.error(SpeechRecognizer.ERROR_SERVER)
                             return@launch
                         }
 
                         is TranscriptionOutcome.EngineError -> {
                             Log.e(TAG, "Engine error: ${outcome.reason}")
-                            listener.error(ERROR_AUDIO)
+                            listener.error(SpeechRecognizer.ERROR_AUDIO)
                             return@launch
                         }
                     }
@@ -211,7 +205,7 @@ class ChirpRecognitionService : RecognitionService() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error in onStopListening", e)
-                listener.error(ERROR_AUDIO)
+                listener.error(SpeechRecognizer.ERROR_AUDIO)
             }
         }
     }

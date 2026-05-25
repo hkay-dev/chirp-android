@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.keyboard.service
 
 import android.util.Log
+import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -20,13 +21,13 @@ internal data class KeyboardPersistencePlan(
     val status: RecordingStatus,
     val rawText: String?,
     val processedText: String?,
-    val errorMessage: String?
+    val errorMessage: String?,
 )
 
 internal fun buildKeyboardPersistencePlan(
     rawText: String?,
     processedText: String?,
-    errorMessage: String?
+    errorMessage: String?,
 ): KeyboardPersistencePlan {
     val normalizedRawText = rawText?.trim()?.takeIf { it.isNotEmpty() }
     val normalizedError = errorMessage?.trim()?.takeIf { it.isNotEmpty() }
@@ -40,7 +41,7 @@ internal fun buildKeyboardPersistencePlan(
         status = if (normalizedError == null) RecordingStatus.COMPLETED else RecordingStatus.FAILED,
         rawText = normalizedRawText,
         processedText = if (normalizedRawText == null) null else processedText,
-        errorMessage = normalizedError
+        errorMessage = normalizedError,
     )
 }
 
@@ -49,7 +50,8 @@ internal suspend fun saveKeyboardRecording(
     audioEncoder: AudioEncoder,
     recordingRepository: RecordingRepository,
     persistencePlan: KeyboardPersistencePlan,
-    samples: FloatArray
+    samples: FloatArray,
+    recordingQualityPreset: RecordingQualityPreset,
 ): Recording? {
     return try {
         withContext(NonCancellable) {
@@ -58,10 +60,19 @@ internal suspend fun saveKeyboardRecording(
             recordingsDir.mkdirs()
             val outputPath = File(recordingsDir, filename).absolutePath
 
-            val success = audioEncoder.encodeToM4a(samples, VoiceRecorder.SAMPLE_RATE, outputPath)
+            val success =
+                audioEncoder.encodeToM4a(
+                    samples = samples,
+                    sampleRate = VoiceRecorder.SAMPLE_RATE,
+                    outputPath = outputPath,
+                    config = recordingQualityPreset.keyboardRecordingConfig,
+                )
             if (!success) {
                 Log.e(PERSISTENCE_TAG, "Failed to encode keyboard recording")
-                try { File(outputPath).delete() } catch (_: Exception) {}
+                try {
+                    File(outputPath).delete()
+                } catch (_: Exception) {
+                }
                 return@withContext null
             }
 
@@ -75,7 +86,7 @@ internal suspend fun saveKeyboardRecording(
                 source = RecordingSource.KEYBOARD,
                 profileId = null,
                 durationMs = durationMs,
-                errorMessage = persistencePlan.errorMessage
+                errorMessage = persistencePlan.errorMessage,
             )
 
             val rawText = persistencePlan.rawText
@@ -84,7 +95,7 @@ internal suspend fun saveKeyboardRecording(
                     id = UUID.randomUUID(),
                     recordingId = recording.id,
                     rawText = rawText,
-                    processedText = persistencePlan.processedText
+                    processedText = persistencePlan.processedText,
                 )
                 recordingRepository.createRecordingWithTranscript(recording, transcript)
             } else {

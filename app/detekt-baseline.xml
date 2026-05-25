@@ -1,0 +1,17 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>InstanceOfCheckForException:AboutScreen.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ApiKeyMigration.kt$ApiKeyMigration$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ChirpApplication.kt$ChirpApplication$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ChirpRecognitionService.kt$ChirpRecognitionService$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:DevMenuViewModel.kt$DevMenuViewModel$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ModelDownloader.kt$ModelDownloader$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ModelDownloader.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:ModelReadinessGate.kt$ModelReadinessGate$error is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:RecognitionHistoryPersistence.kt$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:SherpaRecognizer.kt$SherpaRecognizer$e is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:VoiceRecognitionActivity.kt$VoiceRecognitionActivity$e is kotlinx.coroutines.CancellationException</ID>
+  </CurrentIssues>
+</SmellBaseline>

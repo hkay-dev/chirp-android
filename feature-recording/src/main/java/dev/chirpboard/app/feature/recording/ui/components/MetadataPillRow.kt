@@ -3,32 +3,37 @@ package dev.chirpboard.app.feature.recording.ui.components
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Widgets
-import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.SuggestionChipDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
+import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -36,57 +41,45 @@ import dev.chirpboard.app.feature.recording.R
 fun MetadataPillRow(
     durationMs: Long,
     source: RecordingSource,
-    status: RecordingStatus,
+    status: RecordingStatus? = null,
+    createdAtMs: Long? = null,
     modifier: Modifier = Modifier,
 ) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier,
     ) {
-        // Duration pill
-        SuggestionChip(
-            onClick = {},
-            label = { Text(durationMs.formatAsDuration()) },
-            icon = {
-                Icon(
-                    imageVector = Icons.Filled.Timer,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            },
+        createdAtMs?.let { createdAt ->
+            MetadataPill(
+                label = remember(createdAt) { java.util.Date(createdAt).formatRelative() },
+                icon = Icons.Filled.Schedule,
+            )
+        }
+
+        MetadataPill(
+            label = durationMs.formatAsDuration(),
+            icon = Icons.Filled.Timer,
         )
 
-        // Source pill
-        SuggestionChip(
-            onClick = {},
-            label = {
-                Text(
-                    when (source) {
-                        RecordingSource.APP -> stringResource(R.string.rec_source_app)
-                        RecordingSource.KEYBOARD -> stringResource(R.string.rec_source_keyboard)
-                        RecordingSource.WIDGET -> stringResource(R.string.rec_source_widget)
-                        RecordingSource.IMPORTED -> stringResource(R.string.rec_source_imported)
-                    },
-                )
-            },
-            icon = {
-                Icon(
-                    imageVector =
-                        when (source) {
-                        RecordingSource.APP -> Icons.Filled.PhoneAndroid
-                        RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
-                        RecordingSource.WIDGET -> Icons.Filled.Widgets
-                        RecordingSource.IMPORTED -> Icons.Filled.FileOpen
-                        }
-                    ,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-            },
+        MetadataPill(
+            label =
+                when (source) {
+                    RecordingSource.APP -> stringResource(CoreR.string.rec_source_app)
+                    RecordingSource.KEYBOARD -> stringResource(CoreR.string.rec_source_keyboard)
+                    RecordingSource.WIDGET -> stringResource(CoreR.string.rec_source_widget)
+                    RecordingSource.IMPORTED -> stringResource(CoreR.string.rec_source_imported)
+                },
+            icon =
+                when (source) {
+                    RecordingSource.APP -> Icons.Filled.PhoneAndroid
+                    RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
+                    RecordingSource.WIDGET -> Icons.Filled.Widgets
+                    RecordingSource.IMPORTED -> Icons.Filled.FileOpen
+                },
         )
 
-        // Status pill
-        StatusChip(status = status)
+        status?.let { StatusChip(status = it) }
     }
 }
 
@@ -98,7 +91,7 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     labelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    iconContent = { StatusIcon(Icons.Filled.CheckCircle) },
+                    iconContent = { StatusIcon(icon = Icons.Filled.CheckCircle, tint = MaterialTheme.colorScheme.onPrimaryContainer) },
                     labelText = stringResource(R.string.rec_status_completed),
                 )
             }
@@ -107,8 +100,8 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     labelColor = MaterialTheme.colorScheme.onErrorContainer,
-                    iconContent = { StatusIcon(Icons.Filled.ErrorOutline) },
-                    labelText = stringResource(R.string.rec_status_failed),
+                    iconContent = { StatusIcon(icon = Icons.Filled.ErrorOutline, tint = MaterialTheme.colorScheme.onErrorContainer) },
+                    labelText = stringResource(CoreR.string.rec_status_failed),
                 )
             }
 
@@ -116,7 +109,7 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    iconContent = { SmallProgressIndicator() },
+                    iconContent = { SmallProgressIndicator(color = MaterialTheme.colorScheme.onTertiaryContainer) },
                     labelText = stringResource(R.string.rec_record_button_recording),
                 )
             }
@@ -125,7 +118,7 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    iconContent = { SmallProgressIndicator() },
+                    iconContent = { SmallProgressIndicator(color = MaterialTheme.colorScheme.onTertiaryContainer) },
                     labelText = stringResource(R.string.rec_status_transcribing_short),
                 )
             }
@@ -134,7 +127,7 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    iconContent = { SmallProgressIndicator() },
+                    iconContent = { SmallProgressIndicator(color = MaterialTheme.colorScheme.onTertiaryContainer) },
                     labelText = stringResource(R.string.rec_status_enhancing),
                 )
             }
@@ -143,7 +136,7 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    iconContent = { StatusIcon(Icons.Filled.Schedule) },
+                    iconContent = { StatusIcon(icon = Icons.Filled.Schedule, tint = MaterialTheme.colorScheme.onTertiaryContainer) },
                     labelText = stringResource(R.string.rec_status_pending),
                 )
             }
@@ -152,39 +145,68 @@ private fun StatusChip(status: RecordingStatus) {
                 StatusChipData(
                     containerColor = MaterialTheme.colorScheme.tertiaryContainer,
                     labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    iconContent = { StatusIcon(Icons.Filled.Schedule) },
+                    iconContent = { StatusIcon(icon = Icons.Filled.Schedule, tint = MaterialTheme.colorScheme.onTertiaryContainer) },
                     labelText = stringResource(R.string.rec_status_pending),
                 )
             }
         }
 
-    SuggestionChip(
-        onClick = {},
-        label = { Text(labelText, color = labelColor) },
-        icon = iconContent,
-        colors =
-            SuggestionChipDefaults.suggestionChipColors(
-                containerColor = containerColor,
-                labelColor = labelColor,
-                iconContentColor = labelColor,
-            ),
+    MetadataPill(
+        label = labelText,
+        containerColor = containerColor,
+        contentColor = labelColor,
+        iconContent = iconContent,
     )
 }
 
 @Composable
-private fun StatusIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun MetadataPill(
+    label: String,
+    modifier: Modifier = Modifier,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    icon: ImageVector? = null,
+    iconContent: (@Composable () -> Unit)? = null,
+) {
+    Surface(
+        modifier = modifier,
+        color = containerColor,
+        contentColor = contentColor,
+        shape = CircleShape,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            when {
+                iconContent != null -> iconContent()
+                icon != null -> StatusIcon(icon = icon, tint = contentColor)
+            }
+            Text(text = label, color = contentColor, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun StatusIcon(
+    icon: ImageVector,
+    tint: Color,
+) {
     Icon(
         imageVector = icon,
         contentDescription = null,
         modifier = Modifier.size(18.dp),
+        tint = tint,
     )
 }
 
 @Composable
-private fun SmallProgressIndicator() {
+private fun SmallProgressIndicator(color: Color) {
     CircularProgressIndicator(
         modifier = Modifier.size(16.dp),
         strokeWidth = 2.dp,
+        color = color,
     )
 }
 

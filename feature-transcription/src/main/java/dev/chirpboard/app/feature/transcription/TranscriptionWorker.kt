@@ -16,6 +16,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
@@ -172,9 +173,8 @@ class TranscriptionWorker
             // Peak memory: ~4MB instead of ~76MB for a 10-minute recording
             Log.d(TAG, "Decoding and transcribing audio file: ${recording.audioPath}")
 
-            val rawTranscriptionText: String
+            val detailedTranscription: dev.chirpboard.app.feature.transcription.audio.JoinedChunkTranscription
             try {
-                // Check memory pressure before starting
                 checkMemoryPressure()
 
                 val processor =
@@ -186,8 +186,8 @@ class TranscriptionWorker
 
                 val audioFlow = audioDecoder.decodeAsFlow(recording.audioPath)
 
-                rawTranscriptionText =
-                    processor.processAndJoin(audioFlow) { samples ->
+                detailedTranscription =
+                    processor.processAndJoinDetailed(audioFlow) { samples ->
                         if (recordingStateManager.state.value.isActive) {
                             Log.w(TAG, "Recording started during transcription. Pausing transcription until recording finishes...")
                             recordingStateManager.state.first { !it.isActive }
@@ -225,24 +225,32 @@ class TranscriptionWorker
                 throw e
             }
 
+            val rawTranscriptionText = detailedTranscription.text
             if (rawTranscriptionText.isBlank()) {
                 Log.w(TAG, "Transcription returned empty result")
-                // Continue with empty text - it might be a silent recording
             }
             Log.d(TAG, "Transcription result: ${rawTranscriptionText.take(100)}...")
 
-            // Apply word replacements to get processed text for LLM
             val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
             val processedText = wordReplacer.apply(rawTranscriptionText, enabledReplacements)
 
-            // Create and save transcript with raw text (before replacements)
-            // The processed text (after replacements) is used for LLM processing
             val transcript =
                 Transcript(
                     recordingId = recordingId,
                     rawText = rawTranscriptionText,
                 )
-            recordingRepository.saveTranscript(transcript)
+            val timings =
+                detailedTranscription.wordTimings
+                    ?.mapIndexed { index, timing ->
+                        TranscriptTiming(
+                            recordingId = recordingId,
+                            sequenceIndex = index,
+                            text = timing.text,
+                            startOffsetMs = timing.startTimestampMs,
+                            endOffsetMs = timing.endTimestampMs,
+                        )
+                    }.orEmpty()
+            recordingRepository.saveTranscriptWithTiming(transcript, timings)
 
             applyEnhancement(recordingId, recording.source, processedText, correlationId)
 

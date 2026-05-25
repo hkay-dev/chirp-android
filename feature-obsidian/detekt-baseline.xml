@@ -1,0 +1,7 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues></ManuallySuppressedIssues>
+  <CurrentIssues>
+    <ID>InstanceOfCheckForException:ObsidianManager.kt$ObsidianManager$e is kotlinx.coroutines.CancellationException</ID>
+  </CurrentIssues>
+</SmellBaseline>

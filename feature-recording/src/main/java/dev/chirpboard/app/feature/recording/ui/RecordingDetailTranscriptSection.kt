@@ -49,6 +49,7 @@ import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.components.ContentSection
 import java.util.Date
@@ -91,7 +92,7 @@ internal fun RecordingDetailTranscriptSection(
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Default.Share,
-                                                    contentDescription = stringResource(R.string.desc_share),
+                                                    contentDescription = stringResource(CoreR.string.desc_share),
                                                     modifier = Modifier.size(20.dp),
                                                     tint = MaterialTheme.colorScheme.primary,
                                                 )
@@ -102,7 +103,7 @@ internal fun RecordingDetailTranscriptSection(
                                                 onDismissRequest = { showShareMenu = false },
                                             ) {
                                                 DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.rec_share_audio)) },
+                                                    text = { Text(stringResource(CoreR.string.rec_share_audio)) },
                                                     onClick = {
                                                         showShareMenu = false
                                                         onShareAudio()
@@ -112,7 +113,7 @@ internal fun RecordingDetailTranscriptSection(
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.rec_share_transcript)) },
+                                                    text = { Text(stringResource(CoreR.string.rec_share_transcript)) },
                                                     onClick = {
                                                         showShareMenu = false
                                                         onShareTranscript()
@@ -122,7 +123,7 @@ internal fun RecordingDetailTranscriptSection(
                                                     },
                                                 )
                                                 DropdownMenuItem(
-                                                    text = { Text(stringResource(R.string.rec_share_both)) },
+                                                    text = { Text(stringResource(CoreR.string.rec_share_both)) },
                                                     onClick = {
                                                         showShareMenu = false
                                                         onShareBoth()
@@ -161,7 +162,7 @@ internal fun RecordingDetailTranscriptSection(
                             null
                         },
                 ) {
-                    val text = transcript?.processedText ?: transcript?.rawText ?: ""
+                    val text = transcript?.effectiveText ?: ""
                     Text(
                         text = text,
                         style = MaterialTheme.typography.bodyMedium,

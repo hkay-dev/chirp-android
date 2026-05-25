@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.data.repository.RecordingRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -56,6 +57,8 @@ class OrphanedAudioCleaner
                     if (deletedCount > 0) {
                         Log.i(TAG, "Cleaned up $deletedCount orphaned audio file(s)")
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Error cleaning orphaned audio files", e)
                 }

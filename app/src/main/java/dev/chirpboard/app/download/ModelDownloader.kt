@@ -4,10 +4,17 @@ import android.content.Context
 import android.os.StatFs
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
+import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -23,7 +30,7 @@ class ModelDownloader(
     private val modelFiles: List<ModelFile> = MODEL_FILES,
     private val modelDirProvider: (Context) -> File = { ensureModelDir(it) },
     private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") },
-) {
+) : SpeechModelStore {
     companion object {
         private const val TAG = "ModelDownloader"
         private const val MODEL_DIR = "parakeet-tdt-0.6b-v2"
@@ -224,7 +231,9 @@ class ModelDownloader(
         )
     }
 
-    fun downloadModel(): Flow<DownloadState> =
+    override suspend fun evaluateReadiness(): ModelReadinessEvaluation = evaluateModelReadiness()
+
+    fun downloadModelLegacy(): Flow<DownloadState> =
         flow {
             val modelPath = modelDirProvider(context)
             modelPath.mkdirs()
@@ -325,6 +334,60 @@ class ModelDownloader(
 
             emit(DownloadState.Complete)
         }.flowOn(Dispatchers.IO)
+
+    override fun downloadModel(): Flow<SpeechModelDownloadState> =
+        downloadModelLegacy().map { state ->
+            when (state) {
+                is DownloadState.Progress ->
+                    SpeechModelDownloadState.Progress(
+                        file = state.file,
+                        progress =
+                            if (state.totalBytes > 0) {
+                                state.bytesDownloaded.toFloat() / state.totalBytes.toFloat()
+                            } else {
+                                0f
+                            },
+                    )
+
+                DownloadState.Complete -> SpeechModelDownloadState.Complete
+                is DownloadState.Error -> SpeechModelDownloadState.Error(state.message)
+            }
+        }
+
+    override suspend fun deleteModel(): Boolean =
+        withContext(Dispatchers.IO) {
+            var success = true
+            val modelPath = modelDirProvider(context)
+            if (modelPath.exists()) {
+                success = modelPath.deleteRecursively() && success
+            }
+            val legacyPath = legacyModelDirProvider(context)
+            if (legacyPath.exists()) {
+                success = legacyPath.deleteRecursively() && success
+            }
+            invalidateVerificationCache()
+            success
+        }
+
+    override suspend fun getDownloadedSize(): Long =
+        withContext(Dispatchers.IO) {
+            val modelPath = modelDirProvider(context)
+            val legacyPath = legacyModelDirProvider(context)
+            modelFiles.sumOf { file ->
+                val persistent = File(modelPath, file.name)
+                val legacy = File(legacyPath, file.name)
+                when {
+                    persistent.exists() -> persistent.length()
+                    legacy.exists() -> legacy.length()
+                    else -> 0L
+                }
+            }
+        }
+
+    override fun invalidateVerificationCache() {
+        clearProcessVerificationCacheForTest()
+        verificationPrefs.edit().clear().apply()
+    }
 
     private fun isValidDownloadedFile(
         file: File,

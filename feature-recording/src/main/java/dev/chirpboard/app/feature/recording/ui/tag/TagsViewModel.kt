@@ -5,8 +5,11 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.TagRepository
+import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -17,10 +20,18 @@ class TagsViewModel
     constructor(
         private val tagRepository: TagRepository,
     ) : ViewModel() {
+        private val _errorMessage = MutableStateFlow<String?>(null)
+        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
         val tags: StateFlow<List<Tag>> =
             tagRepository
                 .getAllTags()
+                .unwrapRepositoryFlow { _errorMessage.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        fun clearError() {
+            _errorMessage.value = null
+        }
 
         fun createTag(
             name: String,

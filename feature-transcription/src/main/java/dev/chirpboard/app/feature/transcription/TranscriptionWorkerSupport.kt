@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.transcription
 
 import androidx.work.Data
+import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
 import java.util.UUID
@@ -23,10 +24,18 @@ internal fun buildTranscriptionSuccessResult(transcriptId: UUID): androidx.work.
     )
 }
 
-internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): String {
+internal data class ChunkTranscription(
+    val text: String,
+    val wordTimings: List<RecognizedWordTiming>? = null,
+ )
+
+internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): ChunkTranscription {
     return when (outcome) {
-        is TranscriptionOutcome.Success -> outcome.text
-        TranscriptionOutcome.NoSpeech -> ""
+        is TranscriptionOutcome.Success -> ChunkTranscription(
+            text = outcome.text,
+            wordTimings = outcome.wordTimings,
+        )
+        TranscriptionOutcome.NoSpeech -> ChunkTranscription(text = "")
         is TranscriptionOutcome.ModelUnavailable -> {
             throw NonRetryableTranscriptionException(
                 "Speech model unavailable: ${outcome.reason}"

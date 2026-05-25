@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.entity.TranscriptTiming
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -27,6 +28,18 @@ interface TranscriptDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transcript: Transcript)
 
+    @Query("SELECT * FROM transcript_timings WHERE recordingId = :recordingId ORDER BY sequenceIndex ASC")
+    suspend fun getTranscriptTimings(recordingId: UUID): List<TranscriptTiming>
+
+    @Query("SELECT * FROM transcript_timings WHERE recordingId = :recordingId ORDER BY sequenceIndex ASC")
+    fun getTranscriptTimingsFlow(recordingId: UUID): Flow<List<TranscriptTiming>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTimings(timings: List<TranscriptTiming>)
+
+    @Query("DELETE FROM transcript_timings WHERE recordingId = :recordingId")
+    suspend fun deleteTimingsByRecordingId(recordingId: UUID)
+
     @Update
     suspend fun update(transcript: Transcript)
 
@@ -44,6 +57,16 @@ interface TranscriptDao {
         recordingId: UUID,
         processedText: String,
         mode: String,
+        updatedAt: java.util.Date = java.util.Date(),
+    )
+
+    @Query(
+        "UPDATE transcripts SET manualCorrectionText = :manualCorrectionText, manualCorrectionSourceText = :manualCorrectionSourceText, updatedAt = :updatedAt WHERE recordingId = :recordingId",
+    )
+    suspend fun updateManualCorrection(
+        recordingId: UUID,
+        manualCorrectionText: String?,
+        manualCorrectionSourceText: String?,
         updatedAt: java.util.Date = java.util.Date(),
     )
 

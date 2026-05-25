@@ -13,12 +13,13 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
 import dev.chirpboard.app.feature.recording.audio.AudioPlayer
 import dev.chirpboard.app.feature.recording.audio.PlaybackState
-import dev.chirpboard.app.feature.transcription.ManualRecoveryResult
-import dev.chirpboard.app.feature.transcription.RecoveryDiagnostics
-import dev.chirpboard.app.feature.transcription.RecoveryOwnershipState
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
+import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -34,7 +35,7 @@ class RecordingDetailViewModel
         private val savedStateHandle: SavedStateHandle,
         private val recordingRepository: RecordingRepository,
         private val audioPlayer: AudioPlayer,
-        private val transcriptionQueueManager: TranscriptionQueueManager,
+        private val transcriptionRecovery: TranscriptionRecovery,
     ) : ViewModel() {
         private val recordingId: UUID =
             savedStateHandle
@@ -42,14 +43,19 @@ class RecordingDetailViewModel
                 ?.let { UUID.fromString(it) }
                 ?: throw IllegalArgumentException("recordingId is required")
 
+        private val _message = MutableStateFlow<String?>(null)
+        val message: StateFlow<String?> = _message.asStateFlow()
+
         val recording: StateFlow<Recording?> =
             recordingRepository
                 .getRecordingFlow(recordingId)
+                .unwrapRepositoryFlow { _message.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val transcript: StateFlow<Transcript?> =
             recordingRepository
                 .getTranscriptFlow(recordingId)
+                .unwrapRepositoryFlow { _message.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val playbackState: StateFlow<PlaybackState> = audioPlayer.state
@@ -72,9 +78,6 @@ class RecordingDetailViewModel
         private val _editedTitle = savedStateHandle.getStateFlow("editedTitle", "")
         val editedTitle: StateFlow<String> = _editedTitle
 
-        private val _message = MutableStateFlow<String?>(null)
-        val message: StateFlow<String?> = _message.asStateFlow()
-
         fun clearMessage() {
             _message.value = null
         }
@@ -86,7 +89,7 @@ class RecordingDetailViewModel
                         _recoveryDiagnostics.value = RecoveryDiagnosticsUi()
                     } else {
                         _recoveryDiagnostics.value =
-                            transcriptionQueueManager
+                            transcriptionRecovery
                                 .getRecoveryDiagnostics(rec.id)
                                 .toUiModel()
                     }
@@ -235,7 +238,7 @@ class RecordingDetailViewModel
                     }
 
                     appendLine("## Transcript")
-                    appendLine(trans.processedText ?: trans.rawText)
+                    appendLine(trans.effectiveText)
                 }
 
             try {
@@ -294,7 +297,7 @@ class RecordingDetailViewModel
                                     appendLine()
                                 }
                                 appendLine("## Transcript")
-                                appendLine(trans.processedText ?: trans.rawText)
+                                appendLine(trans.effectiveText)
                             }
                         } else {
                             rec.title
@@ -332,11 +335,11 @@ class RecordingDetailViewModel
                 val rec = recording.value ?: return@launch
 
                 if (rec.status == RecordingStatus.FAILED) {
-                    transcriptionQueueManager.retry(recordingId)
+                    transcriptionRecovery.retry(recordingId)
                     _message.value = "Re-queued for transcription"
                 } else if (rec.status == RecordingStatus.COMPLETED) {
                     // For completed recordings, re-enqueue to re-run transcription
-                    transcriptionQueueManager.enqueue(recordingId)
+                    transcriptionRecovery.enqueue(recordingId)
                     _message.value = "Re-queued for transcription"
                 }
                 refreshRecoveryDiagnostics()
@@ -345,7 +348,7 @@ class RecordingDetailViewModel
 
         fun recoverPendingTranscription() {
             viewModelScope.launch {
-                val result = transcriptionQueueManager.recoverPendingTranscription(recordingId)
+                val result = transcriptionRecovery.recoverPendingTranscription(recordingId)
                 _message.value =
                     result.toUserMessage(
                         success = "Pending transcription recovered",
@@ -356,7 +359,7 @@ class RecordingDetailViewModel
 
         fun recoverEnhancing() {
             viewModelScope.launch {
-                val result = transcriptionQueueManager.recoverEnhancing(recordingId)
+                val result = transcriptionRecovery.recoverEnhancing(recordingId)
                 _message.value =
                     result.toUserMessage(
                         success = "Enhancement recovery queued",
@@ -367,7 +370,7 @@ class RecordingDetailViewModel
 
         fun retranscribeFromEnhancing() {
             viewModelScope.launch {
-                val result = transcriptionQueueManager.retranscribeFromEnhancing(recordingId)
+                val result = transcriptionRecovery.retranscribeFromEnhancing(recordingId)
                 _message.value =
                     result.toUserMessage(
                         success = "Full retranscription queued",
@@ -379,7 +382,7 @@ class RecordingDetailViewModel
         private suspend fun refreshRecoveryDiagnostics() {
             val rec = recording.value ?: return
             _recoveryDiagnostics.value =
-                transcriptionQueueManager
+                transcriptionRecovery
                     .getRecoveryDiagnostics(rec.id)
                     .toUiModel()
         }

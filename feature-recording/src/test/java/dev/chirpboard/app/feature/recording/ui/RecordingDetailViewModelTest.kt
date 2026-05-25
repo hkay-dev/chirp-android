@@ -3,7 +3,7 @@ package dev.chirpboard.app.feature.recording.ui
 import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.audio.AudioPlayer
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -20,7 +20,7 @@ import java.util.UUID
 class RecordingDetailViewModelTest {
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var audioPlayer: AudioPlayer
-    private lateinit var transcriptionQueueManager: TranscriptionQueueManager
+    private lateinit var transcriptionQueueManager: TranscriptionRecovery
     private val testDispatcher = StandardTestDispatcher()
 
     @Before

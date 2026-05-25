@@ -39,7 +39,9 @@ data class Profile(
     val defaultTagIds: String? = null,
     /** Position for ordering in UI */
     val sortOrder: Int = 0,
-) {
+    /** Keep this profile visible in home quick starts even when not recently used */
+    val isQuickStartPinned: Boolean = false,
+ ) {
     /** Parse defaultTagIds into list of UUIDs */
     fun getDefaultTags(): List<UUID> =
         defaultTagIds

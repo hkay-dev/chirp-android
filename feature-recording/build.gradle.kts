@@ -50,9 +50,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
     
-    // Media3 (ExoPlayer)
-    implementation("androidx.media3:media3-exoplayer:1.2.1")
-    implementation("androidx.media3:media3-session:1.2.1")
 
     // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")

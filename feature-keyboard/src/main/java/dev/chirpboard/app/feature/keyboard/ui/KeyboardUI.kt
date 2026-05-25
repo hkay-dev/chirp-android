@@ -77,6 +77,7 @@ import dev.chirpboard.app.feature.keyboard.state.KeyboardState
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import kotlinx.coroutines.delay
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.StateFlow
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
@@ -86,7 +87,7 @@ import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 fun KeyboardUI(
     state: KeyboardState,
     waveformBuffer: WaveformBuffer,
-    sampleCount: Long,
+    sampleCountFlow: StateFlow<Long>,
     llmEnabled: Boolean,
     currentMode: ProcessingMode?,
     onTap: () -> Unit,
@@ -149,7 +150,7 @@ fun KeyboardUI(
                             is KeyboardState.Recording -> {
                                 RecordingContent(
                                     waveformBuffer = waveformBuffer,
-                                    sampleCount = sampleCount,
+                                    sampleCountFlow = sampleCountFlow,
                                     onStop = onTap,
                                     onCancel = onCancel,
                                     onRestart = onRestart,
@@ -395,7 +396,7 @@ private fun ModeChip(
 @Composable
 private fun RecordingContent(
     waveformBuffer: WaveformBuffer,
-    sampleCount: Long,
+    sampleCountFlow: StateFlow<Long>,
     onStop: () -> Unit,
     onCancel: () -> Unit,
     onRestart: () -> Unit,
@@ -404,6 +405,7 @@ private fun RecordingContent(
     onToggleLlm: () -> Unit,
     onModeChange: (ProcessingMode) -> Unit
 ) {
+    val sampleCount by sampleCountFlow.collectAsStateWithLifecycle()
     val infiniteTransition = rememberInfiniteTransition(label = "recording")
     val scale =
         infiniteTransition.animateFloat(

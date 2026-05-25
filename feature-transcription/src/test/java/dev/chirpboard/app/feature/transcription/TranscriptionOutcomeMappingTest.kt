@@ -11,17 +11,24 @@ import org.junit.Test
 class TranscriptionOutcomeMappingTest {
 
     @Test
-    fun `success outcome returns text`() {
-        val result = mapOutcomeForChunkTranscription(TranscriptionOutcome.Success("hello world"))
+    fun `success outcome returns text and timing`() {
+        val result = mapOutcomeForChunkTranscription(
+            TranscriptionOutcome.Success(
+                text = "hello world",
+                wordTimings = emptyList(),
+            ),
+        )
 
-        assertEquals("hello world", result)
+        assertEquals("hello world", result.text)
+        assertTrue(result.wordTimings?.isEmpty() == true)
     }
 
     @Test
     fun `no speech outcome returns empty chunk`() {
         val result = mapOutcomeForChunkTranscription(TranscriptionOutcome.NoSpeech)
 
-        assertEquals("", result)
+        assertEquals("", result.text)
+        assertEquals(null, result.wordTimings)
     }
 
     @Test

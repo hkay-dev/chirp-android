@@ -16,7 +16,9 @@ import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
@@ -26,7 +28,6 @@ import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.R
-import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -61,10 +62,10 @@ class RecordingService : Service() {
     lateinit var transcriberProvider: dev.chirpboard.app.core.transcription.TranscriberProvider
 
     @Inject
-    lateinit var transcriptionQueueManager: TranscriptionQueueManager
-
-    @Inject
     lateinit var stopOrchestrator: RecordingStopOrchestrator
+    @Inject
+    lateinit var audioSettingsStore: AudioSettingsStore
+
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -150,12 +151,9 @@ class RecordingService : Service() {
         origin: RecordingOrigin,
         profileId: UUID?,
     ) {
-        if (androidx.core.content.ContextCompat
-                .checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             recordingStateManager.onRecordingError(
-                "Permission denied: Microphone access is required.",
+                RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE,
                 SecurityException("RECORD_AUDIO permission missing"),
             )
             stopSelf()
@@ -180,6 +178,14 @@ class RecordingService : Service() {
             }
         }
 
+        serviceScope.launch {
+            startRecordingAfterLockAcquired(profileId)
+        }
+    }
+
+    private suspend fun startRecordingAfterLockAcquired(
+        profileId: UUID?,
+    ) {
         currentCorrelationId = ReliabilityEventLogger.newCorrelationId("record")
         ReliabilityEventLogger.log(
             stage = ReliabilityStage.RECORDING_START,
@@ -191,35 +197,38 @@ class RecordingService : Service() {
         currentProfileId = profileId
 
         try {
-        // Ensure speech model is not loaded in memory during a long recording
-        // to prevent OS from killing the app due to memory pressure
-        serviceScope.launch(Dispatchers.Default) {
-            transcriberProvider.release()
-        }
+            withContext(Dispatchers.Default) {
+                transcriberProvider.release()
+            }
 
-            // Create output file
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val outputDir = File(filesDir, "recordings").apply { mkdirs() }
-            currentRecordingFile = File(outputDir, "recording_$timestamp.m4a")
+            withContext(Dispatchers.IO) {
+                val recordingQualityConfig =
+                    audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
 
-            // Initialize MediaRecorder
-            val recorder =
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    MediaRecorder(this)
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaRecorder()
+                // Create output file
+                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                val outputDir = File(filesDir, "recordings").apply { mkdirs() }
+                currentRecordingFile = File(outputDir, "recording_$timestamp.m4a")
+
+                // Initialize MediaRecorder
+                val recorder =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        MediaRecorder(this@RecordingService)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        MediaRecorder()
+                    }
+                mediaRecorder = recorder
+                recorder.apply {
+                    setAudioSource(MediaRecorder.AudioSource.MIC)
+                    setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                    setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    setAudioEncodingBitRate(recordingQualityConfig.bitRate)
+                    setAudioSamplingRate(recordingQualityConfig.sampleRate)
+                    setOutputFile(currentRecordingFile!!.absolutePath)
+                    prepare()
+                    start()
                 }
-            mediaRecorder = recorder
-            recorder.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128000)
-                setAudioSamplingRate(44100)
-                setOutputFile(currentRecordingFile!!.absolutePath)
-                prepare()
-                start()
             }
             recordingStartTime = System.currentTimeMillis()
             accumulatedDurationMs = 0
@@ -330,7 +339,6 @@ class RecordingService : Service() {
             accumulatedDurationMs = 0
 
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
             stopSelf()
         }
     }
@@ -678,9 +686,9 @@ class RecordingService : Service() {
         val hours = ms / 1000 / 3600
 
         return if (hours > 0) {
-            String.format("%d:%02d:%02d", hours, minutes, seconds)
+            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
         } else {
-            String.format("%d:%02d", minutes, seconds)
+            String.format(Locale.US, "%d:%02d", minutes, seconds)
         }
     }
 

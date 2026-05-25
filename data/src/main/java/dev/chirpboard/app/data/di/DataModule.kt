@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.dao.RecordingDao
+import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TagDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.dao.WordReplacementDao
@@ -45,6 +46,11 @@ object DataModule {
 
     @Provides
     fun provideTagDao(database: AppDatabase): TagDao = database.tagDao()
+
+    @Provides
+    fun provideStructuredOutcomeSnapshotDao(database: AppDatabase): StructuredOutcomeSnapshotDao =
+        database.structuredOutcomeSnapshotDao()
+
 
     @Provides
     fun provideWordReplacementDao(database: AppDatabase): WordReplacementDao = database.wordReplacementDao()

@@ -1,11 +1,10 @@
 package dev.chirpboard.app.feature.recording.ui.profile
 
+import androidx.compose.runtime.Stable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import androidx.compose.runtime.Stable
-import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.repository.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,11 +24,11 @@ class ProfileEditorViewModel
         private val profileId: UUID? =
             savedStateHandle
                 .get<String>("profileId")
-                ?.let { UUID.fromString(it) }
+                ?.let(UUID::fromString)
 
         val isEditing = profileId != null
 
-@Stable
+        @Stable
         data class UiState(
             val name: String = "",
             val icon: String = "",
@@ -39,10 +38,12 @@ class ProfileEditorViewModel
             val autoExportToObsidian: Boolean = false,
             val obsidianVaultPath: String = "",
             val defaultProcessingMode: String? = null,
+            val quickStartPinned: Boolean = false,
             val isLoading: Boolean = false,
             val isSaved: Boolean = false,
             val error: String? = null,
         )
+
         private val _uiState = MutableStateFlow(UiState())
         val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -60,6 +61,7 @@ class ProfileEditorViewModel
                         autoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian") ?: false,
                         obsidianVaultPath = savedStateHandle.get<String>("obsidianVaultPath") ?: "",
                         defaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode"),
+                        quickStartPinned = savedStateHandle.get<Boolean>("quickStartPinned") ?: false,
                     )
                 }
             }
@@ -79,15 +81,17 @@ class ProfileEditorViewModel
                         val savedAutoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian")
                         val savedObsidianVaultPath = savedStateHandle.get<String>("obsidianVaultPath")
                         val savedDefaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode")
+                        val savedQuickStartPinned = savedStateHandle.get<Boolean>("quickStartPinned")
                         it.copy(
                             name = savedName ?: profile.name,
-                            icon = savedIcon ?: profile.icon ?: "",
+                            icon = savedIcon ?: profile.icon.orEmpty(),
                             autoTranscribe = savedAutoTranscribe ?: profile.autoTranscribe,
                             autoTitle = savedAutoTitle ?: profile.autoTitle,
                             autoSummary = savedAutoSummary ?: profile.autoSummary,
                             autoExportToObsidian = savedAutoExportToObsidian ?: profile.autoExportToObsidian,
-                            obsidianVaultPath = savedObsidianVaultPath ?: profile.obsidianVaultPath ?: "",
+                            obsidianVaultPath = savedObsidianVaultPath ?: profile.obsidianVaultPath.orEmpty(),
                             defaultProcessingMode = savedDefaultProcessingMode ?: profile.defaultProcessingMode,
+                            quickStartPinned = savedQuickStartPinned ?: profile.isQuickStartPinned,
                             isLoading = false,
                         )
                     }
@@ -137,6 +141,11 @@ class ProfileEditorViewModel
             _uiState.update { it.copy(defaultProcessingMode = mode) }
         }
 
+        fun updateQuickStartPinned(enabled: Boolean) {
+            savedStateHandle["quickStartPinned"] = enabled
+            _uiState.update { it.copy(quickStartPinned = enabled) }
+        }
+
         fun save() {
             val state = _uiState.value
 
@@ -150,7 +159,6 @@ class ProfileEditorViewModel
 
                 try {
                     if (profileId != null) {
-                        // Update existing profile
                         val existing = profileRepository.getProfile(profileId)
                         if (existing != null) {
                             val updated =
@@ -163,11 +171,11 @@ class ProfileEditorViewModel
                                     autoExportToObsidian = state.autoExportToObsidian,
                                     obsidianVaultPath = state.obsidianVaultPath.ifBlank { null },
                                     defaultProcessingMode = state.defaultProcessingMode,
+                                    isQuickStartPinned = state.quickStartPinned,
                                 )
                             profileRepository.update(updated)
                         }
                     } else {
-                        // Create new profile
                         profileRepository.createProfile(
                             ProfileRepository.CreateProfileRequest(
                                 name = state.name.trim(),
@@ -178,6 +186,7 @@ class ProfileEditorViewModel
                                 obsidianVaultPath = state.obsidianVaultPath.ifBlank { null },
                                 autoExportToObsidian = state.autoExportToObsidian,
                                 defaultProcessingMode = state.defaultProcessingMode,
+                                quickStartPinned = state.quickStartPinned,
                             ),
                         )
                     }

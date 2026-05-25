@@ -252,6 +252,7 @@ internal class KeyboardTranscriptionPipeline(
                 processedText = processedText,
                 errorMessage = errorMessage,
             )
+        val recordingQualityPreset = keyboardPreferences.recordingQualityPreset.first()
 
         val job =
             persistenceScope.launch {
@@ -262,6 +263,7 @@ internal class KeyboardTranscriptionPipeline(
                         recordingRepository = recordingRepository,
                         persistencePlan = persistencePlan,
                         samples = sampleSnapshot,
+                        recordingQualityPreset = recordingQualityPreset,
                     )
                 if (recording != null && rawText != null) {
                     val autoExport = obsidianPreferences.autoExportEnabled.first()

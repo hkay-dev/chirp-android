@@ -86,10 +86,12 @@
     <string name="audio_settings_microphone_gain_value">Input Gain: %1$.1fx</string>
     <string name="audio_settings_microphone_gain_help">Boosts microphone volume. Values over 2.0x may cause distortion.</string>
     <string name="audio_settings_recording_quality">Recording Quality</string>
+    <string name="audio_settings_recording_quality_help">Applies to future saved app and keyboard recordings.</string>
     <string name="audio_settings_output_format">Output Format</string>
-    <string name="audio_settings_coming_soon">Coming soon</string>
-    <string name="audio_settings_quality_default">High (default)</string>
-    <string name="audio_settings_output_format_default">WAV</string>
+    <string name="audio_settings_output_format_help">Saved recordings always use AAC audio in an M4A container.</string>
+    <string name="audio_settings_quality_low">Low</string>
+    <string name="audio_settings_quality_balanced">Balanced</string>
+    <string name="audio_settings_quality_high">High</string>
     <string name="dev_gemini_key">Gemini API Key</string>
     <string name="dev_gemini_placeholder">AIza...</string>
     <string name="dev_save_key">Save Key</string>
@@ -121,5 +123,8 @@
 
     <string name="go_to_settings">Go to Settings</string>
     <string name="dismiss">Dismiss</string>
+    <string name="shared_audio_handoff_loading">Importing shared audio…</string>
+    <string name="shared_audio_handoff_failed_title">Couldn’t import that audio</string>
+    <string name="shared_audio_handoff_retry">Retry</string>
 
 </resources>

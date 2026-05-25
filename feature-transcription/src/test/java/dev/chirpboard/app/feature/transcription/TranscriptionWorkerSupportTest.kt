@@ -29,14 +29,18 @@ class TranscriptionWorkerSupportTest {
 
     @Test
     fun `mapOutcomeForChunkTranscription returns text on Success`() {
-        val result = mapOutcomeForChunkTranscription(TranscriptionOutcome.Success("hello"))
-        assertEquals("hello", result)
+        val result = mapOutcomeForChunkTranscription(
+            TranscriptionOutcome.Success(text = "hello", wordTimings = emptyList()),
+        )
+        assertEquals("hello", result.text)
+        assertTrue(result.wordTimings?.isEmpty() == true)
     }
 
     @Test
     fun `mapOutcomeForChunkTranscription returns empty string on NoSpeech`() {
         val result = mapOutcomeForChunkTranscription(TranscriptionOutcome.NoSpeech)
-        assertEquals("", result)
+        assertEquals("", result.text)
+        assertEquals(null, result.wordTimings)
     }
 
     @Test(expected = NonRetryableTranscriptionException::class)

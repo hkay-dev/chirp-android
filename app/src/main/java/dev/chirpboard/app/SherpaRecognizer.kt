@@ -6,7 +6,9 @@ import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineRecognizerResult
 import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
+import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
@@ -15,6 +17,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.max
+import kotlin.math.roundToLong
 
 class SherpaRecognizer(
     private val context: Context,
@@ -133,11 +137,15 @@ class SherpaRecognizer(
                     try {
                         stream.acceptWaveform(samples, sampleRate)
                         rec.decode(stream)
-                        val text = rec.getResult(stream).text.trim()
+                        val result = rec.getResult(stream)
+                        val text = result.text.trim()
                         if (text.isBlank()) {
                             TranscriptionOutcome.NoSpeech
                         } else {
-                            TranscriptionOutcome.Success(text)
+                            TranscriptionOutcome.Success(
+                                text = text,
+                                wordTimings = result.toRecognizedWordTimingsOrNull(text),
+                            )
                         }
                     } finally {
                         stream.release()
@@ -168,4 +176,109 @@ class SherpaRecognizer(
             recognizer = null
         }
     }
+}
+
+private val RECOGNIZER_WHITESPACE_REGEX = "\\s+".toRegex()
+
+private data class RecognizerTokenPiece(
+    val text: String,
+    val startsNewWord: Boolean,
+ )
+
+internal fun OfflineRecognizerResult.toRecognizedWordTimingsOrNull(
+    transcriptText: String,
+ ): List<RecognizedWordTiming>? {
+    if (tokens.isEmpty()) return null
+    if (timestamps.size != tokens.size || durations.size != tokens.size) return null
+
+    val expectedWords = transcriptText.split(RECOGNIZER_WHITESPACE_REGEX).filter { it.isNotBlank() }
+    if (expectedWords.isEmpty()) return null
+
+    val recognizedWords = mutableListOf<RecognizedWordTiming>()
+    var currentText = StringBuilder()
+    var currentStartMs = 0L
+    var currentEndMs = 0L
+
+    fun flushCurrentWord() {
+        if (currentText.isEmpty()) return
+        recognizedWords += RecognizedWordTiming(
+            text = currentText.toString(),
+            startTimestampMs = currentStartMs,
+            endTimestampMs = currentEndMs,
+        )
+        currentText = StringBuilder()
+    }
+
+    tokens.forEachIndexed { index, rawToken ->
+        val piece = rawToken.toRecognizerTokenPiece()
+        val tokenStartMs = timestamps[index].secondsToMillisOrNull() ?: return null
+        val tokenDurationMs = durations[index].secondsToMillisOrNull() ?: return null
+        val tokenEndMs = tokenStartMs + tokenDurationMs
+        if (tokenEndMs < tokenStartMs) return null
+
+        if (piece.startsNewWord && currentText.isNotEmpty()) {
+            flushCurrentWord()
+        }
+
+        if (piece.text.isBlank()) {
+            return@forEachIndexed
+        }
+
+        if (currentText.isEmpty()) {
+            currentStartMs = tokenStartMs
+            currentEndMs = tokenEndMs
+        } else {
+            currentEndMs = max(currentEndMs, tokenEndMs)
+        }
+
+        currentText.append(piece.text)
+    }
+
+    flushCurrentWord()
+
+    if (recognizedWords.isEmpty()) return null
+    if (recognizedWords.map { it.text } != expectedWords) return null
+    if (!recognizedWords.hasTrustedMonotonicTiming()) return null
+
+    return recognizedWords
+}
+
+private fun String.toRecognizerTokenPiece(): RecognizerTokenPiece {
+    var token = this
+    var startsNewWord = false
+
+    if (token.firstOrNull()?.isWhitespace() == true) {
+        startsNewWord = true
+        token = token.trimStart()
+    }
+
+    while (token.startsWith('▁') || token.startsWith('Ġ')) {
+        startsNewWord = true
+        token = token.drop(1)
+    }
+
+    return RecognizerTokenPiece(text = token, startsNewWord = startsNewWord)
+}
+
+private fun Float.secondsToMillisOrNull(): Long? {
+    if (!isFinite() || this < 0f) return null
+    return (this * 1000f).roundToLong()
+}
+
+private fun List<RecognizedWordTiming>.hasTrustedMonotonicTiming(): Boolean {
+    var previousStartMs = -1L
+    var previousEndMs = -1L
+
+    for (timing in this) {
+        if (timing.text.isBlank()) return false
+        if (timing.startTimestampMs < 0L) return false
+        if (timing.endTimestampMs < timing.startTimestampMs) return false
+        if (timing.startTimestampMs < previousStartMs) return false
+        if (timing.endTimestampMs < previousEndMs) return false
+
+        previousStartMs = timing.startTimestampMs
+        previousEndMs = timing.endTimestampMs
+    }
+
+    return true
 }

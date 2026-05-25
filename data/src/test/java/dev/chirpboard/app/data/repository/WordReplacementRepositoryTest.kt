@@ -25,8 +25,8 @@ class WordReplacementRepositoryTest {
         coEvery { mockDao.getAllReplacements() } returns flowOf(replacements)
 
         val result = repository.getAllReplacements().first()
-        assertEquals(1, result.size)
-        assertEquals(replacements, result)
+        assertEquals(1, result.value.size)
+        assertEquals(replacements, result.value)
     }
 
     @Test
@@ -43,6 +43,16 @@ class WordReplacementRepositoryTest {
         val expected = WordReplacement(id, "a", "b", true, true)
         coEvery { mockDao.getReplacement(id) } returns expected
         val result = repository.getReplacement(id)
+        assertEquals(expected, result)
+    }
+
+    @Test
+    fun `getEquivalentReplacement delegates to dao`() = runTest {
+        val expected = WordReplacement(UUID.randomUUID(), "foo", "bar", false, true)
+        coEvery { mockDao.getEquivalentReplacement("foo", "bar", false) } returns expected
+
+        val result = repository.getEquivalentReplacement("foo", "bar")
+
         assertEquals(expected, result)
     }
 
