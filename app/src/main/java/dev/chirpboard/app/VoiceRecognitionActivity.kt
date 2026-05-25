@@ -20,7 +20,7 @@ import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
-import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.model.ProcessingMode

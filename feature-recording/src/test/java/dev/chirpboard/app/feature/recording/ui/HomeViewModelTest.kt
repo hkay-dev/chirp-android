@@ -10,7 +10,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
-import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
@@ -42,7 +42,7 @@ class HomeViewModelTest {
     private lateinit var tagRepository: TagRepository
     private lateinit var profileRepository: ProfileRepository
     private lateinit var transcriptionQueueManager: TranscriptionRecovery
-    private lateinit var llmClient: LlmClient
+    private lateinit var recordingTextEnrichment: RecordingTextEnrichment
     private lateinit var audioImportOrchestrator: AudioImportOrchestrator
     private lateinit var sessionRecovery: RecordingRecoveryStore
     private lateinit var savedStateHandle: SavedStateHandle
@@ -71,7 +71,7 @@ class HomeViewModelTest {
                 every { getAllProfiles() } returns emptyFlow()
             }
         transcriptionQueueManager = mockk(relaxed = true)
-        llmClient = mockk(relaxed = true)
+        recordingTextEnrichment = mockk(relaxed = true)
         audioImportOrchestrator = mockk(relaxed = true)
         sessionRecovery = mockk(relaxed = true)
         every { sessionRecovery.pendingSessions } returns MutableStateFlow(emptyList())
@@ -89,7 +89,7 @@ class HomeViewModelTest {
                 tagRepository,
                 profileRepository,
                 transcriptionQueueManager,
-                llmClient,
+                recordingTextEnrichment,
                 audioImportOrchestrator,
                 sessionRecovery,
                 playbackController,

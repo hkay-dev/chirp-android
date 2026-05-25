@@ -21,7 +21,7 @@ import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
-import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
@@ -106,7 +106,7 @@ class HomeViewModel
         private val tagRepository: TagRepository,
         private val profileRepository: ProfileRepository,
         private val transcriptionRecovery: TranscriptionRecovery,
-        private val llmClient: LlmClient,
+        private val recordingTextEnrichment: RecordingTextEnrichment,
         private val audioImportOrchestrator: AudioImportOrchestrator,
         private val sessionRecovery: RecordingRecoveryStore,
         private val playbackController: RecordingPlaybackController,
@@ -510,7 +510,7 @@ class HomeViewModel
                 _errorMessage.value = "Generating title..."
 
                 val text = transcript.effectiveText
-                val result = llmClient.generateTitle(text)
+                val result = recordingTextEnrichment.generateTitle(text)
 
                 result.fold(
                     onSuccess = { title ->
@@ -538,7 +538,7 @@ class HomeViewModel
                 _errorMessage.value = "Generating summary..."
 
                 val text = transcript.effectiveText
-                val result = llmClient.generateSummary(text)
+                val result = recordingTextEnrichment.generateSummary(text)
 
                 result.fold(
                     onSuccess = { summary ->

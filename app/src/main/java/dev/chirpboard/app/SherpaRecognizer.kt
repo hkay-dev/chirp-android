@@ -11,7 +11,7 @@ import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
-import dev.chirpboard.app.feature.keyboard.recorder.VoiceRecorder
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock

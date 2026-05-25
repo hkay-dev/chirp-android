@@ -3,10 +3,10 @@ package dev.chirpboard.app.feature.recording
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
-import dev.chirpboard.app.feature.recording.service.RecordingService
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
 import javax.inject.Inject
@@ -53,7 +53,7 @@ class RecordingManager
             }
 
             // Start the service (it will do the actual atomic check)
-            RecordingService.startRecording(context, origin, profileId)
+            RecordingServiceCommands.startRecording(context, origin, profileId)
             return RecordingStartResult.Success
         }
 
@@ -61,7 +61,7 @@ class RecordingManager
          * Stop the current recording.
          */
         fun stopRecording() {
-            RecordingService.stopRecording(context)
+            RecordingServiceCommands.stopRecording(context)
         }
 
         /**

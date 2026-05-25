@@ -6,7 +6,7 @@ import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

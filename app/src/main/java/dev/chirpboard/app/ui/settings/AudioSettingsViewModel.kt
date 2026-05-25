@@ -9,7 +9,7 @@ import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.audio.SAVED_RECORDING_FORMAT_LABEL
-import dev.chirpboard.app.feature.keyboard.KeyboardPreferences
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
