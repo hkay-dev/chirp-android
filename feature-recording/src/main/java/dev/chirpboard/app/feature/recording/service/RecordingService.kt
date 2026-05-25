@@ -31,6 +31,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
@@ -788,7 +789,6 @@ class RecordingService : Service() {
 
     /**
      * Collect audio amplitude for waveform visualization.
-     * Collect audio amplitude for waveform visualization.
      * Updates at display-friendly cadence so the UI has enough real data to interpolate smoothly.
      */
     private fun startAmplitudeCollection() {
@@ -995,7 +995,7 @@ class RecordingService : Service() {
         val state = recordingStateManager.state.value
         val isPaused = state is RecordingState.Paused
         val duration = recordingStateManager.getCurrentDurationMs()
-        val durationText = formatDuration(duration)
+        val durationText = duration.formatAsDuration()
 
         // Tap notification → open the app
         val launchIntent =
@@ -1095,18 +1095,6 @@ class RecordingService : Service() {
 
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(channel)
-    }
-
-    private fun formatDuration(ms: Long): String {
-        val seconds = (ms / 1000) % 60
-        val minutes = (ms / 1000 / 60) % 60
-        val hours = ms / 1000 / 3600
-
-        return if (hours > 0) {
-            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.US, "%d:%02d", minutes, seconds)
-        }
     }
 
     companion object {

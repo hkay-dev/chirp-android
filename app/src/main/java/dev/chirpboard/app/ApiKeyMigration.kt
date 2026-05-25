@@ -35,7 +35,7 @@ class ApiKeyMigration @Inject constructor(
             }
             
             // Get old key
-            val oldKey = preferences.geminiApiKey
+            val oldKey = preferences.readLegacyGeminiApiKeyForMigration()
             
             if (KnownGeminiPlaceholderKeys.isPlaceholder(oldKey)) {
                 Log.d(TAG, "No custom API key to migrate")
