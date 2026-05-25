@@ -7,6 +7,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.chirpboard.app.debug.DevMenuScreen
 import dev.chirpboard.app.feature.llm.settings.LlmSettingsScreen
+import dev.chirpboard.app.feature.llm.settings.ProcessingPromptEditorScreen
+import dev.chirpboard.app.feature.llm.settings.ProcessingPromptEditorViewModel
+import dev.chirpboard.app.feature.llm.settings.ProcessingPromptSettingsScreen
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianSettingsScreen
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileEditorScreen
 import dev.chirpboard.app.feature.recording.ui.profile.ProfileListScreen
@@ -56,6 +59,35 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
 
     composable(Screen.LlmSettings.route) {
         LlmSettingsScreen(
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToPromptSettings = { navController.navigate(Screen.ProcessingPromptSettings.route) },
+        )
+    }
+
+    composable(Screen.ProcessingPromptSettings.route) {
+        ProcessingPromptSettingsScreen(
+            onNavigateBack = { navController.popBackStack() },
+            onEditPreset = { presetId ->
+                navController.navigate(Screen.ProcessingPromptEditor.createRoute(presetId))
+            },
+            onAddPreset = {
+                navController.navigate(
+                    Screen.ProcessingPromptEditor.createRoute(ProcessingPromptEditorViewModel.NEW_PRESET_ID),
+                )
+            },
+        )
+    }
+
+    composable(
+        route = Screen.ProcessingPromptEditor.route,
+        arguments =
+            listOf(
+                navArgument("presetId") {
+                    type = NavType.StringType
+                },
+            ),
+    ) {
+        ProcessingPromptEditorScreen(
             onNavigateBack = { navController.popBackStack() },
         )
     }

@@ -5,9 +5,12 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.util.Log
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.feature.recording.util.probeDurationUs
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,15 +52,14 @@ class RecordingSegmentConcatenator
                 }
             }
 
-            return runCatching {
-                muxSegments(existingSegments, outputFile)
-            }.getOrElse { error ->
-                Log.e(TAG, "Segment concat failed", error)
-                SegmentConcatResult.Failed(error.message ?: "Segment concat failed")
+            return when (RecordingOutputFormat.fromFile(outputFile)) {
+                RecordingOutputFormat.M4A -> muxAacSegments(existingSegments, outputFile)
+                RecordingOutputFormat.WAV -> concatWavSegments(existingSegments, outputFile)
+                RecordingOutputFormat.MP3 -> concatMp3Segments(existingSegments, outputFile)
             }
         }
 
-        private fun muxSegments(
+        private fun muxAacSegments(
             segments: List<File>,
             outputFile: File,
         ): SegmentConcatResult {
@@ -65,7 +67,7 @@ class RecordingSegmentConcatenator
             var muxerTrackIndex = -1
             var presentationOffsetUs = 0L
 
-            try {
+            return runCatching {
                 muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
 
                 for (segment in segments) {
@@ -79,8 +81,8 @@ class RecordingSegmentConcatenator
                     extractor.selectTrack(trackIndex)
 
                     if (muxerTrackIndex < 0) {
-                        muxerTrackIndex = muxer.addTrack(extractor.getTrackFormat(trackIndex))
-                        muxer.start()
+                        muxerTrackIndex = muxer!!.addTrack(extractor.getTrackFormat(trackIndex))
+                        muxer!!.start()
                     }
 
                     val buffer = ByteBuffer.allocate(BUFFER_SIZE)
@@ -93,7 +95,7 @@ class RecordingSegmentConcatenator
                         bufferInfo.presentationTimeUs = presentationOffsetUs + extractor.sampleTime
                         @Suppress("WrongConstant")
                         bufferInfo.flags = extractor.sampleFlags
-                        muxer.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
+                        muxer!!.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
                         if (!extractor.advance()) break
                     }
 
@@ -101,18 +103,83 @@ class RecordingSegmentConcatenator
                     extractor.release()
                 }
 
-                muxer.stop()
-            } catch (e: Exception) {
+                muxer!!.stop()
+                if (outputFile.exists() && outputFile.length() >= RecordingFileValidator.MIN_BYTES) {
+                    SegmentConcatResult.Success
+                } else {
+                    SegmentConcatResult.Failed("Merged export file is invalid")
+                }
+            }.getOrElse { error ->
                 if (outputFile.exists()) outputFile.delete()
-                return SegmentConcatResult.Failed(e.message ?: "Mux failed")
-            } finally {
+                Log.e(TAG, "Segment concat failed", error)
+                SegmentConcatResult.Failed(error.message ?: "Segment concat failed")
+            }.also {
                 runCatching { muxer?.release() }
             }
+        }
 
-            return if (outputFile.exists() && outputFile.length() >= RecordingFileValidator.MIN_BYTES) {
-                SegmentConcatResult.Success
-            } else {
-                SegmentConcatResult.Failed("Merged export file is invalid")
+        private fun concatWavSegments(
+            segments: List<File>,
+            outputFile: File,
+        ): SegmentConcatResult {
+            return runCatching {
+                val firstFormat = readWavSampleRate(segments.first())
+                val writer = WavFileWriter(outputFile, firstFormat)
+                val pcmBuffer = ByteArray(BUFFER_SIZE)
+                segments.forEach { segment ->
+                    segment.inputStream().use { input ->
+                        input.skip(WavFileWriter.WAV_HEADER_BYTES.toLong())
+                        while (true) {
+                            val read = input.read(pcmBuffer)
+                            if (read <= 0) break
+                            writer.appendPcm16(pcmBuffer, read)
+                        }
+                    }
+                }
+                writer.close()
+                if (outputFile.length() >= RecordingFileValidator.MIN_BYTES) {
+                    SegmentConcatResult.Success
+                } else {
+                    SegmentConcatResult.Failed("Merged WAV file is invalid")
+                }
+            }.getOrElse { error ->
+                if (outputFile.exists()) outputFile.delete()
+                SegmentConcatResult.Failed(error.message ?: "WAV concat failed")
+            }
+        }
+
+        private fun concatMp3Segments(
+            segments: List<File>,
+            outputFile: File,
+        ): SegmentConcatResult {
+            return runCatching {
+                FileOutputStream(outputFile).use { output ->
+                    segments.forEach { segment ->
+                        segment.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+                if (outputFile.length() >= RecordingFileValidator.MIN_BYTES) {
+                    SegmentConcatResult.Success
+                } else {
+                    SegmentConcatResult.Failed("Merged MP3 file is invalid")
+                }
+            }.getOrElse { error ->
+                if (outputFile.exists()) outputFile.delete()
+                SegmentConcatResult.Failed(error.message ?: "MP3 concat failed")
+            }
+        }
+
+        private fun readWavSampleRate(file: File): Int {
+            file.inputStream().use { input ->
+                input.skip(24)
+                val rateBytes = ByteArray(4)
+                input.read(rateBytes)
+                return (rateBytes[0].toInt() and 0xFF) or
+                    ((rateBytes[1].toInt() and 0xFF) shl 8) or
+                    ((rateBytes[2].toInt() and 0xFF) shl 16) or
+                    ((rateBytes[3].toInt() and 0xFF) shl 24)
             }
         }
 

@@ -8,4 +8,6 @@
     <string name="widget_status_saving">Saving…</string>
     <string name="widget_status_error">Error</string>
     <string name="widget_desc_toggle_recording">Toggle recording</string>
+    <string name="widget_keyboard_stop_queued">Open Chirp keyboard to finish stopping</string>
+    <string name="widget_finishing_recording">Finishing current recording</string>
 </resources>

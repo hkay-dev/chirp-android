@@ -24,6 +24,13 @@ class RecordingStateTest {
     }
 
     @Test
+    fun startingState_exposesActiveRecordingIdWhenAssigned() {
+        val recordingId = UUID.randomUUID()
+        val state = RecordingState.Starting(RecordingOrigin.APP, UUID.randomUUID(), recordingId)
+        assertEquals(recordingId, state.activeRecordingId)
+    }
+
+    @Test
     fun recordingState_isActive_hasCorrectOrigin() {
         val state = RecordingState.Recording(RecordingOrigin.KEYBOARD, UUID.randomUUID(), 1000L, "path")
         assertTrue(state.isActive)

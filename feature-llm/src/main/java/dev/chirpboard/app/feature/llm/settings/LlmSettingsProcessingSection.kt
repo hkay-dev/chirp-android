@@ -1,39 +1,49 @@
 package dev.chirpboard.app.feature.llm.settings
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.feature.llm.R
-import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
-
-import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import dev.chirpboard.app.feature.llm.R
 
 @Composable
 internal fun LlmSettingsProcessingSection(
     uiState: LlmSettingsViewModel.UiState,
     onSetAutoTitle: (Boolean) -> Unit,
     onSetAutoSummary: (Boolean) -> Unit,
+    onManagePrompts: () -> Unit,
 ) {
     Column {
         SettingsSectionHeader(title = stringResource(R.string.llm_processing_title))
+
+        ListItem(
+            modifier = Modifier.clickable(onClick = onManagePrompts),
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            headlineContent = { Text(stringResource(R.string.llm_prompt_manage)) },
+            supportingContent = {
+                Text(
+                    text = stringResource(R.string.llm_prompt_manage_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            },
+            trailingContent = {
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+            },
+        )
 
         SettingsSwitchItem(
             icon = Icons.Default.Edit,

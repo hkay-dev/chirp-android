@@ -5,6 +5,7 @@ import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import io.mockk.coEvery
@@ -39,6 +40,7 @@ class AudioSettingsViewModelTest {
         inputDeviceSelector = mockk(relaxed = true)
         every { keyboardPreferences.microphoneGain } returns MutableStateFlow(1.5f)
         every { keyboardPreferences.recordingQualityPreset } returns MutableStateFlow(RecordingQualityPreset.Balanced)
+        every { keyboardPreferences.outputFormat } returns MutableStateFlow(RecordingOutputFormat.M4A)
         every { audioSettingsStore.settings } returns
             flowOf(
                 AudioSettings(
@@ -93,5 +95,16 @@ class AudioSettingsViewModelTest {
             viewModel.setRecordingQualityPreset(RecordingQualityPreset.High)
 
             coVerify { keyboardPreferences.setRecordingQualityPreset(RecordingQualityPreset.High) }
+        }
+
+    @Test
+    fun `setOutputFormat calls preferences`() =
+        runTest {
+            coEvery { keyboardPreferences.setOutputFormat(any()) } returns Unit
+            val viewModel = createViewModel()
+
+            viewModel.setOutputFormat(RecordingOutputFormat.MP3)
+
+            coVerify { keyboardPreferences.setOutputFormat(RecordingOutputFormat.MP3) }
         }
 }

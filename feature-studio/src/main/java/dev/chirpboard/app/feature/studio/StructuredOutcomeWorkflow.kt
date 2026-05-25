@@ -81,7 +81,7 @@ internal fun validateStructuredOutcomeGenerationRequest(
     when {
         recordingStatus != RecordingStatus.COMPLETED -> "Structured outcomes are available after processing finishes"
         effectiveTranscriptText.isBlank() -> "Structured outcomes need transcript text first"
-        !hasApiKey -> "Add a Gemini API key in Settings to generate structured outcomes"
+        !hasApiKey -> "Add an API key in AI Processing settings to generate structured outcomes"
         isGenerating -> "Structured outcomes are already generating"
         else -> null
     }

@@ -24,7 +24,8 @@ sealed class RecordingState {
     /** Recording is starting up */
     data class Starting(
         val origin: RecordingOrigin,
-        val profileId: UUID? = null
+        val profileId: UUID? = null,
+        val recordingId: UUID? = null,
     ) : RecordingState()
     
     /** Recording is in progress */
@@ -78,6 +79,7 @@ sealed class RecordingState {
     /** Database recording ID for the active session, when one has been created. */
     val activeRecordingId: UUID?
         get() = when (this) {
+            is Starting -> recordingId
             is Recording -> recordingId
             is Paused -> recordingId
             is Stopping -> recordingId

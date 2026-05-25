@@ -28,6 +28,12 @@ sealed class Screen(
 
     object LlmSettings : Screen("settings/llm")
 
+    object ProcessingPromptSettings : Screen("settings/llm/prompts")
+
+    object ProcessingPromptEditor : Screen("settings/llm/prompts/edit/{presetId}") {
+        fun createRoute(presetId: String) = "settings/llm/prompts/edit/$presetId"
+    }
+
     object AudioSettings : Screen("settings/audio")
 
     object ObsidianSettings : Screen("settings/obsidian")

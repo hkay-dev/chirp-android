@@ -1,56 +1,25 @@
 # UI polish manual QA checklist
 
-Run on a physical device **before merging** any PR that touches home list, record flow, Processing Studio, nav shell, keyboard IME, or settings screens.
+Manual verification items for motion and navigation polish. Run on a physical device when possible.
 
-## Record → Done → Studio
+## Navigation and playback
 
-- [ ] Start recording from home FAB; speak for a few seconds; tap **Done**
-- [ ] App navigates to Processing Studio **immediately** (no lingering on Record while finalize runs)
-- [ ] Studio shows shell (title area, tabs, header progress) with finalizing / stitching status visible
-- [ ] Press back once → returns to Home (not duplicate Studio entries on back stack)
-- [ ] Repeat Done flow twice in a row — still exactly one navigation per stop
+| # | Area | Steps | Expected |
+|---|------|-------|----------|
+| N1 | Home → Studio single-top | Open a recording from Home; press back; tap the same recording again | One back returns to Home; no stacked Studio entries |
+| N2 | Search → Studio single-top | Search for a recording; open Studio; back; open same result again | Same as N1 |
+| N3 | Import → Studio | Import audio from Home | Studio opens once with `launchSingleTop`; back returns to Home |
+| N4 | Mini player cross-studio | Play recording A from Home mini player; open Studio for recording B | Audio from A pauses; Studio shows B without A continuing in background |
+| N5 | Search hides in-progress | Start a recording; search for its title on Home | In-progress `RECORDING` row does not appear in search results |
 
-## Processing Studio progress (single surface)
+## Motion (P4)
 
-- [ ] During finalizing / transcribing / enhancing, **one** morphing progress region is visible (header compact banner)
-- [ ] Transcript tab shows skeleton lines only — **not** a second full progress panel with duplicate copy/spinner
-- [ ] When processing completes, transcript content (or empty-completed state) replaces skeleton without layout jump
-- [ ] Media player **expands down** and pushes tabs — not an instant pop-in
-- [ ] Recovery/error blocks expand down smoothly when they appear
+| # | Area | Steps | Expected |
+|---|------|-------|----------|
+| M1 | Keyboard mode row expand vs crossfade | On keyboard, switch processing modes (e.g. transcribe ↔ correct) | Mode row expands/collapses smoothly; label crossfades without layout jump or clipped text |
+| M2 | Player pushes content vs tab row | In Processing Studio, start playback so the inline player appears | Player reveal pushes transcript/content down; tab row stays pinned; no overlap or double-offset with global mini player |
 
-## Home list filters and empty states
+## Notes
 
-- [ ] With recordings present, tap processing stat pill when count is **0** — list and stats **stay visible**; filter does not activate
-- [ ] With processing recordings present, tap processing pill — list filters to processing items; pill shows selected state; dismissible **Processing** chip **slides in**
-- [ ] Tap processing pill again (or chip dismiss) — filter clears; full list returns with smooth collapse
-- [ ] Activate processing filter when no items match — stats row remains; inline “no match” message and **Clear filter** appear (not first-run empty state)
-- [ ] First-run empty state appears **only** when there are zero recordings total and no active search
-
-## Home search and list chrome
-
-- [ ] Tap search icon — search field **expands down** and pushes the list (fully visible, not clipped)
-- [ ] Type query — results filter; results count label **animates in**
-- [ ] Clear query / close search — field collapses smoothly; list restores
-- [ ] Recovery banner (if present) expands/collapses without snapping the list
-- [ ] Transcribing list items grow/shrink progress banner smoothly as status changes
-
-## Nav shell (when touched)
-
-- [ ] Start playback from list — mini player **fades in**; content height adjusts smoothly
-- [ ] Tap **X** on mini player — bar **fades out** smoothly (not an instant snap)
-- [ ] Share audio into app — scrim overlay appears; Home/NavHost stays mounted underneath
-
-## Keyboard & voice
-
-- [ ] Keyboard dictation: mode controls row expands down after recording stops
-- [ ] Voice recognition sheet: content reflows smoothly when waveform/mode areas change
-
-## Settings (spot check)
-
-- [ ] LLM settings: enabling LLM expands API key + processing sections smoothly
-- [ ] Transcription model download: progress bar expands in/out
-- [ ] Audio settings: switching to manual input device list expands device rows smoothly
-
-## Regression smoke (quick)
-
-- [ ] `./gradlew :app:assembleDebug :feature-recording:testDebugUnitTest :feature-studio:testDebugUnitTest` passes
+- Optional animation fixes from M1/M2 are non-blocking; file issues if motion regresses.
+- See `docs/reliability-test-matrix.md` for automated coverage mapping.

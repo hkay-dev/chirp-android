@@ -12,7 +12,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.llm.TextProcessor
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -31,6 +31,7 @@ class InlineTranscriptionCoordinatorImpl
         private val transcriberProvider: TranscriberProvider,
         private val textProcessor: TextProcessor,
         private val modelReadinessGate: SpeechModelReadinessGate,
+        private val modeRepository: ProcessingModeRepository,
     ) : InlineTranscriptionCoordinator {
         private val tag = "InlineTranscription"
 
@@ -150,7 +151,7 @@ class InlineTranscriptionCoordinatorImpl
                     onRecordingCompleted()
                 }
 
-                val processingMode = ProcessingMode.fromId(request.processingModeId)
+                val processingMode = modeRepository.resolveMode(request.processingModeId)
 
                 if (request.llmEnabled) {
                     ReliabilityEventLogger.log(

@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import dev.chirpboard.app.feature.llm.model.ProcessingModeListItem
 
 enum class VoicePanelPhase {
     Idle,
@@ -29,6 +30,7 @@ data class KeyboardUiState(
     val modelInitFailedMessage: String? = null,
     val llmEnabled: Boolean,
     val processingMode: ProcessingMode,
+    val availableModes: List<ProcessingModeListItem> = emptyList(),
     val errorOverlay: String? = null,
     val errorMessage: String? = null,
     val llmErrorMessage: String? = null,
@@ -54,6 +56,7 @@ fun mapKeyboardUiState(
     modelInitFailedMessage: String?,
     llmEnabled: Boolean,
     processingMode: ProcessingMode,
+    availableModes: List<ProcessingModeListItem>,
     permissionError: String?,
 ): KeyboardUiState {
     val voicePanel =
@@ -78,6 +81,7 @@ fun mapKeyboardUiState(
         modelInitFailedMessage = modelInitFailedMessage,
         llmEnabled = llmEnabled,
         processingMode = processingMode,
+        availableModes = availableModes,
         errorOverlay = permissionError,
         errorMessage = (transcriptionPhase as? InlineTranscriptionPhase.Error)?.message,
         llmErrorMessage = (transcriptionPhase as? InlineTranscriptionPhase.LlmError)?.message,

@@ -281,6 +281,13 @@ IMPORTANT: Respond ONLY with the cleaned text. Do not add any commentary, explan
     /** Auto-detect appropriate mode - handled specially by processor */
     object Smart : ProcessingMode("smart", "Smart", null)
 
+    /** User-defined preset stored in prompt settings */
+    data class UserPreset(
+        val presetId: String,
+        val name: String,
+        val promptText: String,
+    ) : ProcessingMode(presetId, name, promptText)
+
     /** User-defined custom prompt */
     data class Custom(val customPrompt: String) : ProcessingMode(
         "custom",

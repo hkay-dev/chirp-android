@@ -7,8 +7,8 @@ import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
-import dev.chirpboard.app.core.audio.SAVED_RECORDING_FORMAT_LABEL
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -41,6 +41,13 @@ class AudioSettingsViewModel
                 initialValue = RecordingQualityPreset.DEFAULT,
             )
 
+        val outputFormat: StateFlow<RecordingOutputFormat> =
+            keyboardPreferences.outputFormat.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = RecordingOutputFormat.DEFAULT,
+            )
+
         val inputDevicePolicy: StateFlow<AudioInputDevicePolicy> =
             audioSettingsStore.settings
                 .map { it.inputDevicePolicy }
@@ -54,8 +61,6 @@ class AudioSettingsViewModel
         val availableInputDevices: StateFlow<List<AudioInputDeviceSummary>> = _availableInputDevices.asStateFlow()
 
         val activeInputDeviceLabel: StateFlow<String?> = inputDeviceSelector.activeDeviceLabel
-
-        val savedFormatLabel: String = SAVED_RECORDING_FORMAT_LABEL
 
         init {
             refreshInputDevices()
@@ -76,6 +81,12 @@ class AudioSettingsViewModel
         fun setRecordingQualityPreset(preset: RecordingQualityPreset) {
             viewModelScope.launch {
                 keyboardPreferences.setRecordingQualityPreset(preset)
+            }
+        }
+
+        fun setOutputFormat(format: RecordingOutputFormat) {
+            viewModelScope.launch {
+                keyboardPreferences.setOutputFormat(format)
             }
         }
 

@@ -2,6 +2,8 @@ package dev.chirpboard.app.feature.llm
 
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import dev.chirpboard.app.feature.llm.model.ProcessingModeDefaults
+import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,9 +16,9 @@ class TextProcessor
     @Inject
     constructor(
         private val llmClient: LlmClient,
+        private val modeRepository: ProcessingModeRepository,
     ) {
         companion object {
-            // Code-like patterns for Smart mode detection
             private val CODE_PATTERNS =
                 listOf(
                     "function",
@@ -45,7 +47,6 @@ class TextProcessor
                 )
             private val CODE_REGEX = Regex("[(){}\\[\\];]")
 
-            // Email-like patterns for Smart mode detection
             private val EMAIL_PATTERNS =
                 listOf(
                     "dear",
@@ -60,12 +61,6 @@ class TextProcessor
                 )
         }
 
-        /**
-         * Process text with the specified processing mode.
-         * @param text The input text to process
-         * @param mode The processing mode to use
-         * @return Result containing processed text or error
-         */
         suspend fun process(
             text: String,
             mode: ProcessingMode,
@@ -74,30 +69,41 @@ class TextProcessor
             return llmClient.process(text, prompt)
         }
 
-        private fun resolvePrompt(
+        private suspend fun resolvePrompt(
             text: String,
             mode: ProcessingMode,
         ): String =
             when (mode) {
-                is ProcessingMode.Smart -> detectContentType(text).prompt!!
-                is ProcessingMode.Custom -> mode.customPrompt
-                else -> mode.prompt!!
+                is ProcessingMode.Smart -> {
+                    val detectedId = detectContentType(text).id
+                    modeRepository.getPrompt(detectedId)
+                        ?: ProcessingModeDefaults.defaultPrompt(detectedId)
+                        ?: error("No prompt available for detected mode $detectedId")
+                }
+
+                is ProcessingMode.Custom ->
+                    mode.customPrompt.ifBlank {
+                        modeRepository.getPrompt(ProcessingModeDefaults.DEFAULT_MODE_ID)
+                            ?: ProcessingModeDefaults.defaultPrompt(ProcessingModeDefaults.DEFAULT_MODE_ID)!!
+                    }
+
+                else ->
+                    modeRepository.getPrompt(mode.id)
+                        ?: mode.prompt
+                        ?: error("No prompt available for mode ${mode.id}")
             }
 
         private fun detectContentType(text: String): ProcessingMode {
             val lowerText = text.lowercase()
 
-            // Check for email patterns
             if (EMAIL_PATTERNS.any { lowerText.contains(it) }) {
                 return ProcessingMode.Email
             }
 
-            // Check for code patterns
             if (CODE_PATTERNS.any { lowerText.contains(it) } || CODE_REGEX.containsMatchIn(text)) {
                 return ProcessingMode.Code
             }
 
-            // Default to Formal
             return ProcessingMode.Formal
         }
     }

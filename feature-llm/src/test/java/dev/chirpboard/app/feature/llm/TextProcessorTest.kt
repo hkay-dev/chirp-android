@@ -2,6 +2,8 @@ package dev.chirpboard.app.feature.llm
 
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import dev.chirpboard.app.feature.llm.model.ProcessingModeDefaults
+import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -13,23 +15,25 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class TextProcessorTest {
     private lateinit var llmClient: LlmClient
+    private lateinit var modeRepository: ProcessingModeRepository
     private lateinit var textProcessor: TextProcessor
 
     @Before
     fun setup() {
         llmClient = mockk()
-        textProcessor = TextProcessor(llmClient)
+        modeRepository = mockk()
+        textProcessor = TextProcessor(llmClient, modeRepository)
     }
 
     @Test
-    fun `process with Formal mode uses formal prompt`() =
+    fun `process with Formal mode uses repository prompt`() =
         runTest {
+            coEvery { modeRepository.getPrompt("formal") } returns "formal prompt"
             coEvery { llmClient.process(any(), any()) } returns Result.success("Success")
 
-            val mode = ProcessingMode.Formal
-            textProcessor.process("test", mode)
+            textProcessor.process("test", ProcessingMode.Formal)
 
-            coVerify { llmClient.process("test", mode.prompt!!) }
+            coVerify { llmClient.process("test", "formal prompt") }
         }
 
     @Test
@@ -46,6 +50,7 @@ class TextProcessorTest {
     @Test
     fun `process with Smart mode detects email`() =
         runTest {
+            coEvery { modeRepository.getPrompt("email") } returns ProcessingModeDefaults.defaultPrompt("email")
             coEvery { llmClient.process(any(), any()) } returns Result.success("Success")
 
             val mode = ProcessingMode.Smart
@@ -58,6 +63,7 @@ class TextProcessorTest {
     @Test
     fun `process with Smart mode detects code`() =
         runTest {
+            coEvery { modeRepository.getPrompt("code") } returns ProcessingModeDefaults.defaultPrompt("code")
             coEvery { llmClient.process(any(), any()) } returns Result.success("Success")
 
             val mode = ProcessingMode.Smart

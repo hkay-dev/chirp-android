@@ -32,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
@@ -49,6 +50,7 @@ fun AudioSettingsScreen(
 ) {
     val microphoneGain by viewModel.microphoneGain.collectAsStateWithLifecycle()
     val recordingQualityPreset by viewModel.recordingQualityPreset.collectAsStateWithLifecycle()
+    val outputFormat by viewModel.outputFormat.collectAsStateWithLifecycle()
     val inputDevicePolicy by viewModel.inputDevicePolicy.collectAsStateWithLifecycle()
     val availableInputDevices by viewModel.availableInputDevices.collectAsStateWithLifecycle()
     val activeInputDeviceLabel by viewModel.activeInputDeviceLabel.collectAsStateWithLifecycle()
@@ -143,10 +145,13 @@ fun AudioSettingsScreen(
                 )
             }
             item {
-                FixedValueListItem(
+                SettingsDropdownListItem(
                     title = stringResource(R.string.audio_settings_output_format),
                     supportingText = stringResource(R.string.audio_settings_output_format_help),
-                    value = viewModel.savedFormatLabel,
+                    options = RecordingOutputFormat.entries,
+                    selectedOption = outputFormat,
+                    optionLabel = { recordingOutputFormatLabel(it) },
+                    onOptionSelected = viewModel::setOutputFormat,
                 )
             }
 
@@ -194,6 +199,14 @@ private fun FixedValueListItem(
         },
     )
 }
+
+@Composable
+private fun recordingOutputFormatLabel(format: RecordingOutputFormat): String =
+    when (format) {
+        RecordingOutputFormat.M4A -> stringResource(R.string.audio_settings_format_m4a)
+        RecordingOutputFormat.MP3 -> stringResource(R.string.audio_settings_format_mp3)
+        RecordingOutputFormat.WAV -> stringResource(R.string.audio_settings_format_wav)
+    }
 
 @Composable
 private fun recordingQualityLabel(preset: RecordingQualityPreset): String =

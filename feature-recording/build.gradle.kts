@@ -35,6 +35,7 @@ dependencies {
     implementation(project(":core-ui"))
     implementation(project(":core-playback"))
     implementation(project(":data"))
+    implementation("com.github.banketree:AndroidLame-kotlin:v0.0.4")
     
     // Compose
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))
@@ -59,10 +60,12 @@ dependencies {
     
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
 
     // Tests
     testImplementation("junit:junit:4.13.2")
+    testImplementation(project(":test-support"))
     testImplementation(libs.mockk)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 

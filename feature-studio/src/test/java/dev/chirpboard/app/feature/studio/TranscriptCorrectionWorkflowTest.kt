@@ -146,7 +146,7 @@ class TranscriptCorrectionWorkflowTest {
             )
 
         assertEquals(
-            "Add a Gemini API key in Settings to use transcript tools",
+            "Add an API key in AI Processing settings to use transcript tools",
             state.validateTranscriptSelectionActionRequest(hasApiKey = false),
         )
     }

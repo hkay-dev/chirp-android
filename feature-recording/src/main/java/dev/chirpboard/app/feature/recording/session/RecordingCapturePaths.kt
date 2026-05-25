@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.recording.session
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import java.io.File
 import java.util.UUID
 import javax.inject.Inject
@@ -19,7 +20,12 @@ class RecordingCapturePaths
         fun segmentFile(
             sessionId: UUID,
             index: Int,
-        ): File = File(captureDir(sessionId), "seg-${index.toString().padStart(3, '0')}.m4a")
+            format: RecordingOutputFormat,
+        ): File =
+            File(
+                captureDir(sessionId),
+                "seg-${index.toString().padStart(3, '0')}${format.fileExtension}",
+            )
 
         fun deleteCaptureArtifacts(sessionId: UUID) {
             captureDir(sessionId).deleteRecursively()

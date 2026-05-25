@@ -1,4 +1,4 @@
-Historical codebase audit reports, planning notes, and superseded specs. Current guidance lives in OpenSpec changes and `docs/reliability-test-matrix.md`.
+Historical codebase audit reports, planning notes, and superseded specs. Current guidance lives in `docs/recording-lifecycle-spec.md`, `docs/reliability-test-matrix.md`, and OpenSpec changes (when present).
 
 **Path remapping:** Archived reports may cite deleted `core/` paths. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for the current module layout.
 

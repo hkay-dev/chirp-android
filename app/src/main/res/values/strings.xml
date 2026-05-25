@@ -88,7 +88,10 @@
     <string name="audio_settings_recording_quality">Recording Quality</string>
     <string name="audio_settings_recording_quality_help">Applies to future saved app and keyboard recordings.</string>
     <string name="audio_settings_output_format">Output Format</string>
-    <string name="audio_settings_output_format_help">Saved recordings always use AAC audio in an M4A container.</string>
+    <string name="audio_settings_output_format_help">Choose the container and codec used when saving recordings.</string>
+    <string name="audio_settings_format_m4a">M4A (AAC)</string>
+    <string name="audio_settings_format_mp3">MP3</string>
+    <string name="audio_settings_format_wav">WAV (PCM)</string>
     <string name="audio_settings_quality_low">Low</string>
     <string name="audio_settings_quality_balanced">Balanced</string>
     <string name="audio_settings_quality_high">High</string>
