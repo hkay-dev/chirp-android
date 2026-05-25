@@ -33,8 +33,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Summarize
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
+import dev.chirpboard.app.core.ui.components.ChirpPrimaryExtendedFab
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,8 +54,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.core.R as CoreR
+import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.components.MetadataPillRow
 import java.util.UUID
@@ -382,9 +383,10 @@ fun BreathingExtendedFab(
     expanded: Boolean,
     isChecking: Boolean,
     onClick: () -> Unit,
+    isScrollInProgress: Boolean = false,
 ) {
     val scaleAnimation =
-        if (!isChecking) {
+        if (!isChecking && expanded && !isScrollInProgress) {
             val infiniteTransition = rememberInfiniteTransition(label = "breathing")
             infiniteTransition.animateFloat(
                 initialValue = 1f,
@@ -400,15 +402,20 @@ fun BreathingExtendedFab(
             null
         }
 
-    ExtendedFloatingActionButton(
+    ChirpPrimaryExtendedFab(
         onClick = {
             if (isRecordEntryActionEnabled(isChecking)) {
                 onClick()
             }
         },
-        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
         expanded = expanded,
+        modifier =
+            Modifier
+                .graphicsLayer {
+                    val scale = scaleAnimation?.value ?: 1f
+                    scaleX = scale
+                    scaleY = scale
+                }.testTag(HomeScreenRecordEntryTestTags.RecordFab),
         icon = {
             if (isChecking) {
                 CircularProgressIndicator(
@@ -425,13 +432,6 @@ fun BreathingExtendedFab(
         text = {
             Text(recordFabLabel(isChecking))
         },
-        modifier =
-            Modifier
-                .graphicsLayer {
-                    val scale = scaleAnimation?.value ?: 1f
-                    scaleX = scale
-                    scaleY = scale
-                }.testTag(HomeScreenRecordEntryTestTags.RecordFab),
     )
 }
 
@@ -446,82 +446,24 @@ fun AnimatedEmptyState(
     isRecordEntryChecking: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "floating")
-    val offsetY =
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 8f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(durationMillis = 3000, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "float_offset",
+    Column(modifier = modifier.fillMaxSize()) {
+        EmptyState(
+            icon = Icons.Default.Mic,
+            title = stringResource(R.string.rec_empty_state_title),
+            description = stringResource(R.string.rec_empty_state_subtitle),
+            animateIcon = true,
+            modifier = Modifier.weight(1f),
         )
-
-    Column(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        // Floating mic icon
-        Icon(
-            imageVector = Icons.Default.Mic,
-            contentDescription = null,
-            modifier =
-                Modifier
-                    .size(80.dp)
-                    .graphicsLayer { translationY = -offsetY.value },
-            tint = MaterialTheme.colorScheme.primary,
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(
-            text = stringResource(R.string.rec_empty_state_title),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Medium,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = stringResource(R.string.rec_empty_state_subtitle),
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        FilledTonalButton(
-            onClick = onRecordClick,
-            enabled = isRecordEntryActionEnabled(isRecordEntryChecking),
-            modifier = Modifier.testTag(HomeScreenRecordEntryTestTags.EmptyStateRecordButton),
-        ) {
-            if (isRecordEntryChecking) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
-                }
-            } else {
-                Text(emptyStateRecordButtonLabel(isRecordEntryChecking))
-            }
-        }
 
         if (shouldShowHomeQuickStartSurface(quickStarts)) {
-            Spacer(modifier = Modifier.height(16.dp))
             HomeQuickStartSurface(
                 quickStarts = quickStarts,
                 onQuickStartClick = onQuickStartClick,
                 isRecordEntryChecking = isRecordEntryChecking,
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
     }

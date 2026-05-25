@@ -12,7 +12,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -51,9 +52,8 @@ fun RecordingTimer(
             is RecordingState.Recording -> {
                 val segmentStart = state.startTimeMs
                 while (true) {
-                    withFrameMillis {
-                        elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
-                    }
+                    elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    delay(ChirpMotion.TIMER_TICK_MS)
                 }
             }
 

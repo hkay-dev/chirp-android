@@ -25,10 +25,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -45,7 +46,6 @@ import androidx.compose.material3.MediumTopAppBar
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -73,7 +73,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.StatsPillRow
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
+import dev.chirpboard.app.core.ui.components.StatusBarProtection
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -110,11 +112,17 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    var showFilterMenu by remember { mutableStateOf(false) }
+    var showImportMenu by remember { mutableStateOf(false) }
 
-    // FAB expand/collapse based on scroll
+    // FAB expand/collapse based on scroll with hysteresis to avoid flicker at the threshold.
     val fabExpanded by remember {
-        derivedStateOf { listState.firstVisibleItemIndex == 0 }
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset < 48
+        }
+    }
+    val isListScrolling by remember {
+        derivedStateOf { listState.isScrollInProgress }
     }
 
     // Bottom sheet state
@@ -221,51 +229,27 @@ fun HomeScreen(
                     }
 
                     Box {
-                        IconButton(onClick = { showFilterMenu = true }) {
+                        IconButton(onClick = { showImportMenu = true }) {
                             Icon(
-                                imageVector = Icons.Default.FilterList,
-                                contentDescription = stringResource(R.string.desc_filters),
-                                tint =
-                                    if (listFilter == ListFilterMode.PROCESSING) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
+                                imageVector = Icons.Default.Add,
+                                contentDescription = stringResource(R.string.rec_import_audio),
                             )
                         }
-
                         DropdownMenu(
-                            expanded = showFilterMenu,
-                            onDismissRequest = { showFilterMenu = false },
+                            expanded = showImportMenu,
+                            onDismissRequest = { showImportMenu = false },
                         ) {
                             DropdownMenuItem(
-                                text = { Text(stringResource(R.string.rec_filter_all)) },
+                                text = { Text(stringResource(R.string.rec_import_audio)) },
                                 onClick = {
-                                    showFilterMenu = false
-                                    viewModel.setListFilter(ListFilterMode.ALL)
+                                    showImportMenu = false
+                                    launcher.launch("audio/*")
                                 },
                                 leadingIcon = {
-                                    if (listFilter == ListFilterMode.ALL) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                        )
-                                    }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.rec_filter_processing)) },
-                                onClick = {
-                                    showFilterMenu = false
-                                    viewModel.setListFilter(ListFilterMode.PROCESSING)
-                                },
-                                leadingIcon = {
-                                    if (listFilter == ListFilterMode.PROCESSING) {
-                                        Icon(
-                                            imageVector = Icons.Default.Check,
-                                            contentDescription = null,
-                                        )
-                                    }
+                                    Icon(
+                                        imageVector = Icons.Default.AudioFile,
+                                        contentDescription = null,
+                                    )
                                 },
                             )
                         }
@@ -299,42 +283,32 @@ fun HomeScreen(
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    Box(
-                        modifier = Modifier.size(48.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        SmallFloatingActionButton(
-                            onClick = { launcher.launch("audio/*") },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AudioFile,
-                                contentDescription = stringResource(R.string.rec_import_audio),
-                            )
-                        }
-                    }
-                    BreathingExtendedFab(
-                        expanded = fabExpanded,
-                        isChecking = isRecordEntryChecking,
-                        onClick = onRecordClick,
-                    )
-                }
+                BreathingExtendedFab(
+                    expanded = fabExpanded,
+                    isChecking = isRecordEntryChecking,
+                    isScrollInProgress = isListScrolling,
+                    onClick = onRecordClick,
+                )
             }
         },
         floatingActionButtonPosition = FabPosition.End,
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
-        AnimatedContent(
-            modifier = Modifier.padding(paddingValues),
-            targetState = showEmptyState,
+        Box(modifier = Modifier.fillMaxSize()) {
+            AnimatedContent(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .consumeWindowInsets(paddingValues),
+                targetState = showEmptyState,
             transitionSpec = {
-                fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
-                    fadeOut(tween(200, easing = FastOutSlowInEasing))
+                fadeIn(ChirpMotion.studioAlphaTween) togetherWith
+                    fadeOut(
+                        tween(
+                            durationMillis = ChirpMotion.STUDIO_HIDE_MS,
+                            easing = FastOutSlowInEasing,
+                        ),
+                    )
             },
             label = "home_content",
         ) { showEmpty ->
@@ -344,13 +318,17 @@ fun HomeScreen(
                     onQuickStartClick = onQuickStartClick,
                     quickStarts = quickStarts,
                     isRecordEntryChecking = isRecordEntryChecking,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                    modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 8.dp),
                 )
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    contentPadding =
+                        PaddingValues(
+                            top = paddingValues.calculateTopPadding(),
+                            bottom = paddingValues.calculateBottomPadding() + 96.dp,
+                        ),
                 ) {
                     // Stats pill row - show when not searching
                     if (searchQuery.isBlank() && stats.totalRecordings > 0) {
@@ -363,8 +341,7 @@ fun HomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                                        .animateItem(),
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
                             )
                         }
 
@@ -400,8 +377,7 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier =
                                     Modifier
-                                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                                        .animateItem(),
+                                        .padding(horizontal = 8.dp, vertical = 8.dp),
                             )
                         }
                     }
@@ -412,7 +388,7 @@ fun HomeScreen(
                         key = { it.id },
                         contentType = { "recording" },
                     ) { item ->
-                        Column(modifier = Modifier.animateItem()) {
+                        Column {
                             RecordingListItem(
                                 item = item,
                                 onClick = { onRecordingClick(item.id) },
@@ -426,6 +402,11 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+
+            StatusBarProtection(
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
 
         // Bottom sheet for item actions

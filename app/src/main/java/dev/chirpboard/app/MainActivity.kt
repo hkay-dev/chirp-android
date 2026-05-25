@@ -7,8 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -16,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.ui.components.ChirpScaffoldSurface
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.navigation.AppNavHost
 import dev.chirpboard.app.navigation.SharedAudioRequest
@@ -34,10 +33,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ChirpTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.surface,
-                ) {
+                ChirpScaffoldSurface {
                     AppNavHost(
                         incomingSharedAudioRequest = sharedAudioRequest,
                         onStartupPromptGateChanged = ::maybeRequestStartupPrompts,

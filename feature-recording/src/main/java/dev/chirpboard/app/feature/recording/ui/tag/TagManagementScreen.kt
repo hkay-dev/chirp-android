@@ -57,6 +57,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.ui.components.ChirpLeafScaffold
+import dev.chirpboard.app.core.ui.components.ChirpPrimaryFab
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.data.entity.Tag
@@ -91,31 +93,18 @@ fun TagManagementScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingTag by remember { mutableStateOf<Tag?>(null) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.rec_tags)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(CoreR.string.desc_back),
-                        )
-                    }
-                },
-            )
-        },
+    ChirpLeafScaffold(
+        title = stringResource(R.string.rec_tags),
+        onNavigateBack = onNavigateBack,
+        snackbarHostState = snackbarHostState,
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showCreateDialog = true },
-            ) {
+            ChirpPrimaryFab(onClick = { showCreateDialog = true }) {
                 Icon(
                     imageVector = Icons.Default.Add,
                     contentDescription = stringResource(R.string.desc_add_tag),
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
             targetState = tags.isEmpty(),

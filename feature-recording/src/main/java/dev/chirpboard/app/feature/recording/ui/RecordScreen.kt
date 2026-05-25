@@ -47,6 +47,7 @@ import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.components.recording.RecordingActionRow
 import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
 import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -85,7 +86,7 @@ fun RecordScreen(
     LaunchedEffect(lastCompletedRecordingId) {
         val recordingId = lastCompletedRecordingId
         if (recordingId != null) {
-            delay(200)
+            delay(ChirpMotion.RECORD_HANDOFF_MS)
             onRecordingComplete(recordingId.toString())
             viewModel.clearLastCompletedRecordingId()
         }

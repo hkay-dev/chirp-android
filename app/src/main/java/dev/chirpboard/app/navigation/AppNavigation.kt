@@ -29,14 +29,14 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.LoadingState
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.coroutines.flow.collect
 
 /**
  * Material 3 motion: shared axis forward/backward transitions.
+ * Durations are intentionally matched and slightly long to mask frame hitches.
  */
-private const val TRANSITION_DURATION = 300
-private const val FADE_DURATION = 250
-private const val SLIDE_OFFSET_DIVISOR = 10
+private val navSlideDivisor = ChirpMotion.NAV_SLIDE_OFFSET_DIVISOR
 
 /**
  * Main navigation host for the app.
@@ -85,7 +85,7 @@ internal fun AppNavHost(
                 fadeIn(
                     animationSpec =
                         tween(
-                            durationMillis = TRANSITION_DURATION,
+                            durationMillis = ChirpMotion.NAV_TRANSITION_MS,
                             easing = FastOutSlowInEasing,
                         ),
                 ) +
@@ -93,17 +93,17 @@ internal fun AppNavHost(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
                         animationSpec =
                             tween(
-                                durationMillis = TRANSITION_DURATION,
+                                durationMillis = ChirpMotion.NAV_TRANSITION_MS,
                                 easing = FastOutSlowInEasing,
                             ),
-                        initialOffset = { it / SLIDE_OFFSET_DIVISOR },
+                        initialOffset = { it / navSlideDivisor },
                     )
             },
             exitTransition = {
                 fadeOut(
                     animationSpec =
                         tween(
-                            durationMillis = FADE_DURATION,
+                            durationMillis = ChirpMotion.NAV_FADE_MS,
                             easing = FastOutSlowInEasing,
                         ),
                 ) +
@@ -111,17 +111,17 @@ internal fun AppNavHost(
                         towards = AnimatedContentTransitionScope.SlideDirection.Start,
                         animationSpec =
                             tween(
-                                durationMillis = FADE_DURATION,
+                                durationMillis = ChirpMotion.NAV_FADE_MS,
                                 easing = FastOutSlowInEasing,
                             ),
-                        targetOffset = { it / SLIDE_OFFSET_DIVISOR },
+                        targetOffset = { it / navSlideDivisor },
                     )
             },
             popEnterTransition = {
                 fadeIn(
                     animationSpec =
                         tween(
-                            durationMillis = TRANSITION_DURATION,
+                            durationMillis = ChirpMotion.NAV_TRANSITION_MS,
                             easing = FastOutSlowInEasing,
                         ),
                 ) +
@@ -129,17 +129,17 @@ internal fun AppNavHost(
                         towards = AnimatedContentTransitionScope.SlideDirection.End,
                         animationSpec =
                             tween(
-                                durationMillis = TRANSITION_DURATION,
+                                durationMillis = ChirpMotion.NAV_TRANSITION_MS,
                                 easing = FastOutSlowInEasing,
                             ),
-                        initialOffset = { it / SLIDE_OFFSET_DIVISOR },
+                        initialOffset = { it / navSlideDivisor },
                     )
             },
             popExitTransition = {
                 fadeOut(
                     animationSpec =
                         tween(
-                            durationMillis = FADE_DURATION,
+                            durationMillis = ChirpMotion.NAV_FADE_MS,
                             easing = FastOutSlowInEasing,
                         ),
                 ) +
@@ -147,10 +147,10 @@ internal fun AppNavHost(
                         towards = AnimatedContentTransitionScope.SlideDirection.End,
                         animationSpec =
                             tween(
-                                durationMillis = FADE_DURATION,
+                                durationMillis = ChirpMotion.NAV_FADE_MS,
                                 easing = FastOutSlowInEasing,
                             ),
-                        targetOffset = { it / SLIDE_OFFSET_DIVISOR },
+                        targetOffset = { it / navSlideDivisor },
                     )
             },
         ) {

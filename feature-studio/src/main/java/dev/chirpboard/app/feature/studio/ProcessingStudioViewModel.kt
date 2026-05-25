@@ -14,7 +14,8 @@ import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
-import dev.chirpboard.app.core.transcription.TranscriptionScheduler
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,7 +42,7 @@ class ProcessingStudioViewModel
         private val llmClient: LlmClient,
         private val llmPreferences: LlmPreferences,
         private val wordReplacementRepository: WordReplacementRepository,
-        private val transcriptionScheduler: TranscriptionScheduler,
+        private val transcriptionRecovery: TranscriptionRecovery,
     ) : ViewModel() {
         private var currentRecordingId: UUID? = null
         private var currentTranscript: Transcript? = null
@@ -60,6 +61,8 @@ class ProcessingStudioViewModel
 
         private var audioPlayback: ProcessingStudioAudioPlayback? = null
         private var progressJob: Job? = null
+        private var playerInitJob: Job? = null
+        private var pendingPlayerAudioPath: String? = null
 
         init {
             val recordingIdStr = savedStateHandle.get<String>("recordingId")
@@ -159,11 +162,21 @@ class ProcessingStudioViewModel
                             nextState = nextState.exitTranscriptSelectionMode()
                         }
 
-                        _uiState.value = refreshTranscriptInteractionState(nextState)
+                        val shouldRefreshRecovery =
+                            nextState.status != currentState.status ||
+                                nextState.recoveryDiagnostics == null
+                        val stateWithRecovery =
+                            if (shouldRefreshRecovery) {
+                                withContext(Dispatchers.IO) {
+                                    refreshRecoveryState(nextState, recording.id, recording.status)
+                                }
+                            } else {
+                                nextState
+                            }
 
-                        if (audioPlayback == null) {
-                            initPlayer(recording.audioPath)
-                        }
+                        _uiState.value = refreshTranscriptInteractionState(stateWithRecovery)
+
+                        scheduleDeferredPlayerInit(recording.audioPath, recording.id)
                     } else {
                         _uiState.value = _uiState.value.copy(isLoading = false)
                     }
@@ -171,7 +184,29 @@ class ProcessingStudioViewModel
             }
         }
 
+        private fun scheduleDeferredPlayerInit(
+            audioPath: String,
+            recordingId: UUID,
+        ) {
+            if (audioPlayback != null || pendingPlayerAudioPath == audioPath) {
+                return
+            }
+            pendingPlayerAudioPath = audioPath
+            playerInitJob?.cancel()
+            playerInitJob =
+                viewModelScope.launch {
+                    delay(ChirpMotion.NAV_TRANSITION_MS.toLong())
+                    if (currentRecordingId != recordingId || audioPlayback != null) {
+                        return@launch
+                    }
+                    initPlayer(audioPath)
+                }
+        }
+
         private fun initPlayer(audioPath: String) {
+            if (audioPlayback != null) {
+                return
+            }
             audioPlayback =
                 ProcessingStudioAudioPlayback(
                     context = context,
@@ -204,17 +239,29 @@ class ProcessingStudioViewModel
                 viewModelScope.launch {
                     while (isActive && audioPlayback?.isPlaying == true) {
                         updatePlaybackPosition(audioPlayback?.currentPositionMs ?: 0L)
-                        delay(500)
+                        delay(ChirpMotion.PLAYBACK_TICK_MS)
                     }
                 }
         }
 
         private fun updatePlaybackPosition(positionMs: Long) {
+            val current = _uiState.value
+            val nextActiveIndex =
+                if (current.canUseTranscriptInteractions()) {
+                    findActiveTranscriptSegmentIndex(
+                        transcript = current.transcript,
+                        positionMs = positionMs,
+                    )
+                } else {
+                    -1
+                }
+            if (current.currentPositionMs == positionMs && current.activeTranscriptSegmentIndex == nextActiveIndex) {
+                return
+            }
             _uiState.value =
-                refreshTranscriptInteractionState(
-                    _uiState.value.copy(
-                        currentPositionMs = positionMs,
-                    ),
+                current.copy(
+                    currentPositionMs = positionMs,
+                    activeTranscriptSegmentIndex = nextActiveIndex,
                 )
         }
 
@@ -487,9 +534,67 @@ class ProcessingStudioViewModel
 
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
-                transcriptionScheduler.enqueue(recordingId)
+                transcriptionRecovery.enqueue(recordingId)
+                refreshRecoveryForCurrentRecording()
                 _message.value = "Re-queued for transcription"
             }
+        }
+
+        fun recoverPendingTranscription() {
+            viewModelScope.launch {
+                val recordingId = currentRecordingId ?: return@launch
+                val result = transcriptionRecovery.recoverPendingTranscription(recordingId)
+                _message.value = result.toUserMessage("Pending transcription recovered")
+                refreshRecoveryForCurrentRecording()
+            }
+        }
+
+        fun recoverEnhancing() {
+            viewModelScope.launch {
+                val recordingId = currentRecordingId ?: return@launch
+                val result = transcriptionRecovery.recoverEnhancing(recordingId)
+                _message.value = result.toUserMessage("Enhancement recovery queued")
+                refreshRecoveryForCurrentRecording()
+            }
+        }
+
+        fun retranscribeFromEnhancing() {
+            viewModelScope.launch {
+                val recordingId = currentRecordingId ?: return@launch
+                val result = transcriptionRecovery.retranscribeFromEnhancing(recordingId)
+                _message.value = result.toUserMessage("Full retranscription queued")
+                refreshRecoveryForCurrentRecording()
+            }
+        }
+
+        fun retryTranscription() {
+            viewModelScope.launch {
+                val recordingId = currentRecordingId ?: return@launch
+                val status = _uiState.value.status
+                if (status == RecordingStatus.FAILED || status == RecordingStatus.COMPLETED) {
+                    transcriptionRecovery.retry(recordingId)
+                    _message.value = "Re-queued for transcription"
+                    refreshRecoveryForCurrentRecording()
+                }
+            }
+        }
+
+        private suspend fun refreshRecoveryForCurrentRecording() {
+            val recordingId = currentRecordingId ?: return
+            val status = _uiState.value.status
+            _uiState.value = refreshRecoveryState(_uiState.value, recordingId, status)
+        }
+
+        private suspend fun refreshRecoveryState(
+            state: ProcessingStudioState,
+            recordingId: UUID,
+            status: RecordingStatus?,
+        ): ProcessingStudioState {
+            val diagnostics = transcriptionRecovery.getRecoveryDiagnostics(recordingId).toUiModel()
+            return state.copy(
+                recoveryDiagnostics = diagnostics,
+                recoveryActions = computeTranscriptionRecoveryActions(status, diagnostics.ownership),
+            )
         }
 
         fun cancelEditingTitle() {
@@ -648,6 +753,8 @@ class ProcessingStudioViewModel
 
         override fun onCleared() {
             super.onCleared()
+            playerInitJob?.cancel()
+            progressJob?.cancel()
             audioPlayback?.release()
             audioPlayback = null
         }

@@ -40,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.PackageInfoCompat
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.ui.components.ChirpLeafScaffold
 import dev.chirpboard.app.core.ui.components.SettingsListItem
 
 /**
@@ -51,20 +52,9 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val appInfo = remember { getAppInfo(context) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.about_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.desc_back),
-                        )
-                    }
-                },
-            )
-        },
+    ChirpLeafScaffold(
+        title = stringResource(R.string.about_title),
+        onNavigateBack = onNavigateBack,
     ) { padding ->
         LazyColumn(
             modifier =

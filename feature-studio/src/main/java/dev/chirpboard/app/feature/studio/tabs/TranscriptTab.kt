@@ -7,6 +7,8 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,10 +31,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
@@ -48,6 +53,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.ProcessingStudioTranscript
+import dev.chirpboard.app.feature.studio.TranscriptSegment
 import dev.chirpboard.app.feature.studio.TranscriptSelectionResult
 
 @Composable
@@ -80,51 +86,62 @@ fun TranscriptTab(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
-    val progressMessage = status.transcriptProgressMessage()
-    if (transcript == ProcessingStudioTranscript.Empty && progressMessage != null) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = progressMessage,
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-            }
-        }
-        return
-    }
-
-    if (transcript == ProcessingStudioTranscript.Empty && status == RecordingStatus.COMPLETED) {
-        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text = stringResource(R.string.rec_no_transcript_available), style = MaterialTheme.typography.bodyLarge)
-        }
-        return
-    }
+    val progressCopy = status.transcriptionProgressCopy()
+    val hasTranscriptContent = transcript != ProcessingStudioTranscript.Empty
+    val showProgress = progressCopy != null && !isEditingTranscript && !isSelectingTranscript
+    val showTranscriptChrome = hasTranscriptContent && !isEditingTranscript && !isSelectingTranscript
+    val showEmptyCompleted =
+        transcript == ProcessingStudioTranscript.Empty &&
+            status == RecordingStatus.COMPLETED &&
+            progressCopy == null
+    val usesStudioInsets = showTranscriptChrome || isEditingTranscript || isSelectingTranscript
+    val contentInset by animateDpAsState(
+        targetValue = if (usesStudioInsets) 16.dp else 0.dp,
+        animationSpec = studioLayoutMotionSpring,
+        label = "transcript_content_inset",
+    )
+    val transcriptAlpha by animateFloatAsState(
+        targetValue = if (showTranscriptChrome) 1f else 0f,
+        animationSpec = studioContentAlphaTween,
+        label = "transcript_body_alpha",
+    )
 
     Column(
-        modifier = modifier.fillMaxSize().padding(contentPadding),
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(contentInset),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        TranscriptActionRow(
-            effectiveTranscriptText = effectiveTranscriptText,
-            transcriptDraft = transcriptDraft,
-            isEditingTranscript = isEditingTranscript,
-            isSelectingTranscript = isSelectingTranscript,
-            canEnterSelectionMode = canEnterSelectionMode,
-            canPromoteManualCorrection = canPromoteManualCorrection,
-            status = status,
-            onStartEditing = onStartEditing,
-            onEnterSelectionMode = onEnterSelectionMode,
-            onExitSelectionMode = onExitSelectionMode,
-            onCancelEditing = onCancelEditing,
-            onSaveCorrection = onSaveCorrection,
-            onPromoteCorrection = onPromoteCorrection,
-            onRetranscribe = onRetranscribe,
-        )
+        if (showTranscriptChrome) {
+            TranscriptActionRow(
+                effectiveTranscriptText = effectiveTranscriptText,
+                transcriptDraft = transcriptDraft,
+                isEditingTranscript = isEditingTranscript,
+                isSelectingTranscript = isSelectingTranscript,
+                canEnterSelectionMode = canEnterSelectionMode,
+                canPromoteManualCorrection = canPromoteManualCorrection,
+                status = status,
+                onStartEditing = onStartEditing,
+                onEnterSelectionMode = onEnterSelectionMode,
+                onExitSelectionMode = onExitSelectionMode,
+                onCancelEditing = onCancelEditing,
+                onSaveCorrection = onSaveCorrection,
+                onPromoteCorrection = onPromoteCorrection,
+                onRetranscribe = onRetranscribe,
+                modifier =
+                    Modifier
+                        .graphicsLayer { alpha = transcriptAlpha }
+                        .fillMaxWidth(),
+            )
+        }
 
         if (hasManualCorrection && !isEditingTranscript) {
             Surface(
+                modifier =
+                    Modifier
+                        .graphicsLayer { alpha = transcriptAlpha }
+                        .fillMaxWidth(),
                 color = MaterialTheme.colorScheme.secondaryContainer,
                 contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             ) {
@@ -136,62 +153,88 @@ fun TranscriptTab(
             }
         }
 
-        if (progressMessage != null) {
-            Surface(
-                color = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-            ) {
-                Text(
-                    text = progressMessage,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
-                )
-            }
-        }
+        Box(modifier = Modifier.weight(1f, fill = true).fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (showProgress && progressCopy != null) {
+                    Box(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .then(if (!hasTranscriptContent) Modifier.weight(1f, fill = true) else Modifier),
+                        contentAlignment = if (hasTranscriptContent) Alignment.TopStart else Alignment.Center,
+                    ) {
+                        MorphingTranscriptionProgress(
+                            compact = hasTranscriptContent,
+                            copy = progressCopy,
+                        )
+                    }
+                }
 
-        if (isEditingTranscript) {
-            OutlinedTextField(
-                value = transcriptDraft,
-                onValueChange = onTranscriptDraftChange,
-                modifier = Modifier.fillMaxSize(),
-                minLines = 12,
-            )
-            return
-        }
+                when {
+                    showTranscriptChrome -> {
+                        Box(
+                            modifier =
+                                Modifier
+                                    .weight(1f, fill = true)
+                                    .fillMaxWidth()
+                                    .graphicsLayer { alpha = transcriptAlpha },
+                        ) {
+                            when (transcript) {
+                                ProcessingStudioTranscript.Empty -> Unit
 
-        if (isSelectingTranscript) {
-            TranscriptSelectionModeContent(
-                transcript = transcript,
-                renderedTranscriptText = renderedTranscriptText,
-                selectedTranscriptPassage = selectedTranscriptPassage,
-                actionInFlight = transcriptSelectionActionInFlight,
-                transcriptSelectionResult = transcriptSelectionResult,
-                onTranscriptSelectionChange = onTranscriptSelectionChange,
-                onRunTranscriptSelectionAction = onRunTranscriptSelectionAction,
-                modifier = Modifier.fillMaxSize(),
-            )
-            return
-        }
+                                is ProcessingStudioTranscript.Untimed -> {
+                                    UntimedTranscriptContent(
+                                        transcript = transcript,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
 
-        when (transcript) {
-            ProcessingStudioTranscript.Empty -> {
-                Unit
-            }
+                                is ProcessingStudioTranscript.Timed -> {
+                                    TimedTranscriptContent(
+                                        transcript = transcript,
+                                        activeSegmentIndex = activeSegmentIndex,
+                                        onSegmentClicked = onSegmentClicked,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                        }
+                    }
 
-            is ProcessingStudioTranscript.Untimed -> {
-                UntimedTranscriptContent(
-                    transcript = transcript,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
+                    showEmptyCompleted -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.rec_no_transcript_available),
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                    }
 
-            is ProcessingStudioTranscript.Timed -> {
-                TimedTranscriptContent(
-                    transcript = transcript,
-                    activeSegmentIndex = activeSegmentIndex,
-                    onSegmentClicked = onSegmentClicked,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                    isEditingTranscript -> {
+                        OutlinedTextField(
+                            value = transcriptDraft,
+                            onValueChange = onTranscriptDraftChange,
+                            modifier = Modifier.fillMaxSize(),
+                            minLines = 12,
+                        )
+                    }
+
+                    isSelectingTranscript -> {
+                        TranscriptSelectionModeContent(
+                            transcript = transcript,
+                            renderedTranscriptText = renderedTranscriptText,
+                            selectedTranscriptPassage = selectedTranscriptPassage,
+                            actionInFlight = transcriptSelectionActionInFlight,
+                            transcriptSelectionResult = transcriptSelectionResult,
+                            onTranscriptSelectionChange = onTranscriptSelectionChange,
+                            onRunTranscriptSelectionAction = onRunTranscriptSelectionAction,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
             }
         }
     }
@@ -213,13 +256,14 @@ private fun TranscriptActionRow(
     onSaveCorrection: () -> Unit,
     onPromoteCorrection: () -> Unit,
     onRetranscribe: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val isBusy = status.transcriptProgressMessage() != null
+    val isBusy = status.transcriptionProgressCopy() != null
     val trimmedDraft = transcriptDraft.trim()
     val trimmedEffectiveText = effectiveTranscriptText.trim()
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -438,7 +482,7 @@ private fun UntimedTranscriptContent(
                 WordTimingUnavailableNote()
             }
         }
-        items(textChunks, key = { it.hashCode() }) { chunk ->
+        itemsIndexed(textChunks, key = { index, _ -> index }) { _, chunk ->
             Text(
                 text = chunk,
                 style = MaterialTheme.typography.bodyLarge,
@@ -456,44 +500,22 @@ private fun TimedTranscriptContent(
     modifier: Modifier,
 ) {
     val chunks = remember(transcript.segments) { transcript.segments.chunked(100) }
+    val activeChunkIndex =
+        remember(activeSegmentIndex) {
+            if (activeSegmentIndex < 0) -1 else activeSegmentIndex / 100
+        }
 
     LazyColumn(modifier = modifier) {
         itemsIndexed(chunks, key = { index, _ -> index }) { chunkIndex, chunk ->
             val chunkStartIndex = chunkIndex * 100
+            val isActiveChunk = chunkIndex == activeChunkIndex
             val annotatedString =
-                buildAnnotatedString {
-                    chunk.forEachIndexed { index, segment ->
-                        val absoluteIndex = chunkStartIndex + index
-                        val isActive = absoluteIndex == activeSegmentIndex
-                        val segmentStyle =
-                            if (isActive) {
-                                SpanStyle(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            } else {
-                                SpanStyle(color = MaterialTheme.colorScheme.onSurface)
-                            }
-
-                        if (onSegmentClicked != null) {
-                            withLink(
-                                LinkAnnotation.Clickable(
-                                    tag = "segment_${segment.startTimestampMs}_$absoluteIndex",
-                                    linkInteractionListener = { onSegmentClicked(segment.startTimestampMs) },
-                                ),
-                            ) {
-                                withStyle(segmentStyle) {
-                                    append(segment.text)
-                                }
-                            }
-                        } else {
-                            withStyle(segmentStyle) {
-                                append(segment.text)
-                            }
-                        }
-                        append(" ")
-                    }
-                }
+                rememberTimedTranscriptChunk(
+                    chunk = chunk,
+                    chunkStartIndex = chunkStartIndex,
+                    activeSegmentIndex = if (isActiveChunk) activeSegmentIndex else -1,
+                    onSegmentClicked = onSegmentClicked,
+                )
 
             Text(
                 text = annotatedString,
@@ -504,18 +526,51 @@ private fun TimedTranscriptContent(
     }
 }
 
-private fun RecordingStatus?.transcriptProgressMessage(): String? =
-    when (this) {
-        RecordingStatus.PENDING_TRANSCRIPTION,
-        RecordingStatus.TRANSCRIBING,
-        -> "Transcribing audio. Your last saved transcript stays available until the new one finishes."
+@Composable
+private fun rememberTimedTranscriptChunk(
+    chunk: List<TranscriptSegment>,
+    chunkStartIndex: Int,
+    activeSegmentIndex: Int,
+    onSegmentClicked: ((Long) -> Unit)?,
+): androidx.compose.ui.text.AnnotatedString {
+    val activeColor = MaterialTheme.colorScheme.primary
+    val defaultColor = MaterialTheme.colorScheme.onSurface
+    return remember(chunk, chunkStartIndex, activeSegmentIndex, onSegmentClicked, activeColor, defaultColor) {
+        buildAnnotatedString {
+            chunk.forEachIndexed { index, segment ->
+                val absoluteIndex = chunkStartIndex + index
+                val isActive = absoluteIndex == activeSegmentIndex
+                val segmentStyle =
+                    if (isActive) {
+                        SpanStyle(
+                            color = activeColor,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    } else {
+                        SpanStyle(color = defaultColor)
+                    }
 
-        RecordingStatus.ENHANCING,
-        RecordingStatus.PENDING_ENHANCEMENT,
-        -> "Enhancing transcript. Your current transcript stays available while processing finishes."
-
-        else -> null
+                if (onSegmentClicked != null) {
+                    withLink(
+                        LinkAnnotation.Clickable(
+                            tag = "segment_${segment.startTimestampMs}_$absoluteIndex",
+                            linkInteractionListener = { onSegmentClicked(segment.startTimestampMs) },
+                        ),
+                    ) {
+                        withStyle(segmentStyle) {
+                            append(segment.text)
+                        }
+                    }
+                } else {
+                    withStyle(segmentStyle) {
+                        append(segment.text)
+                    }
+                }
+                append(" ")
+            }
+        }
     }
+}
 
 private class SelectionAwareEditText(
     context: Context,
