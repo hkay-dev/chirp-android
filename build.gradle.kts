@@ -8,6 +8,9 @@ plugins {
     id("io.gitlab.arturbosch.detekt") version "1.23.7"
 }
 
+import com.android.build.api.dsl.ApplicationExtension
+import com.android.build.api.dsl.LibraryExtension
+
 detekt {
     toolVersion = "1.23.7"
     config.setFrom(files("$rootDir/detekt.yml"))
@@ -24,6 +27,23 @@ subprojects {
         val baselineFile = file("detekt-baseline.xml")
         if (baselineFile.exists()) {
             baseline = baselineFile
+        }
+    }
+
+    plugins.withId("com.android.library") {
+        extensions.configure<LibraryExtension>("android") {
+            lint {
+                abortOnError = true
+                warningsAsErrors = false
+            }
+        }
+    }
+    plugins.withId("com.android.application") {
+        extensions.configure<ApplicationExtension>("android") {
+            lint {
+                abortOnError = true
+                warningsAsErrors = false
+            }
         }
     }
 }

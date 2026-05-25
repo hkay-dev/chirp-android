@@ -56,13 +56,13 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
     // Media3 playback (shared across app)
-    implementation("androidx.media3:media3-exoplayer:1.2.1")
-    implementation("androidx.media3:media3-session:1.2.1")
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.session)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.7.3")
 
     // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    testImplementation("io.mockk:mockk:1.13.10")
+    testImplementation(libs.mockk)
     testImplementation("app.cash.turbine:turbine:1.0.0")
 }

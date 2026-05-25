@@ -1,3 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application>
+        <!-- WorkManager foreground worker (TranscriptionWorker setForeground) -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
+    </application>
 </manifest>

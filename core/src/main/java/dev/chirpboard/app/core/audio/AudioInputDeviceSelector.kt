@@ -1,5 +1,6 @@
 package dev.chirpboard.app.core.audio
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -100,6 +101,7 @@ class AudioInputDeviceSelector
             _activeDeviceLabel.value = summaryFor(device).productName
         }
 
+        @SuppressLint("MissingPermission")
         suspend fun buildAudioRecord(
             audioSource: Int,
             sampleRate: Int,

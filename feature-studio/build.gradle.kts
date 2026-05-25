@@ -49,10 +49,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
 
-    // Media3 (ExoPlayer)
-    implementation("androidx.media3:media3-exoplayer:1.2.1")
-    implementation("androidx.media3:media3-session:1.2.1")
-
     // Hilt
     implementation("com.google.dagger:hilt-android:2.51.1")
     ksp("com.google.dagger:hilt-android-compiler:2.51.1")
@@ -66,12 +62,12 @@ dependencies {
 
     // Tests
     testImplementation("junit:junit:4.13.2")
-    testImplementation("io.mockk:mockk:1.13.10")
+    testImplementation(libs.mockk)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("app.cash.turbine:turbine:1.0.0")
 
     androidTestImplementation(platform("androidx.compose:compose-bom:2025.01.01"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation(libs.androidx.test.ext.junit)
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -5,6 +5,8 @@
 set -euo pipefail
 
 ./gradlew \
+	detekt \
+	lintDebug \
 	:core:testDebugUnitTest \
 	:data:testDebugUnitTest \
 	:feature-transcription:testDebugUnitTest \
@@ -13,9 +15,9 @@ set -euo pipefail
 	:feature-studio:testDebugUnitTest \
 	:feature-llm:testDebugUnitTest \
 	:feature-obsidian:testDebugUnitTest \
+	:feature-widget:testDebugUnitTest \
 	:app:testDebugUnitTest \
 	:data:compileDebugAndroidTestKotlin \
 	:app:compileDebugAndroidTestKotlin \
 	:feature-recording:compileDebugAndroidTestKotlin \
-	:feature-studio:compileDebugAndroidTestKotlin \
-	detekt
+	:feature-studio:compileDebugAndroidTestKotlin

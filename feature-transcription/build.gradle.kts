@@ -70,12 +70,12 @@ dependencies {
 
     // Core
     implementation("androidx.core:core-ktx:1.12.0")
-    implementation("com.google.guava:guava:33.3.1-android")
+    implementation(libs.guava)
 
     // Testing
     testImplementation("junit:junit:4.13.2")
-    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation(libs.mockk)
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation("app.cash.turbine:turbine:1.0.0")
-    testImplementation("com.google.guava:guava:33.2.1-android")
+    testImplementation(libs.guava)
 }
