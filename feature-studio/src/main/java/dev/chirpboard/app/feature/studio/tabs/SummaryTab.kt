@@ -1,6 +1,6 @@
 package dev.chirpboard.app.feature.studio.tabs
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,10 +9,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,8 +23,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R as CoreR
+import dev.chirpboard.app.core.ui.components.CopyActionButton
+import dev.chirpboard.app.core.ui.components.StudioOutlinedAction
 import dev.chirpboard.app.feature.studio.R
-import dev.chirpboard.app.feature.studio.StructuredOutcomeGroup
 import dev.chirpboard.app.feature.studio.StructuredOutcomeItemUi
 import dev.chirpboard.app.feature.studio.StructuredOutcomeSectionState
 
@@ -36,23 +40,30 @@ fun SummaryTab(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(16.dp),
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    Column(
+        modifier =
+            modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "summary_body") {
-            SummaryBody(summaryMarkdown = summaryMarkdown)
-        }
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item(key = "summary_body") {
+                SummaryBody(summaryMarkdown = summaryMarkdown)
+            }
 
-        item(key = "structured_outcomes") {
-            StructuredOutcomeSection(
-                state = structuredOutcomeSection,
-                onGenerateStructuredOutcomes = onGenerateStructuredOutcomes,
-                onCopyStructuredOutcome = onCopyStructuredOutcome,
-                onShareStructuredOutcome = onShareStructuredOutcome,
-                onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
-            )
+            item(key = "structured_outcomes") {
+                StructuredOutcomeSection(
+                    state = structuredOutcomeSection,
+                    onGenerateStructuredOutcomes = onGenerateStructuredOutcomes,
+                    onCopyStructuredOutcome = onCopyStructuredOutcome,
+                    onShareStructuredOutcome = onShareStructuredOutcome,
+                    onAskAiAboutStructuredOutcome = onAskAiAboutStructuredOutcome,
+                )
+            }
         }
     }
 }
@@ -114,12 +125,12 @@ private fun StructuredOutcomeSection(
                     )
                 }
 
-                TextButton(
+                StudioOutlinedAction(
                     onClick = onGenerateStructuredOutcomes,
+                    icon = Icons.Filled.AutoAwesome,
+                    label = structuredOutcomeActionLabel(state),
                     enabled = state.canRunGeneration,
-                ) {
-                    Text(text = structuredOutcomeActionLabel(state))
-                }
+                )
             }
 
             when {
@@ -138,9 +149,7 @@ private fun StructuredOutcomeSection(
                 }
 
                 state.isGenerating && !state.hasReadySnapshot -> {
-                    StructuredOutcomeInfo(
-                        text = stringResource(R.string.rec_structured_generating),
-                    )
+                    StructuredOutcomeGeneratingProgress()
                 }
 
                 !state.hasReadySnapshot && state.failureMessage != null -> {
@@ -157,10 +166,12 @@ private fun StructuredOutcomeSection(
                 }
 
                 else -> {
-                    if (state.isGenerating) {
-                        StructuredOutcomeInfo(
-                            text = stringResource(R.string.rec_structured_generating),
-                        )
+                    AnimatedVisibility(
+                        visible = state.isGenerating,
+                        enter = progressEnterTransition,
+                        exit = progressExitTransition,
+                    ) {
+                        StructuredOutcomeGeneratingProgress()
                     }
                     if (state.isStale) {
                         StructuredOutcomeInfo(
@@ -204,6 +215,21 @@ private fun StructuredOutcomeSection(
             }
         }
     }
+}
+
+@Composable
+private fun StructuredOutcomeGeneratingProgress() {
+    MorphingTranscriptionProgress(
+        compact = true,
+        copy =
+            TranscriptionProgressCopy(
+                title = stringResource(R.string.rec_structured_generating_title),
+                subtitle = stringResource(R.string.rec_structured_generating_subtitle),
+            ),
+        kind = null,
+        leadingIcon = Icons.Filled.AutoAwesome,
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
@@ -255,15 +281,20 @@ private fun StructuredOutcomeGroupSection(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { onCopyStructuredOutcome(item) }) {
-                            Text(text = stringResource(CoreR.string.rec_copy))
-                        }
-                        TextButton(onClick = { onShareStructuredOutcome(item) }) {
-                            Text(text = stringResource(CoreR.string.rec_share))
-                        }
-                        TextButton(onClick = { onAskAiAboutStructuredOutcome(item) }) {
-                            Text(text = stringResource(R.string.rec_ask_ai))
-                        }
+                        CopyActionButton(
+                            onClick = { onCopyStructuredOutcome(item) },
+                            label = stringResource(CoreR.string.rec_copy),
+                        )
+                        StudioOutlinedAction(
+                            onClick = { onShareStructuredOutcome(item) },
+                            icon = Icons.Filled.Share,
+                            label = stringResource(CoreR.string.rec_share),
+                        )
+                        StudioOutlinedAction(
+                            onClick = { onAskAiAboutStructuredOutcome(item) },
+                            icon = Icons.AutoMirrored.Filled.Chat,
+                            label = stringResource(R.string.rec_ask_ai),
+                        )
                     }
                 }
             }
