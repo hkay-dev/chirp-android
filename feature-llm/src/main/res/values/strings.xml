@@ -3,6 +3,7 @@
     <string name="llm_settings_title">AI Processing</string>
     <string name="llm_gemini_api_key">Gemini API Key</string>
     <string name="llm_enter_api_key">Enter your Google AI Studio API key</string>
+    <string name="llm_secure_storage_unavailable">Secure storage is unavailable on this device, so the API key cannot be saved.</string>
     <string name="llm_save">Save</string>
     <string name="llm_testing">Testing...</string>
     <string name="llm_test_connection">Test Connection</string>

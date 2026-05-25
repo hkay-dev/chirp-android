@@ -96,23 +96,30 @@ internal fun LlmSettingsApiKeySection(
             label = { Text(stringResource(R.string.llm_gemini_api_key)) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             singleLine = true,
+            enabled = uiState.isSecureStorageAvailable,
             visualTransformation = PasswordVisualTransformation(),
             supportingText = {
-                Text(stringResource(R.string.llm_enter_api_key))
+                Text(
+                    if (uiState.isSecureStorageAvailable) {
+                        stringResource(R.string.llm_enter_api_key)
+                    } else {
+                        stringResource(R.string.llm_secure_storage_unavailable)
+                    },
+                )
             },
         )
 
         Row(modifier = Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onSave,
-                enabled = uiState.apiKey.isNotBlank(),
+                enabled = uiState.isSecureStorageAvailable && uiState.apiKey.isNotBlank(),
             ) {
                 Text(stringResource(R.string.llm_save))
             }
 
             OutlinedButton(
                 onClick = onTestConnection,
-                enabled = uiState.apiKey.isNotBlank() && !uiState.isTestingConnection,
+                enabled = uiState.isSecureStorageAvailable && uiState.apiKey.isNotBlank() && !uiState.isTestingConnection,
             ) {
                 if (uiState.isTestingConnection) {
                     CircularProgressIndicator(

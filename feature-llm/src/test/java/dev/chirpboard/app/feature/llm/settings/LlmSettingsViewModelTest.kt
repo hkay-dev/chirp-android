@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -32,6 +33,8 @@ class LlmSettingsViewModelTest {
         preferences = mockk(relaxUnitFun = true)
         coEvery { preferences.getLlmEnabled() } returns true
         coEvery { preferences.fetchApiKey() } returns "initial-key"
+        every { preferences.hasApiKey() } returns true
+        every { preferences.isSecureStorageAvailable() } returns true
         coEvery { preferences.getAutoTitle() } returns false
         coEvery { preferences.getAutoSummary() } returns true
         llmClient = mockk()
@@ -60,6 +63,7 @@ class LlmSettingsViewModelTest {
     @Test
     fun `updateApiKey updates local state but does not save`() =
         runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
             viewModel.updateApiKey("new-key")
 
             val state = viewModel.uiState.value
@@ -67,14 +71,24 @@ class LlmSettingsViewModelTest {
             assertTrue(state.isKeyConfigured)
 
             coVerify(exactly = 0) { preferences.setApiKey(any()) }
-            assertEquals("new-key", state.apiKey)
+        }
 
-            coVerify(exactly = 0) { preferences.setApiKey(any()) }
+    @Test
+    fun `initialization does not clobber in-progress api key input`() =
+        runTest {
+            val savedStateHandle = SavedStateHandle()
+            viewModel = LlmSettingsViewModel(preferences, llmClient, savedStateHandle)
+            viewModel.updateApiKey("typed-before-init")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("typed-before-init", viewModel.uiState.value.apiKey)
         }
 
     @Test
     fun `saveApiKey saves current key to preferences`() =
         runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+            every { preferences.hasApiKey() } returnsMany listOf(true, true)
             viewModel.updateApiKey("saved-key")
             viewModel.saveApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -107,6 +121,8 @@ class LlmSettingsViewModelTest {
     @Test
     fun `testConnection success`() =
         runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+            every { preferences.hasApiKey() } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
             coEvery { llmClient.process(any(), any()) } returns Result.success("OK")
 
