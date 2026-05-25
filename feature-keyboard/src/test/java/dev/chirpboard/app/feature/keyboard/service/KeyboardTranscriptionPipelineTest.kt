@@ -33,7 +33,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
-import dev.chirpboard.app.feature.keyboard.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 import java.io.File
 

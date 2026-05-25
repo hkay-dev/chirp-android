@@ -15,7 +15,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
-import dev.chirpboard.app.feature.keyboard.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File

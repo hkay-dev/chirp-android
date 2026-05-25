@@ -2,7 +2,6 @@
 <SmellBaseline>
   <ManuallySuppressedIssues></ManuallySuppressedIssues>
   <CurrentIssues>
-    <ID>WildcardImport:ConfirmationDialog.kt$import androidx.compose.material3.*</ID>
     <ID>WildcardImport:EmptyState.kt$import androidx.compose.foundation.layout.*</ID>
     <ID>WildcardImport:EmptyState.kt$import androidx.compose.material3.*</ID>
     <ID>WildcardImport:ErrorView.kt$import androidx.compose.foundation.layout.*</ID>

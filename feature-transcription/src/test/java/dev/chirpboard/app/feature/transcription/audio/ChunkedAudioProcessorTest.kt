@@ -9,7 +9,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
-import dev.chirpboard.app.feature.transcription.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)

@@ -1,6 +1,5 @@
 package dev.chirpboard.app.feature.recording.ui
 
-import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,9 +8,9 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
-import dev.chirpboard.app.feature.recording.service.RecordingService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +23,7 @@ data class ActiveRecordingProfile(
     val id: UUID,
     val name: String,
     val icon: String? = null,
- )
+)
 
 /**
  * ViewModel for the full-screen RecordScreen.
@@ -35,6 +34,7 @@ data class ActiveRecordingProfile(
 class RecordViewModel
     @Inject
     constructor(
+        private val recordingManager: RecordingManager,
         private val recordingStateManager: RecordingStateManager,
         private val profileRepository: ProfileRepository,
         private val recoveryStore: RecordingRecoveryStore,
@@ -96,31 +96,30 @@ class RecordViewModel
         }
 
         /** Start a new recording with the active session profile, if one was resolved. */
-        fun startRecording(context: Context) {
-            startRecording(context, activeProfile.value?.id)
+        fun startRecording() {
+            startRecording(activeProfile.value?.id)
         }
 
-        internal fun startRecording(context: Context, profileId: UUID?) {
-            RecordingService.startRecording(
-                context = context,
+        internal fun startRecording(profileId: UUID?) {
+            recordingManager.startRecording(
                 origin = RecordingOrigin.APP,
                 profileId = profileId,
             )
         }
 
         /** Pause the current recording. */
-        fun pauseRecording(context: Context) {
-            RecordingService.pauseRecording(context)
+        fun pauseRecording() {
+            recordingManager.pauseRecording()
         }
 
         /** Resume a paused recording. */
-        fun resumeRecording(context: Context) {
-            RecordingService.resumeRecording(context)
+        fun resumeRecording() {
+            recordingManager.resumeRecording()
         }
 
         /** Stop the current recording and save it. */
-        fun stopRecording(context: Context) {
-            RecordingService.stopRecording(context)
+        fun stopRecording() {
+            recordingManager.stopRecording()
         }
 
         /** Clear the last completed recording ID after navigation has been handled. */
@@ -129,18 +128,17 @@ class RecordViewModel
         }
 
         /** Cancel the current recording without saving. */
-        fun cancelRecording(context: Context) {
-            RecordingService.cancelRecording(context)
+        fun cancelRecording() {
+            recordingManager.cancelRecording()
         }
 
         /** Restart the current recording with the active session profile, if one was resolved. */
-        fun restartRecording(context: Context) {
-            restartRecording(context, activeProfile.value?.id)
+        fun restartRecording() {
+            restartRecording(activeProfile.value?.id)
         }
 
-        internal fun restartRecording(context: Context, profileId: UUID?) {
-            RecordingService.restartRecording(
-                context = context,
+        internal fun restartRecording(profileId: UUID?) {
+            recordingManager.restartRecording(
                 origin = RecordingOrigin.APP,
                 profileId = profileId,
             )

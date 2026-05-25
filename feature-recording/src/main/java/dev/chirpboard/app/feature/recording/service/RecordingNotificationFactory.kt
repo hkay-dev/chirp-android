@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import androidx.core.app.NotificationCompat
+import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.util.formatAsDuration
@@ -60,7 +61,7 @@ class RecordingNotificationFactory
 
             val doneIntent =
                 Intent(service, RecordingService::class.java).apply {
-                    action = RecordingService.ACTION_STOP_RECORDING
+                    action = RecordingServiceCommands.ACTION_STOP_RECORDING
                 }
             val donePendingIntent =
                 PendingIntent.getService(
@@ -85,7 +86,7 @@ class RecordingNotificationFactory
                 builder.setContentText(durationText)
                 val resumeIntent =
                     Intent(service, RecordingService::class.java).apply {
-                        action = RecordingService.ACTION_RESUME_RECORDING
+                        action = RecordingServiceCommands.ACTION_RESUME_RECORDING
                     }
                 val resumePendingIntent =
                     PendingIntent.getService(
@@ -103,7 +104,7 @@ class RecordingNotificationFactory
                 builder.setWhen(System.currentTimeMillis() - duration)
                 val pauseIntent =
                     Intent(service, RecordingService::class.java).apply {
-                        action = RecordingService.ACTION_PAUSE_RECORDING
+                        action = RecordingServiceCommands.ACTION_PAUSE_RECORDING
                     }
                 val pausePendingIntent =
                     PendingIntent.getService(

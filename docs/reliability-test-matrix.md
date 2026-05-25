@@ -11,12 +11,12 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionOutcomeMappingTest`, `KeyboardTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest`, `:feature-keyboard:testDebugUnitTest` |
 | Recognition persistence integrity | Partial write of recording without transcript | `RecordingRepositoryTransactionTest`, `RecognitionHistoryPersistenceTest` | `:data:compileDebugAndroidTestKotlin`, `:app:testDebugUnitTest` |
 | Model artifact integrity | Corrupt or interrupted model downloads accepted as ready | `ModelDownloaderIntegrityTest` | `:app:testDebugUnitTest` |
-| Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core:testDebugUnitTest` |
+| Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core-contracts:testDebugUnitTest` |
 | Session journal durability | Interrupted recordings deleted as orphans | `RecordingSessionJournalTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
 | Stop validation | Invalid M4A saved after failed finalize | `RecordingFileValidatorTest`, `RecordingStopOrchestratorTest` | `:feature-recording:testDebugUnitTest` |
-| Capture constraints | Storage exhaustion mid-session | `RecordingStorageMonitorTest` | `:core:testDebugUnitTest` |
-| Input device policy | Wrong mic route (BT over built-in) | `AudioInputDeviceSelectorTest` | `:core:testDebugUnitTest` |
-| Stop timeout scaling | False timeout on long finalize | `RecordingStateManagerTest` | `:core:testDebugUnitTest` |
+| Capture constraints | Storage exhaustion mid-session | `RecordingStorageMonitorTest` | `:core-audio:testDebugUnitTest` |
+| Input device policy | Wrong mic route (BT over built-in) | `AudioInputDeviceSelectorTest` | `:core-audio:testDebugUnitTest` |
+| Stop timeout scaling | False timeout on long finalize | `RecordingStateManagerTest` | `:core-contracts:testDebugUnitTest` |
 
 ## Long-session recording soak (manual)
 
@@ -34,7 +34,7 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 - Do not enable `isReturnDefaultValues` in module `build.gradle.kts`; stub Android framework APIs explicitly (for example `mockkStatic(Log::class)` or fakes).
 - Prefer behavior assertions over constant-echo tests that only restate production literals.
 - Keep trivial wiring tests out of the matrix; each automated row should cover a reliability risk or non-obvious invariant.
-
+- Share JVM Android stubs via the `:test-support` module (`MockAndroidLogRule`) instead of copying helpers per module.
 
 ## Matrix Runner
 
