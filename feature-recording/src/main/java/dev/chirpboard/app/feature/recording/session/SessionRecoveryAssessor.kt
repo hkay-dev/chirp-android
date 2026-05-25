@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.recording.session
 
 import android.media.MediaMetadataRetriever
 import dev.chirpboard.app.feature.recording.service.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.util.useCompat
 import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
@@ -86,7 +87,7 @@ object SessionRecoveryAssessor {
 
     private fun probeDurationMs(file: File): Long =
         runCatching {
-            MediaMetadataRetriever().use { retriever ->
+            MediaMetadataRetriever().useCompat { retriever ->
                 retriever.setDataSource(file.absolutePath)
                 retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
             }

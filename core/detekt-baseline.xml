@@ -11,7 +11,6 @@
     <ID>WildcardImport:EmptyState.kt$import androidx.compose.material3.*</ID>
     <ID>WildcardImport:ErrorView.kt$import androidx.compose.foundation.layout.*</ID>
     <ID>WildcardImport:ErrorView.kt$import androidx.compose.material3.*</ID>
-    <ID>WildcardImport:ScreenScaffold.kt$import androidx.compose.material3.*</ID>
     <ID>WildcardImport:Theme.kt$import androidx.compose.material3.*</ID>
   </CurrentIssues>
 </SmellBaseline>

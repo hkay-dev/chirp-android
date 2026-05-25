@@ -126,28 +126,6 @@ fun ChirpSettingsHubScaffold(
     )
 }
 
-/** @deprecated Use [ChirpLeafScaffold] */
-@Deprecated("Use ChirpLeafScaffold", ReplaceWith("ChirpLeafScaffold(title, modifier, onNavigateBack, actions, floatingActionButton, content = content)"))
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ScreenScaffold(
-    title: String,
-    modifier: Modifier = Modifier,
-    onNavigateBack: (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
-    floatingActionButton: @Composable () -> Unit = {},
-    content: @Composable (PaddingValues) -> Unit,
-) {
-    ChirpLeafScaffold(
-        title = title,
-        modifier = modifier,
-        onNavigateBack = onNavigateBack,
-        actions = actions,
-        floatingActionButton = floatingActionButton,
-        content = content,
-    )
-}
-
 @Composable
 fun ChirpScaffoldSurface(
     modifier: Modifier = Modifier,

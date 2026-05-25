@@ -9,6 +9,7 @@ import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
+import dev.chirpboard.app.feature.recording.util.useCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -125,7 +126,7 @@ class RecordingStopOrchestrator
 
         private fun probeDurationMs(file: File): Long =
             runCatching {
-                MediaMetadataRetriever().use { retriever ->
+                MediaMetadataRetriever().useCompat { retriever ->
                     retriever.setDataSource(file.absolutePath)
                     retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                 }

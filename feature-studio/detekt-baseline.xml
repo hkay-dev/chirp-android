@@ -4,8 +4,5 @@
   <CurrentIssues>
     <ID>InstanceOfCheckForException:ProcessingStudioViewModel.kt$ProcessingStudioViewModel$e is kotlinx.coroutines.CancellationException</ID>
     <ID>InstanceOfCheckForException:ProcessingStudioViewModel.kt$ProcessingStudioViewModel$error is kotlinx.coroutines.CancellationException</ID>
-    <ID>WildcardImport:FloatingAudioPlayer.kt$import androidx.compose.foundation.layout.*</ID>
-    <ID>WildcardImport:FloatingAudioPlayer.kt$import androidx.compose.material3.*</ID>
-    <ID>WildcardImport:FloatingAudioPlayer.kt$import androidx.compose.runtime.*</ID>
   </CurrentIssues>
 </SmellBaseline>

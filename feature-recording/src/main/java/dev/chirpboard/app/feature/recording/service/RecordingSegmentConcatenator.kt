@@ -6,6 +6,7 @@ import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
 import android.media.MediaMuxer
 import android.util.Log
+import dev.chirpboard.app.feature.recording.util.useCompat
 import java.io.File
 import java.nio.ByteBuffer
 import javax.inject.Inject
@@ -90,6 +91,7 @@ class RecordingSegmentConcatenator
                         if (bufferInfo.size < 0) break
                         bufferInfo.offset = 0
                         bufferInfo.presentationTimeUs = presentationOffsetUs + extractor.sampleTime
+                        @Suppress("WrongConstant")
                         bufferInfo.flags = extractor.sampleFlags
                         muxer.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
                         if (!extractor.advance()) break
@@ -125,7 +127,7 @@ class RecordingSegmentConcatenator
         private fun probeDurationUs(file: File): Long {
             val durationMs =
                 runCatching {
-                    MediaMetadataRetriever().use { retriever ->
+                    MediaMetadataRetriever().useCompat { retriever ->
                         retriever.setDataSource(file.absolutePath)
                         retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
                     }

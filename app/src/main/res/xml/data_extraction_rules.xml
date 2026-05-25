@@ -6,7 +6,6 @@
         <include domain="database" path="chirp.db-shm" />
         <include domain="file" path="recordings/" />
         <include domain="sharedpref" path="chirp.xml" />
-        <exclude domain="sharedpref" path="secure_prefs.xml" />
     </cloud-backup>
     <device-transfer>
         <include domain="database" path="chirp.db" />
@@ -14,6 +13,5 @@
         <include domain="database" path="chirp.db-shm" />
         <include domain="file" path="recordings/" />
         <include domain="sharedpref" path="chirp.xml" />
-        <exclude domain="sharedpref" path="secure_prefs.xml" />
     </device-transfer>
 </data-extraction-rules>

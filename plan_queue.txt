@@ -1,5 +1,0 @@
-
-  Queue: 0 items (158 planned · 134 skipped)
-  (134 skipped items hidden — use --include-skipped)
-
-  Queue is empty.
