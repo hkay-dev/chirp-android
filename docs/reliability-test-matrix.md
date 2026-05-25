@@ -65,6 +65,9 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Home import studio handoff | Import success navigates to Processing Studio | `HomeViewModelTest` import navigates | Implemented |
 | Orphan cleaner mp3 coverage | Unreferenced mp3 deleted; referenced/protected retained | `OrphanedAudioCleanerTest` mp3 | Implemented |
 | Transcription worker active wait | Bounded wait fails with reliability event | `TranscriptionWorkerSupportTest` timeout | Implemented |
+| Studio launchSingleTop | Repeated Home/search taps do not stack Studio entries | `StudioNavigation` helper + manual N1–N3 | Implemented |
+| Search excludes RECORDING | In-progress rows hidden from search results | `RecordingDaoTest.searchRecordings_excludesInProgressRows`, `HomeViewModelTest` | Implemented |
+| Mini player cross-studio | Opening Studio for B pauses playback of A | `ProcessingStudioViewModelTest`, manual N4 | Implemented |
 
 ## Audit backlog (2026-05-25) — proposed OpenSpec changes
 
@@ -72,7 +75,6 @@ Index: `openspec/changes/AUDIT_INDEX.md`. Each row maps to a change folder with 
 
 | Priority | Risk class | OpenSpec change | Planned tests (on implement) |
 | --- | --- | --- | --- |
-| P3 | Nav/search/mini player polish | `nav-search-playback-polish` | Manual + nav tests |
 | P3–P4 | Matrix drift, dead wrappers, coverage gaps | `docs-test-hygiene` | Matrix audit script |
 
 ## Unit test standards

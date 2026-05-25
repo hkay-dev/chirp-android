@@ -142,6 +142,7 @@ class ProcessingStudioViewModel
 
         private fun loadRecording(id: UUID) {
             cancelRecordingObservation()
+            playbackController.pauseIfDifferentRecording(id)
             recordingObservationJob =
                 viewModelScope.launch {
                 currentRecordingId = id

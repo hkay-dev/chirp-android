@@ -18,6 +18,7 @@ import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -88,6 +89,34 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `opening studio for different recording pauses active mini player`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingA = UUID.randomUUID()
+            val recordingB = UUID.randomUUID()
+            val playbackState =
+                MutableStateFlow(
+                    RecordingPlaybackState(
+                        recordingId = recordingA,
+                        title = "Recording A",
+                        audioPath = "/tmp/a.m4a",
+                        isPlaying = true,
+                    ),
+                )
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns playbackState
+                }
+            stubEmptyRecordingFlows(recordingB)
+
+            createViewModel(recordingId = recordingB.toString(), playbackController = playbackController)
+            advanceUntilIdle()
+
+            verify { playbackController.pauseIfDifferentRecording(recordingB) }
+        }
+
+    @Test
     fun `deleted recording while observing transitions to NotFound immediately`() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
@@ -108,15 +137,17 @@ class ProcessingStudioViewModelTest {
             assertEquals(ProcessingStudioLoadState.NotFound, viewModel.uiState.value.loadState)
         }
 
-    private fun createViewModel(recordingId: String): ProcessingStudioViewModel {
+    private fun createViewModel(
+        recordingId: String,
+        playbackController: RecordingPlaybackController =
+            mockk(relaxed = true) {
+                every { state } returns MutableStateFlow(RecordingPlaybackState())
+            },
+    ): ProcessingStudioViewModel {
         val llmPreferences =
             mockk<LlmPreferences>(relaxed = true) {
                 every { llmEnabled } returns MutableStateFlow(false)
                 every { hasApiKey() } returns false
-            }
-        val playbackController =
-            mockk<RecordingPlaybackController>(relaxed = true) {
-                every { state } returns MutableStateFlow(RecordingPlaybackState())
             }
         return ProcessingStudioViewModel(
             context = context,

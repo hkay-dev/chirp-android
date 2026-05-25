@@ -37,6 +37,7 @@ interface RecordingDao {
         """
         SELECT * FROM recordings 
         WHERE title LIKE '%' || :query || '%' 
+        AND status != 'RECORDING'
         ORDER BY createdAt DESC
     """,
     )

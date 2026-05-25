@@ -103,9 +103,8 @@ internal fun AppNavHost(
 
     LaunchedEffect(sharedAudioNavigationTarget) {
         val target = sharedAudioNavigationTarget ?: return@LaunchedEffect
-        navController.navigate(Screen.ProcessingStudio.createRoute(target.toString())) {
+        navController.navigateToStudio(target) {
             popUpTo(Screen.Home.route) { inclusive = false }
-            launchSingleTop = true
         }
         sharedAudioHandoffViewModel.onNavigationHandled()
     }
@@ -218,9 +217,7 @@ internal fun AppNavHost(
                     onStop = playbackController::stop,
                     onOpenRecording = {
                         playbackState.recordingId?.let { id ->
-                            navController.navigate(Screen.ProcessingStudio.createRoute(id.toString())) {
-                                launchSingleTop = true
-                            }
+                            navController.navigateToStudio(id)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
