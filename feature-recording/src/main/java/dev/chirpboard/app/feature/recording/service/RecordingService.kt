@@ -127,6 +127,9 @@ class RecordingService : Service() {
     private val stopRequestGate = StopRequestGate()
     private var currentCorrelationId: String? = null
     private var stopRecordingJob: Job? = null
+    private var startRecordingJob: Job? = null
+    private val startGeneration = java.util.concurrent.atomic.AtomicInteger(0)
+    private val startCancelMutex = Mutex()
     private val stopGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -251,9 +254,12 @@ class RecordingService : Service() {
 
         promoteToForegroundImmediately()
 
-        serviceScope.launch {
-            startRecordingAfterLockAcquired(origin, profileId)
-        }
+        val generation = startGeneration.incrementAndGet()
+        startRecordingJob?.cancel()
+        startRecordingJob =
+            serviceScope.launch {
+                startRecordingAfterLockAcquired(origin, profileId, generation)
+            }
     }
 
     private fun promoteToForegroundImmediately() {
@@ -268,7 +274,14 @@ class RecordingService : Service() {
     private suspend fun startRecordingAfterLockAcquired(
         origin: RecordingOrigin,
         profileId: UUID?,
+        startGenerationToken: Int,
     ) {
+        fun ensureStartNotCancelled() {
+            if (startGenerationToken != startGeneration.get()) {
+                throw kotlinx.coroutines.CancellationException("Recording start cancelled")
+            }
+        }
+
         currentCorrelationId = ReliabilityEventLogger.newCorrelationId("record")
         currentOrigin = origin
         currentProfileId = profileId
@@ -303,57 +316,68 @@ class RecordingService : Service() {
                 transcriberProvider.release()
             }
 
+            ensureStartNotCancelled()
+
             withContext(Dispatchers.IO) {
-                sessionReconciler.reconcileCompletedSessions()
+                startCancelMutex.withLock {
+                    ensureStartNotCancelled()
 
-                val recordingQualityConfig =
-                    audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
-                val outputFormat = audioSettingsStore.currentOutputFormat()
+                    sessionReconciler.reconcileCompletedSessions()
 
-                val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                val outputDir = File(filesDir, "recordings").apply { mkdirs() }
-                val finalFile = File(outputDir, "recording_$timestamp${outputFormat.fileExtension}")
-                val sessionId = UUID.randomUUID()
-                currentSessionId = sessionId
-                currentFinalAudioPath = finalFile
-                val firstSegment = capturePaths.segmentFile(sessionId, 0, outputFormat)
-                currentRecordingFile = firstSegment
+                    val recordingQualityConfig =
+                        audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
+                    val outputFormat = audioSettingsStore.currentOutputFormat()
 
-                val source =
-                    when (origin) {
-                        RecordingOrigin.APP -> RecordingSource.APP
-                        RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
-                        RecordingOrigin.WIDGET -> RecordingSource.WIDGET
-                    }
-                val provisionalTitle =
-                    SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date())
-                val inProgressRecording =
-                    recordingRepository.createInProgressRecording(
-                        title = provisionalTitle,
-                        audioPath = finalFile.absolutePath,
-                        source = source,
+                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    val outputDir = File(filesDir, "recordings").apply { mkdirs() }
+                    val finalFile = File(outputDir, "recording_$timestamp${outputFormat.fileExtension}")
+                    val sessionId = UUID.randomUUID()
+                    currentSessionId = sessionId
+                    currentFinalAudioPath = finalFile
+                    val firstSegment = capturePaths.segmentFile(sessionId, 0, outputFormat)
+                    currentRecordingFile = firstSegment
+
+                    ensureStartNotCancelled()
+
+                    val source =
+                        when (origin) {
+                            RecordingOrigin.APP -> RecordingSource.APP
+                            RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
+                            RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+                        }
+                    val provisionalTitle =
+                        SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date())
+                    val inProgressRecording =
+                        recordingRepository.createInProgressRecording(
+                            title = provisionalTitle,
+                            audioPath = finalFile.absolutePath,
+                            source = source,
+                            profileId = profileId,
+                        )
+                    currentInProgressRecordingId = inProgressRecording.id
+                    recordingStateManager.onRecordingIdAssigned(inProgressRecording.id)
+
+                    ensureStartNotCancelled()
+
+                    sessionJournal.createSession(
+                        sessionId = sessionId,
+                        audioPath = firstSegment.absolutePath,
+                        origin = origin,
                         profileId = profileId,
+                        recordingId = inProgressRecording.id,
+                        correlationId = currentCorrelationId,
+                        finalAudioPath = finalFile.absolutePath,
                     )
-                currentInProgressRecordingId = inProgressRecording.id
-                recordingStateManager.onRecordingIdAssigned(inProgressRecording.id)
 
-                sessionJournal.createSession(
-                    sessionId = sessionId,
-                    audioPath = firstSegment.absolutePath,
-                    origin = origin,
-                    profileId = profileId,
-                    recordingId = inProgressRecording.id,
-                    correlationId = currentCorrelationId,
-                    finalAudioPath = finalFile.absolutePath,
-                )
-
-                startGaplessCapture(
-                    segmentFile = firstSegment,
-                    format = outputFormat,
-                    bitRate = recordingQualityConfig.bitRate,
-                    sampleRate = recordingQualityConfig.sampleRate,
-                )
+                    startGaplessCapture(
+                        segmentFile = firstSegment,
+                        format = outputFormat,
+                        bitRate = recordingQualityConfig.bitRate,
+                        sampleRate = recordingQualityConfig.sampleRate,
+                    )
+                }
             }
+            ensureStartNotCancelled()
             recordingStateManager.onRecordingStarted(
                 audioFilePath = currentRecordingFile!!.absolutePath,
                 recordingId = currentInProgressRecordingId,
@@ -510,41 +534,51 @@ class RecordingService : Service() {
      * do NOT save to database.
      */
     private fun cancelRecording() {
+        startGeneration.incrementAndGet()
+        startRecordingJob?.cancel()
+        startRecordingJob = null
         durationUpdateJob?.cancel()
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
         checkpointJob?.cancel()
         segmentRotationJob?.cancel()
-        val inProgressId = currentInProgressRecordingId
-        val abandonedSessionId = currentSessionId
-        val fileToDelete = currentRecordingFile
-        val finalFileToDelete = currentFinalAudioPath
-        currentSessionId?.let { sessionJournal.markAbandoned(it) }
-        currentSessionId = null
-        currentInProgressRecordingId = null
 
         serviceScope.launch {
-            try {
-                withContext(Dispatchers.IO) {
-                    segmentCapture?.releaseWithoutSave()
+            startCancelMutex.withLock {
+                val inProgressId = currentInProgressRecordingId
+                val abandonedSessionId = currentSessionId
+                val fileToDelete = currentRecordingFile
+                val finalFileToDelete = currentFinalAudioPath
+                abandonedSessionId?.let { sessionId ->
+                    if (sessionJournal.findBySessionId(sessionId) != null) {
+                        sessionJournal.markAbandoned(sessionId)
+                    }
                 }
-            } catch (_: Exception) {
-            } finally {
-                segmentCapture = null
-                withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
-                    inProgressId?.let { recordingRepository.deleteInProgressRecording(it) }
-                    abandonedSessionId?.let { capturePaths.deleteCaptureArtifacts(it) }
-                    fileToDelete?.takeIf { it.exists() }?.delete()
-                    finalFileToDelete?.takeIf { it.exists() }?.delete()
+                currentSessionId = null
+                currentInProgressRecordingId = null
+
+                try {
+                    withContext(Dispatchers.IO) {
+                        segmentCapture?.releaseWithoutSave()
+                    }
+                } catch (_: Exception) {
+                } finally {
+                    segmentCapture = null
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        inProgressId?.let { recordingRepository.deleteInProgressRecording(it) }
+                        abandonedSessionId?.let { capturePaths.deleteCaptureArtifacts(it) }
+                        fileToDelete?.takeIf { it.exists() }?.delete()
+                        finalFileToDelete?.takeIf { it.exists() }?.delete()
+                    }
+                    currentRecordingFile = null
+                    currentFinalAudioPath = null
+                    audioFocusManager.abandonFocus()
+                    inputDeviceSelector.clearActiveDevice()
+                    recordingStateManager.forceCancel()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
                 }
-                currentRecordingFile = null
-                currentFinalAudioPath = null
-                audioFocusManager.abandonFocus()
-                inputDeviceSelector.clearActiveDevice()
-                recordingStateManager.forceCancel()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
             }
         }
     }

@@ -46,6 +46,10 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Pending keyboard stop | Widget stop lost when IME unbound | `KeyboardPendingStopStoreTest` | Implemented |
 | Cancel ordering | Recovery prompt after cancel + restart | `RecordingSessionJournalCancelOrderingTest` | Implemented |
 | Starting-state tags | Tags unavailable at session start | `RecordingStateTest`, `RecordingStateManagerTest` | Implemented |
+| Cancel during Starting | Pre-journal cancel leaves no recoverable session | `RecordingSessionJournalCancelOrderingTest`, service start guard | Implemented |
+| Early Done handoff | Done waits for recording id | `RecordViewModelTest` | Implemented |
+| Pending stop reconcile | Stale queue retained during KEYBOARD Stopping | `KeyboardPendingStopStoreTest`, `RecordingStartupCoordinatorTest` | Implemented |
+| Widget Stopping tap | Toast feedback, no silent no-op | `WidgetReceiverStoppingTest` | Implemented |
 | Keep files retention | Kept audio deleted before user intent expires; in-progress row removed | `RecordingSessionRecoveryKeepSessionTest` | Implemented |
 | Recover session idempotency | Duplicate recover does not re-finalize or re-enqueue | `RecordingSessionRecoveryTest` | Implemented |
 | Reconciler orphan journal | Missing DB row finalizes stale journal | `RecordingSessionReconcilerTest` | Implemented |
@@ -63,12 +67,8 @@ Index: `openspec/changes/AUDIT_INDEX.md`. Each row maps to a change folder with 
 
 | Priority | Risk class | OpenSpec change | Planned tests (on implement) |
 | --- | --- | --- | --- |
-| P1 | Cancel during Starting | `recording-edge-case-races` | Service cancel+start integration |
 | P2 | Orphan cleaner MP3 gap | `transcription-pipeline-hardening` | `OrphanedAudioCleanerTest` mp3 |
 | P2 | TranscriptionWorker active wait | `transcription-pipeline-hardening` | Worker timeout test |
-| P3 | Early Done handoff | `recording-edge-case-races` | `RecordViewModelTest` Starting |
-| P3 | Pending stop reconcile mismatch | `recording-edge-case-races` | reconcile integration test |
-| P3 | Widget Stopping no-op | `recording-edge-case-races` | Widget receiver test |
 | P3 | Nav/search/mini player polish | `nav-search-playback-polish` | Manual + nav tests |
 | P3–P4 | Matrix drift, dead wrappers, coverage gaps | `docs-test-hygiene` | Matrix audit script |
 

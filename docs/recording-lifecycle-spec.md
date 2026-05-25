@@ -6,6 +6,7 @@ Operational summary for recording, recovery, and stop handoff. **Canonical requi
 - Applied: `openspec/changes/archive/2026-05-25-recording-lifecycle-gap-closure/`
 - Applied: `openspec/changes/archive/2026-05-25-stop-persistence-integrity/`
 - Applied: `openspec/changes/archive/2026-05-25-recovery-data-integrity/`
+- Applied: `openspec/changes/archive/2026-05-25-recording-edge-case-races/`
 - **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (remaining proposed changes)
 
 When editing behavior, update the OpenSpec change or baseline first, then mirror here.
@@ -139,6 +140,15 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Home import does not open Studio | `HomeViewModel.openStudioForRecordingId` + Home navigation handoff |
 | FAILED Studio duplicate error + recovery blocks | `studioFailurePresentation` consolidates retry on error banner |
 
+## Resolved (recording-edge-case-races)
+
+| Gap | Resolution |
+|-----|------------|
+| Cancel during `Starting` before journal exists | Start-generation guard + mutex; abandon journal only when file exists; delete in-progress row and capture artifacts |
+| Done before `onRecordingIdAssigned` | Done disabled until `activeRecordingId` assigned; snackbar fallback if tapped early |
+| Pending keyboard stop reconcile mismatch | `KeyboardPendingStopStore.reconcileStale(RecordingState)` retains KEYBOARD Starting/Recording/Paused/Stopping |
+| Widget tap during `Stopping` is no-op | Widget shows "Saving…"; tap shows "Finishing current recording" toast |
+
 ## Audit backlog (2026-05-25)
 
 Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
@@ -149,9 +159,7 @@ _(none — see Resolved processing-studio-resilience)_
 
 ### P1 — High-risk lifecycle / hidden state
 
-| Gap | Change |
-|-----|--------|
-| Cancel during `Starting` before journal exists | `recording-edge-case-races` |
+_(none — see Resolved recording-edge-case-races)_
 
 ### P2 — UX / cleanup gaps
 
@@ -164,9 +172,6 @@ _(none — see Resolved processing-studio-resilience)_
 
 | Gap | Change |
 |-----|--------|
-| Done before `onRecordingIdAssigned` (handoff fallback only) | `recording-edge-case-races` |
-| Pending keyboard stop reconcile signal mismatch | `recording-edge-case-races` |
-| Widget tap during `Stopping` is no-op | `recording-edge-case-races` |
 | Home list item → Studio without `launchSingleTop` | `nav-search-playback-polish` |
 | Search may show `RECORDING` rows list hides | `nav-search-playback-polish` |
 | Mini player keeps playing when opening different Studio | `nav-search-playback-polish` |

@@ -27,7 +27,11 @@ import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
+import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
+import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
+import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.TranscriberProvider
@@ -69,6 +73,8 @@ class ChirpKeyboardService :
     @Inject lateinit var recordingRepository: RecordingRepository
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
     @Inject lateinit var inlineTranscription: InlineTranscriptionCoordinator
+    @Inject lateinit var keyboardStopBridge: KeyboardRecordingStopBridge
+    @Inject lateinit var pendingStopStore: KeyboardPendingStopStore
 
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -170,6 +176,31 @@ class ChirpKeyboardService :
 
         coordinator.refreshModelStatus()
         coordinator.initializeModel()
+
+        keyboardStopBridge.registerStopHandler {
+            coordinator.stopAndTranscribe { text -> currentInputConnection?.commitText(text, 1) }
+        }
+        drainPendingKeyboardStopIfNeeded()
+    }
+
+    private fun drainPendingKeyboardStopIfNeeded() {
+        scope.launch {
+            val state = recordingStateManager.state.value
+            pendingStopStore.reconcileStale(state)
+            val shouldDrainPendingStop =
+                pendingStopStore.peek() != null &&
+                    (
+                        coordinator.isRecordingActive() ||
+                            (state is RecordingState.Stopping && state.origin == RecordingOrigin.KEYBOARD)
+                    )
+            if (shouldDrainPendingStop) {
+                try {
+                    coordinator.stopAndTranscribe { text -> currentInputConnection?.commitText(text, 1) }
+                } finally {
+                    pendingStopStore.clear()
+                }
+            }
+        }
     }
 
     override fun onCreateInputView(): View {
@@ -217,6 +248,7 @@ class ChirpKeyboardService :
         } else {
             coordinator.refreshModelStatus()
         }
+        drainPendingKeyboardStopIfNeeded()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -229,6 +261,7 @@ class ChirpKeyboardService :
     }
 
     override fun onDestroy() {
+        keyboardStopBridge.clearStopHandler()
         phoneCallHandler?.unregister()
         phoneCallHandler = null
         coordinator.capture.close()

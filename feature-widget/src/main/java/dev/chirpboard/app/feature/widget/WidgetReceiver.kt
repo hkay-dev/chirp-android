@@ -3,7 +3,11 @@ package dev.chirpboard.app.feature.widget
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
+import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
+import dev.chirpboard.app.core.recording.RecordingActiveStopCommands
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingState
@@ -15,12 +19,18 @@ import javax.inject.Inject
  *
  * Toggles recording state based on current [RecordingStateManager] state:
  * - If idle: starts recording via [RecordingServiceCommands] with WIDGET origin
- * - If recording: stops the current recording
+ * - If recording: stops the current recording using origin-aware routing
  */
 @AndroidEntryPoint
 class WidgetReceiver : BroadcastReceiver() {
     @Inject
     lateinit var recordingStateManager: RecordingStateManager
+
+    @Inject
+    lateinit var keyboardStopBridge: KeyboardRecordingStopBridge
+
+    @Inject
+    lateinit var pendingStopStore: KeyboardPendingStopStore
 
     override fun onReceive(
         context: Context,
@@ -33,23 +43,39 @@ class WidgetReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun toggleRecording(context: Context) {
-        when (recordingStateManager.state.value) {
-            is RecordingState.Idle -> {
+    internal fun toggleRecording(context: Context) {
+        when (widgetToggleActionFor(recordingStateManager.state.value)) {
+            WidgetToggleAction.Start -> {
                 RecordingServiceCommands.startRecording(
                     context = context,
                     origin = RecordingOrigin.WIDGET,
                     profileId = null,
                 )
             }
-            is RecordingState.Recording,
-            is RecordingState.Starting,
-            is RecordingState.Paused,
-            -> {
-                RecordingServiceCommands.stopRecording(context)
+            WidgetToggleAction.StopActive -> {
+                RecordingActiveStopCommands.stopActiveRecording(
+                    context = context,
+                    recordingStateManager = recordingStateManager,
+                    keyboardStopBridge = keyboardStopBridge,
+                    pendingStopStore = pendingStopStore,
+                    requesterOrigin = RecordingOrigin.WIDGET,
+                    onKeyboardStopQueued = {
+                        Toast.makeText(
+                            context.applicationContext,
+                            context.getString(R.string.widget_keyboard_stop_queued),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                )
             }
-            is RecordingState.Stopping -> Unit
-            is RecordingState.Error -> {
+            WidgetToggleAction.ShowStoppingFeedback -> {
+                Toast.makeText(
+                    context.applicationContext,
+                    context.getString(R.string.widget_finishing_recording),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            WidgetToggleAction.ClearErrorAndStart -> {
                 recordingStateManager.clearError()
                 RecordingServiceCommands.startRecording(
                     context = context,
@@ -60,3 +86,21 @@ class WidgetReceiver : BroadcastReceiver() {
         }
     }
 }
+
+internal enum class WidgetToggleAction {
+    Start,
+    StopActive,
+    ShowStoppingFeedback,
+    ClearErrorAndStart,
+}
+
+internal fun widgetToggleActionFor(state: RecordingState): WidgetToggleAction =
+    when (state) {
+        is RecordingState.Idle -> WidgetToggleAction.Start
+        is RecordingState.Recording,
+        is RecordingState.Starting,
+        is RecordingState.Paused,
+        -> WidgetToggleAction.StopActive
+        is RecordingState.Stopping -> WidgetToggleAction.ShowStoppingFeedback
+        is RecordingState.Error -> WidgetToggleAction.ClearErrorAndStart
+    }
