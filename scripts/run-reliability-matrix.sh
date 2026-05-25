@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Reliability regression matrix for personal-use Chirp.
+# Data safety: unit tests in :data plus compile of MigrationTest/DAO androidTests.
+# Optional on-device run: ./scripts/run-device-verification.sh
 set -euo pipefail
 
 ./gradlew \

@@ -178,9 +178,20 @@ class RecordingService : Service() {
             }
         }
 
+        promoteToForegroundImmediately()
+
         serviceScope.launch {
             startRecordingAfterLockAcquired(profileId)
         }
+    }
+
+    private fun promoteToForegroundImmediately() {
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            createStartingNotification(),
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+        )
     }
 
     private suspend fun startRecordingAfterLockAcquired(
@@ -241,7 +252,7 @@ class RecordingService : Service() {
                 reasonCode = "recorder_started",
             )
 
-            // Start foreground with notification
+            // Upgrade the starting notification to the live recording UI
             ServiceCompat.startForeground(this, NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
 
             // Start duration update job for notification
@@ -268,6 +279,7 @@ class RecordingService : Service() {
                 if (file.exists()) file.delete()
             }
             currentRecordingFile = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             if (e is kotlinx.coroutines.CancellationException) throw e
         }
@@ -572,6 +584,34 @@ class RecordingService : Service() {
         val notification = createNotification()
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun createStartingNotification(): Notification {
+        val launchIntent =
+            packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+        val contentPendingIntent =
+            launchIntent?.let {
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    it,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+            }
+
+        return NotificationCompat
+            .Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notif_mic)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(contentPendingIntent)
+            .setColorized(true)
+            .setColor(android.graphics.Color.parseColor("#D32F2F"))
+            .setContentTitle(getString(R.string.rec_notification_starting_title))
+            .setContentText(getString(R.string.rec_notification_starting_text))
+            .build()
     }
 
     private fun createNotification(): Notification {

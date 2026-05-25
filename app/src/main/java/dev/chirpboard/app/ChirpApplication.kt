@@ -1,6 +1,7 @@
 package dev.chirpboard.app
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
@@ -43,6 +44,10 @@ class ChirpApplication : Application(), Configuration.Provider {
     
     override fun onCreate() {
         super.onCreate()
+
+        DebugStrictMode.enableIfDebug(
+            (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
+        )
 
         widgetStateObserver.startObserving()
         

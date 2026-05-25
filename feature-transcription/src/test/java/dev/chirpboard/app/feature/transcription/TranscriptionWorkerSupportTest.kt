@@ -81,4 +81,11 @@ class TranscriptionWorkerSupportTest {
         assertFalse(result.retry)
         assertEquals(RecordingStatus.FAILED, result.status)
     }
+
+    @Test
+    fun `transcription foreground helpers use stable ids`() {
+        assertEquals("transcription_progress", TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
+        assertEquals(2001, TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID)
+        assertEquals("Transcribing recording", transcriptionProgressNotificationTitle())
+    }
 }
