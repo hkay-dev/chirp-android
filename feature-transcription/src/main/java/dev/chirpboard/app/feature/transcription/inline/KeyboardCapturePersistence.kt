@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.transcription.inline
 
 import android.util.Log
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
@@ -55,19 +56,21 @@ suspend fun saveCaptureRecording(
     plan: CapturePersistencePlan,
     samples: FloatArray,
     recordingQualityPreset: RecordingQualityPreset,
+    outputFormat: RecordingOutputFormat,
 ): Recording? {
     return try {
         withContext(NonCancellable) {
-            val filename = "keyboard_${System.currentTimeMillis()}.m4a"
+            val filename = "keyboard_${System.currentTimeMillis()}${outputFormat.fileExtension}"
             val recordingsDir = File(filesDir, "recordings")
             recordingsDir.mkdirs()
             val outputPath = File(recordingsDir, filename).absolutePath
 
             val success =
-                audioEncoder.encodeToM4a(
+                audioEncoder.encode(
                     samples = samples,
                     sampleRate = VoiceRecorder.SAMPLE_RATE,
                     outputPath = outputPath,
+                    format = outputFormat,
                     config = recordingQualityPreset.keyboardRecordingConfig,
                 )
             if (!success) {
@@ -118,3 +121,6 @@ suspend fun shouldPersistCaptures(keyboardPreferences: KeyboardPreferences): Boo
 
 suspend fun captureRecordingQualityPreset(keyboardPreferences: KeyboardPreferences): RecordingQualityPreset =
     keyboardPreferences.recordingQualityPreset.first()
+
+suspend fun captureOutputFormat(keyboardPreferences: KeyboardPreferences): RecordingOutputFormat =
+    keyboardPreferences.outputFormat.first()

@@ -9,6 +9,7 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import dev.chirpboard.app.feature.transcription.inline.buildCapturePersistencePlan
+import dev.chirpboard.app.feature.transcription.inline.captureOutputFormat
 import dev.chirpboard.app.feature.transcription.inline.captureRecordingQualityPreset
 import dev.chirpboard.app.feature.transcription.inline.saveCaptureRecording
 import dev.chirpboard.app.feature.transcription.inline.shouldPersistCaptures
@@ -55,6 +56,7 @@ class KeyboardInlineCapturePersistence(
         pendingSamples = null
         val plan = buildCapturePersistencePlan(rawText, processedText, errorMessage)
         val qualityPreset = captureRecordingQualityPreset(keyboardPreferences)
+        val outputFormat = captureOutputFormat(keyboardPreferences)
 
         persistenceScope.launch {
             val recording =
@@ -65,6 +67,7 @@ class KeyboardInlineCapturePersistence(
                     plan = plan,
                     samples = snapshot,
                     recordingQualityPreset = qualityPreset,
+                    outputFormat = outputFormat,
                 )
             if (recording != null && rawText != null) {
                 exportToObsidianIfEnabled(recording, processedText ?: rawText)

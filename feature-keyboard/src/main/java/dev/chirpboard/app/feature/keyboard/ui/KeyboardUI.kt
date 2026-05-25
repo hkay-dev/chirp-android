@@ -119,6 +119,22 @@ private data class KeyboardModeOption(
     @StringRes val labelRes: Int,
 )
 
+private fun defaultKeyboardModeOptions(): List<dev.chirpboard.app.feature.llm.model.ProcessingModeListItem> =
+    keyboardModeOptions().map { option ->
+        dev.chirpboard.app.feature.llm.model.ProcessingModeListItem(
+            id = option.id,
+            name = when (option.id) {
+                "proofread" -> "Proofread"
+                "formal" -> "Formal"
+                "casual" -> "Casual"
+                "email" -> "Email"
+                "code" -> "Code"
+                "smart" -> "Smart"
+                else -> option.id
+            },
+        )
+    }
+
 private fun keyboardModeOptions(): List<KeyboardModeOption> =
     listOf(
         KeyboardModeOption("proofread", R.string.keyboard_mode_proofread),
@@ -138,7 +154,7 @@ fun KeyboardScreen(
     onCancel: () -> Unit = {},
     onRestart: () -> Unit = {},
     onToggleLlm: () -> Unit,
-    onModeChange: (ProcessingMode) -> Unit,
+    onModeChange: (String) -> Unit,
     onBackspace: () -> Unit = {},
     onBackspaceWord: () -> Unit = {},
     onSpace: () -> Unit = {},
@@ -274,7 +290,7 @@ private fun KeyboardMainPanel(
 private fun KeyboardTopBar(
     uiState: KeyboardUiState,
     onToggleLlm: () -> Unit,
-    onModeChange: (ProcessingMode) -> Unit,
+    onModeChange: (String) -> Unit,
 ) {
     val statusLabelRes = uiState.statusLabelRes()
 
@@ -305,6 +321,7 @@ private fun KeyboardTopBar(
         KeyboardAiSettingsMenu(
             llmEnabled = uiState.llmEnabled,
             currentMode = uiState.processingMode,
+            availableModes = uiState.availableModes,
             enabled = uiState.settingsEnabled,
             onToggleLlm = onToggleLlm,
             onModeChange = onModeChange,
@@ -316,12 +333,13 @@ private fun KeyboardTopBar(
 private fun KeyboardAiSettingsMenu(
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
+    availableModes: List<dev.chirpboard.app.feature.llm.model.ProcessingModeListItem>,
     enabled: Boolean,
     onToggleLlm: () -> Unit,
-    onModeChange: (ProcessingMode) -> Unit,
+    onModeChange: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val modes = remember { keyboardModeOptions() }
+    val modes = availableModes.ifEmpty { defaultKeyboardModeOptions() }
 
     Box {
         FilledTonalIconButton(
@@ -382,12 +400,11 @@ private fun KeyboardAiSettingsMenu(
             HorizontalDivider()
 
             modes.forEach { option ->
-                val mode = ProcessingMode.fromId(option.id)
                 DropdownMenuItem(
-                    text = { Text(stringResource(option.labelRes)) },
+                    text = { Text(option.name) },
                     enabled = llmEnabled,
                     onClick = {
-                        onModeChange(mode)
+                        onModeChange(option.id)
                         expanded = false
                     },
                     leadingIcon =

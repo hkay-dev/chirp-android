@@ -23,6 +23,7 @@ import org.junit.Test
 @OptIn(ExperimentalCoroutinesApi::class)
 class LlmSettingsViewModelTest {
     private lateinit var preferences: LlmPreferences
+    private lateinit var backupManager: LlmApiKeyBackupManager
     private lateinit var llmClient: LlmClient
     private lateinit var viewModel: LlmSettingsViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -32,13 +33,19 @@ class LlmSettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         preferences = mockk(relaxUnitFun = true)
         coEvery { preferences.getLlmEnabled() } returns true
-        coEvery { preferences.fetchApiKey() } returns "initial-key"
+        every { preferences.getActiveProvider() } returns LlmProvider.GEMINI
+        every { preferences.getModelFor(LlmProvider.GEMINI) } returns DEFAULT_GEMINI_MODEL
+        every { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns "initial-key"
+        every { preferences.fetchApiKey() } returns "initial-key"
+        every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
         every { preferences.hasApiKey() } returns true
         every { preferences.isSecureStorageAvailable() } returns true
+        every { preferences.countConfiguredApiKeys() } returns 1
         coEvery { preferences.getAutoTitle() } returns false
         coEvery { preferences.getAutoSummary() } returns true
+        backupManager = mockk(relaxed = true)
         llmClient = mockk()
-        viewModel = LlmSettingsViewModel(preferences, llmClient, SavedStateHandle())
+        viewModel = LlmSettingsViewModel(preferences, backupManager, llmClient, SavedStateHandle())
     }
 
     @After
@@ -70,15 +77,15 @@ class LlmSettingsViewModelTest {
             assertEquals("new-key", state.apiKey)
             assertTrue(state.isKeyConfigured)
 
-            coVerify(exactly = 0) { preferences.setApiKey(any()) }
+            coVerify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
         }
 
     @Test
     fun `initialization does not clobber in-progress api key input`() =
         runTest {
             val savedStateHandle = SavedStateHandle()
-            viewModel = LlmSettingsViewModel(preferences, llmClient, savedStateHandle)
-            viewModel.updateApiKey("typed-before-init")
+            savedStateHandle["apiKeyInput_gemini"] = "typed-before-init"
+            viewModel = LlmSettingsViewModel(preferences, backupManager, llmClient, savedStateHandle)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("typed-before-init", viewModel.uiState.value.apiKey)
@@ -88,21 +95,22 @@ class LlmSettingsViewModelTest {
     fun `saveApiKey saves current key to preferences`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()
-            every { preferences.hasApiKey() } returnsMany listOf(true, true)
+            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true)
             viewModel.updateApiKey("saved-key")
             viewModel.saveApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.setApiKey("saved-key") }
+            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "saved-key") }
         }
 
     @Test
     fun `clearApiKey clears preferences and local state`() =
         runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
             viewModel.clearApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.clearApiKey() }
+            coVerify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
             assertEquals("", viewModel.uiState.value.apiKey)
         }
 
@@ -122,14 +130,14 @@ class LlmSettingsViewModelTest {
     fun `testConnection success`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()
-            every { preferences.hasApiKey() } returnsMany listOf(true, true, true)
+            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
             coEvery { llmClient.process(any(), any()) } returns Result.success("OK")
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.setApiKey("valid-key") }
+            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "valid-key") }
             val result = viewModel.uiState.value.connectionTestResult
             assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Success)
         }
@@ -151,6 +159,8 @@ class LlmSettingsViewModelTest {
     @Test
     fun `dismissTestResult clears result`() =
         runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
             coEvery { llmClient.process(any(), any()) } returns Result.success("OK")
             viewModel.testConnection()

@@ -122,7 +122,7 @@ internal fun ProcessingStudioState.canEnterTranscriptSelectionMode(): Boolean = 
 internal fun ProcessingStudioState.validateTranscriptSelectionActionRequest(hasApiKey: Boolean): String? =
     when {
         selectedTranscriptPassage.isBlank() -> "Select transcript text first"
-        !hasApiKey -> "Add a Gemini API key in Settings to use transcript tools"
+        !hasApiKey -> "Add an API key in AI Processing settings to use transcript tools"
         else -> null
     }
 

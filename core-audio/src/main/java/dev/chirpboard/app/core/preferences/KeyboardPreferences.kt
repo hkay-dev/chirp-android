@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.di.KeyboardPreferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -61,6 +62,11 @@ class KeyboardPreferences @Inject constructor(
      */
     val recordingQualityPreset: Flow<RecordingQualityPreset> = audioSettingsStore.recordingQualityPreset
 
+    /**
+     * Shared output format for saved recordings.
+     */
+    val outputFormat: Flow<RecordingOutputFormat> = audioSettingsStore.outputFormat
+
     suspend fun setSaveKeyboardRecordings(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[Keys.saveKeyboardRecordings] = enabled
@@ -89,5 +95,9 @@ class KeyboardPreferences @Inject constructor(
 
     suspend fun setRecordingQualityPreset(preset: RecordingQualityPreset) {
         audioSettingsStore.setRecordingQualityPreset(preset)
+    }
+
+    suspend fun setOutputFormat(format: RecordingOutputFormat) {
+        audioSettingsStore.setOutputFormat(format)
     }
 }

@@ -127,8 +127,8 @@ fun HomeScreen(
     var recoveryPromptSession by remember { mutableStateOf<dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession?>(null) }
 
     LaunchedEffect(recoverableSessions) {
-        if (recoveryPromptSession == null && recoverableSessions.isNotEmpty()) {
-            recoveryPromptSession = recoverableSessions.first()
+        if (recoveryPromptSession == null) {
+            recoveryPromptSession = recoverableSessions.firstOrNull()
         }
     }
 
@@ -168,7 +168,10 @@ fun HomeScreen(
 
     recoveryPromptSession?.let { session ->
         AnimatedAlertDialog(
-            onDismissRequest = { recoveryPromptSession = null },
+            onDismissRequest = {
+                viewModel.deferInterruptedSession(session.sessionId)
+                recoveryPromptSession = null
+            },
             title = { Text(stringResource(R.string.rec_recovery_title)) },
             text = {
                 Text(

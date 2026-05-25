@@ -13,6 +13,11 @@
     <string name="rec_edit_transcript">Edit transcript</string>
     <string name="rec_manual_correction_banner">Showing your saved manual correction.</string>
     <string name="rec_studio_loading_title">Loading recording…</string>
+    <string name="rec_studio_invalid_recording_title">Recording unavailable</string>
+    <string name="rec_studio_invalid_recording_message">This link doesn\'t point to a valid recording. Go back and open a recording from your library.</string>
+    <string name="rec_studio_recording_not_found_title">Recording not found</string>
+    <string name="rec_studio_recording_not_found_message">This recording may have been deleted or never finished saving.</string>
+    <string name="rec_studio_go_back">Go back</string>
     <string name="rec_word_timing_unavailable">Word-level timing isn\'t available for this transcript.</string>
     <string name="rec_edit_title">Edit title</string>
     <string name="rec_no_transcript_available">No transcript available</string>

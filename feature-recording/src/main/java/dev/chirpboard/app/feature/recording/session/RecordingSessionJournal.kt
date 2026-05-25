@@ -207,6 +207,17 @@ class RecordingSessionJournal
             }
         }
 
+        fun pruneAbandonedEntries(maxAgeMs: Long = DEFAULT_ABANDONED_PRUNE_AGE_MS): Int {
+            val cutoff = System.currentTimeMillis() - maxAgeMs
+            val stale =
+                loadAllEntries().filter { entry ->
+                    entry.state == SessionJournalState.ABANDONED &&
+                        entry.lastHeartbeatEpochMs < cutoff
+                }
+            stale.forEach { deleteEntry(it.sessionId) }
+            return stale.size
+        }
+
         fun loadActiveSessions(): List<RecordingSessionEntry> = loadSessions { it.isSafelisted }
 
         fun loadRecoverableSessions(): List<RecordingSessionEntry> = loadActiveSessions()
@@ -368,5 +379,6 @@ class RecordingSessionJournal
             const val MIN_RECOVERABLE_FILE_BYTES = 512L
             const val CHECKPOINT_INTERVAL_MS = 15 * 60 * 1000L
             const val SEGMENT_ROTATION_INTERVAL_MS = 5 * 60 * 1000L
+            const val DEFAULT_ABANDONED_PRUNE_AGE_MS = 30L * 24 * 60 * 60 * 1000
         }
     }

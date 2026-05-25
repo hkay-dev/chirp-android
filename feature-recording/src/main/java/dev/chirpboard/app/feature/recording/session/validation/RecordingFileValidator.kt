@@ -1,5 +1,7 @@
 package dev.chirpboard.app.feature.recording.session.validation
 
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.audio.WavFileWriter
 import java.io.File
 import java.io.RandomAccessFile
 import javax.inject.Inject
@@ -24,11 +26,21 @@ data class RecordingFileValidation(
 class RecordingFileValidator
     @Inject
     constructor() {
-        fun validateForStop(file: File): RecordingFileValidation = validate(file, requireMoov = true)
+        fun validateForStop(file: File): RecordingFileValidation =
+            when (RecordingOutputFormat.fromFile(file)) {
+                RecordingOutputFormat.M4A -> validateM4a(file, requireMoov = true)
+                RecordingOutputFormat.WAV -> validateWav(file)
+                RecordingOutputFormat.MP3 -> validateMp3(file)
+            }
 
-        fun validateForRecovery(file: File): RecordingFileValidation = validate(file, requireMoov = false)
+        fun validateForRecovery(file: File): RecordingFileValidation =
+            when (RecordingOutputFormat.fromFile(file)) {
+                RecordingOutputFormat.M4A -> validateM4a(file, requireMoov = false)
+                RecordingOutputFormat.WAV -> validateWav(file, allowRecoverableStub = true)
+                RecordingOutputFormat.MP3 -> validateMp3(file, allowRecoverableStub = true)
+            }
 
-        private fun validate(
+        private fun validateM4a(
             file: File,
             requireMoov: Boolean,
         ): RecordingFileValidation {
@@ -49,6 +61,42 @@ class RecordingFileValidator
             }
             return RecordingFileValidation(
                 if (requireMoov) RecordingValidationLevel.PLAYABLE else RecordingValidationLevel.RECOVERABLE_STUB,
+            )
+        }
+
+        private fun validateWav(
+            file: File,
+            allowRecoverableStub: Boolean = false,
+        ): RecordingFileValidation {
+            if (!file.exists()) {
+                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file does not exist")
+            }
+            if (file.length() < WavFileWriter.WAV_HEADER_BYTES + MIN_BYTES) {
+                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is too small")
+            }
+            if (!WavFileWriter.hasValidHeader(file)) {
+                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is not a valid WAV container")
+            }
+            return RecordingFileValidation(
+                if (allowRecoverableStub) RecordingValidationLevel.RECOVERABLE_STUB else RecordingValidationLevel.PLAYABLE,
+            )
+        }
+
+        private fun validateMp3(
+            file: File,
+            allowRecoverableStub: Boolean = false,
+        ): RecordingFileValidation {
+            if (!file.exists()) {
+                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file does not exist")
+            }
+            if (file.length() < MIN_BYTES) {
+                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is too small")
+            }
+            if (!hasMp3FrameSync(file)) {
+                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is not a valid MP3 stream")
+            }
+            return RecordingFileValidation(
+                if (allowRecoverableStub) RecordingValidationLevel.RECOVERABLE_STUB else RecordingValidationLevel.PLAYABLE,
             )
         }
 
@@ -83,16 +131,35 @@ class RecordingFileValidator
             }.getOrDefault(false)
         }
 
+        private fun hasMp3FrameSync(file: File): Boolean {
+            return runCatching {
+                file.inputStream().use { input ->
+                    val header = ByteArray(3)
+                    val read = input.read(header)
+                    if (read < 2) return false
+                    if (header[0] == 'I'.code.toByte() && header[1] == 'D'.code.toByte() && header[2] == '3'.code.toByte()) {
+                        return true
+                    }
+                    header[0].toInt() and 0xFF == 0xFF && (header[1].toInt() and 0xE0) == 0xE0
+                }
+            }.getOrDefault(false)
+        }
+
         companion object {
             const val MIN_BYTES = 512L
 
-            fun checkpointPathFor(audioPath: String): String = "$audioPath.checkpoint.m4a"
+            fun checkpointPathFor(audioPath: String): String {
+                val format = RecordingOutputFormat.fromExtension(File(audioPath).extension)
+                return "$audioPath.checkpoint${format.fileExtension}"
+            }
 
-            fun recoveryPathFor(audioPath: String): String =
-                if (audioPath.endsWith(".m4a")) {
-                    audioPath.removeSuffix(".m4a") + ".recovery.m4a"
+            fun recoveryPathFor(audioPath: String): String {
+                val format = RecordingOutputFormat.fromExtension(File(audioPath).extension)
+                return if (audioPath.endsWith(format.fileExtension)) {
+                    audioPath.removeSuffix(format.fileExtension) + ".recovery${format.fileExtension}"
                 } else {
-                    "$audioPath.recovery.m4a"
+                    "$audioPath.recovery${format.fileExtension}"
                 }
+            }
         }
     }

@@ -37,44 +37,75 @@ class LlmPreferences
             private const val TAG = "LlmPreferences"
             private const val SECURE_PREFS_NAME = "secure_prefs"
             private const val APP_PREFS_NAME = "chirp"
-            private const val GEMINI_CREDENTIAL_PREF = "gemini_api_key"
-            private const val KEY_GEMINI_MODEL = "gemini_model"
+            private const val LEGACY_GEMINI_CREDENTIAL_PREF = "gemini_api_key"
+            private const val LEGACY_GEMINI_MODEL_PREF = "gemini_model"
+            private const val KEY_ACTIVE_PROVIDER = "llm_active_provider"
+
+            private fun apiKeyPrefKey(provider: LlmProvider): String = "llm_api_key_${provider.id}"
+
+            private fun modelPrefKey(provider: LlmProvider): String = "llm_model_${provider.id}"
         }
 
         private val appPrefs: SharedPreferences by lazy {
             context.getSharedPreferences(APP_PREFS_NAME, Context.MODE_PRIVATE)
         }
 
-        /**
-         * Encrypted SharedPreferences for secure API key storage.
-         * Returns null if encryption is unavailable (rare device-specific issues).
-         */
         private val securePrefs: SharedPreferences? by lazy { createSecurePrefs() }
 
+        private val _activeProvider = MutableStateFlow(LlmProvider.GEMINI)
         private val _apiKey = MutableStateFlow<String?>(null)
 
         init {
-            migrateStoredModelNameIfNeeded()
-            _apiKey.value = readStoredApiKey()
+            migrateLegacyGeminiSettingsIfNeeded()
+            migrateStoredModelNamesIfNeeded()
+            _activeProvider.value = getActiveProvider()
+            refreshActiveApiKey()
         }
 
         val llmEnabled: Flow<Boolean> =
             context.dataStore.data.map { preferences ->
-                preferences[Keys.LLM_ENABLED] ?: true // On by default for dev
+                preferences[Keys.LLM_ENABLED] ?: true
             }
 
-        /** API key updates whenever secure storage changes. */
+        val activeProvider: Flow<LlmProvider> = _activeProvider.asStateFlow()
+
+        /** API key for the currently selected provider. */
         val apiKey: Flow<String?> = _apiKey.asStateFlow()
 
-        fun fetchApiKey(): String? {
-            val stored = readStoredApiKey()
-            if (_apiKey.value != stored) {
-                _apiKey.value = stored
-            }
-            return stored
+        fun getActiveProvider(): LlmProvider = LlmProvider.fromId(appPrefs.getString(KEY_ACTIVE_PROVIDER, null))
+
+        fun setActiveProvider(provider: LlmProvider) {
+            appPrefs.edit().putString(KEY_ACTIVE_PROVIDER, provider.id).apply()
+            _activeProvider.value = provider
+            refreshActiveApiKey()
         }
 
-        fun getModelName(): String = resolveGeminiModelName(appPrefs.getString(KEY_GEMINI_MODEL, null))
+        fun fetchApiKey(): String? = fetchApiKeyFor(getActiveProvider())
+
+        fun fetchApiKeyFor(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
+
+        fun getModelName(): String = getModelFor(getActiveProvider())
+
+        fun getModelFor(provider: LlmProvider): String =
+            resolveModelId(
+                provider = provider,
+                storedModelId = appPrefs.getString(modelPrefKey(provider), null),
+            )
+
+        fun setModelFor(
+            provider: LlmProvider,
+            modelId: String,
+        ) {
+            appPrefs
+                .edit()
+                .putString(modelPrefKey(provider), resolveModelId(provider, modelId))
+                .apply()
+        }
+
+        /** @deprecated Prefer [setModelFor]. */
+        fun setModelName(modelName: String) {
+            setModelFor(getActiveProvider(), modelName)
+        }
 
         val autoTitle: Flow<Boolean> =
             context.dataStore.data.map { preferences ->
@@ -92,10 +123,14 @@ class LlmPreferences
             }
         }
 
-        /**
-         * Stores API key in encrypted SharedPreferences.
-         */
         suspend fun setApiKey(key: String) {
+            setApiKeyFor(getActiveProvider(), key)
+        }
+
+        suspend fun setApiKeyFor(
+            provider: LlmProvider,
+            key: String,
+        ) {
             val normalized = key.trim()
             val prefs = securePrefs
             if (prefs == null) {
@@ -103,22 +138,126 @@ class LlmPreferences
                 return
             }
 
-            val committed = prefs.edit().putString(GEMINI_CREDENTIAL_PREF, normalized).commit()
+            val committed = prefs.edit().putString(apiKeyPrefKey(provider), normalized).commit()
             if (committed) {
-                _apiKey.value = normalized
+                if (provider == getActiveProvider()) {
+                    _apiKey.value = normalized
+                }
             } else {
                 Log.e(TAG, "Failed to commit API key to secure storage")
             }
         }
 
-        fun setModelName(modelName: String) {
-            appPrefs.edit().putString(KEY_GEMINI_MODEL, resolveGeminiModelName(modelName)).apply()
+        suspend fun clearApiKey() {
+            clearApiKeyFor(getActiveProvider())
         }
 
-        suspend fun clearApiKey() {
+        suspend fun clearApiKeyFor(provider: LlmProvider) {
             val prefs = securePrefs ?: return
-            if (prefs.edit().remove(GEMINI_CREDENTIAL_PREF).commit()) {
+            if (prefs.edit().remove(apiKeyPrefKey(provider)).commit() && provider == getActiveProvider()) {
                 _apiKey.value = null
+            }
+        }
+
+        fun hasApiKey(): Boolean = hasApiKeyFor(getActiveProvider())
+
+        fun hasApiKeyFor(provider: LlmProvider): Boolean = !fetchApiKeyFor(provider).isNullOrBlank()
+
+        fun isSecureStorageAvailable(): Boolean = securePrefs != null
+
+        suspend fun setAutoTitle(enabled: Boolean) {
+            context.dataStore.edit { preferences ->
+                preferences[Keys.AUTO_TITLE] = enabled
+            }
+        }
+
+        suspend fun setAutoSummary(enabled: Boolean) {
+            context.dataStore.edit { preferences ->
+                preferences[Keys.AUTO_SUMMARY] = enabled
+            }
+        }
+
+        suspend fun getAutoTitle(): Boolean = autoTitle.first()
+
+        suspend fun getAutoSummary(): Boolean = autoSummary.first()
+
+        suspend fun getLlmEnabled(): Boolean = llmEnabled.first()
+
+        fun buildSettingsSnapshot(): LlmSettingsSnapshot {
+            val apiKeys =
+                LlmProvider.entries.mapNotNull { provider ->
+                    fetchApiKeyFor(provider)
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { provider.id to it }
+                }.toMap()
+
+            val models =
+                LlmProvider.entries.associate { provider ->
+                    provider.id to getModelFor(provider)
+                }
+
+            return LlmSettingsSnapshot(
+                activeProvider = getActiveProvider().id,
+                models = models,
+                apiKeys = apiKeys,
+            )
+        }
+
+        suspend fun applySettingsSnapshot(snapshot: LlmSettingsSnapshot) {
+            val provider = LlmProvider.entries.firstOrNull { it.id == snapshot.activeProvider } ?: LlmProvider.GEMINI
+            setActiveProvider(provider)
+
+            snapshot.models.forEach { (providerId, modelId) ->
+                val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
+                setModelFor(snapshotProvider, modelId)
+            }
+
+            snapshot.apiKeys.forEach { (providerId, apiKey) ->
+                val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
+                if (apiKey.isNotBlank()) {
+                    setApiKeyFor(snapshotProvider, apiKey)
+                }
+            }
+
+            refreshActiveApiKey()
+        }
+
+        fun countConfiguredApiKeys(): Int =
+            LlmProvider.entries.count { hasApiKeyFor(it) }
+
+        private fun refreshActiveApiKey() {
+            _apiKey.value = fetchApiKeyFor(getActiveProvider())
+        }
+
+        private fun migrateLegacyGeminiSettingsIfNeeded() {
+            val legacyKey = securePrefs?.getString(LEGACY_GEMINI_CREDENTIAL_PREF, null)
+            if (!legacyKey.isNullOrBlank() && fetchApiKeyFor(LlmProvider.GEMINI).isNullOrBlank()) {
+                securePrefs?.edit()?.putString(apiKeyPrefKey(LlmProvider.GEMINI), legacyKey.trim())?.commit()
+                securePrefs?.edit()?.remove(LEGACY_GEMINI_CREDENTIAL_PREF)?.commit()
+            }
+
+            val legacyModel = appPrefs.getString(LEGACY_GEMINI_MODEL_PREF, null)
+            if (!legacyModel.isNullOrBlank() && appPrefs.getString(modelPrefKey(LlmProvider.GEMINI), null) == null) {
+                appPrefs
+                    .edit()
+                    .putString(modelPrefKey(LlmProvider.GEMINI), resolveModelId(LlmProvider.GEMINI, legacyModel))
+                    .apply()
+            }
+
+            if (appPrefs.getString(KEY_ACTIVE_PROVIDER, null) == null) {
+                appPrefs.edit().putString(KEY_ACTIVE_PROVIDER, LlmProvider.GEMINI.id).apply()
+            }
+        }
+
+        private fun migrateStoredModelNamesIfNeeded() {
+            LlmProvider.entries.forEach { provider ->
+                val stored = appPrefs.getString(modelPrefKey(provider), null) ?: return@forEach
+                val resolved = resolveModelId(provider, stored)
+                if (stored != resolved) {
+                    Log.i(TAG, "Migrating ${provider.displayName} model from $stored to $resolved")
+                    appPrefs.edit().putString(modelPrefKey(provider), resolved).apply()
+                }
             }
         }
 
@@ -142,46 +281,4 @@ class LlmPreferences
                 Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
                 null
             }
-
-        private fun readStoredApiKey(): String? = securePrefs?.getString(GEMINI_CREDENTIAL_PREF, null)
-
-        private fun migrateStoredModelNameIfNeeded() {
-            val stored = appPrefs.getString(KEY_GEMINI_MODEL, null) ?: return
-            val resolved = resolveGeminiModelName(stored)
-            if (stored != resolved) {
-                Log.i(TAG, "Migrating Gemini model from $stored to $resolved")
-                appPrefs.edit().putString(KEY_GEMINI_MODEL, resolved).apply()
-            }
-        }
-
-        /**
-         * Check if an API key has been configured.
-         */
-        fun hasApiKey(): Boolean = !fetchApiKey().isNullOrBlank()
-
-        /**
-         * Check if secure storage is available on this device.
-         */
-        fun isSecureStorageAvailable(): Boolean = securePrefs != null
-
-        suspend fun setAutoTitle(enabled: Boolean) {
-            context.dataStore.edit { preferences ->
-                preferences[Keys.AUTO_TITLE] = enabled
-            }
-        }
-
-        suspend fun setAutoSummary(enabled: Boolean) {
-            context.dataStore.edit { preferences ->
-                preferences[Keys.AUTO_SUMMARY] = enabled
-            }
-        }
-
-        /** Get current autoTitle value synchronously (for workers) */
-        suspend fun getAutoTitle(): Boolean = autoTitle.first()
-
-        /** Get current autoSummary value synchronously (for workers) */
-        suspend fun getAutoSummary(): Boolean = autoSummary.first()
-
-        /** Get current llmEnabled value synchronously (for workers) */
-        suspend fun getLlmEnabled(): Boolean = llmEnabled.first()
     }

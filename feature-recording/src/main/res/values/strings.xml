@@ -138,5 +138,6 @@
     <string name="rec_recovery_banner_body">A previous recording may not have finished saving.</string>
     <string name="rec_recovery_banner_body_with_loss">A previous recording may not have finished saving. Up to %1$d minute(s) of recent audio may be missing.</string>
     <string name="rec_recovery_review">Review</string>
+    <string name="rec_done_wait_for_id">Preparing recording…</string>
 
 </resources>

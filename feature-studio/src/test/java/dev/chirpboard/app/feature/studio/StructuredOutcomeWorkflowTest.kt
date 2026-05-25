@@ -34,7 +34,7 @@ class StructuredOutcomeWorkflowTest {
         )
 
         assertEquals(
-            "Add a Gemini API key in Settings to generate structured outcomes",
+            "Add an API key in AI Processing settings to generate structured outcomes",
             validateStructuredOutcomeGenerationRequest(
                 recordingStatus = RecordingStatus.COMPLETED,
                 effectiveTranscriptText = "hello",

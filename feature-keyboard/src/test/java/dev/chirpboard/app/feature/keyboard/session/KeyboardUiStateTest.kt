@@ -17,6 +17,7 @@ class KeyboardUiStateTest {
                 modelInitFailedMessage = null,
                 llmEnabled = true,
                 processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
                 permissionError = null,
             )
         assertEquals(VoicePanelPhase.Idle, state.voicePanel)
@@ -34,6 +35,7 @@ class KeyboardUiStateTest {
                 modelInitFailedMessage = null,
                 llmEnabled = true,
                 processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
                 permissionError = null,
             )
         assertEquals(VoicePanelPhase.Recording, state.voicePanel)
@@ -50,6 +52,7 @@ class KeyboardUiStateTest {
                 modelInitFailedMessage = null,
                 llmEnabled = true,
                 processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
                 permissionError = null,
             )
         assertEquals(VoicePanelPhase.LoadingModel, state.voicePanel)
