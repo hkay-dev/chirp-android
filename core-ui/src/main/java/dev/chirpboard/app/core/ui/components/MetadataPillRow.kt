@@ -1,4 +1,4 @@
-package dev.chirpboard.app.feature.recording.ui.components
+package dev.chirpboard.app.core.ui.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -8,12 +8,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FileOpen
-import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -24,13 +20,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.core.util.formatRelative
 import dev.chirpboard.app.data.model.RecordingSource
-import dev.chirpboard.app.core.ui.R as CoreR
+import java.util.Date
 
+/**
+ * Per-recording metadata pills: relative date, duration, and source.
+ *
+ * Complements [StatsPillRow], which shows aggregate home-screen stats (count, total duration,
+ * processing filter). Use this component for individual recording surfaces such as the home list
+ * and studio header.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MetadataPillRow(
@@ -46,7 +48,7 @@ fun MetadataPillRow(
     ) {
         createdAtMs?.let { createdAt ->
             MetadataPill(
-                label = remember(createdAt) { java.util.Date(createdAt).formatRelative() },
+                label = remember(createdAt) { Date(createdAt).formatRelative() },
                 icon = Icons.Filled.Schedule,
             )
         }
@@ -57,20 +59,8 @@ fun MetadataPillRow(
         )
 
         MetadataPill(
-            label =
-                when (source) {
-                    RecordingSource.APP -> stringResource(CoreR.string.rec_source_app)
-                    RecordingSource.KEYBOARD -> stringResource(CoreR.string.rec_source_keyboard)
-                    RecordingSource.WIDGET -> stringResource(CoreR.string.rec_source_widget)
-                    RecordingSource.IMPORTED -> stringResource(CoreR.string.rec_source_imported)
-                },
-            icon =
-                when (source) {
-                    RecordingSource.APP -> Icons.Filled.PhoneAndroid
-                    RecordingSource.KEYBOARD -> Icons.Filled.Keyboard
-                    RecordingSource.WIDGET -> Icons.Filled.Widgets
-                    RecordingSource.IMPORTED -> Icons.Filled.FileOpen
-                },
+            label = source.label(),
+            icon = source.icon(),
         )
     }
 }

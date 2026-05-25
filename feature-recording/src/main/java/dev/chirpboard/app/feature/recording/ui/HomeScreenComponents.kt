@@ -64,7 +64,9 @@ import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R
-import dev.chirpboard.app.feature.recording.ui.components.MetadataPillRow
+import dev.chirpboard.app.core.ui.components.MetadataPillRow
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
+import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
 import java.util.UUID
 
 /**
@@ -133,6 +135,10 @@ internal fun RecordingListItem(
             durationMs = item.durationMs,
             source = item.source,
         )
+
+        item.status.transcriptionProgressCopy()?.let { copy ->
+            TranscriptionProgressBanner(copy = copy)
+        }
 
         if (item.summary != null) {
             Text(
