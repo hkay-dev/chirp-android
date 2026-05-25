@@ -95,7 +95,7 @@
 
         <!-- Shared recording playback -->
         <service
-            android:name="dev.chirpboard.app.core.audio.RecordingPlaybackService"
+            android:name="dev.chirpboard.app.core.playback.RecordingPlaybackService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback">

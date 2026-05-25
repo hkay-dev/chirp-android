@@ -12,7 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
-import dev.chirpboard.app.core.audio.RecordingPlaybackController
+import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
@@ -245,7 +245,7 @@ class HomeViewModel
 
         private val _recoverableSessions = sessionRecovery.pendingSessions
         val recoverableSessions: StateFlow<List<RecoverableRecordingSession>> = _recoverableSessions
-        val playbackState: StateFlow<dev.chirpboard.app.core.audio.RecordingPlaybackState> = playbackController.state
+        val playbackState: StateFlow<dev.chirpboard.app.core.playback.RecordingPlaybackState> = playbackController.state
 
         init {
             refreshRecoverableSessions()

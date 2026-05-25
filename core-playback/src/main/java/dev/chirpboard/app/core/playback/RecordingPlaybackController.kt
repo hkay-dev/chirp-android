@@ -1,4 +1,4 @@
-package dev.chirpboard.app.core.audio
+package dev.chirpboard.app.core.playback
 
 import android.content.ComponentName
 import android.content.Context

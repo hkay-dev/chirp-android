@@ -28,7 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R
-import dev.chirpboard.app.core.audio.RecordingPlaybackState
+import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.util.formatAsDuration
 
 @Composable

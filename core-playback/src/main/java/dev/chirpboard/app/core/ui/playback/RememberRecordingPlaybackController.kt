@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import dagger.hilt.android.EntryPointAccessors
-import dev.chirpboard.app.core.audio.RecordingPlaybackController
+import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.di.RecordingPlaybackEntryPoint
 
 @Composable

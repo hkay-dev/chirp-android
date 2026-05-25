@@ -1,6 +1,8 @@
 # Chirpboard Architecture & Reliability Deep Scan Report
 *Date: April 5, 2026*
 
+> **Archive note:** File paths below reference the pre-split `:core` module. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+
 This document details the findings of a comprehensive, multi-agent codebase review. The scan identified critical defects, race conditions, memory leaks, and reliability issues across the `core`, `data`, `feature-recording`, `feature-transcription`, `feature-keyboard`, `feature-obsidian`, and `feature-llm` modules.
 
 ---

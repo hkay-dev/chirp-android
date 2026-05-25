@@ -1,5 +1,7 @@
 # Parakeeboard: Technical Hardening Specification (v1.0)
 
+> **Archive note:** File paths below reference the pre-split layout. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+
 This document outlines the critical performance bottlenecks, memory leaks, and threading vulnerabilities identified in the Parakeeboard codebase. Implementing these fixes is mandatory for achieving "Pro" tier stability and fluid 120Hz UI performance.
 
 ---

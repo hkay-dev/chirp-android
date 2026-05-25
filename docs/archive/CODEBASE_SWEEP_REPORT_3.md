@@ -1,5 +1,7 @@
 # Final Validation Sweep (3/3) Report
 
+> **Archive note:** File paths below reference the pre-split layout. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for current locations.
+
 ## 1. Network & Error Boundaries
 - **Retrofit Timeouts**: Confirmed `readTimeout` and `writeTimeout` are set to `60` seconds in `LlmClientImpl.kt`, ensuring LLM API calls do not prematurely fail.
 - **Exponential Backoff**: Verified `LlmClientImpl.kt` correctly implements exponential backoff on HTTP 429/503 (`currentDelay *= 2` across 3 attempts).
