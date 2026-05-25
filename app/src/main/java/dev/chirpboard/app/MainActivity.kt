@@ -1,13 +1,11 @@
 package dev.chirpboard.app
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -29,6 +27,7 @@ class MainActivity : ComponentActivity() {
     private var startupPromptsRequested = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         sharedAudioRequest = intent.toSharedAudioRequestOrNull()
@@ -61,7 +60,6 @@ class MainActivity : ComponentActivity() {
 
         startupPromptsRequested = true
         requestRuntimePermissions()
-        requestAllFilesAccessPermission()
     }
 
     private fun requestRuntimePermissions() {
@@ -83,21 +81,6 @@ class MainActivity : ComponentActivity() {
 
         if (permissions.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), 100)
-        }
-    }
-
-    private fun requestAllFilesAccessPermission() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()) {
-            return
-        }
-
-        try {
-            val intent =
-                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-            startActivity(intent)
-        } catch (_: android.content.ActivityNotFoundException) {
         }
     }
 }

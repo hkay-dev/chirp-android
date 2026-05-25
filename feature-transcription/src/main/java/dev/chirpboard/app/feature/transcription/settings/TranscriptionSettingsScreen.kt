@@ -53,26 +53,54 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 import dev.chirpboard.app.core.R as CoreR
 import dev.chirpboard.app.feature.transcription.R
 
+private fun requestModelDownload(
+    context: android.content.Context,
+    viewModel: TranscriptionSettingsViewModel,
+    uiState: TranscriptionSettingsViewModel.UiState,
+) {
+    if (uiState.isLoading || uiState.isDownloaded) {
+        return
+    }
+
+    if (AllFilesAccessRequester.needsPermission()) {
+        AllFilesAccessRequester.openSettings(context)
+        return
+    }
+
+    viewModel.downloadModel()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptionSettingsScreen(
+    autoStartDownload: Boolean = false,
     viewModel: TranscriptionSettingsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle().value
+    val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    LaunchedEffect(autoStartDownload, uiState.isDownloaded, uiState.isLoading) {
+        if (autoStartDownload) {
+            requestModelDownload(context, viewModel, uiState)
+        }
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -122,7 +150,7 @@ fun TranscriptionSettingsScreen(
                     isLoading = uiState.isLoading,
                     progress = uiState.downloadProgress,
                     currentFile = uiState.currentFile,
-                    onDownload = viewModel::downloadModel,
+                    onDownload = { requestModelDownload(context, viewModel, uiState) },
                     onDelete = viewModel::showDeleteConfirmation,
                 )
             }

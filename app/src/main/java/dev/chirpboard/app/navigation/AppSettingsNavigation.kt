@@ -22,7 +22,9 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
     composable(Screen.Settings.route) {
         SettingsScreen(
             onNavigateBack = { navController.popBackStack() },
-            onNavigateToTranscriptionSettings = { navController.navigate(Screen.TranscriptionSettings.route) },
+            onNavigateToTranscriptionSettings = {
+                navController.navigate(Screen.TranscriptionSettings.createRoute())
+            },
             onNavigateToLlmSettings = { navController.navigate(Screen.LlmSettings.route) },
             onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
             onNavigateToObsidianSettings = { navController.navigate(Screen.ObsidianSettings.route) },
@@ -35,8 +37,19 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
         )
     }
 
-    composable(Screen.TranscriptionSettings.route) {
+    composable(
+        route = Screen.TranscriptionSettings.route,
+        arguments =
+            listOf(
+                navArgument("autoDownload") {
+                    type = NavType.BoolType
+                    defaultValue = false
+                },
+            ),
+    ) { backStackEntry ->
+        val autoDownload = backStackEntry.arguments?.getBoolean("autoDownload") ?: false
         TranscriptionSettingsScreen(
+            autoStartDownload = autoDownload,
             onNavigateBack = { navController.popBackStack() },
         )
     }

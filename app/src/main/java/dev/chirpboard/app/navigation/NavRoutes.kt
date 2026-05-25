@@ -26,7 +26,9 @@ sealed class Screen(
 
     object Settings : Screen("settings")
 
-    object TranscriptionSettings : Screen("settings/transcription")
+    object TranscriptionSettings : Screen("settings/transcription?autoDownload={autoDownload}") {
+        fun createRoute(autoDownload: Boolean = false) = "settings/transcription?autoDownload=$autoDownload"
+    }
 
     object LlmSettings : Screen("settings/llm")
 
