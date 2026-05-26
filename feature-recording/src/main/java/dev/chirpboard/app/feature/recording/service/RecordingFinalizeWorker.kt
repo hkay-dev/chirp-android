@@ -55,8 +55,9 @@ class RecordingFinalizeWorker
                     withContext(Dispatchers.IO) {
                         stopOrchestrator.persistAndQueueRecording(snapshot, sessionId)
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Background finalize failed", e)
                     StopPersistenceResult.PersistenceFailed(
                         message = "Background finalize failed: ${e.message}",

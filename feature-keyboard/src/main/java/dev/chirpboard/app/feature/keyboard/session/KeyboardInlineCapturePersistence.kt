@@ -95,8 +95,9 @@ class KeyboardInlineCapturePersistence(
                 summary = null,
                 vaultUri = Uri.parse(vaultUriStr),
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is CancellationException) throw e
             Log.e(TAG, "Failed to auto-export to Obsidian", e)
         }
     }

@@ -93,8 +93,9 @@ class LlmChatService
                 val result =
                     try {
                         block()
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        if (e is CancellationException) throw e
                         Result.failure(e)
                     }
 
