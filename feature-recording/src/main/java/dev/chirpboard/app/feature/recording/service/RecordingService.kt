@@ -395,6 +395,27 @@ class RecordingService : Service() {
             startStorageMonitoring()
             startCheckpointCopies()
             startSegmentRotation()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            currentInProgressRecordingId?.let { recordingRepository.deleteInProgressRecording(it) }
+            currentInProgressRecordingId = null
+            currentSessionId?.let { sessionJournal.markAbandoned(it) }
+            currentSessionId?.let { capturePaths.deleteCaptureArtifacts(it) }
+            currentSessionId = null
+            audioFocusManager.abandonFocus()
+            inputDeviceSelector.clearActiveDevice()
+            segmentCapture?.releaseWithoutSave()
+            segmentCapture = null
+            currentRecordingFile?.let { file ->
+                if (file.exists()) file.delete()
+            }
+            currentFinalAudioPath?.let { file ->
+                if (file.exists()) file.delete()
+            }
+            currentRecordingFile = null
+            currentFinalAudioPath = null
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            throw e
         } catch (e: Exception) {
             currentInProgressRecordingId?.let { recordingRepository.deleteInProgressRecording(it) }
             currentInProgressRecordingId = null
@@ -424,7 +445,6 @@ class RecordingService : Service() {
             currentFinalAudioPath = null
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
-            if (e is kotlinx.coroutines.CancellationException) throw e
         }
     }
 
@@ -438,13 +458,15 @@ class RecordingService : Service() {
             serviceScope.launch {
                 try {
                     commitSegmentOnPause()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.w(TAG, "Failed to finalize segment on pause", e)
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
             recordingStateManager.onRecordingError("Failed to pause recording: ${e.message}", e)
         }
     }
@@ -718,8 +740,9 @@ class RecordingService : Service() {
 
         try {
             handoffCaptureToFinalizeQueue(snapshot, sessionId)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
             recordingStateManager.onRecordingError("Failed to finalize recording during shutdown")
         } finally {
             finishStopLifecycle()
@@ -768,8 +791,9 @@ class RecordingService : Service() {
                         val maxAmplitude = segmentCapture?.maxAmplitude ?: 0
                         val normalized = (maxAmplitude / 32767f).coerceIn(0f, 1f)
                         recordingStateManager.updateAmplitude(normalized)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
                         recordingStateManager.updateAmplitude(0f)
                     }
                     delay(100)
@@ -834,8 +858,9 @@ class RecordingService : Service() {
                                 correlationId = currentCorrelationId,
                             )
                         outcome?.nextSegmentFile?.let { currentRecordingFile = it }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.w(TAG, "Gapless segment rotation failed", e)
                     }
                 }

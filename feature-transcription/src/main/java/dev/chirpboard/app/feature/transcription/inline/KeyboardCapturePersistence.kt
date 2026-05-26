@@ -109,8 +109,9 @@ suspend fun saveCaptureRecording(
             Log.i(TAG, "Saved keyboard recording: ${recording.id}")
             recording
         }
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
     } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
         Log.e(TAG, "Failed to save keyboard recording", e)
         null
     }
