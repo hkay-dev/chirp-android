@@ -2,7 +2,7 @@
 <input-method xmlns:android="http://schemas.android.com/apk/res/android"
     android:settingsActivity="dev.chirpboard.app.MainActivity">
     <subtype
-        android:imeSubtypeMode="voice"
+        android:imeSubtypeMode="keyboard"
         android:isAuxiliary="false"
         android:label="@string/subtype_label"
         android:imeSubtypeLocale="en_US" />
