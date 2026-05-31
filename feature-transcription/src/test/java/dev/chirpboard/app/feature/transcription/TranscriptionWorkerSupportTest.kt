@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.content.pm.ServiceInfo
 import androidx.work.Data
 import androidx.work.ListenableWorker
 import dev.chirpboard.app.core.recording.RecordingOrigin
@@ -99,6 +100,15 @@ class TranscriptionWorkerSupportTest {
         assertEquals("transcription_progress", TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
         assertEquals(2001, TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID)
         assertEquals("Transcribing recording", transcriptionProgressNotificationTitle())
+        assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, backgroundWorkerForegroundServiceType())
+    }
+
+    @Test
+    fun `enhancement foreground helpers use stable typed ids`() {
+        assertEquals("enhancement_progress", ENHANCEMENT_FOREGROUND_CHANNEL_ID)
+        assertEquals(2002, ENHANCEMENT_FOREGROUND_NOTIFICATION_ID)
+        assertEquals("Enhancing recording", enhancementProgressNotificationTitle())
+        assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, backgroundWorkerForegroundServiceType())
     }
 
     @Test

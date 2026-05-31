@@ -130,6 +130,7 @@ class RecordingEnhancementWorker
                 return buildEnhancementFailureResult(errorMessage)
             }
 
+            setForeground(buildEnhancementForegroundInfo(applicationContext))
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.ENHANCEMENT,
                 outcome = ReliabilityOutcome.STARTED,
