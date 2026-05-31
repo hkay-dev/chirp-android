@@ -15,6 +15,12 @@ Canonical fix specs for findings in `docs/recording-lifecycle-spec.md` § Audit 
 | P2 | Audio sharing uses non-canonical `audio/m4a` instead of format-derived MIME types | [share-audio-mime-correctness](./share-audio-mime-correctness/) | proposed |
 | P2 | Orphan cleanup misses stale nested capture directories | [recording-recovery-orphan-cleanup-integrity](./recording-recovery-orphan-cleanup-integrity/) | proposed |
 | P2 | Android modules still declare API 35/26 despite Android 16-only baseline and AGP emits API 36 warnings | [android-16-sdk-alignment](./android-16-sdk-alignment/) | proposed |
+| P0-P1 | Recording stop can lose recoverable artifacts or block service teardown when finalization, native stop, or keyboard persistence fails | [harden-recording-stop-durability](./harden-recording-stop-durability/) | proposed |
+| P1-P2 | Offline transcription and network enhancement need independent execution state, recovery, and retry semantics | [harden-transcription-enhancement-pipeline](./harden-transcription-enhancement-pipeline/) | proposed |
+| P1-P3 | Room writes, stale transitions, schema history, bulk queries, and profile default tag storage can weaken data integrity | [data-room-repository-integrity-hardening](./data-room-repository-integrity-hardening/) | proposed |
+| P2-P4 | Recovery UI and Home enrichment can show stale or incomplete state after queue, transcript, tag, or diagnostic changes | [ui-polish-recovery-display-consistency](./ui-polish-recovery-display-consistency/) | proposed |
+| P2-P4 | Feature modules, core UI, core contracts, and `RecordingService` have monolithic dependency boundaries | [enforce-architectural-module-boundaries](./enforce-architectural-module-boundaries/) | proposed |
+| P2-P4 | Audio decode, model warmup, keyboard dictation, Home previews, playback ticks, and LLM context assembly can waste memory, CPU, or tokens | [improve-performance-resource-efficiency](./improve-performance-resource-efficiency/) | proposed |
 | P0–P2, P4 | recoverSession guards; keep-files RECORDING row; reconciler missing row; defer persist | [recovery-data-integrity](./archive/2026-05-25-recovery-data-integrity/) | applied |
 | P0–P2 | Invalid UUID trap; missing recording skeleton; FAILED duplicate UI; Home import nav | [archive/2026-05-25-processing-studio-resilience](./archive/2026-05-25-processing-studio-resilience/) | applied |
 | P1–P3 | Cancel during Starting; early Done; pending stop reconcile; widget Stopping | [archive/2026-05-25-recording-edge-case-races](./archive/2026-05-25-recording-edge-case-races/) | applied |
@@ -35,6 +41,12 @@ Canonical fix specs for findings in `docs/recording-lifecycle-spec.md` § Audit 
 9. `share-audio-mime-correctness`
 10. `recording-recovery-orphan-cleanup-integrity`
 11. `android-16-sdk-alignment`
+12. `harden-recording-stop-durability`
+13. `harden-transcription-enhancement-pipeline`
+14. `data-room-repository-integrity-hardening`
+15. `ui-polish-recovery-display-consistency`
+16. `enforce-architectural-module-boundaries`
+17. `improve-performance-resource-efficiency`
 
 ## Archive reference
 
