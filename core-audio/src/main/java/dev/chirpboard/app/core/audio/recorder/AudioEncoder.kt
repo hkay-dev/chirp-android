@@ -68,6 +68,35 @@ class AudioEncoder
         }
     }
 
+    fun encodePcm16WavFile(
+        inputPath: String,
+        outputPath: String,
+        format: RecordingOutputFormat,
+        config: KeyboardRecordingQualityConfig = KeyboardRecordingQualityConfig(DEFAULT_BIT_RATE),
+    ): Boolean {
+        val inputFile = File(inputPath)
+        if (!WavFileWriter.hasValidHeader(inputFile)) {
+            Log.w(TAG, "Cannot encode invalid WAV file: $inputPath")
+            return false
+        }
+
+        return when (format) {
+            RecordingOutputFormat.WAV ->
+                runCatching {
+                    File(outputPath).parentFile?.mkdirs()
+                    inputFile.copyTo(File(outputPath), overwrite = true)
+                    true
+                }.getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    Log.e(TAG, "WAV copy failed", error)
+                    runCatching { File(outputPath).delete() }
+                    false
+                }
+            RecordingOutputFormat.M4A -> encodePcm16WavFileToM4a(inputPath, outputPath, config)
+            RecordingOutputFormat.MP3 -> encodePcm16WavFileToMp3(inputPath, outputPath, config)
+        }
+    }
+
     /** @deprecated Use [encode] with an explicit [RecordingOutputFormat]. */
     fun encodeToM4a(
         samples: FloatArray,
@@ -398,6 +427,173 @@ class AudioEncoder
             runCatching { codec?.release() }
             runCatching { if (muxerStarted) muxer?.stop() }
             runCatching { muxer?.release() }
+        }
+    }
+
+    private fun encodePcm16WavFileToM4a(
+        inputPath: String,
+        outputPath: String,
+        config: KeyboardRecordingQualityConfig,
+    ): Boolean {
+        val sampleRate = readWavSampleRate(File(inputPath))
+        var codec: MediaCodec? = null
+        var muxer: MediaMuxer? = null
+        var trackIndex = -1
+        var muxerStarted = false
+
+        return try {
+            File(outputPath).parentFile?.mkdirs()
+            val mediaFormat = MediaFormat.createAudioFormat(MIME_TYPE, sampleRate, 1).apply {
+                setInteger(MediaFormat.KEY_BIT_RATE, config.bitRate)
+                setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, STREAM_CHUNK_SAMPLES * 2)
+            }
+
+            codec = MediaCodec.createEncoderByType(MIME_TYPE)
+            codec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            codec.start()
+            muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+            FileInputStream(inputPath).use { input ->
+                input.skip(WavFileWriter.WAV_HEADER_BYTES.toLong())
+                val bufferInfo = MediaCodec.BufferInfo()
+                var inputDone = false
+                var outputDone = false
+                var inputBytePosition = 0L
+                val sourceBuffer = ByteArray(STREAM_CHUNK_SAMPLES * 2)
+                var pending = ByteArray(0)
+                var pendingOffset = 0
+
+                while (!outputDone) {
+                    if (!inputDone) {
+                        val inputIndex = codec.dequeueInputBuffer(TIMEOUT_US)
+                        if (inputIndex >= 0) {
+                            val inputBuffer = codec.getInputBuffer(inputIndex)!!
+                            if (pendingOffset >= pending.size) {
+                                val read = input.read(sourceBuffer)
+                                pending =
+                                    if (read > 0) {
+                                        sourceBuffer.copyOf(read)
+                                    } else {
+                                        ByteArray(0)
+                                    }
+                                pendingOffset = 0
+                            }
+
+                            if (pending.isEmpty()) {
+                                codec.queueInputBuffer(inputIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                                inputDone = true
+                            } else {
+                                val size = minOf(pending.size - pendingOffset, inputBuffer.capacity())
+                                inputBuffer.clear()
+                                inputBuffer.put(pending, pendingOffset, size)
+                                val presentationTimeUs = (inputBytePosition * 1_000_000) / (sampleRate * 2)
+                                codec.queueInputBuffer(inputIndex, 0, size, presentationTimeUs, 0)
+                                inputBytePosition += size
+                                pendingOffset += size
+                            }
+                        }
+                    }
+
+                    val outputIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
+                    when {
+                        outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                            trackIndex = muxer!!.addTrack(codec.outputFormat)
+                            muxer!!.start()
+                            muxerStarted = true
+                        }
+
+                        outputIndex >= 0 -> {
+                            val outputBuffer = codec.getOutputBuffer(outputIndex)!!
+                            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                                bufferInfo.size = 0
+                            }
+                            if (bufferInfo.size > 0 && muxerStarted) {
+                                outputBuffer.position(bufferInfo.offset)
+                                outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                                muxer!!.writeSampleData(trackIndex, outputBuffer, bufferInfo)
+                            }
+                            codec.releaseOutputBuffer(outputIndex, false)
+                            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                                outputDone = true
+                            }
+                        }
+                    }
+                }
+            }
+            true
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "WAV to M4A encoding failed", e)
+            runCatching { File(outputPath).delete() }
+            false
+        } finally {
+            runCatching { codec?.stop() }
+            runCatching { codec?.release() }
+            runCatching { if (muxerStarted) muxer?.stop() }
+            runCatching { muxer?.release() }
+        }
+    }
+
+    private fun encodePcm16WavFileToMp3(
+        inputPath: String,
+        outputPath: String,
+        config: KeyboardRecordingQualityConfig,
+    ): Boolean {
+        val sampleRate = readWavSampleRate(File(inputPath))
+        return runCatching {
+            File(outputPath).parentFile?.mkdirs()
+            val lame =
+                LameBuilder()
+                    .setInSampleRate(sampleRate)
+                    .setOutChannels(1)
+                    .setOutBitrate(config.bitRate / 1000)
+                    .setOutSampleRate(sampleRate)
+                    .build()
+            val pcmBuffer = ByteArray(MP3_BUFFER_SIZE)
+            val mp3Buffer = ByteArray(MP3_BUFFER_SIZE)
+            BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
+                FileInputStream(inputPath).use { input ->
+                    input.skip(WavFileWriter.WAV_HEADER_BYTES.toLong())
+                    while (true) {
+                        val read = input.read(pcmBuffer)
+                        if (read <= 0) break
+                        val sampleCount = read / 2
+                        if (sampleCount == 0) continue
+                        val shorts = ShortArray(sampleCount)
+                        val byteBuffer = ByteBuffer.wrap(pcmBuffer, 0, sampleCount * 2).order(ByteOrder.LITTLE_ENDIAN)
+                        for (index in 0 until sampleCount) {
+                            shorts[index] = byteBuffer.short
+                        }
+                        val encodedSize = lame.encode(shorts, shorts, sampleCount, mp3Buffer)
+                        if (encodedSize > 0) {
+                            output.write(mp3Buffer, 0, encodedSize)
+                        }
+                    }
+                }
+                val flushSize = lame.flush(mp3Buffer)
+                if (flushSize > 0) {
+                    output.write(mp3Buffer, 0, flushSize)
+                }
+            }
+            true
+        }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            Log.e(TAG, "WAV to MP3 encoding failed", error)
+            runCatching { File(outputPath).delete() }
+            false
+        }
+    }
+
+    private fun readWavSampleRate(file: File): Int {
+        FileInputStream(file).use { input ->
+            input.skip(24)
+            val rateBytes = ByteArray(4)
+            input.read(rateBytes)
+            return (rateBytes[0].toInt() and 0xFF) or
+                ((rateBytes[1].toInt() and 0xFF) shl 8) or
+                ((rateBytes[2].toInt() and 0xFF) shl 16) or
+                ((rateBytes[3].toInt() and 0xFF) shl 24)
         }
     }
 

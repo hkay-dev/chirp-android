@@ -7,6 +7,7 @@ import android.media.MediaMuxer
 import android.util.Log
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.WavFileWriter
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.feature.recording.util.probeDurationUs
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
@@ -24,7 +25,9 @@ sealed class SegmentConcatResult {
 @Singleton
 class RecordingSegmentConcatenator
     @Inject
-    constructor() {
+    constructor(
+        private val audioEncoder: AudioEncoder,
+    ) {
         fun concatToExport(
             segments: List<File>,
             outputFile: File,
@@ -39,7 +42,10 @@ class RecordingSegmentConcatenator
                 outputFile.delete()
             }
 
-            if (existingSegments.size == 1) {
+            val outputFormat = RecordingOutputFormat.fromFile(outputFile)
+            val sourceFormat = RecordingOutputFormat.fromFile(existingSegments.first())
+
+            if (existingSegments.size == 1 && sourceFormat == outputFormat) {
                 return runCatching {
                     existingSegments.first().copyTo(outputFile, overwrite = true)
                     if (outputFile.length() < RecordingFileValidator.MIN_BYTES) {
@@ -52,10 +58,55 @@ class RecordingSegmentConcatenator
                 }
             }
 
-            return when (RecordingOutputFormat.fromFile(outputFile)) {
+            if (existingSegments.all { RecordingOutputFormat.fromFile(it) == RecordingOutputFormat.WAV }) {
+                return encodeWavSegments(existingSegments, outputFile, outputFormat)
+            }
+
+            return when (outputFormat) {
                 RecordingOutputFormat.M4A -> muxAacSegments(existingSegments, outputFile)
                 RecordingOutputFormat.WAV -> concatWavSegments(existingSegments, outputFile)
                 RecordingOutputFormat.MP3 -> concatMp3Segments(existingSegments, outputFile)
+            }
+        }
+
+        private fun encodeWavSegments(
+            segments: List<File>,
+            outputFile: File,
+            outputFormat: RecordingOutputFormat,
+        ): SegmentConcatResult {
+            val wavSource =
+                if (segments.size == 1) {
+                    segments.first()
+                } else {
+                    File(outputFile.parentFile, "${outputFile.name}.segments.wav").also { temp ->
+                        when (val result = concatWavSegments(segments, temp)) {
+                            SegmentConcatResult.Success -> Unit
+                            is SegmentConcatResult.Failed -> return result
+                        }
+                    }
+                }
+
+            return runCatching {
+                val encoded =
+                    audioEncoder.encodePcm16WavFile(
+                        inputPath = wavSource.absolutePath,
+                        outputPath = outputFile.absolutePath,
+                        format = outputFormat,
+                    )
+                if (wavSource != segments.first()) {
+                    wavSource.delete()
+                }
+                if (encoded && outputFile.length() >= RecordingFileValidator.MIN_BYTES) {
+                    SegmentConcatResult.Success
+                } else {
+                    SegmentConcatResult.Failed("WAV segment export encoding failed")
+                }
+            }.getOrElse { error ->
+                if (wavSource != segments.first()) {
+                    wavSource.delete()
+                }
+                if (outputFile.exists()) outputFile.delete()
+                SegmentConcatResult.Failed(error.message ?: "WAV segment export failed")
             }
         }
 

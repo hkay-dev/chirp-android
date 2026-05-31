@@ -27,6 +27,11 @@ class RecordingCapturePaths
                 "seg-${index.toString().padStart(3, '0')}${format.fileExtension}",
             )
 
+        fun durableSegmentFile(
+            sessionId: UUID,
+            index: Int,
+        ): File = segmentFile(sessionId, index, RecordingOutputFormat.WAV)
+
         fun deleteCaptureArtifacts(sessionId: UUID) {
             captureDir(sessionId).deleteRecursively()
         }

@@ -320,7 +320,7 @@ class RecordingService : Service() {
                     val sessionId = UUID.randomUUID()
                     currentSessionId = sessionId
                     currentFinalAudioPath = finalFile
-                    val firstSegment = capturePaths.segmentFile(sessionId, 0, outputFormat)
+                    val firstSegment = capturePaths.durableSegmentFile(sessionId, 0)
                     currentRecordingFile = firstSegment
 
                     ensureStartNotCancelled()
@@ -357,7 +357,7 @@ class RecordingService : Service() {
 
                     startGaplessCapture(
                         segmentFile = firstSegment,
-                        format = outputFormat,
+                        format = RecordingOutputFormat.WAV,
                         bitRate = recordingQualityConfig.bitRate,
                         sampleRate = recordingQualityConfig.sampleRate,
                     )
@@ -492,15 +492,14 @@ class RecordingService : Service() {
                 segmentTransitionMutex.withLock {
                     val sessionId = currentSessionId ?: return@withLock
                     val entry = sessionJournal.findBySessionId(sessionId) ?: return@withLock
-                    val outputFormat = audioSettingsStore.currentOutputFormat()
-                    val nextSegment = capturePaths.segmentFile(sessionId, entry.segmentPaths.size, outputFormat)
+                    val nextSegment = capturePaths.durableSegmentFile(sessionId, entry.segmentPaths.size)
                     val recordingQualityConfig =
                         audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
 
                     withContext(Dispatchers.IO) {
                         segmentCapture =
                             GaplessSegmentCaptureFactory.create(
-                                format = outputFormat,
+                                format = RecordingOutputFormat.WAV,
                                 inputDeviceSelector = inputDeviceSelector,
                                 sampleRate = recordingQualityConfig.sampleRate,
                                 bitRate = recordingQualityConfig.bitRate,

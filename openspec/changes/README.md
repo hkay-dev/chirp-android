@@ -23,6 +23,7 @@
 | `ui-polish-recovery-display-consistency` | P2–P4 | Pending enhancement recovery UI, fresh diagnostics, stale result guards, reactive enrichment |
 | `enforce-architectural-module-boundaries` | P2–P4 | Ports, core module cleanup, dependency guard tests, RecordingService adapter boundary |
 | `improve-performance-resource-efficiency` | P2–P4 | Backpressure-safe decode, warmup gating, bounded dictation memory, preview queries, LLM context reuse |
+| `recording-crash-tolerant-live-capture` | P0–P1 | Crash-tolerant WAV live capture segments with configured-format export |
 
 **Suggested order:** see AUDIT_INDEX.md.
 

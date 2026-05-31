@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.recording.service
 
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.entity.Recording
@@ -50,7 +51,7 @@ class RecordingStopOrchestratorTest {
                 mockk(relaxed = true),
                 RecordingSegmentFinalize(
                     mockk(relaxed = true),
-                    RecordingSegmentConcatenator(),
+                    RecordingSegmentConcatenator(mockk<AudioEncoder>(relaxed = true)),
                     mockk(relaxed = true),
                     RecordingFileValidator(),
                 ),
