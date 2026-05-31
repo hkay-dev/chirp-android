@@ -45,6 +45,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -142,9 +143,12 @@ class RecordingService : Service() {
                 AudioFocusManager.FocusLossKind.PERMANENT -> stopRecording()
             }
         }
+        val serviceRef = WeakReference(this)
         inputDeviceSelector.setOnActiveDeviceLostListener {
-            serviceScope.launch {
-                stopRecording()
+            serviceRef.get()?.let { service ->
+                service.serviceScope.launch {
+                    service.stopRecording()
+                }
             }
         }
     }
@@ -440,25 +444,45 @@ class RecordingService : Service() {
     }
 
     private fun pauseRecording() {
-        try {
-            recordingStateManager.pauseRecording()
-            amplitudeJob?.cancel()
-            amplitudeJob = null
-            recordingStateManager.updateAmplitude(0f)
-            notificationFactory.updateRecordingNotification(this, recordingStateManager)
-            serviceScope.launch {
-                try {
-                    commitSegmentOnPause()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to finalize segment on pause", e)
+        serviceScope.launch {
+            try {
+                segmentTransitionMutex.withLock {
+                    if (recordingStateManager.state.value !is RecordingState.Recording) return@withLock
+                    segmentRotationJob?.cancel()
+                    amplitudeJob?.cancel()
+                    amplitudeJob = null
+                    recordingStateManager.pauseRecording()
+                    recordingStateManager.updateAmplitude(0f)
+
+                    val sessionId = currentSessionId ?: return@withLock
+                    val completedFile =
+                        withContext(Dispatchers.IO) {
+                            segmentCapture?.cancelPendingRotation()
+                            segmentCapture?.pauseAndFinalizeSegment()
+                        }
+                    segmentCapture = null
+                    val finalized = completedFile ?: currentRecordingFile ?: return@withLock
+                    currentRecordingFile = finalized
+
+                    sessionJournal.commitPausedSegment(
+                        sessionId = sessionId,
+                        completedSegmentPath = finalized.absolutePath,
+                        fileBytes = finalized.length(),
+                    )
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        outcome = ReliabilityOutcome.SUCCESS,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        reasonCode = "segment_saved_on_pause",
+                    )
                 }
+                notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to pause recording", e)
+                recordingStateManager.onRecordingError("Failed to pause recording: ${e.message}", e)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            recordingStateManager.onRecordingError("Failed to pause recording: ${e.message}", e)
         }
     }
 
@@ -502,34 +526,6 @@ class RecordingService : Service() {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 recordingStateManager.onRecordingError("Failed to resume recording: ${e.message}", e)
             }
-        }
-    }
-
-    private suspend fun commitSegmentOnPause() {
-        segmentTransitionMutex.withLock {
-            if (recordingStateManager.state.value !is RecordingState.Paused) return
-            segmentRotationJob?.cancel()
-            val sessionId = currentSessionId ?: return
-            val completedFile =
-                withContext(Dispatchers.IO) {
-                    segmentCapture?.cancelPendingRotation()
-                    segmentCapture?.pauseAndFinalizeSegment()
-                }
-            segmentCapture = null
-            val finalized = completedFile ?: currentRecordingFile ?: return
-            currentRecordingFile = finalized
-
-            sessionJournal.commitPausedSegment(
-                sessionId = sessionId,
-                completedSegmentPath = finalized.absolutePath,
-                fileBytes = finalized.length(),
-            )
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_STOP,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                reasonCode = "segment_saved_on_pause",
-            )
         }
     }
 
