@@ -17,4 +17,4 @@
 
 - [x] 3.1 `./gradlew :core-audio:testDebugUnitTest :feature-recording:testDebugUnitTest`
 - [x] 3.2 `./gradlew :app:assembleDebug`
-- [ ] 3.3 Install debug APK to Samsung.
+- [x] 3.3 Install debug APK to Samsung.
