@@ -7,10 +7,10 @@ plugins {
 
 android {
     namespace = "dev.chirpboard.app.feature.widget"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 36
     }
 
     compileOptions {
@@ -37,4 +37,5 @@ dependencies {
 
     // Test
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }

@@ -17,6 +17,8 @@
     <string name="keyboard_downloading_model_progress">Downloading model... %1$d%%</string>
     <string name="keyboard_loading_speech_model">Loading speech model…</string>
     <string name="keyboard_model_not_ready">Model not ready</string>
+    <string name="keyboard_sensitive_input_disabled">Dictation is disabled for sensitive fields</string>
+    <string name="keyboard_input_changed">Dictation finished after the input field changed</string>
     <string name="keyboard_open_app_to_download">Open app to download</string>
     <string name="keyboard_mode_proofread">Proofread</string>
     <string name="keyboard_mode_formal">Formal</string>

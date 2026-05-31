@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.Data
 import androidx.work.ForegroundInfo
@@ -41,21 +40,14 @@ internal fun buildTranscriptionProgressNotification(context: Context): Notificat
 
 internal fun buildTranscriptionForegroundInfo(context: Context): ForegroundInfo {
     val notification = buildTranscriptionProgressNotification(context)
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        ForegroundInfo(
-            TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
-        )
-    } else {
-        ForegroundInfo(TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID, notification)
-    }
+    return ForegroundInfo(
+        TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID,
+        notification,
+        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+    )
 }
 
 private fun ensureTranscriptionProgressChannel(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-        return
-    }
     val notificationManager = context.getSystemService(NotificationManager::class.java)
     if (notificationManager.getNotificationChannel(TRANSCRIPTION_FOREGROUND_CHANNEL_ID) != null) {
         return

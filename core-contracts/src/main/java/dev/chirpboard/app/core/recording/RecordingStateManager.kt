@@ -336,7 +336,7 @@ class RecordingStateManager @Inject constructor() {
      */
     fun onCaptureStopHandoff(recordingId: UUID?) {
         timeoutJob?.cancel()
-        _lastCompletedRecordingId.value = recordingId
+        var handoffAccepted = false
         _state.update { current ->
             when (current) {
                 is RecordingState.Starting,
@@ -344,17 +344,29 @@ class RecordingStateManager @Inject constructor() {
                 is RecordingState.Paused,
                 is RecordingState.Stopping,
                 -> {
+                    val currentRecordingId = current.activeRecordingId
+                    if (recordingId != null && currentRecordingId != recordingId) {
+                        Log.w(
+                            TAG,
+                            "Ignoring stale capture handoff for $recordingId while active recording is $currentRecordingId",
+                        )
+                        return@update current
+                    }
+                    handoffAccepted = true
                     Log.d(TAG, "State: ${current::class.simpleName} -> Idle (capture handoff)")
                     RecordingState.Idle
                 }
                 else -> {
-                    Log.w(TAG, "onCaptureStopHandoff called in unexpected state: ${current::class.simpleName}, forcing Idle")
-                    RecordingState.Idle
+                    Log.w(TAG, "Ignoring capture handoff in unexpected state: ${current::class.simpleName}")
+                    current
                 }
             }
         }
-        recordingLock.set(false)
-        clearAmplitude()
+        if (handoffAccepted) {
+            _lastCompletedRecordingId.value = recordingId
+            recordingLock.set(false)
+            clearAmplitude()
+        }
     }
 
     /**

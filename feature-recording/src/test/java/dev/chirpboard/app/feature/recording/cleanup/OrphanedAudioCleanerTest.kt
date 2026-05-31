@@ -107,4 +107,55 @@ class OrphanedAudioCleanerTest {
 
             assertTrue(file.exists())
         }
+
+    @Test
+    fun cleanOrphanedFiles_deletesUnreferencedCaptureDirectoryAfterGrace() =
+        runTest {
+            val captureDir =
+                File(context.filesDir, "recordings/.capture/${UUID.randomUUID()}").apply {
+                    mkdirs()
+                }
+            val segment =
+                File(captureDir, "seg-000.m4a").apply {
+                    writeText("orphan segment")
+                    setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+                }
+            captureDir.setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(segment.exists())
+            assertFalse(captureDir.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_retainsJournalReferencedCaptureDirectory() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val captureDir =
+                File(context.filesDir, "recordings/.capture/$sessionId").apply {
+                    mkdirs()
+                }
+            val segment =
+                File(captureDir, "seg-000.m4a").apply {
+                    writeText("active segment")
+                    setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+                }
+            captureDir.setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = segment.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = UUID.randomUUID(),
+                correlationId = "corr",
+            )
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertTrue(segment.exists())
+            assertTrue(captureDir.exists())
+        }
 }

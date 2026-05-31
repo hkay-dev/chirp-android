@@ -49,6 +49,7 @@ class WhisperModelManagerTest {
 
         assertTrue(result)
         verify { speechModelStore.invalidateVerificationCache() }
+        verify { readinessGate.invalidate() }
         verify { readinessGate.warmupIfNeeded(any()) }
     }
 

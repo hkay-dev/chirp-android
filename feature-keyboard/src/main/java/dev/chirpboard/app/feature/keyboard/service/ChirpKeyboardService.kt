@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
@@ -36,6 +37,7 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import dev.chirpboard.app.feature.keyboard.session.KeyboardInlineCapturePersistence
 import dev.chirpboard.app.feature.keyboard.session.KeyboardSessionCoordinator
@@ -92,6 +94,7 @@ class ChirpKeyboardService :
 
     private lateinit var audioFocusManager: AudioFocusManager
     private lateinit var coordinator: KeyboardSessionCoordinator
+    private val inputSessionGuard = KeyboardInputSessionGuard()
     private var phoneCallHandler: PhoneCallHandler? = null
     private var composeView: ComposeView? = null
 
@@ -143,7 +146,7 @@ class ChirpKeyboardService :
 
         audioFocusManager.onFocusLost = {
             if (coordinator.isRecordingActive()) {
-                coordinator.stopAndTranscribe { text -> currentInputConnection?.commitText(text, 1) }
+                stopAndTranscribeForCurrentInput()
             }
         }
 
@@ -153,7 +156,7 @@ class ChirpKeyboardService :
                 PhoneCallHandler(manager, ContextCompat.getMainExecutor(this)).apply {
                     onCallStateChanged = { inCall ->
                         if (inCall && coordinator.isRecordingActive()) {
-                            coordinator.stopAndTranscribe { text -> currentInputConnection?.commitText(text, 1) }
+                            stopAndTranscribeForCurrentInput()
                         }
                     }
                     register()
@@ -179,7 +182,7 @@ class ChirpKeyboardService :
         coordinator.initializeModel()
 
         keyboardStopBridge.registerStopHandler {
-            coordinator.stopAndTranscribe { text -> currentInputConnection?.commitText(text, 1) }
+            stopAndTranscribeForCurrentInput()
         }
         drainPendingKeyboardStopIfNeeded()
     }
@@ -196,7 +199,7 @@ class ChirpKeyboardService :
                     )
             if (shouldDrainPendingStop) {
                 try {
-                    coordinator.stopAndTranscribe { text -> currentInputConnection?.commitText(text, 1) }
+                    stopAndTranscribeForCurrentInput()
                 } finally {
                     pendingStopStore.clear()
                 }
@@ -215,7 +218,7 @@ class ChirpKeyboardService :
                     uiState = uiState,
                     waveformBuffer = coordinator.capture.waveformBuffer,
                     sampleCountFlow = coordinator.capture.sampleCountFlow,
-                    onMicTap = { coordinator.onMicTap { text -> currentInputConnection?.commitText(text, 1) } },
+                    onMicTap = ::onMicTapForCurrentInput,
                     onCancel = coordinator::cancelRecording,
                     onRestart = coordinator::restartRecording,
                     onToggleLlm = coordinator::toggleLlm,
@@ -236,14 +239,25 @@ class ChirpKeyboardService :
     }
 
     override fun onStartInputView(
-        info: android.view.inputmethod.EditorInfo?,
+        info: EditorInfo?,
         restarting: Boolean,
     ) {
         super.onStartInputView(info, restarting)
+        inputSessionGuard.startInput(info)
+        if (inputSessionGuard.isSensitiveInput) {
+            if (coordinator.isRecordingActive()) {
+                coordinator.finalizeActiveRecording(
+                    errorMessage = getString(R.string.keyboard_sensitive_input_disabled),
+                )
+            }
+            coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
+            return
+        }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             coordinator.setPermissionError(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
             return
         }
+        coordinator.setPermissionError(null)
         if (!recognizerProvider.isReady()) {
             coordinator.initializeModel()
         } else {
@@ -254,6 +268,7 @@ class ChirpKeyboardService :
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        inputSessionGuard.finishInput()
         if (coordinator.isRecordingActive()) {
             coordinator.finalizeActiveRecording(
                 errorMessage = "Recording stopped when the keyboard closed before transcription finished",
@@ -284,5 +299,34 @@ class ChirpKeyboardService :
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             },
         )
+    }
+
+    private fun onMicTapForCurrentInput() {
+        val session = inputSessionGuard.captureCommitSession()
+        if (session == null) {
+            coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
+            return
+        }
+        coordinator.onMicTap { text -> commitToInputSession(session, text) }
+    }
+
+    private fun stopAndTranscribeForCurrentInput() {
+        val session = inputSessionGuard.captureCommitSession()
+        if (session == null) {
+            coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
+            return
+        }
+        coordinator.stopAndTranscribe { text -> commitToInputSession(session, text) }
+    }
+
+    private fun commitToInputSession(
+        session: KeyboardInputCommitSession,
+        text: String,
+    ) {
+        val committed = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
+        if (!committed) {
+            Log.w(TAG, "Skipped dictation commit because the input session changed")
+            coordinator.setPermissionError(getString(R.string.keyboard_input_changed))
+        }
     }
 }

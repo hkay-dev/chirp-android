@@ -45,18 +45,12 @@ class SherpaRecognizer(
 
                 val modelPath =
                     when {
-                        File(persistentPath, "encoder.int8.onnx").exists() -> {
-                            persistentPath
-                        }
-
-                        File(legacyPath, "encoder.int8.onnx").exists() -> {
-                            legacyPath
-                        }
-
+                        ModelDownloader.hasCompleteModelDirectory(persistentPath) -> persistentPath
+                        ModelDownloader.hasCompleteModelDirectory(legacyPath) -> legacyPath
                         else -> {
                             Log.w(
                                 TAG,
-                                "Model not found in persistent (${persistentPath.absolutePath}) or legacy (${legacyPath.absolutePath})",
+                                "Complete model not found in persistent (${persistentPath.absolutePath}) or legacy (${legacyPath.absolutePath})",
                             )
                             return@withContext false
                         }

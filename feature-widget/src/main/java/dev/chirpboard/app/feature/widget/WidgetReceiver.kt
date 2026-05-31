@@ -12,6 +12,9 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import javax.inject.Inject
 
 /**
@@ -38,12 +41,17 @@ class WidgetReceiver : BroadcastReceiver() {
     ) {
         when (intent.action) {
             RecordingWidgetProvider.ACTION_TOGGLE_RECORDING -> {
-                toggleRecording(context)
+                val pendingResult = goAsync()
+                WidgetReceiverDispatch.dispatchToggle(
+                    scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate),
+                    toggleRecording = { toggleRecording(context) },
+                    finish = { pendingResult.finish() },
+                )
             }
         }
     }
 
-    internal fun toggleRecording(context: Context) {
+    internal suspend fun toggleRecording(context: Context) {
         when (widgetToggleActionFor(recordingStateManager.state.value)) {
             WidgetToggleAction.Start -> {
                 RecordingServiceCommands.startRecording(

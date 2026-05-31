@@ -10,6 +10,7 @@ import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -91,6 +92,30 @@ class ModelReadinessGateTest {
         }
 
     @Test
+    fun `invalidate clears cached ready state and forces recheck`() =
+        testScope.runTest {
+            coEvery { speechModelStore.evaluateReadiness() } returns
+                ModelReadinessEvaluation(
+                    isReady = true,
+                    verificationSource = ModelReadinessVerificationSource.PROCESS_CACHE,
+                ) andThen
+                ModelReadinessEvaluation(
+                    isReady = false,
+                    unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
+                )
+
+            val first = gate.ensureReady(VerificationTrigger.HOME_VISIBLE)
+            assertTrue(first is ModelReadyResult.Ready)
+
+            gate.invalidate()
+            assertEquals(ModelReadinessState.Unknown, gate.state.value)
+
+            val second = gate.ensureReady(VerificationTrigger.HOME_VISIBLE)
+            assertTrue(second is ModelReadyResult.Unavailable)
+            coVerify(exactly = 2) { speechModelStore.evaluateReadiness() }
+        }
+
+    @Test
     fun `ensureReady deduplicates concurrent verifications`() =
         testScope.runTest {
             coEvery { speechModelStore.evaluateReadiness() } coAnswers {
@@ -117,6 +142,29 @@ class ModelReadinessGateTest {
             assertTrue(result1 is ModelReadyResult.Ready)
             assertEquals(result1, result2)
             coVerify(exactly = 1) { speechModelStore.evaluateReadiness() }
+        }
+
+    @Test
+    fun `invalidation during in flight verification returns fresh result`() =
+        testScope.runTest {
+            coEvery { speechModelStore.evaluateReadiness() } coAnswers {
+                delay(100)
+                ModelReadinessEvaluation(true, ModelReadinessVerificationSource.PROCESS_CACHE)
+            } andThen
+                ModelReadinessEvaluation(
+                    isReady = false,
+                    unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
+                )
+
+            val result = async { gate.ensureReady(VerificationTrigger.HOME_VISIBLE) }
+            testDispatcher.scheduler.advanceTimeBy(50)
+
+            gate.invalidate()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(result.await() is ModelReadyResult.Unavailable)
+            assertTrue(gate.state.value is ModelReadinessState.Unavailable)
+            coVerify(exactly = 2) { speechModelStore.evaluateReadiness() }
         }
 
     @Test

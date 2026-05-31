@@ -7,10 +7,10 @@ plugins {
 
 android {
     namespace = "dev.chirpboard.app.core.contracts"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 36
     }
 
     compileOptions {

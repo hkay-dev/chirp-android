@@ -1,7 +1,6 @@
 package dev.chirpboard.app
 
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -67,9 +66,7 @@ class MainActivity : ComponentActivity() {
             permissions.add(android.Manifest.permission.RECORD_AUDIO)
         }
 
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)

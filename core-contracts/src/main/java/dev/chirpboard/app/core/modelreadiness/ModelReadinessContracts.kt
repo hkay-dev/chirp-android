@@ -97,5 +97,7 @@ interface SpeechModelReadinessGate {
 
     fun warmupIfNeeded(trigger: VerificationTrigger = VerificationTrigger.APP_STARTUP)
 
+    fun invalidate()
+
     suspend fun ensureReady(trigger: VerificationTrigger): ModelReadyResult
 }

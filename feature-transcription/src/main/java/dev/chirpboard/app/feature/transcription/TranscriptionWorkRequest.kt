@@ -49,6 +49,7 @@ object TranscriptionWorkRequest {
 
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(true)
+            .setRequiresStorageNotLow(true)
             .build()
 
         val workRequest = OneTimeWorkRequestBuilder<TranscriptionWorker>()

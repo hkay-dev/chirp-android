@@ -3,7 +3,7 @@ package dev.chirpboard.app.feature.recording.service
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
+import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import dev.chirpboard.app.feature.recording.R
@@ -21,11 +21,17 @@ internal fun buildRecordingFinalizeForegroundInfo(context: Context): ForegroundI
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .build()
-    return ForegroundInfo(FINALIZE_NOTIFICATION_ID, notification)
+    val serviceType = recordingFinalizeForegroundServiceType()
+    return ForegroundInfo(
+        FINALIZE_NOTIFICATION_ID,
+        notification,
+        serviceType,
+    )
 }
 
+internal fun recordingFinalizeForegroundServiceType(): Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+
 private fun createFinalizeNotificationChannel(context: Context) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
     val manager = context.getSystemService(NotificationManager::class.java) ?: return
     val channel =
         NotificationChannel(

@@ -12,16 +12,18 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
-import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingPermissionGuard
+import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
-import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
-import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
@@ -37,6 +39,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class VoiceRecognitionActivity : ComponentActivity() {
     private val recorder by lazy { VoiceRecorder(this, lifecycleScope, inputDeviceSelector) }
+    private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
     private var recordingJob: Job? = null
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
@@ -46,6 +49,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
+
+    @Inject lateinit var recordingStateManager: RecordingStateManager
 
     @Inject lateinit var modeRepository: ProcessingModeRepository
 
@@ -124,14 +129,25 @@ class VoiceRecognitionActivity : ComponentActivity() {
         }
         lifecycleScope.launch {
             try {
+                when (val result = captureGate.tryAcquire()) {
+                    VoiceRecognitionCaptureGateResult.Acquired -> Unit
+                    is VoiceRecognitionCaptureGateResult.Busy -> {
+                        Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
+                        returnError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                        return@launch
+                    }
+                }
+
                 recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
 
                 if (!recorder.start()) {
                     Log.e(TAG, "Failed to start recording")
+                    captureGate.releaseError("Failed to start voice recognition")
                     returnError(SpeechRecognizer.ERROR_AUDIO)
                     return@launch
                 }
-                _recordingState.value = RecordingState.Recording(dev.chirpboard.app.core.recording.RecordingOrigin.APP)
+                captureGate.onRecorderStarted("voice_recognition_activity_temp_recording")
+                _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
 
                 // Collect samples in background
                 recordingJob =
@@ -141,6 +157,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error starting recording", e)
+                captureGate.releaseError("Failed to start voice recognition", e)
                 returnError(SpeechRecognizer.ERROR_AUDIO)
             }
         }
@@ -157,9 +174,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Stop button pressed (LLM: $llmEnabled, Mode: ${processingMode.id})")
-                _recordingState.value = RecordingState.Stopping(dev.chirpboard.app.core.recording.RecordingOrigin.APP)
+                _recordingState.value = RecordingState.Stopping(RecordingOrigin.KEYBOARD)
                 recordingJob?.cancel()
                 val samples = recorder.stop()
+                captureGate.releaseCompleted()
                 Log.d(TAG, "Got ${samples.size} audio samples")
 
                 if (samples.isEmpty()) {
@@ -217,6 +235,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error during recognition", e)
+                captureGate.releaseError("Failed to stop voice recognition", e)
                 returnError(android.speech.SpeechRecognizer.ERROR_CLIENT)
             }
         }
@@ -225,11 +244,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun cancelRecording() {
         recordingJob?.cancel()
         recorder.stop()
+        captureGate.releaseCompleted()
         _recordingState.value = RecordingState.Idle
         dismissWithResult(Activity.RESULT_CANCELED)
     }
 
     override fun onDestroy() {
+        if (captureGate.isHeld()) {
+            recorder.stop()
+            captureGate.releaseCompleted()
+        }
         recorder.close()
         super.onDestroy()
     }
