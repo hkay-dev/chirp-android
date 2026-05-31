@@ -4,7 +4,7 @@
 
 **A small Android voice-notes app for recording, local transcription, and gentle post-processing.**
 
-Chirp is a personal project I'm building while I learn more Android development. It records audio, transcribes speech on-device, and gives me a place to organize, replay, clean up, and export the things I say out loud.
+Chirp is a personal Android project for recording, on-device transcription, and turning spoken thoughts into text I can actually use.
 
 <p>
   <img alt="Android" src="https://img.shields.io/badge/Android-Kotlin-3E7B6D?style=flat-square" />
@@ -24,31 +24,27 @@ Chirp is a personal project I'm building while I learn more Android development.
 
 ## Why
 
-I love apps like VoiceInk, TypeWhisper, Spokenly, and Superwhisper. A big part of the appeal is that they make excellent speech-to-text feel close at hand, especially with the NVIDIA Parakeet STT model in the mix.
+I love apps like VoiceInk, TypeWhisper, Spokenly, and Superwhisper. They make excellent speech-to-text feel close at hand, especially with the NVIDIA Parakeet STT model in the mix.
 
-On Android, I kept running into a different shape of tool. Most of the polished options I found were cloud-based, like Typeless and WisprFlow. Those can be useful, but they weren't quite what I wanted. I wanted something that could do the core transcription fully offline, on the device, with API-based LLM post-processing available only when I chose to use it.
+On Android, most of the polished options I found were cloud-based, like Typeless and WisprFlow. Useful, but not quite what I wanted. Chirp is my attempt at fully offline transcription first, with optional API-based LLM post-processing on top.
 
-Chirp didn't start with all of that figured out. It first started as a recording app. Then transcription became the obvious next step. Then came LLM post-processing for cleanup, summaries, titles, chat, and structured outcomes. After that, using it as an input method felt like the natural next layer: if the app can transcribe my voice, it should also help me put words directly into other apps.
-
-There isn't local LLM support yet. For now, transcription is the offline part, and LLM features are optional API-based processing on top.
+It started as a recording app, then grew into transcription, then LLM cleanup and summaries, then an input method. No local LLM support yet. The offline part is speech-to-text.
 
 ## Features
 
-Chirp is meant for the moments when typing is too slow or too fussy. Record something, let the app transcribe it locally, then decide what to do with it afterward.
+Chirp is meant for the moments when typing is too slow or too fussy.
 
 - Record voice notes from the app.
 - Transcribe recordings on-device.
 - Keep a searchable recording history with playback.
 - Use recording profiles, tags, and word replacements to keep things organized.
-- Open a recording in Processing Studio for transcript editing, summaries, structured outcomes, and chat.
+- Open a recording in Processing Studio for editing, summaries, structured outcomes, and chat.
 - Use a keyboard voice input flow for quick dictation in other apps.
 - Start and stop recording from a home-screen widget.
 - Export transcripts to Obsidian as Markdown.
 - Optionally use AI processing to clean up, summarize, title, or work with transcript text.
 
 ## Details
-
-A little more concretely, the app currently includes:
 
 - Foreground recording services for long-running capture.
 - Recovery handling for interrupted recordings.
@@ -62,13 +58,13 @@ A little more concretely, the app currently includes:
 
 ## IME
 
-Chirp can be used as its own dedicated Android input method through **Chirp Voice**. The idea is simple: switch to the keyboard, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
+Chirp can be used as its own Android input method through **Chirp Voice**. Switch to the keyboard, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
 
 It can also work as a triggered speech recognition service from compatible keyboards and apps that let you choose which speech-to-text app handles voice input. SwiftKey supports this kind of flow. Gboard, sadly, does not currently expose that same choice.
 
 ## Stack
 
-The app is built as a Kotlin Android project with Jetpack Compose and a modular feature layout. Under the hood it uses:
+Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout. It uses:
 
 - Sherpa-ONNX with a local Parakeet TDT speech model for on-device transcription.
 - Jetpack Compose and Material 3 for the UI.
@@ -78,20 +74,20 @@ The app is built as a Kotlin Android project with Jetpack Compose and a modular 
 - Media3 for recording playback.
 - Optional Gemini-powered processing for summaries, cleanup, chat, and structured outcomes.
 
-The local transcription piece is the heart of the project. AI processing is optional and sits on top of the transcript when I want extra help shaping the text.
+Local transcription is the heart of the project. AI processing is optional and only sits on top of the transcript.
 
 ## Notes
 
-This isn't a polished product from a team. It's a working personal app, and it's also a learning project.
+This isn't a polished product from a team. It's a working personal app, and a learning project.
 
 - All of my hands-on device testing is on a Samsung Galaxy S25 Ultra.
 - I'm still learning Android development as I go.
-- This project is 100% co-developed with various LLMs. I use them to help me reason through architecture, UI, Kotlin, tests, debugging, and cleanup.
-- Some parts are more mature than others, and the repo will probably keep changing as I learn better ways to build it.
+- This project is 100% co-developed with various LLMs as I learn architecture, UI, Kotlin, tests, debugging, and cleanup.
+- Some parts are more mature than others. The repo will keep changing as I learn better ways to build it.
 
 ## Focus
 
-Right now, I care most about making Chirp reliable for everyday capture:
+Right now, I care most about everyday reliability:
 
 - recording without losing audio,
 - transcription that works locally,
