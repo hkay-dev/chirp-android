@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.recording.session
 
 import android.util.Log
-import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
@@ -31,7 +30,6 @@ class RecordingSegmentRotator
         private val sessionJournal: RecordingSessionJournal,
         private val capturePaths: RecordingCapturePaths,
         private val fileValidator: RecordingFileValidator,
-        private val audioSettingsStore: AudioSettingsStore,
     ) {
         suspend fun rotateIfNeeded(
             recordingStateManager: RecordingStateManager,
@@ -53,9 +51,8 @@ class RecordingSegmentRotator
                 val capture = segmentCapture ?: return@withLock null
                 val completedFile = currentRecordingFile ?: return@withLock null
 
-                val outputFormat = audioSettingsStore.currentOutputFormat()
                 val nextIndex = entry.segmentPaths.size + 1
-                val nextSegment = capturePaths.segmentFile(activeSessionId, nextIndex, outputFormat)
+                val nextSegment = capturePaths.durableSegmentFile(activeSessionId, nextIndex)
 
                 val rotationResult =
                     withContext(Dispatchers.IO) {
