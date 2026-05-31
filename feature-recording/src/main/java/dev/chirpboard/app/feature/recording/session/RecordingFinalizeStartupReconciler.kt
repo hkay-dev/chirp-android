@@ -29,6 +29,9 @@ class RecordingFinalizeStartupReconciler
                 if (recording.status != RecordingStatus.RECORDING) {
                     return@forEach
                 }
+                if (RecordingFinalizeWorkRequest.hasUnfinishedWork(context, recordingId)) {
+                    return@forEach
+                }
                 val snapshot = StopSnapshot.fromSessionEntry(entry)
                 RecordingFinalizeWorkRequest.enqueue(
                     context = context,

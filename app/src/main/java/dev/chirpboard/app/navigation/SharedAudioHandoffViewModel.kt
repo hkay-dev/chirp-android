@@ -2,7 +2,6 @@ package dev.chirpboard.app.navigation
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -62,12 +61,8 @@ internal fun Intent.toSharedAudioRequestOrNull(): SharedAudioRequest? {
 }
 
 private fun Intent.extractSharedAudioUri(): Uri? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-    } else {
-        @Suppress("DEPRECATION")
-        (getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)
-    } ?: clipData?.takeIf { it.itemCount == 1 }?.getItemAt(0)?.uri
+    getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        ?: clipData?.takeIf { it.itemCount == 1 }?.getItemAt(0)?.uri
 
 @HiltViewModel
 internal class SharedAudioHandoffViewModel

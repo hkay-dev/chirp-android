@@ -255,7 +255,14 @@ class KeyboardSessionCoordinator(
     }
 
     fun cancelRecording() {
-        if (!isRecording.value) {
+        val wasRecording = isRecording.value
+        if (!wasRecording && transcriptionJob?.isActive != true) {
+            return
+        }
+        transcriptionJob?.cancel()
+        transcriptionJob = null
+        if (!wasRecording) {
+            transcription.resetPhase()
             return
         }
         capture.abandonAudioFocus()

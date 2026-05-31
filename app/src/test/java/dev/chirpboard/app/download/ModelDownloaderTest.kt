@@ -78,6 +78,37 @@ class ModelDownloaderTest {
     }
 
     @Test
+    fun `isModelDownloaded returns false when valid files are split across directories`() {
+        val splitModelFiles =
+            listOf(
+                ModelDownloader.ModelFile(
+                    name = "first.onnx",
+                    expectedSize = 12L,
+                    expectedSha256 = "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447",
+                ),
+                ModelDownloader.ModelFile(
+                    name = "second.onnx",
+                    expectedSize = 8L,
+                    expectedSha256 = "71573b922a87abc3fd1a957f2cfa09d9e16998567dd878a85e12166112751806",
+                ),
+            )
+        val persistentDir = File(testDir, "persistent").apply { mkdirs() }
+        val legacyDir = File(testDir, "legacy").apply { mkdirs() }
+        File(persistentDir, "first.onnx").writeText("hello world\n")
+        File(legacyDir, "second.onnx").writeText("goodbye\n")
+        val splitDownloader =
+            ModelDownloader(
+                context = context,
+                modelFiles = splitModelFiles,
+                modelDirProvider = { persistentDir },
+                legacyModelDirProvider = { legacyDir },
+            )
+        ModelDownloader.clearProcessVerificationCacheForTest()
+
+        assertFalse(splitDownloader.isModelDownloaded())
+    }
+
+    @Test
     fun `isModelDownloaded returns false when file has wrong size`() {
         val file = File(testModelsDir, "test_model.onnx")
         file.writeText("hello") // 5 bytes, expects 12

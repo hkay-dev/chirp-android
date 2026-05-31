@@ -81,6 +81,7 @@ class TranscriptionWorkRequestTest {
         assertTrue(tags.contains("recording_$testRecordingId"))
         
         assertTrue(capturedRequest.workSpec.constraints.requiresBatteryNotLow())
+        assertTrue(capturedRequest.workSpec.constraints.requiresStorageNotLow())
     }
 
     @Test

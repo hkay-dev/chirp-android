@@ -7,7 +7,6 @@ import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,9 +44,7 @@ class AudioInputDeviceSelector
             }
 
         init {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                audioManager.registerAudioDeviceCallback(deviceCallback, null)
-            }
+            audioManager.registerAudioDeviceCallback(deviceCallback, null)
         }
 
         suspend fun listInputDevices(): List<AudioInputDeviceSummary> =
@@ -56,7 +53,7 @@ class AudioInputDeviceSelector
                     id = device.id,
                     productName = device.productName?.toString().orEmpty().ifBlank { "Unknown device" },
                     typeLabel = typeLabel(device.type),
-                    address = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) device.address else null,
+                    address = device.address,
                 )
             }
 
@@ -67,13 +64,8 @@ class AudioInputDeviceSelector
                 when (settings.inputDevicePolicy) {
                     AudioInputDevicePolicy.Manual -> {
                         val manualAddress = settings.manualDeviceAddress
-                        devices.firstOrNull { device ->
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                                device.address == manualAddress
-                            } else {
-                                device.id.toString() == manualAddress
-                            }
-                        } ?: rankDevices(devices).firstOrNull()
+                        devices.firstOrNull { device -> device.address == manualAddress }
+                            ?: rankDevices(devices).firstOrNull()
                     }
                     AudioInputDevicePolicy.PreferBuiltIn -> {
                         devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
@@ -90,10 +82,7 @@ class AudioInputDeviceSelector
             recorder: MediaRecorder,
             device: AudioDeviceInfo?,
         ) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || device == null) {
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-                    Log.w(TAG, "Preferred input device requires API 28+")
-                }
+            if (device == null) {
                 return
             }
             recorder.setPreferredDevice(device)
@@ -111,7 +100,7 @@ class AudioInputDeviceSelector
         ): AudioRecord {
             val device = resolvePreferredDevice()
             val record = AudioRecord(audioSource, sampleRate, channelConfig, audioFormat, bufferSize)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && device != null) {
+            if (device != null) {
                 record.setPreferredDevice(device)
                 activeDeviceId = device.id
                 _activeDeviceLabel.value = summaryFor(device).productName
@@ -172,17 +161,11 @@ class AudioInputDeviceSelector
                     id = device.id,
                     productName = device.productName?.toString().orEmpty().ifBlank { "Unknown device" },
                     typeLabel = typeLabel(device.type),
-                    address =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            device.address
-                        } else {
-                            device.id.toString()
-                        },
+                    address = device.address,
                 )
         }
 
         private fun inputDevices(): List<AudioDeviceInfo> {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return emptyList()
             return audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS).toList()
         }
     }

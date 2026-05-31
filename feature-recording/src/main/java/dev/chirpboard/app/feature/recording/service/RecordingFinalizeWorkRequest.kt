@@ -3,7 +3,10 @@ package dev.chirpboard.app.feature.recording.service
 import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 object RecordingFinalizeWorkRequest {
@@ -32,10 +35,21 @@ object RecordingFinalizeWorkRequest {
         WorkManager.getInstance(context)
             .beginUniqueWork(
                 FINALIZE_PIPELINE,
-                ExistingWorkPolicy.APPEND,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
                 request,
             ).enqueue()
 
         return request.id.toString()
     }
+
+    suspend fun hasUnfinishedWork(
+        context: Context,
+        recordingId: UUID,
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+            WorkManager.getInstance(context)
+                .getWorkInfosByTag(workTag(recordingId))
+                .get()
+                .any { workInfo -> !workInfo.state.isFinished }
+        }
 }

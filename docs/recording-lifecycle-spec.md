@@ -53,6 +53,8 @@ Only one **capture** session may hold the lock at a time (`APP`, `WIDGET`, `KEYB
 | WIDGET | `RecordingService` | Yes | Yes |
 | KEYBOARD | `QuickCaptureSessionImpl` | No | No (inline samples) |
 
+Android speech-recognition entry points (`ChirpRecognitionService`, `VoiceRecognitionActivity`) are short-lived inline captures. They acquire the shared lock through `VoiceRecognitionCaptureGate` before opening `VoiceRecorder` and release it when PCM capture stops or fails.
+
 ## Start
 
 1. UI calls `RecordingManager.startRecording()` or widget/keyboard equivalent.
@@ -62,12 +64,12 @@ Only one **capture** session may hold the lock at a time (`APP`, `WIDGET`, `KEYB
 
 ## Stop
 
-1. Service stops the mic (`stopAndFinalize` on capture engine), marks session journal `STOPPING`, enqueues `RecordingFinalizeWorker` on the serial WorkManager pipeline (`recording_finalize_pipeline`), and calls `onCaptureStopHandoff(recordingId)` to release the global lock immediately.
+1. Service stops the mic with a bounded capture handoff (`stopAndFinalize` on capture engine), marks session journal `STOPPING`, enqueues `RecordingFinalizeWorker` on the WorkManager finalize pipeline (`recording_finalize_pipeline` with failed-chain replacement), and calls `onCaptureStopHandoff(recordingId)` to release the global lock immediately.
 2. **Done handoff:** RecordScreen navigates immediately using `activeRecordingId` so Processing Studio and Home show Stitching while the finalize worker runs.
 3. Background finalize (`RecordingFinalizeWorker`): concat segments → validate → `finalizeInProgressRecording` → transcription enqueue via `RecordingStopOrchestrator`.
 4. Success: journal `markFinalized()`; row becomes `PENDING_TRANSCRIPTION` (Waiting in line on Home).
 5. Failure: journal abandon + delete in-progress row; reliability event only (no global Error if user already started a new capture).
-6. Startup: `RecordingFinalizeStartupReconciler` re-enqueues finalize work for `STOPPING` journals with in-progress DB rows after process death.
+6. Startup: `RecordingFinalizeStartupReconciler` re-enqueues finalize work for `STOPPING` journals with in-progress DB rows after process death, skipping recordings that already have unfinished finalize work.
 
 ### Origin-aware stop routing
 
@@ -125,8 +127,10 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 - `KeyboardRecordingStopBridgeTest` — widget/keyboard stop bridge
 - `KeyboardPendingStopStoreTest` — durable keyboard stop queue
 - `RecordingSessionRecoveryKeepSessionTest` — keep files protected-path TTL
+- `OrphanedAudioCleanerTest` — stale top-level and nested capture artifact cleanup
 - `RecordingStateManagerTest` — stopping timeout scaling and handler await ordering
 - `RecordingServiceStopOutcomesTest` — NoAudioFile row delete and stop-generation guard
+- `VoiceRecognitionCaptureGateTest` — external speech-recognition shared capture lock
 
 ## Resolved (recording-lifecycle-gap-closure)
 
@@ -179,7 +183,17 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 |-----|------------|
 | Orphan cleaner skips `.mp3` | `OrphanedAudioCleaner` scans `m4a`, `wav`, `mp3` with same grace/safelist/protected-path rules |
 | TranscriptionWorker unbounded active wait | `awaitRecordingInactive` with duration-scaled timeout; `active_recording_wait_timeout` reliability event |
+| Stale keyboard input commit | Input-session guard refuses stale or sensitive-field commits |
+| Split-directory model readiness | Model readiness validates one complete model directory and supports explicit invalidation |
+| Audio share MIME drift | Share intents derive MIME from `RecordingOutputFormat` |
 | WAV MediaCodec device risk | `AudioDecoder.decodeWavPcmDirect` bypasses MediaCodec for valid PCM WAV; MediaCodec failure retries direct read |
+
+## Resolved (deeper audit 2026-05-31)
+
+| Gap | Resolution |
+|-----|------------|
+| Model readiness invalidation racing in-flight verification | `ModelReadinessGate` owns invalidation and in-flight verification under one lock; callers receive a fresh post-invalidation result |
+| External Android speech recognition bypasses capture lock | `VoiceRecognitionCaptureGate` routes `ChirpRecognitionService` and `VoiceRecognitionActivity` through `RecordingStateManager` before microphone capture |
 
 ## Resolved (nav-search-playback-polish)
 

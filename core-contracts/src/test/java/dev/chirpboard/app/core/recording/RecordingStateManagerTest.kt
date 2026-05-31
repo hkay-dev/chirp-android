@@ -140,6 +140,22 @@ class RecordingStateManagerTest {
     }
 
     @Test
+    fun onCaptureStopHandoff_ignoresStaleRecordingId() {
+        val oldRecordingId = UUID.randomUUID()
+        val activeRecordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+
+        manager.onCaptureStopHandoff(oldRecordingId)
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Recording)
+        assertEquals(activeRecordingId, state.activeRecordingId)
+        assertFalse(manager.canStartRecording())
+        assertEquals(null, manager.lastCompletedRecordingId.value)
+    }
+
+    @Test
     fun onRecordingCompleted_returnsToIdle() {
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.transitionToStopping()

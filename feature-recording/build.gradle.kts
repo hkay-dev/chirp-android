@@ -8,10 +8,10 @@ plugins {
 
 android {
     namespace = "dev.chirpboard.app.feature.recording"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -66,6 +66,7 @@ dependencies {
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.hilt:hilt-work:1.2.0")
+    implementation(libs.guava)
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
     // Tests

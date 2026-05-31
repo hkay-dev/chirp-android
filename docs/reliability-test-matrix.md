@@ -6,8 +6,8 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 
 | Stage | Risk Class | Automated Coverage | Command |
 | --- | --- | --- | --- |
-| Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff; Done must navigate immediately to studio stitching UI; capture lock released before background finalize | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest`, `RecordViewModelTest`, `RecordingStateManagerTest.onCaptureStopHandoff_releasesLockImmediately` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin`, `:core-contracts:testDebugUnitTest` |
-| Background finalize queue | Stitch/persist/enqueue runs FIFO after capture stop; crash recovery re-enqueues STOPPING journals | `RecordingFinalizeStopOutcomeApplierTest`, `StopSnapshotWorkDataTest`, `RecordingStartupCoordinatorTest` | `:feature-recording:testDebugUnitTest` |
+| Recording stop handoff | Duplicate stop signals or lifecycle interruption causes dropped save/queue handoff; Done must navigate immediately to studio stitching UI; capture lock released before background finalize | `RecordingStopOrchestratorTest`, `StopRequestGateTest`, `RecordingServiceStopRaceTest`, `RecordViewModelTest`, `RecordingStateManagerTest`, `RecordingFinalizeWorkRequestTest` | `:feature-recording:testDebugUnitTest`, `:feature-recording:compileDebugAndroidTestKotlin` compile-only gate, `:core-contracts:testDebugUnitTest` |
+| Background finalize queue | Stitch/persist/enqueue runs after capture stop; crash recovery re-enqueues STOPPING journals without duplicating unfinished recording-tag work | `RecordingFinalizeStopOutcomeApplierTest`, `StopSnapshotWorkDataTest`, `RecordingFinalizeWorkerTest`, `RecordingFinalizeStartupReconcilerTest` | `:feature-recording:testDebugUnitTest` |
 | Queue recovery | Pending work orphaned or stale transcribing/enhancing states not recovered | `TranscriptionQueueReconciliationPolicyTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription result semantics | Engine/model failures treated as successful empty text | `TranscriptionWorkerSupportTest`, `TranscriptionOutcomeMappingTest`, `InlineTranscriptionOutcomeMappingTest` | `:feature-transcription:testDebugUnitTest` |
 | Transcription worker active wait | Worker does not block forever when another recording stays active | `TranscriptionWorkerSupportTest` active wait timeout | `:feature-transcription:testDebugUnitTest` |
@@ -15,9 +15,10 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Model artifact integrity | Corrupt or interrupted model downloads accepted as ready | `ModelDownloaderIntegrityTest` | `:app:testDebugUnitTest` |
 | Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core-contracts:testDebugUnitTest` |
 | Session journal durability | Interrupted recordings deleted as orphans; stale journals reconciled; abandoned entries pruned; recover idempotent | `RecordingSessionJournalTest`, `RecordingSessionReconcilerTest`, `RecordingSessionRecoveryTest`, `RecordingSessionRecoveryLiveSessionTest`, `RecordingSessionRecoveryKeepSessionTest`, `RecordingSessionJournalCancelOrderingTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
-| Orphan cleaner format parity | Unreferenced mp3/wav/m4a orphans deleted; referenced and protected paths retained | `OrphanedAudioCleanerTest` mp3 cases | `:feature-recording:testDebugUnitTest` |
+| Orphan cleaner format parity | Unreferenced mp3/wav/m4a orphans and stale nested capture dirs deleted; referenced and protected paths retained | `OrphanedAudioCleanerTest` mp3 and `.capture` cases | `:feature-recording:testDebugUnitTest` |
 | Recovery deferral persistence | Dismissed recovery prompts do not reappear after process death | `RecordingRecoveryDeferStoreTest`, `RecordingRecoveryStore` integration | `:feature-recording:testDebugUnitTest` |
 | Origin-aware stop routing | Widget stop reaches keyboard quick-capture without desyncing global state | `KeyboardRecordingStopBridgeTest`, `KeyboardPendingStopStoreTest` | `:core-contracts:testDebugUnitTest` |
+| External speech recognition lock | Android `RecognitionService` and recognition dialog cannot overlap microphone capture with app/widget/keyboard recording | `VoiceRecognitionCaptureGateTest` | `:app:testDebugUnitTest` |
 | Stop timeout cleanup | Hung finalize abandons journal/DB row and releases service resources | `RecordingStateManagerTest.stoppingTimeout_awaitsHandlerBeforeErrorTransition`, `RecordingServiceStopOutcomesTest` | `:core-contracts:testDebugUnitTest`, `:feature-recording:testDebugUnitTest` |
 | Stop validation | Invalid M4A saved after failed finalize | `RecordingFileValidatorTest`, `RecordingStopOrchestratorTest` | `:feature-recording:testDebugUnitTest` |
 | Capture constraints | Storage exhaustion mid-session | `RecordingStorageMonitorTest` | `:core-audio:testDebugUnitTest` |
@@ -73,8 +74,10 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 | Mini player cross-studio | Opening Studio for B pauses playback of A | `ProcessingStudioViewModelTest`, manual N4 | Implemented |
 | Capture finalize decoupling | Lock released on handoff; background worker stitches/enqueues | `RecordingStateManagerTest.onCaptureStopHandoff_releasesLockImmediately`, `RecordingFinalizeStopOutcomeApplierTest` | Implemented |
 | Home stitching visibility | RECORDING rows visible during background finalize | `HomeViewModelTest` background finalize while idle | Implemented |
-| Finalize startup recovery | STOPPING journals re-enqueued on app start | `RecordingStartupCoordinatorTest` | Implemented |
+| Finalize startup recovery | STOPPING journals re-enqueued on app start and deduped when unfinished finalize work exists | `RecordingFinalizeStartupReconcilerTest`, `RecordingStartupCoordinatorTest` | Implemented |
 | Queued transcription UI | PENDING_* shows Waiting in line on Home | `TranscriptionProgressUiTest` | Implemented |
+| Model invalidation race | In-flight readiness verification cannot return stale Ready after invalidation | `ModelReadinessGateTest.invalidation during in flight verification returns fresh result` | Implemented |
+| External speech recognition lock | External Android speech recognition uses the shared capture lock | `VoiceRecognitionCaptureGateTest` | Implemented |
 
 ## Unit test standards
 
@@ -89,5 +92,5 @@ Use `scripts/run-reliability-matrix.sh` to execute the gate locally.
 
 ## Known gaps
 
-- Process-death instrumentation during active capture remains optional/local due to emulator flakiness; unit tests cover journal safelist and recovery orchestration instead.
+- Process-death instrumentation during active capture remains optional/local due to emulator flakiness; unit tests cover journal safelist and recovery orchestration, while androidTest compile gates only verify instrumented test sources still build.
 - **Audit backlog (P0–P4):** see § Audit backlog above and `openspec/changes/AUDIT_INDEX.md`. Do not close audit items without archiving the corresponding change.

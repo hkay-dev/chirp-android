@@ -80,6 +80,16 @@ class OrphanedAudioCleaner
                         }
                     }
 
+                    deletedCount +=
+                        cleanOrphanedCaptureDirs(
+                            recordingsDir = recordingsDir,
+                            validPaths = validPaths,
+                            safelistedPaths = safelistedPaths,
+                            protectedPaths = protectedPaths,
+                            journalReferencedPaths = journalReferencedPaths,
+                            now = now,
+                        )
+
                     if (deletedCount > 0) {
                         Log.i(TAG, "Cleaned up $deletedCount orphaned audio file(s)")
                     }
@@ -89,6 +99,53 @@ class OrphanedAudioCleaner
                     Log.e(TAG, "Error cleaning orphaned audio files", e)
                 }
             }
+        }
+
+        private fun cleanOrphanedCaptureDirs(
+            recordingsDir: File,
+            validPaths: Set<String>,
+            safelistedPaths: Set<String>,
+            protectedPaths: Set<String>,
+            journalReferencedPaths: Set<String>,
+            now: Long,
+        ): Int {
+            val captureRoot = File(recordingsDir, ".capture")
+            if (!captureRoot.exists() || !captureRoot.isDirectory) {
+                return 0
+            }
+
+            var deletedCount = 0
+            val sessionDirs = captureRoot.listFiles()?.filter { it.isDirectory }.orEmpty()
+            for (sessionDir in sessionDirs) {
+                val audioFiles =
+                    sessionDir
+                        .walkTopDown()
+                        .filter { file -> file.isFile && file.extension in ORPHAN_EXTENSIONS }
+                        .toList()
+                val referenced =
+                    audioFiles.any { file ->
+                        val path = file.absolutePath
+                        validPaths.contains(path) ||
+                            safelistedPaths.contains(path) ||
+                            protectedPaths.contains(path) ||
+                            journalReferencedPaths.contains(path)
+                    }
+                if (referenced) continue
+
+                val newestModified =
+                    (audioFiles.map { it.lastModified() } + sessionDir.lastModified())
+                        .maxOrNull()
+                        ?: sessionDir.lastModified()
+                if (now - newestModified < DEFAULT_ORPHAN_GRACE_MS) continue
+
+                if (sessionDir.deleteRecursively()) {
+                    deletedCount++
+                    Log.d(TAG, "Deleted orphaned capture directory: ${sessionDir.name}")
+                } else {
+                    Log.e(TAG, "Failed to delete orphaned capture directory: ${sessionDir.name}")
+                }
+            }
+            return deletedCount
         }
 
         companion object {

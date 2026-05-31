@@ -78,6 +78,7 @@ class WhisperModelManager
                 val success = speechModelStore.deleteModel()
                 if (success) {
                     speechModelStore.invalidateVerificationCache()
+                    readinessGate.invalidate()
                     readinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
                     applyEvaluation(speechModelStore.evaluateReadiness())
                 }

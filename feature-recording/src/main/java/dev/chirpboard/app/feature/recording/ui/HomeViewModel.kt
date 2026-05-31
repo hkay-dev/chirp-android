@@ -9,6 +9,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
@@ -464,7 +465,7 @@ class HomeViewModel
 
                     val intent =
                         Intent(Intent.ACTION_SEND).apply {
-                            type = "audio/m4a"
+                            type = RecordingOutputFormat.fromFile(file).mimeType
                             putExtra(Intent.EXTRA_STREAM, uri)
                             putExtra(Intent.EXTRA_SUBJECT, recording.title)
                             putExtra(Intent.EXTRA_TEXT, text)

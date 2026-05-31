@@ -3,7 +3,6 @@ package dev.chirpboard.app.core.audio
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.os.Build
 import android.util.Log
 
 /**
@@ -48,29 +47,19 @@ class AudioFocusManager(
         }
 
     fun requestFocus(): FocusResult {
-        val result =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val attributes =
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
+        val attributes =
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
 
-                focusRequest =
-                    AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
-                        .setAudioAttributes(attributes)
-                        .setOnAudioFocusChangeListener(focusChangeListener)
-                        .build()
+        focusRequest =
+            AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                .setAudioAttributes(attributes)
+                .setOnAudioFocusChangeListener(focusChangeListener)
+                .build()
 
-                audioManager.requestAudioFocus(focusRequest!!)
-            } else {
-                @Suppress("DEPRECATION")
-                audioManager.requestAudioFocus(
-                    focusChangeListener,
-                    AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE,
-                )
-            }
+        val result = audioManager.requestAudioFocus(focusRequest!!)
 
         return when (result) {
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
@@ -85,12 +74,7 @@ class AudioFocusManager(
     }
 
     fun abandonFocus() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
-        } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(focusChangeListener)
-        }
+        focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
         Log.d(TAG, "Audio focus abandoned")
     }

@@ -8,10 +8,10 @@ plugins {
 
 android {
     namespace = "dev.chirpboard.app.feature.studio"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 36
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -31,6 +31,7 @@ android {
 
 dependencies {
     // Internal modules
+    implementation(project(":core-audio"))
     implementation(project(":core-ui"))
     implementation(project(":core-playback"))
     implementation(project(":data"))

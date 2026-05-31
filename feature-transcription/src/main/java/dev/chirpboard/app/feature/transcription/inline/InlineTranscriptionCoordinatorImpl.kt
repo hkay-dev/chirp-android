@@ -225,8 +225,6 @@ class InlineTranscriptionCoordinatorImpl
                     )
                 }
                 throw e
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
                 val errorMessage = "Transcription failed: ${e.message}"
                 ReliabilityEventLogger.log(

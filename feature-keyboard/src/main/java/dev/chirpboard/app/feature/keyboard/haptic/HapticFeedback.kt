@@ -1,14 +1,12 @@
 package dev.chirpboard.app.feature.keyboard.haptic
 
 import android.content.Context
-import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 
 /**
  * Provides haptic feedback for recording actions.
- * Uses VibrationEffect API (requires API 26+, which this app targets).
  */
 object HapticFeedback {
 
@@ -43,13 +41,7 @@ object HapticFeedback {
      */
     fun onBackspaceWordMode(context: Context) {
         val vibrator = getVibrator(context) ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
-            return
-        }
-
-        vibrator.vibrate(VibrationEffect.createOneShot(18, VibrationEffect.DEFAULT_AMPLITUDE))
+        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
     }
 
     /**
@@ -57,13 +49,7 @@ object HapticFeedback {
      */
     fun onBackspace(context: Context) {
         val vibrator = getVibrator(context) ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
-            return
-        }
-
-        vibrator.vibrate(VibrationEffect.createOneShot(12, VibrationEffect.DEFAULT_AMPLITUDE))
+        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
     }
 
     /**
@@ -71,24 +57,12 @@ object HapticFeedback {
      */
     fun onCursorStep(context: Context) {
         val vibrator = getVibrator(context) ?: return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
-            return
-        }
-
-        val amplitude = (VibrationEffect.DEFAULT_AMPLITUDE * 0.35f).toInt().coerceAtLeast(1)
-        vibrator.vibrate(VibrationEffect.createOneShot(8, amplitude))
+        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
     }
 
     private fun getVibrator(context: Context): Vibrator? {
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            vibratorManager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
+        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+        val vibrator = vibratorManager?.defaultVibrator
         
         // Check if vibrator is available and has vibration capability
         if (vibrator == null || !vibrator.hasVibrator()) {

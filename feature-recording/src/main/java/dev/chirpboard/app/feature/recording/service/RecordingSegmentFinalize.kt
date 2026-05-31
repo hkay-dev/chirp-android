@@ -32,6 +32,10 @@ class RecordingSegmentFinalize
             }
 
             val exportFile = File(entry.exportAudioPath())
+            if (exportFile.exists() && fileValidator.validateForStop(exportFile).isPlayable) {
+                return exportFile
+            }
+
             val segmentFiles = entry.orderedSegmentFiles(activeSegmentPath)
             if (segmentFiles.isEmpty()) {
                 return null

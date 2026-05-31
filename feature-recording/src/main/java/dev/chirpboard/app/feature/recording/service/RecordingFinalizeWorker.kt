@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
+import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -74,14 +75,19 @@ class RecordingFinalizeWorker
             )
             recoveryStore.refresh()
 
-            return when (result) {
-                is StopPersistenceResult.PersistenceFailed -> Result.failure()
-                StopPersistenceResult.NoAudioFile -> Result.failure()
-                else -> Result.success()
-            }
+            return finalizeWorkerResultFor(result)
         }
 
         companion object {
             private const val TAG = "RecordingFinalizeWorker"
         }
+    }
+
+internal fun finalizeWorkerResultFor(result: StopPersistenceResult): ListenableWorker.Result =
+    when (result) {
+        is StopPersistenceResult.PersistenceFailed,
+        StopPersistenceResult.NoAudioFile,
+        is StopPersistenceResult.SavedAndQueued,
+        is StopPersistenceResult.SavedPendingRecovery,
+        -> ListenableWorker.Result.success()
     }

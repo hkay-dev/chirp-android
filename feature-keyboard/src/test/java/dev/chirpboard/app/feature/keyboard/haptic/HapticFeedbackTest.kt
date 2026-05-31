@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.keyboard.haptic
 import android.content.Context
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.VibratorManager
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.just
@@ -17,14 +18,17 @@ import org.junit.Test
 class HapticFeedbackTest {
     private lateinit var context: Context
     private lateinit var vibrator: Vibrator
+    private lateinit var vibratorManager: VibratorManager
 
     @Before
     fun setup() {
         context = mockk()
         vibrator = mockk()
+        vibratorManager = mockk()
         every { vibrator.hasVibrator() } returns true
         every { vibrator.vibrate(any<VibrationEffect>()) } just Runs
-        every { context.getSystemService(Context.VIBRATOR_SERVICE) } returns vibrator
+        every { vibratorManager.defaultVibrator } returns vibrator
+        every { context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) } returns vibratorManager
 
         mockkStatic(VibrationEffect::class)
         val mockEffect = mockk<VibrationEffect>()

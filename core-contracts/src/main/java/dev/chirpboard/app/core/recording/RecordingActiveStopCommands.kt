@@ -1,15 +1,14 @@
 package dev.chirpboard.app.core.recording
 
 import android.content.Context
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Origin-aware stop entry point for any surface that needs to end the active recording.
  */
 object RecordingActiveStopCommands {
-    fun stopActiveRecording(
+    suspend fun stopActiveRecording(
         context: Context,
         recordingStateManager: RecordingStateManager,
         keyboardStopBridge: KeyboardRecordingStopBridge,
@@ -27,7 +26,7 @@ object RecordingActiveStopCommands {
                 if (keyboardStopBridge.requestStop()) {
                     return
                 }
-                CoroutineScope(Dispatchers.IO).launch {
+                withContext(Dispatchers.IO) {
                     pendingStopStore.enqueue(requesterOrigin)
                 }
                 onKeyboardStopQueued?.invoke()

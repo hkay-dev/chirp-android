@@ -38,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -46,6 +47,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -143,7 +145,6 @@ class RecordingService : Service() {
         }
         inputDeviceSelector.setOnActiveDeviceLostListener {
             serviceScope.launch {
-                recordingStateManager.onRecordingError("Microphone disconnected during recording")
                 stopRecording()
             }
         }
@@ -647,16 +648,11 @@ class RecordingService : Service() {
             return
         }
 
-        val snapshot = captureStopSnapshot()
-        val sessionId = currentSessionId
-
-        if (snapshot != null) {
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_STOP,
-                outcome = ReliabilityOutcome.STARTED,
-                correlationId = snapshot.correlationId,
-                reasonCode = "stop_requested",
-            )
+        val stateAtStop = recordingStateManager.state.value
+        val pendingStartJob = if (stateAtStop is RecordingState.Starting) startRecordingJob else null
+        if (pendingStartJob != null) {
+            startGeneration.incrementAndGet()
+            pendingStartJob.cancel()
         }
 
         durationUpdateJob?.cancel()
@@ -665,15 +661,30 @@ class RecordingService : Service() {
         storageCheckJob?.cancel()
         checkpointJob?.cancel()
         segmentRotationJob?.cancel()
-        sessionId?.let { sessionJournal.markStopping(it) }
 
         stopRecordingJob?.cancel()
         stopRecordingJob =
             serviceScope.launch {
+                var snapshot: StopSnapshot? = null
+                var sessionId: UUID? = null
                 try {
+                    pendingStartJob?.join()
+                    if (pendingStartJob != null && startRecordingJob === pendingStartJob) {
+                        startRecordingJob = null
+                    }
+                    snapshot = captureStopSnapshot()
+                    sessionId = currentSessionId
+                    if (snapshot != null) {
+                        ReliabilityEventLogger.log(
+                            stage = ReliabilityStage.RECORDING_STOP,
+                            outcome = ReliabilityOutcome.STARTED,
+                            correlationId = snapshot.correlationId,
+                            reasonCode = "stop_requested",
+                        )
+                    }
                     handoffCaptureToFinalizeQueue(snapshot, sessionId)
                 } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is kotlinx.coroutines.CancellationException && e !is TimeoutCancellationException) throw e
                     Log.e(TAG, "Capture stop handoff failed", e)
                     withContext(Dispatchers.IO + NonCancellable) {
                         sessionId?.let { sessionJournal.markAbandoned(it) }
@@ -690,29 +701,38 @@ class RecordingService : Service() {
         snapshot: StopSnapshot?,
         sessionId: UUID?,
     ) {
+        RecordingStopHandoff.handoff(
+            snapshot = snapshot,
+            sessionId = sessionId,
+            stopCapture = ::stopActiveCaptureForHandoff,
+            markAbandoned = { abandonedSessionId, recordingId ->
+                withContext(Dispatchers.IO + NonCancellable) {
+                    abandonedSessionId?.let { sessionJournal.markAbandoned(it) }
+                    recordingId?.let { recordingRepository.deleteInProgressRecording(it) }
+                }
+            },
+            markStopping = { stoppingSessionId -> sessionJournal.markStopping(stoppingSessionId) },
+            enqueueFinalize = { finalizeSnapshot, finalizeSessionId ->
+                RecordingFinalizeWorkRequest.enqueue(
+                    context = this@RecordingService,
+                    snapshot = finalizeSnapshot,
+                    sessionId = finalizeSessionId,
+                )
+            },
+            onCaptureStopHandoff = recordingStateManager::onCaptureStopHandoff,
+        )
+    }
+
+    private suspend fun stopActiveCaptureForHandoff() {
         withContext(Dispatchers.IO) {
             val capture = segmentCapture
             if (capture != null) {
-                capture.stopAndFinalize()
+                withTimeout(CAPTURE_STOP_TIMEOUT_MS) {
+                    capture.stopAndFinalize()
+                }
                 segmentCapture = null
             }
         }
-
-        if (snapshot == null || snapshot.recordingId == null) {
-            withContext(Dispatchers.IO + NonCancellable) {
-                sessionId?.let { sessionJournal.markAbandoned(it) }
-                snapshot?.recordingId?.let { recordingRepository.deleteInProgressRecording(it) }
-            }
-            recordingStateManager.onCaptureStopHandoff(snapshot?.recordingId)
-            return
-        }
-
-        RecordingFinalizeWorkRequest.enqueue(
-            context = this@RecordingService,
-            snapshot = snapshot,
-            sessionId = sessionId,
-        )
-        recordingStateManager.onCaptureStopHandoff(snapshot.recordingId)
     }
 
     private fun captureStopSnapshot(): StopSnapshot? =
@@ -736,12 +756,12 @@ class RecordingService : Service() {
 
         val snapshot = captureStopSnapshot()
         val sessionId = currentSessionId
-        currentSessionId?.let { sessionJournal.markStopping(it) }
 
         try {
             handoffCaptureToFinalizeQueue(snapshot, sessionId)
         } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
+            if (e !is TimeoutCancellationException) throw e
+            recordingStateManager.onRecordingError("Failed to finalize recording during shutdown")
         } catch (e: Exception) {
             recordingStateManager.onRecordingError("Failed to finalize recording during shutdown")
         } finally {
@@ -877,7 +897,6 @@ class RecordingService : Service() {
                         StorageCheckLevel.LOW ->
                             notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
                         StorageCheckLevel.CRITICAL -> {
-                            recordingStateManager.onRecordingError("Storage full — stopping recording to protect your audio")
                             stopRecording()
                             break
                         }
@@ -889,5 +908,6 @@ class RecordingService : Service() {
 
     companion object {
         private const val TAG = "RecordingService"
+        private const val CAPTURE_STOP_TIMEOUT_MS = 30_000L
     }
 }

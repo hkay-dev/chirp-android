@@ -8,6 +8,7 @@ import android.util.Log
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
@@ -29,6 +30,7 @@ class ChirpRecognitionService : RecognitionService() {
     }
 
     private val recorder by lazy { VoiceRecorder(this, scope, inputDeviceSelector) }
+    private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
 
     @Inject
     lateinit var transcriberProvider: TranscriberProvider
@@ -41,6 +43,9 @@ class ChirpRecognitionService : RecognitionService() {
 
     @Inject
     lateinit var audioSettingsStore: AudioSettingsStore
+
+    @Inject
+    lateinit var recordingStateManager: RecordingStateManager
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -104,6 +109,15 @@ class ChirpRecognitionService : RecognitionService() {
 
         scope.launch {
             try {
+                when (val result = captureGate.tryAcquire()) {
+                    VoiceRecognitionCaptureGateResult.Acquired -> Unit
+                    is VoiceRecognitionCaptureGateResult.Busy -> {
+                        Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
+                        listener.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                        return@launch
+                    }
+                }
+
                 // Notify ready
                 listener.readyForSpeech(Bundle())
 
@@ -112,9 +126,11 @@ class ChirpRecognitionService : RecognitionService() {
                 // Start recording
                 if (!recorder.start()) {
                     Log.e(TAG, "Failed to start recording")
+                    captureGate.releaseError("Failed to start voice recognition")
                     listener.error(SpeechRecognizer.ERROR_AUDIO)
                     return@launch
                 }
+                captureGate.onRecorderStarted("voice_recognition_service_temp_recording")
 
                 listener.beginningOfSpeech()
 
@@ -143,6 +159,7 @@ class ChirpRecognitionService : RecognitionService() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error in onStartListening", e)
+                captureGate.releaseError("Failed to start voice recognition", e)
                 listener.error(SpeechRecognizer.ERROR_AUDIO)
             }
         }
@@ -156,6 +173,7 @@ class ChirpRecognitionService : RecognitionService() {
                 amplitudesJob?.cancel()
                 recordingJob?.cancel()
                 val samples = recorder.stop()
+                captureGate.releaseCompleted()
                 listener.endOfSpeech()
 
                 if (samples.isEmpty()) {
@@ -215,6 +233,7 @@ class ChirpRecognitionService : RecognitionService() {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error in onStopListening", e)
+                captureGate.releaseError("Failed to stop voice recognition", e)
                 listener.error(SpeechRecognizer.ERROR_AUDIO)
             }
         }
@@ -225,6 +244,7 @@ class ChirpRecognitionService : RecognitionService() {
         amplitudesJob?.cancel()
         recordingJob?.cancel()
         recorder.stop()
+        captureGate.releaseCompleted()
         // Don't call listener - cancelled means no results
     }
 
@@ -232,6 +252,10 @@ class ChirpRecognitionService : RecognitionService() {
         Log.d(TAG, "Service destroyed")
         amplitudesJob?.cancel()
         recordingJob?.cancel()
+        if (captureGate.isHeld()) {
+            recorder.stop()
+            captureGate.releaseCompleted()
+        }
         recorder.close()
         scope.cancel()
         super.onDestroy()

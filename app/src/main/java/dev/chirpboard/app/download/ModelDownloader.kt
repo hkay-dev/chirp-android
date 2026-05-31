@@ -62,6 +62,7 @@ class ModelDownloader(
                     expectedSha256 = "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
                 ),
             )
+        internal val REQUIRED_MODEL_FILE_NAMES = MODEL_FILES.map { it.name }
 
         private val processVerificationCache = mutableMapOf<String, VerificationCacheEntry>()
         private val processCacheLock = Any()
@@ -95,6 +96,9 @@ class ModelDownloader(
             Log.w(TAG, "Cannot write to persistent path ${persistentDir.absolutePath}, falling back to internal")
             return File(context.filesDir, "models/$MODEL_DIR")
         }
+
+        internal fun hasCompleteModelDirectory(path: File): Boolean =
+            REQUIRED_MODEL_FILE_NAMES.all { name -> File(path, name).exists() }
     }
 
     data class ModelFile(
@@ -119,6 +123,13 @@ class ModelDownloader(
     private data class FileValidationResult(
         val status: FileValidationStatus,
         val source: ModelReadinessVerificationSource? = null,
+    )
+
+    private data class DirectoryValidationResult(
+        val allValid: Boolean,
+        val hasInvalid: Boolean,
+        val hasMissing: Boolean,
+        val sources: Set<ModelReadinessVerificationSource>,
     )
 
     sealed interface DownloadState {
@@ -153,62 +164,33 @@ class ModelDownloader(
         val modelPath = modelDirProvider(context)
         val legacyPath = legacyModelDirProvider(context)
 
-        val sources = linkedSetOf<ModelReadinessVerificationSource>()
-        var hasIntegrityMismatch = false
-        var hasMissing = false
+        val persistentResult = validateModelDirectory(modelPath, sourceLabel = "persistent")
+        if (persistentResult.allValid) {
+            return readyEvaluation(persistentResult.sources, sourceLabel = "persistent")
+        }
 
-        modelFiles.forEach { modelFile ->
-            val persistentFile = File(modelPath, modelFile.name)
-            val legacyFile = File(legacyPath, modelFile.name)
+        val legacyResult = validateModelDirectory(legacyPath, sourceLabel = "legacy")
+        if (legacyResult.allValid) {
+            return readyEvaluation(legacyResult.sources, sourceLabel = "legacy")
+        }
 
-            val persistentResult = validateModelCandidate(persistentFile, modelFile)
-            val legacyResult = validateModelCandidate(legacyFile, modelFile)
-
-            val winner =
-                when {
-                    persistentResult.status == FileValidationStatus.VALID -> persistentResult
-                    legacyResult.status == FileValidationStatus.VALID -> legacyResult
-                    else -> null
-                }
-
-            if (winner != null) {
-                winner.source?.let(sources::add)
-                Log.d(
-                    TAG,
-                    "  ${modelFile.name}: valid via ${winner.source} (persistent=${persistentFile.exists()}, legacy=${legacyFile.exists()})",
-                )
-                return@forEach
-            }
-
-            if (
-                persistentResult.status == FileValidationStatus.INVALID ||
-                legacyResult.status == FileValidationStatus.INVALID
-            ) {
-                hasIntegrityMismatch = true
+        val reason =
+            if (persistentResult.hasInvalid || legacyResult.hasInvalid) {
+                ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
             } else {
-                hasMissing = true
+                ModelReadinessUnavailableReason.MISSING_MODEL_FILES
             }
+        Log.d(TAG, "isModelDownloaded = false (reason=$reason)")
+        return ModelReadinessEvaluation(
+            isReady = false,
+            unavailableReason = reason,
+        )
+    }
 
-            Log.d(
-                TAG,
-                "  ${modelFile.name}: unavailable (persistent=${persistentResult.status}, legacy=${legacyResult.status})",
-            )
-        }
-
-        if (hasIntegrityMismatch || hasMissing) {
-            val reason =
-                if (hasIntegrityMismatch) {
-                    ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
-                } else {
-                    ModelReadinessUnavailableReason.MISSING_MODEL_FILES
-                }
-            Log.d(TAG, "isModelDownloaded = false (reason=$reason)")
-            return ModelReadinessEvaluation(
-                isReady = false,
-                unavailableReason = reason,
-            )
-        }
-
+    private fun readyEvaluation(
+        sources: Set<ModelReadinessVerificationSource>,
+        sourceLabel: String,
+    ): ModelReadinessEvaluation {
         val source =
             when {
                 ModelReadinessVerificationSource.CHECKSUM_VERIFICATION in sources -> {
@@ -224,10 +206,48 @@ class ModelDownloader(
                 }
             }
 
-        Log.d(TAG, "isModelDownloaded = true (source=$source)")
+        Log.d(TAG, "isModelDownloaded = true (directory=$sourceLabel, source=$source)")
         return ModelReadinessEvaluation(
             isReady = true,
             verificationSource = source,
+        )
+    }
+
+    private fun validateModelDirectory(
+        path: File,
+        sourceLabel: String,
+    ): DirectoryValidationResult {
+        val sources = linkedSetOf<ModelReadinessVerificationSource>()
+        var hasInvalid = false
+        var hasMissing = false
+
+        modelFiles.forEach { modelFile ->
+            val file = File(path, modelFile.name)
+            val result = validateModelCandidate(file, modelFile)
+
+            when (result.status) {
+                FileValidationStatus.VALID -> {
+                    result.source?.let(sources::add)
+                    Log.d(TAG, "  ${modelFile.name}: valid via ${result.source} ($sourceLabel=${file.exists()})")
+                }
+
+                FileValidationStatus.INVALID -> {
+                    hasInvalid = true
+                    Log.d(TAG, "  ${modelFile.name}: invalid ($sourceLabel=${file.exists()})")
+                }
+
+                FileValidationStatus.MISSING -> {
+                    hasMissing = true
+                    Log.d(TAG, "  ${modelFile.name}: missing ($sourceLabel=false)")
+                }
+            }
+        }
+
+        return DirectoryValidationResult(
+            allValid = !hasInvalid && !hasMissing,
+            hasInvalid = hasInvalid,
+            hasMissing = hasMissing,
+            sources = sources,
         )
     }
 

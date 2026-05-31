@@ -21,8 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicLong
 
 class ModelReadinessGate(
     private val speechModelStore: SpeechModelStore,
@@ -30,8 +29,14 @@ class ModelReadinessGate(
     private val now: () -> Long = { System.currentTimeMillis() },
     private val gateScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) : SpeechModelReadinessGate {
-    private val inFlightMutex = Mutex()
-    private var inFlightVerification: Deferred<ModelReadyResult>? = null
+    private data class InFlightVerification(
+        val generation: Long,
+        val result: Deferred<ModelReadyResult>,
+    )
+
+    private val inFlightLock = Any()
+    private var inFlightVerification: InFlightVerification? = null
+    private val verificationGeneration = AtomicLong(0L)
 
     private val _state = MutableStateFlow<ModelReadinessState>(ModelReadinessState.Unknown)
     override val state: StateFlow<ModelReadinessState> = _state.asStateFlow()
@@ -45,6 +50,15 @@ class ModelReadinessGate(
         }
     }
 
+    override fun invalidate() {
+        synchronized(inFlightLock) {
+            verificationGeneration.incrementAndGet()
+            inFlightVerification?.result?.cancel()
+            inFlightVerification = null
+        }
+        _state.value = ModelReadinessState.Unknown
+    }
+
     override suspend fun ensureReady(trigger: VerificationTrigger): ModelReadyResult {
         val current = _state.value
         if (current is ModelReadinessState.Ready) {
@@ -52,24 +66,40 @@ class ModelReadinessGate(
         }
 
         val verification =
-            inFlightMutex.withLock {
+            synchronized(inFlightLock) {
+                val currentGeneration = verificationGeneration.get()
                 val active = inFlightVerification
-                if (active != null && active.isActive) {
+                if (active != null && active.generation == currentGeneration && active.result.isActive) {
                     active
                 } else {
                     val startedAt = now()
                     _state.value = ModelReadinessState.Checking(trigger, startedAt)
-                    gateScope
+                    val generation = currentGeneration
+                    InFlightVerification(
+                        generation = generation,
+                        result = gateScope
                         .async(ioDispatcher) {
-                            verifyAndUpdateState(trigger)
-                        }.also { inFlightVerification = it }
+                            verifyAndUpdateState(trigger, generation)
+                        },
+                    ).also { inFlightVerification = it }
                 }
             }
 
         return try {
-            verification.await()
+            val result = verification.result.await()
+            if (verification.generation == verificationGeneration.get()) {
+                result
+            } else {
+                ensureReady(trigger)
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            if (verification.generation != verificationGeneration.get()) {
+                ensureReady(trigger)
+            } else {
+                throw e
+            }
         } finally {
-            inFlightMutex.withLock {
+            synchronized(inFlightLock) {
                 if (inFlightVerification === verification) {
                     inFlightVerification = null
                 }
@@ -77,7 +107,10 @@ class ModelReadinessGate(
         }
     }
 
-    private suspend fun verifyAndUpdateState(trigger: VerificationTrigger): ModelReadyResult {
+    private suspend fun verifyAndUpdateState(
+        trigger: VerificationTrigger,
+        generation: Long,
+    ): ModelReadyResult {
         val startedNs = System.nanoTime()
         return try {
             val evaluation = speechModelStore.evaluateReadiness()
@@ -86,18 +119,20 @@ class ModelReadinessGate(
                 val source =
                     evaluation.verificationSource
                         ?: ModelReadinessVerificationSource.CHECKSUM_VERIFICATION
-                _state.value =
+                updateStateIfCurrent(
+                    generation,
                     ModelReadinessState.Ready(
                         verifiedAtEpochMs = now(),
                         source = source,
-                    )
+                    ),
+                )
                 logDebug("Readiness verification passed in ${durationMs}ms (trigger=$trigger, source=$source)")
                 ModelReadyResult.Ready(source)
             } else {
                 val reason =
                     evaluation.unavailableReason
                         ?: ModelReadinessUnavailableReason.MISSING_MODEL_FILES
-                _state.value = ModelReadinessState.Unavailable(reason)
+                updateStateIfCurrent(generation, ModelReadinessState.Unavailable(reason))
                 logWarn("Readiness unavailable in ${durationMs}ms (trigger=$trigger, reason=$reason)")
                 ModelReadyResult.Unavailable(reason)
             }
@@ -105,9 +140,18 @@ class ModelReadinessGate(
             if (error is kotlinx.coroutines.CancellationException) throw error
             val durationMs = (System.nanoTime() - startedNs) / 1_000_000
             val message = error.message ?: "Unknown readiness verification error"
-            _state.value = ModelReadinessState.Error(message)
+            updateStateIfCurrent(generation, ModelReadinessState.Error(message))
             logError("Readiness verification failed in ${durationMs}ms (trigger=$trigger)", error)
             ModelReadyResult.Error(message)
+        }
+    }
+
+    private fun updateStateIfCurrent(
+        generation: Long,
+        state: ModelReadinessState,
+    ) {
+        if (generation == verificationGeneration.get()) {
+            _state.value = state
         }
     }
 

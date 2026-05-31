@@ -8,10 +8,10 @@ plugins {
 
 android {
     namespace = "dev.chirpboard.app.core.playback"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 36
     }
 
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import java.io.File
 
 internal object ProcessingStudioShare {
@@ -43,7 +44,7 @@ internal object ProcessingStudioShare {
     ): Intent {
         val uri = fileUri(context, audioFile)
         return Intent(Intent.ACTION_SEND).apply {
-            type = "audio/m4a"
+            type = audioMimeType(audioFile)
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, title)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -80,7 +81,7 @@ internal object ProcessingStudioShare {
     ): Intent {
         val uri = fileUri(context, audioFile)
         return Intent(Intent.ACTION_SEND).apply {
-            type = "audio/m4a"
+            type = audioMimeType(audioFile)
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, title)
             putExtra(Intent.EXTRA_TEXT, text)
@@ -101,4 +102,6 @@ internal object ProcessingStudioShare {
         context: Context,
         file: File,
     ): Uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+
+    internal fun audioMimeType(file: File): String = RecordingOutputFormat.fromFile(file).mimeType
 }

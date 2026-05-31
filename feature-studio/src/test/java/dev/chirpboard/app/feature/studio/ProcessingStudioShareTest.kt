@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.studio
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class ProcessingStudioShareTest {
     @Test
@@ -39,5 +40,12 @@ class ProcessingStudioShareTest {
             """.trimIndent(),
             text.trim(),
         )
+    }
+
+    @Test
+    fun `audioMimeType uses canonical extension mime types`() {
+        assertEquals("audio/mp4", ProcessingStudioShare.audioMimeType(File("recording.m4a")))
+        assertEquals("audio/mpeg", ProcessingStudioShare.audioMimeType(File("recording.mp3")))
+        assertEquals("audio/wav", ProcessingStudioShare.audioMimeType(File("recording.wav")))
     }
 }

@@ -8,10 +8,10 @@ plugins {
 
 android {
     namespace = "dev.chirpboard.app.feature.keyboard"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 26
+        minSdk = 36
     }
 
 

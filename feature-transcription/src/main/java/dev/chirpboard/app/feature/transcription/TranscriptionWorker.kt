@@ -1,9 +1,9 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
-import android.util.Log
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -18,9 +18,12 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
+import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import kotlinx.coroutines.CancellationException
@@ -43,8 +46,11 @@ class TranscriptionWorker
         @Assisted appContext: Context,
         @Assisted workerParams: WorkerParameters,
         private val recordingRepository: RecordingRepository,
+        private val profileRepository: ProfileRepository,
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
+        private val textProcessor: TextProcessor,
+        private val modeRepository: ProcessingModeRepository,
         private val llmClient: LlmClient,
         private val llmPreferences: dev.chirpboard.app.feature.llm.settings.LlmPreferences,
         private val transcriberProvider: TranscriberProvider,
@@ -245,6 +251,8 @@ class TranscriptionWorker
                 Transcript(
                     recordingId = recordingId,
                     rawText = rawTranscriptionText,
+                    processedText = processedText,
+                    processingMode = "word_replacement",
                 )
             val timings =
                 detailedTranscription.wordTimings
@@ -259,7 +267,7 @@ class TranscriptionWorker
                     }.orEmpty()
             recordingRepository.saveTranscriptWithTiming(transcript, timings)
 
-            applyEnhancement(recordingId, recording.source, processedText, correlationId)
+            applyEnhancement(recordingId, recording, processedText, correlationId)
 
             // Mark as completed
             recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
@@ -305,7 +313,7 @@ class TranscriptionWorker
                     ?: wordReplacer.apply(transcript.rawText, enabledReplacements)
 
             recordingRepository.updateProcessedText(recordingId, processedText, "word_replacement")
-            applyEnhancement(recordingId, recording.source, processedText, correlationId)
+            applyEnhancement(recordingId, recording, processedText, correlationId)
 
             recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
             return Result.success(
@@ -318,10 +326,28 @@ class TranscriptionWorker
 
         private suspend fun applyEnhancement(
             recordingId: UUID,
-            source: dev.chirpboard.app.data.model.RecordingSource,
+            recording: dev.chirpboard.app.data.entity.Recording,
             processedText: String,
             correlationId: String,
         ) {
+            val profile = recording.profileId?.let { profileRepository.getProfile(it) }
+            val policy =
+                resolveRecordingEnhancementPolicy(
+                    profile = profile,
+                    globalAutoTitle = llmPreferences.getAutoTitle(),
+                    globalAutoSummary = llmPreferences.getAutoSummary(),
+                )
+            if (!policy.hasRequestedWork) {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "enhancement_not_requested",
+                )
+                return
+            }
+
             if (!llmPreferences.getLlmEnabled() || llmPreferences.fetchApiKey().isNullOrBlank()) {
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.ENHANCEMENT,
@@ -342,11 +368,25 @@ class TranscriptionWorker
                 reasonCode = "enhancement_started",
             )
 
+            var textForEnrichment = processedText
+            var transformApplied = false
             var titleApplied = false
             var summaryApplied = false
 
-            if (llmPreferences.getAutoTitle()) {
-                val titleResult = llmClient.generateTitle(processedText)
+            policy.processingModeId?.let { modeId ->
+                val mode = modeRepository.resolveMode(modeId)
+                val transformResult = textProcessor.process(processedText, mode)
+                if (transformResult.isSuccess) {
+                    textForEnrichment = transformResult.getOrThrow()
+                    recordingRepository.updateProcessedText(recordingId, textForEnrichment, mode.id)
+                    transformApplied = true
+                } else {
+                    Log.w(TAG, "Skipping transcript transform", transformResult.exceptionOrNull())
+                }
+            }
+
+            if (policy.autoTitle) {
+                val titleResult = llmClient.generateTitle(textForEnrichment)
                 if (titleResult.isSuccess) {
                     recordingRepository.updateTitle(recordingId, titleResult.getOrThrow())
                     titleApplied = true
@@ -355,8 +395,8 @@ class TranscriptionWorker
                 }
             }
 
-            if (llmPreferences.getAutoSummary()) {
-                val summaryResult = llmClient.generateSummary(processedText)
+            if (policy.autoSummary) {
+                val summaryResult = llmClient.generateSummary(textForEnrichment)
                 if (summaryResult.isSuccess) {
                     recordingRepository.updateSummary(recordingId, summaryResult.getOrThrow())
                     summaryApplied = true
@@ -368,18 +408,18 @@ class TranscriptionWorker
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.ENHANCEMENT,
                 outcome =
-                    if (titleApplied || summaryApplied) {
+                    if (transformApplied || titleApplied || summaryApplied) {
                         ReliabilityOutcome.SUCCESS
                     } else {
-                        ReliabilityOutcome.SKIPPED
+                        ReliabilityOutcome.FAILURE
                     },
                 correlationId = correlationId,
                 recordingId = recordingId,
                 reasonCode =
-                    if (titleApplied || summaryApplied) {
+                    if (transformApplied || titleApplied || summaryApplied) {
                         "enhancement_applied"
                     } else {
-                        "enhancement_not_requested"
+                        "enhancement_failed"
                     },
             )
         }
