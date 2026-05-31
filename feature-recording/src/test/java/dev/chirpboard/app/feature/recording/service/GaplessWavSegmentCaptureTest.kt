@@ -99,4 +99,23 @@ class GaplessWavSegmentCaptureTest {
             assertEquals(secondSegment, finalized)
             assertTrue(secondSegment.exists())
         }
+
+    @Test
+    fun stopAndFinalize_afterAudioRecordReadError_returnsWithoutHanging() =
+        runTest {
+            every {
+                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
+            } returns AudioRecord.ERROR_DEAD_OBJECT
+
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val segment = File(temporaryFolder.root, "read-error.wav")
+
+            capture.start(segment)
+            Thread.sleep(100)
+
+            val finalized = capture.stopAndFinalize()
+
+            assertEquals(segment, finalized)
+            assertTrue(segment.exists())
+        }
 }

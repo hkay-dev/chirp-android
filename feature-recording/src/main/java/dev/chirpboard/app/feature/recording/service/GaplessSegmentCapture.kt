@@ -226,7 +226,11 @@ class GaplessAacSegmentCapture(
                         }
                         val record = audioRecord ?: break
                         val read = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
-                        if (read <= 0) continue
+                        if (read == 0) continue
+                        if (read < 0) {
+                            running.set(false)
+                            break
+                        }
 
                         updateAmplitude(buffer, read)
                         var stopCapture = false
