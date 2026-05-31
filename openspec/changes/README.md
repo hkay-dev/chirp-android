@@ -17,6 +17,12 @@
 | `share-audio-mime-correctness` | P2 | Format-derived audio share MIME types |
 | `recording-recovery-orphan-cleanup-integrity` | P2 | Nested capture artifact cleanup |
 | `android-16-sdk-alignment` | P2 | API 36 module baseline, AGP/Gradle alignment, legacy guard cleanup |
+| `harden-recording-stop-durability` | P0–P1 | Stop durability, native stop bounds, service teardown, keyboard persistence |
+| `harden-transcription-enhancement-pipeline` | P1–P2 | Split transcription/enhancement execution state, retries, recovery, worker testability |
+| `data-room-repository-integrity-hardening` | P1–P3 | Non-destructive Room writes, guarded transitions, schemas, bounded queries, normalized profile default tags |
+| `ui-polish-recovery-display-consistency` | P2–P4 | Pending enhancement recovery UI, fresh diagnostics, stale result guards, reactive enrichment |
+| `enforce-architectural-module-boundaries` | P2–P4 | Ports, core module cleanup, dependency guard tests, RecordingService adapter boundary |
+| `improve-performance-resource-efficiency` | P2–P4 | Backpressure-safe decode, warmup gating, bounded dictation memory, preview queries, LLM context reuse |
 
 **Suggested order:** see AUDIT_INDEX.md.
 
