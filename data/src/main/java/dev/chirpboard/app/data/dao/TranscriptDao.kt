@@ -8,6 +8,7 @@ import androidx.room.Query
 import androidx.room.Update
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
+import dev.chirpboard.app.data.model.TranscriptPreview
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
@@ -15,6 +16,25 @@ import java.util.UUID
 interface TranscriptDao {
     @Query("SELECT * FROM transcripts WHERE recordingId IN (:recordingIds)")
     suspend fun getTranscripts(recordingIds: List<UUID>): List<Transcript>
+
+    @Query(
+        """
+        SELECT
+            recordingId,
+            summary,
+            substr(
+                COALESCE(NULLIF(manualCorrectionText, ''), NULLIF(processedText, ''), rawText),
+                1,
+                :previewLimit
+            ) AS previewText
+        FROM transcripts
+        WHERE recordingId IN (:recordingIds)
+        """,
+    )
+    fun getTranscriptPreviewsFlow(
+        recordingIds: List<UUID>,
+        previewLimit: Int,
+    ): Flow<List<TranscriptPreview>>
 
     @Query("SELECT * FROM transcripts WHERE recordingId = :recordingId")
     suspend fun getTranscript(recordingId: UUID): Transcript?

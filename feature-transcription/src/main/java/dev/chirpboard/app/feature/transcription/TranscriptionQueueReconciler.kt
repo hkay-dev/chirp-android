@@ -1,9 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
 import android.util.Log
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
@@ -12,22 +9,16 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 internal class TranscriptionQueueReconciler(
-    private val context: Context,
     private val recordingRepository: RecordingRepository,
     private val constraintChecker: WorkConstraintChecker,
+    private val workScheduler: TranscriptionWorkScheduler,
     private val setConstraintWarning: (String?) -> Unit,
     private val setActiveCount: (Int) -> Unit
 ) {
-    private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
-
     suspend fun reconcileQueueHealth(trigger: ReconciliationTrigger) {
         Log.i(TAG, "Running queue reconciliation. trigger=$trigger")
 
@@ -45,7 +36,12 @@ internal class TranscriptionQueueReconciler(
 
     suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics {
         val recording = recordingRepository.getRecording(recordingId)
-        val ownership = inspectQueueOwnership(recordingId).toRecoveryOwnershipState()
+        val ownership =
+            (if (recording != null) {
+                inspectQueueOwnership(recording)
+            } else {
+                inspectQueueOwnership(recordingId)
+            }).toRecoveryOwnershipState()
         val parsed = parseRecoveryMetadata(recording?.errorMessage)
 
         return RecoveryDiagnostics(
@@ -173,7 +169,7 @@ internal class TranscriptionQueueReconciler(
     internal suspend fun inspectQueueOwnership(recordingId: UUID): QueueOwnership {
         return try {
             val workInfos =
-                loadWorkInfosByTagWithTimeout("${TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX}$recordingId")
+                workScheduler.getWorkInfosByRecordingTag(recordingId)
                 ?: return QueueOwnership.INSPECTION_TIMEOUT
 
             ownershipFromWorkInfos(workInfos)
@@ -196,7 +192,7 @@ internal class TranscriptionQueueReconciler(
 
         return try {
             val workInfos =
-                loadWorkInfosWithTimeout(workName)
+                workScheduler.getWorkInfosForUniqueWork(workName)
                     ?: return QueueOwnership.INSPECTION_TIMEOUT
 
             ownershipFromWorkInfos(workInfos)
@@ -207,50 +203,14 @@ internal class TranscriptionQueueReconciler(
         }
     }
 
-    private fun ownershipFromWorkInfos(workInfos: List<WorkInfo>): QueueOwnership {
+    private fun ownershipFromWorkInfos(workInfos: List<ScheduledWorkInfo>): QueueOwnership {
         val hasActiveWork =
             workInfos.any { info ->
-                info.state == WorkInfo.State.ENQUEUED ||
-                    info.state == WorkInfo.State.RUNNING ||
-                    info.state == WorkInfo.State.BLOCKED
+                info.state == ScheduledWorkState.ENQUEUED ||
+                    info.state == ScheduledWorkState.RUNNING ||
+                    info.state == ScheduledWorkState.BLOCKED
             }
         return if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
-    }
-
-    private suspend fun loadWorkInfosByTagWithTimeout(tag: String): List<WorkInfo>? {
-        return withContext(Dispatchers.IO) {
-            val future = workManager.getWorkInfosByTag(tag)
-
-            withTimeoutOrNull(WORK_INFO_TIMEOUT_MS) {
-                while (!future.isDone && !future.isCancelled) {
-                    delay(WORK_INFO_POLL_INTERVAL_MS)
-                }
-
-                if (future.isCancelled) {
-                    emptyList()
-                } else {
-                    future.get()
-                }
-            }
-        }
-    }
-
-    private suspend fun loadWorkInfosWithTimeout(workName: String): List<WorkInfo>? {
-        return withContext(Dispatchers.IO) {
-            val future = workManager.getWorkInfosForUniqueWork(workName)
-
-            withTimeoutOrNull(WORK_INFO_TIMEOUT_MS) {
-                while (!future.isDone && !future.isCancelled) {
-                    delay(WORK_INFO_POLL_INTERVAL_MS)
-                }
-
-                if (future.isCancelled) {
-                    emptyList()
-                } else {
-                    future.get()
-                }
-            }
-        }
     }
 
     private suspend fun clearPendingError(recording: Recording) {
@@ -261,25 +221,38 @@ internal class TranscriptionQueueReconciler(
         )
     }
 
-    private fun enqueueWorkForRecording(
+    private suspend fun enqueueWorkForRecording(
         recording: Recording,
         correlationId: String,
-    ): String =
-        when (recording.status) {
-            RecordingStatus.PENDING_ENHANCEMENT ->
-                RecordingEnhancementWorkRequest.enqueue(
-                    context = context,
+    ): String {
+        val executionToken = UUID.randomUUID().toString()
+        return when (recording.status) {
+            RecordingStatus.PENDING_ENHANCEMENT -> {
+                if (!recordingRepository.claimEnhancementExecution(recording.id, executionToken, recording.status, recording.errorMessage)) {
+                    return ""
+                }
+                workScheduler.enqueueEnhancement(
                     recordingId = recording.id,
+                    executionToken = executionToken,
                     correlationId = correlationId,
                 )
+            }
 
-            else ->
-                TranscriptionWorkRequest.enqueue(
-                    context = context,
+            else -> {
+                recordingRepository.claimTranscriptionExecution(
                     recordingId = recording.id,
+                    executionToken = executionToken,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    errorMessage = recording.errorMessage,
+                )
+                workScheduler.enqueueTranscription(
+                    recordingId = recording.id,
+                    executionToken = executionToken,
                     correlationId = correlationId,
                 )
+            }
         }
+    }
 
     private suspend fun updateActiveCount() {
         val transcribing = recordingRepository
@@ -297,8 +270,6 @@ internal class TranscriptionQueueReconciler(
 
     private companion object {
         private const val TAG = "TranscriptionQueueMgr"
-        private const val WORK_INFO_TIMEOUT_MS = 5_000L
-        private const val WORK_INFO_POLL_INTERVAL_MS = 50L
         private const val TRANSCRIBING_STALE_THRESHOLD_MS = 15 * 60_000L
         private const val ENHANCING_STALE_THRESHOLD_MS = 10 * 60_000L
     }

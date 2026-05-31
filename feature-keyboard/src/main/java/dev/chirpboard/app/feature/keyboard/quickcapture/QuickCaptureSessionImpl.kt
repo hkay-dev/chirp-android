@@ -6,6 +6,7 @@ import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.quickcapture.QuickCaptureError
 import dev.chirpboard.app.core.quickcapture.QuickCaptureSession
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
@@ -24,7 +25,13 @@ class QuickCaptureSessionImpl(
     private val recordingStateManager: RecordingStateManager,
     private val audioFocusManager: AudioFocusManager,
 ) : QuickCaptureSession {
-    private val recorder = VoiceRecorder(context, scope, inputDeviceSelector)
+    private val recorder =
+        VoiceRecorder(
+            context = context,
+            coroutineScope = scope,
+            inputDeviceSelector = inputDeviceSelector,
+            captureStorageMode = VoiceRecorder.CaptureStorageMode.FileBacked,
+        )
 
     override val waveformBuffer: WaveformBuffer get() = recorder.waveformBuffer
     override val sampleCountFlow: StateFlow<Long> get() = recorder.sampleCountFlow
@@ -94,6 +101,19 @@ class QuickCaptureSessionImpl(
     }
 
     override fun stop(): FloatArray = recorder.stop()
+
+    fun stopAsAudioSource(): InlineAudioSource? =
+        recorder.stopToFileBacked()?.let { capture ->
+            InlineAudioSource.PcmFloatFile(
+                path = capture.file.absolutePath,
+                sampleCount = capture.sampleCount.toLong(),
+                sampleRate = capture.sampleRate,
+            )
+        }
+
+    fun cancelCapture() {
+        recorder.cancelCapture()
+    }
 
     override fun close() {
         recorder.close()

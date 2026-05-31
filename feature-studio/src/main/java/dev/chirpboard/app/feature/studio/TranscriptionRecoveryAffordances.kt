@@ -54,6 +54,7 @@ fun TranscriptionRecoverySection(
             ) {
                 EnhancingRecoveryActions(
                     actionsEnabled = recoveryActions.actionsEnabled,
+                    showRetranscribe = recoveryActions.showRetranscribeFromEnhancing,
                     onRecoverEnhancing = onRecoverEnhancing,
                     onRetranscribe = onRetranscribeFromEnhancing,
                 )
@@ -80,6 +81,7 @@ fun TranscriptionRecoverySection(
 @Composable
 fun EnhancingRecoveryActions(
     actionsEnabled: Boolean,
+    showRetranscribe: Boolean = true,
     onRecoverEnhancing: () -> Unit,
     onRetranscribe: () -> Unit,
 ) {
@@ -97,19 +99,21 @@ fun EnhancingRecoveryActions(
         Spacer(modifier = Modifier.width(4.dp))
         Text(stringResource(R.string.rec_recover), style = MaterialTheme.typography.labelMedium)
     }
-    TextButton(
-        onClick = onRetranscribe,
-        enabled = actionsEnabled,
-        contentPadding = PaddingValues(horizontal = 8.dp),
-        modifier = Modifier.testTag(TranscriptionRecoveryTestTags.EnhancingRetranscribeButton),
-    ) {
-        Icon(
-            imageVector = Icons.Default.Refresh,
-            contentDescription = null,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(stringResource(R.string.rec_retranscribe), style = MaterialTheme.typography.labelMedium)
+    if (showRetranscribe) {
+        TextButton(
+            onClick = onRetranscribe,
+            enabled = actionsEnabled,
+            contentPadding = PaddingValues(horizontal = 8.dp),
+            modifier = Modifier.testTag(TranscriptionRecoveryTestTags.EnhancingRetranscribeButton),
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(stringResource(R.string.rec_retranscribe), style = MaterialTheme.typography.labelMedium)
+        }
     }
 }
 

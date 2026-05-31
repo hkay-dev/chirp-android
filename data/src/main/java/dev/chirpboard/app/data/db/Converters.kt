@@ -1,6 +1,7 @@
 package dev.chirpboard.app.data.db
 
 import androidx.room.TypeConverter
+import dev.chirpboard.app.data.model.EnhancementSubworkStatus
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
@@ -43,4 +44,11 @@ class Converters {
     @TypeConverter
     fun toStructuredOutcomeGenerationStatus(value: String?): StructuredOutcomeGenerationStatus? =
         value?.let { StructuredOutcomeGenerationStatus.valueOf(it) }
+
+    @TypeConverter
+    fun fromEnhancementSubworkStatus(status: EnhancementSubworkStatus?): String? = status?.name
+
+    @TypeConverter
+    fun toEnhancementSubworkStatus(value: String?): EnhancementSubworkStatus? =
+        value?.let { EnhancementSubworkStatus.valueOf(it) }
 }

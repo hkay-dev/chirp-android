@@ -32,7 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
-import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.core.recording.RecordingStatus
 
 data class TranscriptionProgressCopy(
     val title: String,

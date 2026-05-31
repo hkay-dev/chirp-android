@@ -1,9 +1,12 @@
 package dev.chirpboard.app.data.repository
 
+import dev.chirpboard.app.data.dao.RecordingTagRow
 import dev.chirpboard.app.data.dao.TagDao
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.Tag
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -19,6 +22,7 @@ class TagRepository
     ) {
         companion object {
             private const val TAG = "TagRepository"
+            private const val SQLITE_BIND_LIMIT = 900
         }
 
         fun getAllTags(): Flow<RepositoryFlowState<List<Tag>>> =
@@ -54,19 +58,22 @@ class TagRepository
             if (recordingIds.isEmpty()) {
                 emptyMap()
             } else {
-                tagDao
-                    .getTagsForRecordingIds(recordingIds)
-                    .groupBy(
-                        keySelector = { it.recordingId },
-                        valueTransform = { row ->
-                            Tag(
-                                id = row.id,
-                                name = row.name,
-                                color = row.color,
-                            )
-                        },
-                    )
+                recordingIds.distinct()
+                    .chunked(SQLITE_BIND_LIMIT)
+                    .flatMap { batch -> tagDao.getTagsForRecordingIds(batch) }
+                    .let(::groupRecordingTagRows)
             }
+
+        fun getTagsForRecordingIdsFlow(recordingIds: List<UUID>): Flow<RepositoryFlowState<Map<UUID, List<Tag>>>> {
+            val chunks = recordingIds.distinct().chunked(SQLITE_BIND_LIMIT)
+            if (chunks.isEmpty()) {
+                return flowOf(RepositoryFlowState(emptyMap()))
+            }
+            val chunkFlows = chunks.map { batch -> tagDao.getTagsForRecordingIdsFlow(batch) }
+            return combine(chunkFlows) { chunkRows ->
+                groupRecordingTagRows(chunkRows.flatMap { rows -> rows })
+            }.catchRepositoryFlowState(TAG, emptyMap())
+        }
 
         suspend fun getTagsForRecordingList(recordingId: UUID): List<Tag> = tagDao.getTagsForRecordingList(recordingId)
 
@@ -89,3 +96,15 @@ class TagRepository
 
         suspend fun getCount(): Int = tagDao.getCount()
     }
+
+private fun groupRecordingTagRows(rows: List<RecordingTagRow>): Map<UUID, List<Tag>> =
+    rows.groupBy(
+        keySelector = { it.recordingId },
+        valueTransform = { row ->
+            Tag(
+                id = row.id,
+                name = row.name,
+                color = row.color,
+            )
+        },
+    )

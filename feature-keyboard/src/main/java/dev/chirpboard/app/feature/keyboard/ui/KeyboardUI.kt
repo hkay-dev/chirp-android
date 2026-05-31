@@ -80,6 +80,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.llm.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
@@ -90,7 +92,6 @@ import dev.chirpboard.app.feature.keyboard.session.KeyboardUiState
 import dev.chirpboard.app.feature.keyboard.session.ModelBannerState
 import dev.chirpboard.app.feature.keyboard.session.VoicePanelPhase
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -119,9 +120,9 @@ private data class KeyboardModeOption(
     @StringRes val labelRes: Int,
 )
 
-private fun defaultKeyboardModeOptions(): List<dev.chirpboard.app.feature.llm.model.ProcessingModeListItem> =
+private fun defaultKeyboardModeOptions(): List<ProcessingModeListItem> =
     keyboardModeOptions().map { option ->
-        dev.chirpboard.app.feature.llm.model.ProcessingModeListItem(
+        ProcessingModeListItem(
             id = option.id,
             name = when (option.id) {
                 "proofread" -> "Proofread"
@@ -333,7 +334,7 @@ private fun KeyboardTopBar(
 private fun KeyboardAiSettingsMenu(
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
-    availableModes: List<dev.chirpboard.app.feature.llm.model.ProcessingModeListItem>,
+    availableModes: List<ProcessingModeListItem>,
     enabled: Boolean,
     onToggleLlm: () -> Unit,
     onModeChange: (String) -> Unit,

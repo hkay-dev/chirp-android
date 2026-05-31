@@ -146,6 +146,29 @@ class RecordingSessionJournal
             }
         }
 
+        fun commitStoppedSegment(
+            sessionId: UUID,
+            completedSegmentPath: String,
+            fileBytes: Long,
+        ) {
+            updateEntry(sessionId) { entry ->
+                val now = System.currentTimeMillis()
+                val completedSegments =
+                    if (completedSegmentPath in entry.segmentPaths) {
+                        entry.segmentPaths
+                    } else {
+                        entry.segmentPaths + completedSegmentPath
+                    }
+                entry.copy(
+                    segmentPaths = completedSegments,
+                    audioPath = completedSegmentPath,
+                    fileBytes = fileBytes,
+                    lastHeartbeatEpochMs = now,
+                    lastSegmentFinalizedAtEpochMs = now,
+                )
+            }
+        }
+
         fun beginNextSegment(
             sessionId: UUID,
             nextSegmentPath: String,

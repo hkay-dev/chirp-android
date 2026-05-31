@@ -4,7 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
-import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.core.export.TranscriptExportRecording
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -85,7 +85,13 @@ class ObsidianManagerTest {
     @Test
     fun `export fails if no vault access`() = runTest {
         val uri = mockk<Uri>()
-        val recording = mockk<Recording>(relaxed = true)
+        val recording =
+            TranscriptExportRecording(
+                title = "Recording",
+                createdAtEpochMs = 0L,
+                durationMs = 1_000L,
+                sourceName = "app",
+            )
         
         every { DocumentFile.fromTreeUri(context, uri) } returns null
         

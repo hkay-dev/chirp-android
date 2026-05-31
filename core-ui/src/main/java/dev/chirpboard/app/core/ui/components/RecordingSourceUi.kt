@@ -8,8 +8,8 @@ import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import dev.chirpboard.app.core.recording.RecordingSource
 import dev.chirpboard.app.core.ui.R
-import dev.chirpboard.app.data.model.RecordingSource
 
 fun RecordingSource.icon(): ImageVector =
     when (this) {

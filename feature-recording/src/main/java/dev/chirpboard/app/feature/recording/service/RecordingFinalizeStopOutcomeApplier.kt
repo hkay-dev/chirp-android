@@ -5,8 +5,6 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.util.UUID
 
 internal object RecordingFinalizeStopOutcomeApplier {
@@ -47,11 +45,13 @@ internal object RecordingFinalizeStopOutcomeApplier {
                     reasonCode = "background_finalize_persistence_failed",
                     message = result.message,
                 )
-                sessionId?.let { sessionJournal.markAbandoned(it) }
-                snapshot?.recordingId?.let { inProgressId ->
-                    withContext(Dispatchers.IO) {
-                        recordingRepository.deleteInProgressRecording(inProgressId)
-                    }
+                if (!RecordingFinalizeRecoveryPolicy.hasRecoverableArtifacts(sessionJournal, sessionId, snapshot)) {
+                    RecordingFinalizeRecoveryPolicy.cleanupUnrecoverable(
+                        sessionJournal = sessionJournal,
+                        recordingRepository = recordingRepository,
+                        sessionId = sessionId,
+                        snapshot = snapshot,
+                    )
                 }
             }
 
@@ -62,11 +62,13 @@ internal object RecordingFinalizeStopOutcomeApplier {
                     correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                     reasonCode = "background_finalize_missing_audio_file",
                 )
-                sessionId?.let { sessionJournal.markAbandoned(it) }
-                snapshot?.recordingId?.let { inProgressId ->
-                    withContext(Dispatchers.IO) {
-                        recordingRepository.deleteInProgressRecording(inProgressId)
-                    }
+                if (!RecordingFinalizeRecoveryPolicy.hasRecoverableArtifacts(sessionJournal, sessionId, snapshot)) {
+                    RecordingFinalizeRecoveryPolicy.cleanupUnrecoverable(
+                        sessionJournal = sessionJournal,
+                        recordingRepository = recordingRepository,
+                        sessionId = sessionId,
+                        snapshot = snapshot,
+                    )
                 }
             }
         }

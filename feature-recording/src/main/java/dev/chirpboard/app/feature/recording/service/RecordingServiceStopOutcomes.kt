@@ -6,8 +6,6 @@ import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -80,11 +78,13 @@ internal object RecordingServiceStopOutcomeApplier {
                     reasonCode = "persistence_failed",
                     message = result.message,
                 )
-                sessionId?.let { sessionJournal.markAbandoned(it) }
-                snapshot?.recordingId?.let { inProgressId ->
-                    withContext(Dispatchers.IO) {
-                        recordingRepository.deleteInProgressRecording(inProgressId)
-                    }
+                if (!RecordingFinalizeRecoveryPolicy.hasRecoverableArtifacts(sessionJournal, sessionId, snapshot)) {
+                    RecordingFinalizeRecoveryPolicy.cleanupUnrecoverable(
+                        sessionJournal = sessionJournal,
+                        recordingRepository = recordingRepository,
+                        sessionId = sessionId,
+                        snapshot = snapshot,
+                    )
                 }
                 recordingStateManager.onRecordingError(result.message, result.cause)
             }
@@ -96,11 +96,13 @@ internal object RecordingServiceStopOutcomeApplier {
                     correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                     reasonCode = "missing_audio_file",
                 )
-                sessionId?.let { sessionJournal.markAbandoned(it) }
-                snapshot?.recordingId?.let { inProgressId ->
-                    withContext(Dispatchers.IO) {
-                        recordingRepository.deleteInProgressRecording(inProgressId)
-                    }
+                if (!RecordingFinalizeRecoveryPolicy.hasRecoverableArtifacts(sessionJournal, sessionId, snapshot)) {
+                    RecordingFinalizeRecoveryPolicy.cleanupUnrecoverable(
+                        sessionJournal = sessionJournal,
+                        recordingRepository = recordingRepository,
+                        sessionId = sessionId,
+                        snapshot = snapshot,
+                    )
                 }
                 recordingStateManager.onRecordingCompleted()
             }

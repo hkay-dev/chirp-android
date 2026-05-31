@@ -119,7 +119,6 @@ class RecordViewModel
                         tagsInitializedForRecordingId = recordingId
                         initializeTagsForRecording(
                             recordingId = recordingId,
-                            profileId = profileIdFromState(state),
                         )
                     } else if (recordingId == null && state is RecordingState.Idle) {
                         tagsInitializedForRecordingId = null
@@ -248,33 +247,8 @@ class RecordViewModel
 
         private suspend fun initializeTagsForRecording(
             recordingId: UUID,
-            profileId: UUID?,
         ) {
             val existing = tagRepository.getTagsForRecordingList(recordingId)
-            if (existing.isNotEmpty()) {
-                _selectedTagIds.value = existing.map { it.id }.toSet()
-                return
-            }
-
-            val defaultTagIds =
-                profileId
-                    ?.let { profileRepository.getProfile(it)?.getDefaultTags() }
-                    .orEmpty()
-            if (defaultTagIds.isEmpty()) {
-                _selectedTagIds.value = emptySet()
-                return
-            }
-
-            defaultTagIds.forEach { tagId ->
-                tagRepository.addTagToRecording(recordingId, tagId)
-            }
-            _selectedTagIds.value = defaultTagIds.toSet()
+            _selectedTagIds.value = existing.map { it.id }.toSet()
         }
-
-        private fun profileIdFromState(state: RecordingState): UUID? =
-            when (state) {
-                is RecordingState.Recording -> state.profileId
-                is RecordingState.Paused -> state.profileId
-                else -> activeProfile.value?.id
-            }
     }

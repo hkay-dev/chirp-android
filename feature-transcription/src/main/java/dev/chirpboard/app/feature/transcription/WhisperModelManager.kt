@@ -79,7 +79,6 @@ class WhisperModelManager
                 if (success) {
                     speechModelStore.invalidateVerificationCache()
                     readinessGate.invalidate()
-                    readinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
                     applyEvaluation(speechModelStore.evaluateReadiness())
                 }
                 success
@@ -94,7 +93,7 @@ class WhisperModelManager
                         is SpeechModelDownloadState.Progress -> updateDownloadProgress(state.progress)
                         SpeechModelDownloadState.Complete -> {
                             markDownloadComplete()
-                            readinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+                            readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
                             onComplete()
                         }
 

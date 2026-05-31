@@ -4,13 +4,15 @@ import android.util.Log
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.audio.recorder.AudioEncoder
-import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.transcription.audio.discardTemporaryFile
+import dev.chirpboard.app.feature.transcription.audio.totalSamples
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.NonCancellable
@@ -54,7 +56,7 @@ suspend fun saveCaptureRecording(
     audioEncoder: AudioEncoder,
     recordingRepository: RecordingRepository,
     plan: CapturePersistencePlan,
-    samples: FloatArray,
+    audioSource: InlineAudioSource,
     recordingQualityPreset: RecordingQualityPreset,
     outputFormat: RecordingOutputFormat,
 ): Recording? {
@@ -66,20 +68,33 @@ suspend fun saveCaptureRecording(
             val outputPath = File(recordingsDir, filename).absolutePath
 
             val success =
-                audioEncoder.encode(
-                    samples = samples,
-                    sampleRate = VoiceRecorder.SAMPLE_RATE,
-                    outputPath = outputPath,
-                    format = outputFormat,
-                    config = recordingQualityPreset.keyboardRecordingConfig,
-                )
+                when (audioSource) {
+                    is InlineAudioSource.InMemory ->
+                        audioEncoder.encode(
+                            samples = audioSource.samples,
+                            sampleRate = audioSource.sampleRate,
+                            outputPath = outputPath,
+                            format = outputFormat,
+                            config = recordingQualityPreset.keyboardRecordingConfig,
+                        )
+
+                    is InlineAudioSource.PcmFloatFile ->
+                        audioEncoder.encodePcmFloatFile(
+                            inputPath = audioSource.path,
+                            sampleCount = audioSource.sampleCount,
+                            sampleRate = audioSource.sampleRate,
+                            outputPath = outputPath,
+                            format = outputFormat,
+                            config = recordingQualityPreset.keyboardRecordingConfig,
+                        )
+                }
             if (!success) {
                 Log.e(TAG, "Failed to encode keyboard recording")
                 runCatching { File(outputPath).delete() }
                 return@withContext null
             }
 
-            val durationMs = (samples.size * 1000L) / VoiceRecorder.SAMPLE_RATE
+            val durationMs = (audioSource.totalSamples() * 1000L) / audioSource.sampleRate
             val recording =
                 Recording(
                     id = UUID.randomUUID(),
@@ -114,6 +129,8 @@ suspend fun saveCaptureRecording(
     } catch (e: Exception) {
         Log.e(TAG, "Failed to save keyboard recording", e)
         null
+    } finally {
+        audioSource.discardTemporaryFile()
     }
 }
 

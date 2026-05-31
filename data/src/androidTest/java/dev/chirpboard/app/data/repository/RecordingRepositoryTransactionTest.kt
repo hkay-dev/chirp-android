@@ -5,7 +5,9 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.chirpboard.app.data.db.AppDatabase
+import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.RecordingEnhancementIntent
@@ -15,6 +17,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -42,7 +45,7 @@ class RecordingRepositoryTransactionTest {
                 recordingDao = database.recordingDao(),
                 transcriptDao = database.transcriptDao(),
                 structuredOutcomeSnapshotDao = database.structuredOutcomeSnapshotDao(),
-                enhancementIntentDao = database.recordingEnhancementIntentDao(),
+                enhancementSnapshotDao = database.recordingEnhancementSnapshotDao(),
                 database = database,
             )
     }
@@ -141,6 +144,118 @@ class RecordingRepositoryTransactionTest {
         }
 
     @Test
+    fun parentRecordingUpdate_preservesTranscriptTimingsAndTags() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Parent update",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                )
+            val tag = Tag(name = "Keep")
+            database.tagDao().insert(tag)
+            repository.createRecordingWithTranscript(
+                recording = recording,
+                transcript = Transcript(recordingId = recording.id, rawText = "keep transcript"),
+                timings = listOf(TranscriptTiming(recording.id, 0, "keep", 0L, 100L)),
+            )
+            database.tagDao().addTagToRecording(dev.chirpboard.app.data.entity.RecordingTag(recording.id, tag.id))
+
+            repository.update(recording.copy(title = "Updated title", status = RecordingStatus.TRANSCRIBING))
+
+            assertEquals("keep transcript", repository.getTranscript(recording.id)?.rawText)
+            assertEquals(1, repository.getTranscriptTimings(recording.id).size)
+            assertEquals(listOf(tag.id), database.tagDao().getTagsForRecordingList(recording.id).map { it.id })
+        }
+
+    @Test
+    fun createInProgressRecording_appliesProfileDefaultTagsAtomically() =
+        runBlocking {
+            val alpha = Tag(name = "Alpha")
+            val beta = Tag(name = "Beta")
+            database.tagDao().insert(alpha)
+            database.tagDao().insert(beta)
+            val profile = Profile(name = "Defaults")
+            database.profileDao().insertWithDefaultTags(profile, listOf(alpha.id, beta.id))
+
+            val recording =
+                repository.createInProgressRecording(
+                    title = "Live defaults",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    profileId = profile.id,
+                )
+
+            val assignedIds = database.tagDao().getTagsForRecordingList(recording.id).map { it.id }.toSet()
+            assertEquals(setOf(alpha.id, beta.id), assignedIds)
+        }
+
+    @Test
+    fun profileMetadataUpdate_preservesDefaultTagRelationships() =
+        runBlocking {
+            val tag = Tag(name = "Default")
+            database.tagDao().insert(tag)
+            val profile = Profile(name = "Before")
+            database.profileDao().insertWithDefaultTags(profile, listOf(tag.id))
+
+            database.profileDao().update(profile.copy(name = "After"))
+
+            assertEquals(listOf(tag.id), database.profileDao().getDefaultTagIds(profile.id))
+        }
+
+    @Test
+    fun tagMetadataUpdate_preservesRecordingAndProfileRelationships() =
+        runBlocking {
+            val tag = Tag(name = "Before", color = "#111111")
+            val profile = Profile(name = "Profile default")
+            val recording =
+                Recording(
+                    title = "Tagged",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                )
+            database.tagDao().insert(tag)
+            database.profileDao().insertWithDefaultTags(profile, listOf(tag.id))
+            repository.insert(recording)
+            database.tagDao().addTagToRecording(dev.chirpboard.app.data.entity.RecordingTag(recording.id, tag.id))
+
+            database.tagDao().update(tag.copy(name = "After", color = "#222222"))
+
+            assertEquals(listOf(tag.id), database.profileDao().getDefaultTagIds(profile.id))
+            assertEquals(listOf(tag.id), database.tagDao().getTagsForRecordingList(recording.id).map { it.id })
+        }
+
+    @Test
+    fun setTagsForRecording_invalidTagLeavesExistingAssignments() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Invalid tag",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                )
+            val existing = Tag(name = "Existing")
+            val replacement = Tag(name = "Replacement")
+            database.tagDao().insert(existing)
+            database.tagDao().insert(replacement)
+            repository.insert(recording)
+            database.tagDao().setTagsForRecording(recording.id, listOf(existing.id))
+
+            var threw = false
+            try {
+                database.tagDao().setTagsForRecording(recording.id, listOf(replacement.id, UUID.randomUUID()))
+            } catch (e: IllegalArgumentException) {
+                threw = true
+            }
+
+            assertTrue(threw)
+            assertEquals(listOf(existing.id), database.tagDao().getTagsForRecordingList(recording.id).map { it.id })
+        }
+
+    @Test
     fun manualCorrectionPersistsUntilNewTranscriptCommitSucceeds() =
         runBlocking {
             val recording =
@@ -185,6 +300,121 @@ class RecordingRepositoryTransactionTest {
             assertNull(persistedTranscript?.manualCorrectionText)
             assertNull(persistedTranscript?.manualCorrectionSourceText)
             assertEquals("brand new raw", persistedTranscript?.effectiveText)
+        }
+
+    @Test
+    fun finalizeInProgressRecording_rejectsAlreadyCompletedRecording() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Already saved",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                    durationMs = 100L,
+                )
+            repository.insert(recording)
+
+            val result =
+                repository.finalizeInProgressRecording(
+                    recordingId = recording.id,
+                    durationMs = 200L,
+                    title = "Stale finalize",
+                )
+
+            val persisted = repository.getRecording(recording.id)
+            assertEquals(recording.id, result?.id)
+            assertEquals("Already saved", persisted?.title)
+            assertEquals(100L, persisted?.durationMs)
+            assertEquals(RecordingStatus.COMPLETED, persisted?.status)
+        }
+
+    @Test
+    fun staleStatusTransition_doesNotOverwriteTerminalState() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Terminal",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                )
+            repository.insert(recording)
+
+            val result =
+                repository.transitionRecordingStatus(
+                    id = recording.id,
+                    destinationStatus = RecordingStatus.FAILED,
+                    allowedSourceStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                    errorMessage = "stale worker",
+                )
+
+            assertEquals(
+                RecordingStatusTransitionResult.AlreadyTerminal(RecordingStatus.COMPLETED),
+                result,
+            )
+            assertEquals(RecordingStatus.COMPLETED, repository.getRecording(recording.id)?.status)
+            assertNull(repository.getRecording(recording.id)?.errorMessage)
+        }
+
+    @Test
+    fun staleTranscriptionCommit_doesNotOverwriteCompletedTranscript() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Completed",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                )
+            repository.createRecordingWithTranscript(
+                recording = recording,
+                transcript = Transcript(recordingId = recording.id, rawText = "existing raw"),
+            )
+
+            val result =
+                repository.commitTranscriptionResult(
+                    transcript = Transcript(recordingId = recording.id, rawText = "stale raw"),
+                    timings = emptyList(),
+                    enhancementIntent = null,
+                )
+
+            assertEquals(
+                RecordingStatusTransitionResult.AlreadyTerminal(RecordingStatus.COMPLETED),
+                result,
+            )
+            assertEquals("existing raw", repository.getTranscript(recording.id)?.rawText)
+            assertEquals(RecordingStatus.COMPLETED, repository.getRecording(recording.id)?.status)
+        }
+
+    @Test
+    fun guardedTranscriptionCommit_rejectsMismatchedExecutionToken() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Owned transcription",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.TRANSCRIBING,
+                    transcriptionExecutionToken = "current-token",
+                )
+            repository.createRecordingWithTranscript(
+                recording = recording,
+                transcript = Transcript(recordingId = recording.id, rawText = "existing raw"),
+            )
+
+            val committed =
+                repository.commitTranscriptionResult(
+                    transcript = Transcript(recordingId = recording.id, rawText = "stale raw"),
+                    timings = emptyList(),
+                    enhancementIntent = null,
+                    expectedExecutionToken = "stale-token",
+                    enhancementExecutionToken = null,
+                )
+
+            assertFalse(committed)
+            assertEquals("existing raw", repository.getTranscript(recording.id)?.rawText)
+            assertEquals(RecordingStatus.TRANSCRIBING, repository.getRecording(recording.id)?.status)
         }
 
     @Test
@@ -269,5 +499,65 @@ class RecordingRepositoryTransactionTest {
             assertEquals("cleanup", persistedTranscript?.processingMode)
             assertEquals("Generated summary", persistedTranscript?.summary)
             assertNull(repository.beginEnhancement(recording.id))
+        }
+
+    @Test
+    fun guardedEnhancementCommit_rejectsMismatchedExecutionTokenAndSourceRevision() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Enhance guard",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.TRANSCRIBING,
+                    transcriptionExecutionToken = "transcription-token",
+                )
+            repository.insert(recording)
+            repository.commitTranscriptionResult(
+                transcript = Transcript(recordingId = recording.id, rawText = "raw transcript"),
+                timings = emptyList(),
+                enhancementIntent =
+                    RecordingEnhancementIntent(
+                        processingModeId = null,
+                        autoTitle = true,
+                        autoSummary = false,
+                    ),
+                expectedExecutionToken = "transcription-token",
+                enhancementExecutionToken = "current-enhancement-token",
+            )
+            assertNotNull(repository.beginEnhancement(recording.id, "current-enhancement-token"))
+
+            val staleTokenCommitted =
+                repository.completeEnhancement(
+                    recordingId = recording.id,
+                    executionToken = "stale-enhancement-token",
+                    sourceTranscriptRevision = "raw transcript||",
+                    result =
+                        RecordingEnhancementResult(
+                            processedText = null,
+                            processingMode = null,
+                            title = "Stale title",
+                            summary = null,
+                        ),
+                )
+            val staleRevisionCommitted =
+                repository.completeEnhancement(
+                    recordingId = recording.id,
+                    executionToken = "current-enhancement-token",
+                    sourceTranscriptRevision = "changed transcript||",
+                    result =
+                        RecordingEnhancementResult(
+                            processedText = null,
+                            processingMode = null,
+                            title = "Wrong revision title",
+                            summary = null,
+                        ),
+                )
+
+            assertFalse(staleTokenCommitted)
+            assertFalse(staleRevisionCommitted)
+            assertEquals("Enhance guard", repository.getRecording(recording.id)?.title)
+            assertEquals(RecordingStatus.ENHANCING, repository.getRecording(recording.id)?.status)
+            assertTrue(repository.hasUnresolvedEnhancementSnapshot(recording.id))
         }
 }

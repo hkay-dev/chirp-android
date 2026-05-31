@@ -143,6 +143,48 @@ class RecordingSessionRecoveryTest {
             coVerify(exactly = 0) { recordingRepository.createRecording(any(), any(), any(), any(), any()) }
         }
 
+    @Test
+    fun recoverSession_stoppingJournalFinalizesLinkedRecordingRow() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val audioFile = createRecoverableAudioFile("linked-row.m4a")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = audioFile.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-3",
+            )
+            journal.markStopping(sessionId)
+
+            val inProgress =
+                Recording(
+                    id = recordingId,
+                    title = "In progress",
+                    audioPath = audioFile.absolutePath,
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                    createdAt = Date(),
+                )
+            val finalized = inProgress.copy(status = RecordingStatus.PENDING_TRANSCRIPTION)
+            coEvery { recordingRepository.getRecording(recordingId) } returns inProgress
+            coEvery {
+                recordingRepository.finalizeInProgressRecording(recordingId, any(), any())
+            } returns finalized
+
+            val result = sessionRecovery.recoverSession(sessionId)
+
+            assertTrue(result is SessionRecoveryResult.Recovered)
+            assertEquals(recordingId, (result as SessionRecoveryResult.Recovered).recordingId)
+            assertNull(journal.findBySessionId(sessionId))
+            coVerify { recordingRepository.finalizeInProgressRecording(recordingId, any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.createRecording(any(), any(), any(), any(), any()) }
+            coVerify { transcriptionRecovery.enqueue(recordingId, "corr-3") }
+        }
+
     private fun createRecoverableAudioFile(name: String): File =
         File(context.filesDir, "recordings/$name").apply {
             parentFile?.mkdirs()

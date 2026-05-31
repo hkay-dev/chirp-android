@@ -5,14 +5,15 @@ import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
-import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.core.export.TranscriptExportRecording
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.FileOutputStream
 import java.io.IOException
+import java.time.Instant
 import java.io.SyncFailedException
 import java.time.LocalDateTime
-import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,7 +44,7 @@ class ObsidianManager
          * @return Result with the exported file URI or error
          */
         suspend fun export(
-            recording: Recording,
+            recording: TranscriptExportRecording,
             transcript: String,
             summary: String?,
             vaultUri: Uri,
@@ -66,8 +67,8 @@ class ObsidianManager
                     // Format the content
                     val date =
                         LocalDateTime.ofInstant(
-                            recording.createdAt.toInstant(),
-                            java.time.ZoneOffset.UTC,
+                            Instant.ofEpochMilli(recording.createdAtEpochMs),
+                            ZoneOffset.UTC,
                         )
                     val durationSeconds = recording.durationMs / 1000
 
@@ -79,7 +80,7 @@ class ObsidianManager
                             date = date,
                             durationSeconds = durationSeconds,
                             tags = tags,
-                            source = recording.source.name.lowercase(),
+                            source = recording.sourceName.lowercase(),
                         )
 
                     // Write atomically to prevent data loss on crash

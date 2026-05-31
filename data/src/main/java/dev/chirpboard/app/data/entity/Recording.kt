@@ -56,4 +56,6 @@ data class Recording(
     val lastExportedPath: String? = null,
     /** When this was last exported */
     val lastExportedAt: Date? = null,
+    /** Active queued/running transcription execution token */
+    val transcriptionExecutionToken: String? = null,
 )

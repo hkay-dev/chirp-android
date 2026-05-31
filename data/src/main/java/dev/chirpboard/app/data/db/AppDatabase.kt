@@ -5,14 +5,17 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
+import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TagDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.dao.WordReplacementDao
 import dev.chirpboard.app.data.entity.Profile
+import dev.chirpboard.app.data.entity.ProfileDefaultTag
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.RecordingEnhancementIntentEntity
+import dev.chirpboard.app.data.entity.RecordingEnhancementSnapshotEntity
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.StructuredOutcomeSnapshotEntity
 import dev.chirpboard.app.data.entity.Tag
@@ -31,8 +34,10 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - Version 5: Added additive manual transcript correction fields
  *   - Version 6: Added structured outcome snapshot persistence for recording review
  *   - Version 7: Added persisted recording enhancement intents
+ *   - Version 8: Normalized profile default tag relationships
+ *   - Version 9: Added transcription execution tokens and enhancement execution snapshots
  *
- * Current Schema (v7):
+ * Current Schema (v9):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -46,6 +51,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - errorMessage: TEXT (nullable)
  *   - lastExportedPath: TEXT (nullable)
  *   - lastExportedAt: INTEGER (nullable, Date as timestamp)
+ *   - transcriptionExecutionToken: TEXT (nullable)
  *   Indices: profileId, createdAt, status
  *
  * transcripts:
@@ -89,6 +95,21 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - lastAttemptedAt: INTEGER (nullable, Date as timestamp)
  *   - lastErrorMessage: TEXT (nullable)
  *
+ * recording_enhancement_snapshots:
+ *   - recordingId: TEXT (PK/FK -> recordings.id, CASCADE on delete)
+ *   - schemaVersion: INTEGER
+ *   - sourceTranscriptRevision: TEXT
+ *   - sourceProcessedTextRevision: TEXT (nullable)
+ *   - processingMode/title/summary requested, status, and error columns
+ *   - resolved processing mode id, label, type, and prompt columns
+ *   - llmProviderId: TEXT (nullable)
+ *   - llmModelId: TEXT (nullable)
+ *   - activeEnhancementExecutionToken: TEXT (nullable)
+ *   - legacyRequiresResolution: INTEGER (boolean)
+ *   - createdAt: INTEGER
+ *   - lastAttemptedAt: INTEGER (nullable)
+ *   - lastErrorMessage: TEXT (nullable)
+ *
  * profiles:
  *   - id: TEXT (PK, UUID)
  *   - name: TEXT
@@ -99,7 +120,6 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - autoSummary: INTEGER (boolean)
  *   - obsidianVaultPath: TEXT (nullable)
  *   - autoExportToObsidian: INTEGER (boolean)
- *   - defaultTagIds: TEXT (nullable, comma-separated UUIDs)
  *   - sortOrder: INTEGER
  *   - isQuickStartPinned: INTEGER (boolean)
  *
@@ -110,6 +130,11 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *
  * recording_tags:
  *   - recordingId: TEXT (PK, FK -> recordings.id, CASCADE on delete)
+ *   - tagId: TEXT (PK, FK -> tags.id, CASCADE on delete)
+ *   Indices: tagId
+ *
+ * profile_default_tags:
+ *   - profileId: TEXT (PK, FK -> profiles.id, CASCADE on delete)
  *   - tagId: TEXT (PK, FK -> tags.id, CASCADE on delete)
  *   Indices: tagId
  *
@@ -128,12 +153,14 @@ import dev.chirpboard.app.data.entity.WordReplacement
         TranscriptTiming::class,
         StructuredOutcomeSnapshotEntity::class,
         RecordingEnhancementIntentEntity::class,
+        RecordingEnhancementSnapshotEntity::class,
         Profile::class,
+        ProfileDefaultTag::class,
         Tag::class,
         RecordingTag::class,
         WordReplacement::class,
     ],
-    version = 7,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -145,6 +172,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun structuredOutcomeSnapshotDao(): StructuredOutcomeSnapshotDao
 
     abstract fun recordingEnhancementIntentDao(): RecordingEnhancementIntentDao
+
+    abstract fun recordingEnhancementSnapshotDao(): RecordingEnhancementSnapshotDao
 
     abstract fun profileDao(): ProfileDao
 

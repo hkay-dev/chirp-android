@@ -25,8 +25,9 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
-import dev.chirpboard.app.core.audio.recorder.AudioEncoder
+import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
@@ -34,17 +35,13 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
-import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
+import dev.chirpboard.app.core.transcription.InlineCapturePersistence
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.TranscriberProvider
-import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
-import dev.chirpboard.app.feature.keyboard.session.KeyboardInlineCapturePersistence
 import dev.chirpboard.app.feature.keyboard.session.KeyboardSessionCoordinator
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardScreen
-import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
-import dev.chirpboard.app.feature.obsidian.ObsidianManager
-import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,14 +64,12 @@ class ChirpKeyboardService :
 
     @Inject lateinit var recordingStateManager: RecordingStateManager
     @Inject lateinit var keyboardPreferences: KeyboardPreferences
-    @Inject lateinit var modeRepository: ProcessingModeRepository
-    @Inject lateinit var obsidianManager: ObsidianManager
-    @Inject lateinit var obsidianPreferences: ObsidianPreferences
+    @Inject lateinit var modePort: ProcessingModePort
     @Inject lateinit var recognizerProvider: TranscriberProvider
     @Inject lateinit var modelReadinessGate: SpeechModelReadinessGate
-    @Inject lateinit var recordingRepository: RecordingRepository
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
-    @Inject lateinit var inlineTranscription: InlineTranscriptionCoordinator
+    @Inject lateinit var inlineTranscription: InlineTranscriptionPort
+    @Inject lateinit var inlineCapturePersistence: InlineCapturePersistence
     @Inject lateinit var keyboardStopBridge: KeyboardRecordingStopBridge
     @Inject lateinit var pendingStopStore: KeyboardPendingStopStore
 
@@ -85,10 +80,12 @@ class ChirpKeyboardService :
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
     override fun onEvaluateFullscreenMode(): Boolean = false
-    override fun onEvaluateInputViewShown(): Boolean = true
+    override fun onEvaluateInputViewShown(): Boolean {
+        super.onEvaluateInputViewShown()
+        return true
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val recomposerScope = CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main)
     private val recomposer = Recomposer(recomposerScope.coroutineContext)
 
@@ -119,17 +116,6 @@ class ChirpKeyboardService :
                 audioFocusManager = audioFocusManager,
             )
 
-        val persistence =
-            KeyboardInlineCapturePersistence(
-                persistenceScope = persistenceScope,
-                filesDirProvider = { filesDir },
-                audioEncoder = AudioEncoder(),
-                recordingRepository = recordingRepository,
-                keyboardPreferences = keyboardPreferences,
-                obsidianManager = obsidianManager,
-                obsidianPreferences = obsidianPreferences,
-            )
-
         coordinator =
             KeyboardSessionCoordinator(
                 tag = TAG,
@@ -137,11 +123,11 @@ class ChirpKeyboardService :
                 scope = scope,
                 capture = capture,
                 transcription = inlineTranscription,
-                persistence = persistence,
+                persistence = inlineCapturePersistence,
                 transcriberProvider = recognizerProvider,
                 recordingStateManager = recordingStateManager,
                 keyboardPreferences = keyboardPreferences,
-                modeRepository = modeRepository,
+                modePort = modePort,
             )
 
         audioFocusManager.onFocusLost = {
@@ -179,7 +165,6 @@ class ChirpKeyboardService :
         }
 
         coordinator.refreshModelStatus()
-        coordinator.initializeModel()
 
         keyboardStopBridge.registerStopHandler {
             stopAndTranscribeForCurrentInput()
@@ -258,11 +243,7 @@ class ChirpKeyboardService :
             return
         }
         coordinator.setPermissionError(null)
-        if (!recognizerProvider.isReady()) {
-            coordinator.initializeModel()
-        } else {
-            coordinator.refreshModelStatus()
-        }
+        coordinator.refreshModelStatus()
         drainPendingKeyboardStopIfNeeded()
     }
 
@@ -287,7 +268,6 @@ class ChirpKeyboardService :
         recomposer.cancel()
         recomposerScope.cancel()
         scope.cancel()
-        persistenceScope.cancel()
         composeView?.disposeComposition()
         composeView = null
         super.onDestroy()
@@ -307,6 +287,7 @@ class ChirpKeyboardService :
             coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
             return
         }
+        modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
         coordinator.onMicTap { text -> commitToInputSession(session, text) }
     }
 

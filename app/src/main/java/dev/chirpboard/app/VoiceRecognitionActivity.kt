@@ -15,17 +15,17 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.core.llm.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
-import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +44,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
 
-    @Inject lateinit var inlineTranscription: InlineTranscriptionCoordinator
+    @Inject lateinit var inlineTranscription: InlineTranscriptionPort
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
@@ -52,7 +52,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var recordingStateManager: RecordingStateManager
 
-    @Inject lateinit var modeRepository: ProcessingModeRepository
+    @Inject lateinit var modePort: ProcessingModePort
 
     @Inject lateinit var llmPreferences: LlmPreferences
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
@@ -84,7 +84,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         setContent {
             ChirpTheme {
                 val llmEnabled by llmPreferences.llmEnabled.collectAsStateWithLifecycle(initialValue = true)
-                val currentMode by modeRepository.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
+                val currentMode by modePort.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
 
                 VoiceRecognitionDialog(
                     waveformBuffer = recorder.waveformBuffer,

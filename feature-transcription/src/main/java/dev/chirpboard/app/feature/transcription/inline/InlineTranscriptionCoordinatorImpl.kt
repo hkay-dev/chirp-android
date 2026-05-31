@@ -3,16 +3,18 @@ package dev.chirpboard.app.feature.transcription.inline
 import android.util.Log
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
-import dev.chirpboard.app.feature.llm.TextProcessor
-import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
+import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
+import dev.chirpboard.app.feature.transcription.audio.asSampleFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -29,9 +31,8 @@ class InlineTranscriptionCoordinatorImpl
     @Inject
     constructor(
         private val transcriberProvider: TranscriberProvider,
-        private val textProcessor: TextProcessor,
+        private val textEnhancement: RecordingTextEnhancementPort,
         private val modelReadinessGate: SpeechModelReadinessGate,
-        private val modeRepository: ProcessingModeRepository,
     ) : InlineTranscriptionCoordinator {
         private val tag = "InlineTranscription"
 
@@ -81,8 +82,8 @@ class InlineTranscriptionCoordinatorImpl
                             reasonCode = "${request.correlationPrefix}_recognizer_not_ready",
                         )
                         withContext(NonCancellable + Dispatchers.Main) {
-                            persistence?.persist(
-                                samples = null,
+                            persistence?.persistAudioSource(
+                                audioSource = request.audioSource,
                                 rawText = null,
                                 processedText = null,
                                 errorMessage = message,
@@ -96,7 +97,7 @@ class InlineTranscriptionCoordinatorImpl
 
                 _phase.value = InlineTranscriptionPhase.Transcribing
 
-                val mappedOutcome = mapInlineTranscriptionOutcome(transcriberProvider.transcribe(request.samples))
+                val mappedOutcome = transcribeAudioSource(request.audioSource)
                 val rawText =
                     when (mappedOutcome) {
                         is InlineTranscriptionResolution.Success -> mappedOutcome.text
@@ -125,8 +126,8 @@ class InlineTranscriptionCoordinatorImpl
                                 message = mappedOutcome.message,
                             )
                             withContext(NonCancellable + Dispatchers.Main) {
-                                persistence?.persist(
-                                    samples = null,
+                                persistence?.persistAudioSource(
+                                    audioSource = request.audioSource,
                                     rawText = rawTextForPersistence,
                                     processedText = null,
                                     errorMessage = mappedOutcome.message,
@@ -147,12 +148,6 @@ class InlineTranscriptionCoordinatorImpl
                     reasonCode = "${request.correlationPrefix}_transcription_completed",
                 )
 
-                withContext(Dispatchers.Main) {
-                    onRecordingCompleted()
-                }
-
-                val processingMode = modeRepository.resolveMode(request.processingModeId)
-
                 if (request.llmEnabled) {
                     ReliabilityEventLogger.log(
                         stage = ReliabilityStage.ENHANCEMENT,
@@ -164,7 +159,7 @@ class InlineTranscriptionCoordinatorImpl
 
                     val result =
                         withTimeoutOrNull(10_000L) {
-                            textProcessor.process(rawText, processingMode)
+                            textEnhancement.process(rawText, request.processingModeId)
                         }
 
                     withContext(Dispatchers.Main) {
@@ -178,7 +173,8 @@ class InlineTranscriptionCoordinatorImpl
                                         reasonCode = "${request.correlationPrefix}_enhancement_completed",
                                     )
                                     commitText("$polishedText ")
-                                    persistence?.persist(rawText, polishedText, null)
+                                    persistence?.persistAudioSource(request.audioSource, rawText, polishedText, null)
+                                    onRecordingCompleted()
                                     _phase.value = InlineTranscriptionPhase.Idle
                                 },
                                 onFailure = { error ->
@@ -190,7 +186,8 @@ class InlineTranscriptionCoordinatorImpl
                                         message = error.message,
                                     )
                                     commitText("$rawText ")
-                                    persistence?.persist(rawText, null, null)
+                                    persistence?.persistAudioSource(request.audioSource, rawText, null, null)
+                                    onRecordingCompleted()
                                     _phase.value =
                                         InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}")
                                 },
@@ -203,22 +200,24 @@ class InlineTranscriptionCoordinatorImpl
                                 reasonCode = "${request.correlationPrefix}_enhancement_timeout",
                             )
                             commitText("$rawText ")
-                            persistence?.persist(rawText, null, null)
+                            persistence?.persistAudioSource(request.audioSource, rawText, null, null)
+                            onRecordingCompleted()
                             _phase.value = InlineTranscriptionPhase.Idle
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         commitText("$rawText ")
-                        persistence?.persist(rawText, null, null)
+                        persistence?.persistAudioSource(request.audioSource, rawText, null, null)
+                        onRecordingCompleted()
                         _phase.value = InlineTranscriptionPhase.Idle
                     }
                 }
             } catch (e: CancellationException) {
                 Log.w(tag, "Transcription cancelled", e)
                 withContext(NonCancellable + Dispatchers.Main) {
-                    persistence?.persist(
-                        samples = null,
+                    persistence?.persistAudioSource(
+                        audioSource = request.audioSource,
                         rawText = rawTextForPersistence,
                         processedText = null,
                         errorMessage = "Dictation cancelled",
@@ -235,8 +234,8 @@ class InlineTranscriptionCoordinatorImpl
                     message = e.message,
                 )
                 withContext(NonCancellable + Dispatchers.Main) {
-                    persistence?.persist(
-                        samples = null,
+                    persistence?.persistAudioSource(
+                        audioSource = request.audioSource,
                         rawText = rawTextForPersistence,
                         processedText = null,
                         errorMessage = errorMessage,
@@ -261,17 +260,44 @@ class InlineTranscriptionCoordinatorImpl
                 transcriberProvider.initialize()
             }
         }
+
+        private suspend fun transcribeAudioSource(audioSource: InlineAudioSource): InlineTranscriptionResolution =
+            when (audioSource) {
+                is InlineAudioSource.InMemory ->
+                    mapInlineTranscriptionOutcome(
+                        transcriberProvider.transcribe(audioSource.samples, audioSource.sampleRate),
+                    )
+
+                is InlineAudioSource.PcmFloatFile -> {
+                    val processor =
+                        ChunkedAudioProcessor(
+                            chunkDurationMs = 30_000,
+                            overlapDurationMs = 2_000,
+                            sampleRate = audioSource.sampleRate,
+                        )
+                    val transcript =
+                        processor.processAndJoin(audioSource.asSampleFlow()) { samples ->
+                            when (
+                                val outcome =
+                                    mapInlineTranscriptionOutcome(
+                                        transcriberProvider.transcribe(samples, audioSource.sampleRate),
+                                    )
+                            ) {
+                                is InlineTranscriptionResolution.Success -> outcome.text
+                                InlineTranscriptionResolution.NoSpeech -> ""
+                                is InlineTranscriptionResolution.Failure -> throw InlineTranscriptionFailureException(outcome.message)
+                            }
+                        }
+
+                    if (transcript.isBlank()) {
+                        InlineTranscriptionResolution.NoSpeech
+                    } else {
+                        InlineTranscriptionResolution.Success(transcript)
+                    }
+                }
+            }
     }
 
-private suspend fun InlineCapturePersistence.persist(
-    rawText: String?,
-    processedText: String?,
-    errorMessage: String?,
-) {
-    persist(
-        samples = null,
-        rawText = rawText,
-        processedText = processedText,
-        errorMessage = errorMessage,
-    )
-}
+private class InlineTranscriptionFailureException(
+    message: String,
+) : Exception(message)

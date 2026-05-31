@@ -15,9 +15,12 @@ enum class ModelReadinessUnavailableReason {
 
 enum class VerificationTrigger {
     APP_STARTUP,
+    QUEUED_TRANSCRIPTION,
+    RECOVERY,
     HOME_VISIBLE,
     HOME_RECORD_TAP,
     KEYBOARD_DICTATION,
+    MODEL_DOWNLOAD,
 }
 
 sealed interface ModelReadinessState {

@@ -10,6 +10,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
@@ -46,10 +47,11 @@ class TranscriptionWorker
         private val profileRepository: ProfileRepository,
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
-        private val llmPreferences: dev.chirpboard.app.feature.llm.settings.LlmPreferences,
+        private val textEnhancement: RecordingTextEnhancementPort,
         private val transcriberProvider: TranscriberProvider,
         private val audioDecoder: AudioDecoder,
         private val recordingStateManager: dev.chirpboard.app.core.recording.RecordingStateManager,
+        private val workScheduler: TranscriptionWorkScheduler,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "TranscriptionWorker"
@@ -73,18 +75,22 @@ class TranscriptionWorker
             val correlationId =
                 inputData.getString(TranscriptionWorkRequest.INPUT_CORRELATION_ID)
                     ?: ReliabilityEventLogger.newCorrelationId("transcription")
+            val executionToken =
+                inputData.getString(TranscriptionWorkRequest.INPUT_EXECUTION_TOKEN)
+                    ?: return buildTranscriptionFailureResult("Missing transcription execution token")
 
             return try {
-                transcribeRecording(recordingId, correlationId)
+                transcribeRecording(recordingId, correlationId, executionToken)
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                handleError(recordingId, correlationId, e)
+                handleError(recordingId, correlationId, executionToken, e)
             }
         }
 
         private suspend fun transcribeRecording(
             recordingId: UUID,
             correlationId: String,
+            executionToken: String,
         ): Result {
             // Fetch the recording
             val recording =
@@ -99,12 +105,16 @@ class TranscriptionWorker
             }
 
             if (recording.status == RecordingStatus.PENDING_ENHANCEMENT) {
-                enqueueEnhancement(recordingId, correlationId)
+                logStaleTranscription(recordingId, correlationId, "worker_saw_enhancement_phase")
                 return androidx.work.ListenableWorker.Result.success()
             }
 
-            // Update status to TRANSCRIBING
-            recordingRepository.updateStatus(recordingId, RecordingStatus.TRANSCRIBING)
+            val ownedRecording =
+                recordingRepository.beginTranscriptionExecution(recordingId, executionToken)
+                    ?: run {
+                        logStaleTranscription(recordingId, correlationId, "transcription_ownership_lost")
+                        return androidx.work.ListenableWorker.Result.success()
+                    }
             setForeground(buildTranscriptionForegroundInfo(applicationContext))
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.TRANSCRIPTION,
@@ -115,12 +125,13 @@ class TranscriptionWorker
             )
 
             // Verify audio file exists
-            val audioFile = File(recording.audioPath)
+            val audioFile = File(ownedRecording.audioPath)
             if (!audioFile.exists()) {
-                recordingRepository.updateStatusWithError(
+                recordingRepository.failTranscriptionExecution(
                     recordingId,
+                    executionToken,
                     RecordingStatus.FAILED,
-                    "Audio file not found: ${recording.audioPath}",
+                    "Audio file not found: ${ownedRecording.audioPath}",
                 )
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.TRANSCRIPTION,
@@ -134,8 +145,9 @@ class TranscriptionWorker
 
             // Check if model is downloaded
             if (!transcriberProvider.isModelDownloaded()) {
-                recordingRepository.updateStatusWithError(
+                recordingRepository.failTranscriptionExecution(
                     recordingId,
+                    executionToken,
                     RecordingStatus.FAILED,
                     "Model not downloaded. Please download the speech recognition model in Settings.",
                 )
@@ -166,8 +178,9 @@ class TranscriptionWorker
                             "Failed to initialize speech recognition model",
                         )
                     }
-                    recordingRepository.updateStatusWithError(
+                    recordingRepository.failTranscriptionExecution(
                         recordingId,
+                        executionToken,
                         RecordingStatus.FAILED,
                         "Failed to initialize speech recognition model",
                     )
@@ -178,7 +191,7 @@ class TranscriptionWorker
             // Decode and transcribe using chunked processing for memory efficiency
             // This uses 30-second chunks with 2-second overlap to prevent word truncation
             // Peak memory: ~4MB instead of ~76MB for a 10-minute recording
-            Log.d(TAG, "Decoding and transcribing audio file: ${recording.audioPath}")
+            Log.d(TAG, "Decoding and transcribing audio file: ${ownedRecording.audioPath}")
 
             val detailedTranscription: dev.chirpboard.app.feature.transcription.audio.JoinedChunkTranscription
             try {
@@ -191,13 +204,13 @@ class TranscriptionWorker
                         sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
                     )
 
-                val audioFlow = audioDecoder.decodeAsFlow(recording.audioPath)
+                val audioFlow = audioDecoder.decodeAsFlow(ownedRecording.audioPath)
 
                 detailedTranscription =
                     processor.processAndJoinDetailed(audioFlow) { samples ->
                         if (recordingStateManager.state.value.isActive) {
                             Log.w(TAG, "Recording started during transcription. Pausing transcription until recording finishes...")
-                            waitForInactiveRecording(recordingId, correlationId, recording.durationMs)
+                            waitForInactiveRecording(recordingId, correlationId, ownedRecording.durationMs)
                             Log.d(TAG, "Recording finished. Resuming transcription.")
                         }
 
@@ -217,8 +230,9 @@ class TranscriptionWorker
                 Log.d(TAG, "Chunked transcription completed")
             } catch (e: OutOfMemoryError) {
                 Log.e(TAG, "Out of memory during transcription", e)
-                recordingRepository.updateStatusWithError(
+                recordingRepository.failTranscriptionExecution(
                     recordingId,
+                    executionToken,
                     RecordingStatus.FAILED,
                     "Out of memory during transcription. Recording may be too long.",
                 )
@@ -259,10 +273,25 @@ class TranscriptionWorker
                             endOffsetMs = timing.endTimestampMs,
                         )
                     }.orEmpty()
-            val enhancementIntent = resolveEnhancementIntent(recordingId, recording, correlationId)
-            recordingRepository.commitTranscriptionResult(transcript, timings, enhancementIntent)
+            val enhancementIntent = resolveEnhancementIntent(recordingId, ownedRecording, processedText, correlationId)
+            val enhancementExecutionToken = enhancementIntent?.let { UUID.randomUUID().toString() }
+            val committed =
+                recordingRepository.commitTranscriptionResult(
+                    transcript = transcript,
+                    timings = timings,
+                    enhancementIntent = enhancementIntent,
+                    expectedExecutionToken = executionToken,
+                    enhancementExecutionToken = enhancementExecutionToken,
+                )
+            if (!committed) {
+                logStaleTranscription(recordingId, correlationId, "transcription_commit_stale")
+                return androidx.work.ListenableWorker.Result.success()
+            }
 
-            val enhancementQueued = enhancementIntent != null && enqueueEnhancement(recordingId, correlationId)
+            val enhancementQueued =
+                enhancementIntent != null &&
+                    enhancementExecutionToken != null &&
+                    enqueueEnhancement(recordingId, enhancementExecutionToken, correlationId)
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.TRANSCRIPTION,
                 outcome = ReliabilityOutcome.SUCCESS,
@@ -282,14 +311,15 @@ class TranscriptionWorker
         private suspend fun resolveEnhancementIntent(
             recordingId: UUID,
             recording: dev.chirpboard.app.data.entity.Recording,
+            processedText: String,
             correlationId: String,
         ): RecordingEnhancementIntent? {
             val profile = recording.profileId?.let { profileRepository.getProfile(it) }
             val policy =
                 resolveRecordingEnhancementPolicy(
                     profile = profile,
-                    globalAutoTitle = llmPreferences.getAutoTitle(),
-                    globalAutoSummary = llmPreferences.getAutoSummary(),
+                    globalAutoTitle = textEnhancement.defaultAutoTitleEnabled(),
+                    globalAutoSummary = textEnhancement.defaultAutoSummaryEnabled(),
                 )
             if (!policy.hasRequestedWork) {
                 ReliabilityEventLogger.log(
@@ -302,31 +332,37 @@ class TranscriptionWorker
                 return null
             }
 
-            if (!llmPreferences.getLlmEnabled() || llmPreferences.fetchApiKey().isNullOrBlank()) {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.ENHANCEMENT,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "llm_unavailable",
-                )
-                return null
-            }
+            val runtimeSnapshot = textEnhancement.runtimeSnapshot()
+            val processingModeSnapshot =
+                policy.processingModeId?.let { modeId ->
+                    textEnhancement.resolveProcessingModeSnapshot(processedText, modeId)
+                }
 
-            return policy.toIntent()
+            return RecordingEnhancementIntent(
+                processingModeId = processingModeSnapshot?.id ?: policy.processingModeId,
+                processingModeLabel = processingModeSnapshot?.label,
+                processingModeType = processingModeSnapshot?.type,
+                processingModePrompt = processingModeSnapshot?.prompt,
+                autoTitle = policy.autoTitle,
+                autoSummary = policy.autoSummary,
+                llmProviderId = runtimeSnapshot.providerId,
+                llmModelId = runtimeSnapshot.modelId,
+            )
         }
 
         private suspend fun enqueueEnhancement(
             recordingId: UUID,
+            executionToken: String,
             correlationId: String,
         ): Boolean =
             try {
-                RecordingEnhancementWorkRequest.enqueue(applicationContext, recordingId, correlationId)
+                workScheduler.enqueueEnhancement(recordingId, executionToken, correlationId)
                 true
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
-                recordingRepository.updateStatusWithError(
-                    id = recordingId,
+                recordingRepository.claimEnhancementExecution(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
                     status = RecordingStatus.PENDING_ENHANCEMENT,
                     errorMessage = "${RECOVERABLE_QUEUE_HANDOFF_PREFIX}enhancement enqueue failed. Cause: ${e.message.orEmpty()}",
                 )
@@ -363,9 +399,24 @@ class TranscriptionWorker
             notificationManager.notify(recordingId.hashCode(), notification)
         }
 
+        private fun logStaleTranscription(
+            recordingId: UUID,
+            correlationId: String,
+            reasonCode: String,
+        ) {
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.TRANSCRIPTION,
+                outcome = ReliabilityOutcome.SKIPPED,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = reasonCode,
+            )
+        }
+
         private suspend fun handleError(
             recordingId: UUID,
             correlationId: String,
+            executionToken: String,
             exception: Exception,
         ): Result {
             val errorMessage = exception.message ?: "Unknown transcription error"
@@ -386,20 +437,19 @@ class TranscriptionWorker
             )
 
             try {
-                recordingRepository.updateStatusWithError(
-                    recordingId,
-                    disposition.status,
-                    errorMessage,
-                )
+                val updated =
+                    recordingRepository.failTranscriptionExecution(
+                        recordingId,
+                        executionToken,
+                        disposition.status,
+                        errorMessage,
+                    )
+                if (!updated) {
+                    logStaleTranscription(recordingId, correlationId, "transcription_error_stale")
+                }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 Log.e(TAG, "Failed to persist transcription error state", e)
-                runCatching {
-                    recordingRepository.updateStatus(recordingId, disposition.status)
-                }.onFailure { fallbackError ->
-                    if (fallbackError is CancellationException) throw fallbackError
-                    Log.e(TAG, "Failed to persist fallback transcription status", fallbackError)
-                }
             }
 
             return if (disposition.retry) {

@@ -1,7 +1,7 @@
 package dev.chirpboard.app.feature.keyboard.session
 
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

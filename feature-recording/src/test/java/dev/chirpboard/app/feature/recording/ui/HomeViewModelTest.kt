@@ -2,33 +2,35 @@ package dev.chirpboard.app.feature.recording.ui
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
+import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.core.recording.RecordingState
-import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.data.entity.Profile
+import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.model.TranscriptPreview
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.repository.TagRepository
-import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
-import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -37,8 +39,8 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
-import java.util.UUID
 import java.util.Date
+import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -62,6 +64,7 @@ class HomeViewModelTest {
         recordingRepository =
             mockk(relaxed = true) {
                 every { getAllRecordings() } returns emptyFlow()
+                every { getTranscriptPreviewsFlow(any(), any()) } returns flowOf(RepositoryFlowState(emptyMap()))
             }
         recordingManager =
             mockk(relaxed = true) {
@@ -70,6 +73,7 @@ class HomeViewModelTest {
         tagRepository =
             mockk(relaxed = true) {
                 every { getAllTags() } returns emptyFlow()
+                every { getTagsForRecordingIdsFlow(any()) } returns flowOf(RepositoryFlowState(emptyMap()))
             }
         profileRepository =
             mockk(relaxed = true) {
@@ -217,6 +221,32 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `shouldShowStuckRecoveryAction includes pending enhancement`() {
+        assertTrue(shouldShowStuckRecoveryAction(RecordingStatus.PENDING_ENHANCEMENT))
+    }
+
+    @Test
+    fun `playback row state ignores progress ticks`() {
+        val recordingId = UUID.randomUUID()
+        val first =
+            dev.chirpboard.app.core.playback.RecordingPlaybackState(
+                recordingId = recordingId,
+                title = "Meeting notes",
+                audioPath = "/tmp/meeting.m4a",
+                positionMs = 1_000L,
+                durationMs = 10_000L,
+                isPlaying = true,
+            )
+        val tick =
+            first.copy(
+                positionMs = 2_000L,
+                durationMs = 12_000L,
+            )
+
+        assertEquals(first.toHomeRowState(), tick.toHomeRowState())
+    }
+
+    @Test
     fun `retryTranscription queues recording for transcription`() =
         runTest {
             val recordingId = UUID.randomUUID()
@@ -260,6 +290,29 @@ class HomeViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify { transcriptionQueueManager.recoverPendingTranscription(recordingId) }
+        }
+
+    @Test
+    fun `recoverStuckItem recovers pending enhancement`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            val recording =
+                mockk<Recording>(relaxed = true) {
+                    every { id } returns recordingId
+                    every { status } returns RecordingStatus.PENDING_ENHANCEMENT
+                }
+
+            val displayItem =
+                mockk<dev.chirpboard.app.feature.recording.ui.RecordingDisplayItem>(relaxed = true) {
+                    every { this@mockk.id } returns recordingId
+                    every { this@mockk.status } returns RecordingStatus.PENDING_ENHANCEMENT
+                    every { this@mockk.recording } returns recording
+                }
+
+            viewModel.recoverStuckItem(displayItem)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { transcriptionQueueManager.recoverPendingEnhancement(recordingId) }
         }
 
     @Test
@@ -362,6 +415,59 @@ class HomeViewModelTest {
                 setOf(completed.id, liveRecordingId, finalizingRecordingId),
                 localViewModel.displayItems.value.map { it.id }.toSet(),
             )
+            collector.cancel()
+        }
+
+    @Test
+    fun `displayItems refreshes metadata-only enrichment while search remains active`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            val recording =
+                Recording(
+                    id = recordingId,
+                    title = "Team sync",
+                    audioPath = "/tmp/team.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                    createdAt = Date(5_000L),
+                )
+            val tag = Tag(id = UUID.randomUUID(), name = "Important", color = "#ff0000")
+            val previewFlow =
+                MutableStateFlow(
+                    RepositoryFlowState(
+                        mapOf(recordingId to samplePreview(recordingId, previewText = "old text", summary = "old summary")),
+                    ),
+                )
+            val tagFlow =
+                MutableStateFlow<RepositoryFlowState<Map<UUID, List<Tag>>>>(
+                    RepositoryFlowState(emptyMap()),
+                )
+
+            every { recordingRepository.getAllRecordings() } returns flowOf(RepositoryFlowState(listOf(recording)))
+            every { recordingRepository.searchRecordings("team") } returns flowOf(RepositoryFlowState(listOf(recording)))
+            every { recordingRepository.getTranscriptPreviewsFlow(listOf(recordingId), any()) } returns previewFlow
+            every { tagRepository.getTagsForRecordingIdsFlow(listOf(recordingId)) } returns tagFlow
+
+            val localViewModel =
+                createHomeViewModel(
+                    savedStateHandle = SavedStateHandle(mapOf("searchQuery" to "team")),
+                )
+            val collector = launch { localViewModel.displayItems.collect { } }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("old summary", localViewModel.displayItems.value.single().summary)
+
+            previewFlow.value =
+                RepositoryFlowState(
+                    mapOf(recordingId to samplePreview(recordingId, previewText = "new text", summary = "new summary")),
+                )
+            tagFlow.value = RepositoryFlowState(mapOf(recordingId to listOf(tag)))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val refreshed = localViewModel.displayItems.value.single()
+            assertEquals(recordingId, refreshed.id)
+            assertEquals("new summary", refreshed.summary)
+            assertEquals(listOf("Important"), refreshed.tags.map(Tag::name))
             collector.cancel()
         }
 
@@ -535,4 +641,35 @@ class HomeViewModelTest {
 
             assertEquals(recordingId, viewModel.openStudioForRecordingId.value)
         }
+
+    private fun createHomeViewModel(
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+        recordingManagerOverride: RecordingManager = recordingManager,
+    ): HomeViewModel =
+        HomeViewModel(
+            recordingRepository,
+            recordingManagerOverride,
+            tagRepository,
+            profileRepository,
+            transcriptionQueueManager,
+            recordingTextEnrichment,
+            audioImportOrchestrator,
+            sessionRecovery,
+            playbackController =
+                mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
+                },
+            savedStateHandle = savedStateHandle,
+        )
+
+    private fun samplePreview(
+        recordingId: UUID,
+        previewText: String,
+        summary: String?,
+    ): TranscriptPreview =
+        TranscriptPreview(
+            recordingId = recordingId,
+            summary = summary,
+            previewText = previewText,
+        )
 }

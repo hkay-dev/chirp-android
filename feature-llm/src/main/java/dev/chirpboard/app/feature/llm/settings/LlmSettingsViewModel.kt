@@ -19,7 +19,7 @@ import javax.inject.Inject
 class LlmSettingsViewModel
     @Inject
     constructor(
-        private val preferences: LlmPreferences,
+        private val preferences: LlmSettingsStore,
         private val backupManager: LlmApiKeyBackupManager,
         private val llmClient: LlmClient,
         private val savedStateHandle: SavedStateHandle,

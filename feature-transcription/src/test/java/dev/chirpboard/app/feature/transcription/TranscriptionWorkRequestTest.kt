@@ -1,121 +1,37 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
-import androidx.lifecycle.LiveData
-import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequest
-import androidx.work.Operation
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.mockkStatic
-import io.mockk.slot
-import io.mockk.unmockkAll
-import io.mockk.verify
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import java.util.UUID
 
 class TranscriptionWorkRequestTest {
-
-    private lateinit var mockContext: Context
-    private lateinit var mockWorkManager: WorkManager
-    private val testRecordingId = UUID.randomUUID()
-
-    @Before
-    fun setup() {
-        mockContext = mockk(relaxed = true)
-        mockWorkManager = mockk(relaxed = true)
-
-        mockkStatic(WorkManager::class)
-        every { WorkManager.getInstance(mockContext) } returns mockWorkManager
-    }
-
-    @After
-    fun tearDown() {
-        unmockkAll()
-    }
+    private val recordingId = UUID.randomUUID()
 
     @Test
     fun `workName generates correct string`() {
-        val name = TranscriptionWorkRequest.workName(testRecordingId)
-        assertEquals("transcription_$testRecordingId", name)
+        assertEquals("transcription_$recordingId", TranscriptionWorkRequest.workName(recordingId))
     }
 
     @Test
-    fun `enqueue creates work request with correct parameters and enqueues it`() {
-        val workRequestSlot = slot<OneTimeWorkRequest>()
-        val mockOperation = mockk<Operation>()
-        
-        every {
-            mockWorkManager.enqueueUniqueWork(
-                any(),
-                any<ExistingWorkPolicy>(),
-                capture(workRequestSlot)
+    fun `build creates work request with production inputs tags and constraints`() {
+        val request =
+            TranscriptionWorkRequest.build(
+                recordingId = recordingId,
+                executionToken = "transcription-token",
+                correlationId = "test-correlation",
             )
-        } returns mockOperation
 
-        val resultId = TranscriptionWorkRequest.enqueue(mockContext, testRecordingId, "test-correlation")
-
-        verify {
-            mockWorkManager.enqueueUniqueWork(
-                "transcription_$testRecordingId",
-                ExistingWorkPolicy.KEEP,
-                any<OneTimeWorkRequest>()
-            )
-        }
-
-        val capturedRequest = workRequestSlot.captured
-        assertEquals(resultId, "transcription_$testRecordingId")
-        
-        val inputData = capturedRequest.workSpec.input
-        assertEquals(testRecordingId.toString(), inputData.getString(TranscriptionWorker.INPUT_RECORDING_ID))
+        val inputData = request.workSpec.input
+        assertEquals(recordingId.toString(), inputData.getString(TranscriptionWorker.INPUT_RECORDING_ID))
         assertEquals("test-correlation", inputData.getString(TranscriptionWorkRequest.INPUT_CORRELATION_ID))
-        
-        val tags = capturedRequest.tags
-        assertTrue(tags.contains(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION))
-        assertTrue(tags.contains("recording_$testRecordingId"))
-        
-        assertTrue(capturedRequest.workSpec.constraints.requiresBatteryNotLow())
-        assertTrue(capturedRequest.workSpec.constraints.requiresStorageNotLow())
-        assertEquals(NetworkType.NOT_REQUIRED, capturedRequest.workSpec.constraints.requiredNetworkType)
-    }
+        assertEquals("transcription-token", inputData.getString(TranscriptionWorkRequest.INPUT_EXECUTION_TOKEN))
 
-    @Test
-    fun `cancel calls cancelUniqueWork with correct name`() {
-        TranscriptionWorkRequest.cancel(mockContext, testRecordingId)
-        
-        verify {
-            mockWorkManager.cancelUniqueWork("transcription_$testRecordingId")
-        }
-    }
-
-    @Test
-    fun `cancelAll calls cancelAllWorkByTag`() {
-        TranscriptionWorkRequest.cancelAll(mockContext)
-        
-        verify {
-            mockWorkManager.cancelAllWorkByTag(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION)
-        }
-    }
-
-    @Test
-    fun `getWorkInfo returns LiveData from WorkManager`() {
-        val mockLiveData = mockk<LiveData<List<WorkInfo>>>()
-        every {
-            mockWorkManager.getWorkInfosByTagLiveData("recording_$testRecordingId")
-        } returns mockLiveData
-
-        val result = TranscriptionWorkRequest.getWorkInfo(mockContext, testRecordingId)
-        
-        assertEquals(mockLiveData, result)
-        verify {
-            mockWorkManager.getWorkInfosByTagLiveData("recording_$testRecordingId")
-        }
+        assertTrue(request.tags.contains(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION))
+        assertTrue(request.tags.contains("recording_$recordingId"))
+        assertTrue(request.workSpec.constraints.requiresBatteryNotLow())
+        assertTrue(request.workSpec.constraints.requiresStorageNotLow())
+        assertEquals(NetworkType.NOT_REQUIRED, request.workSpec.constraints.requiredNetworkType)
     }
 }

@@ -77,7 +77,7 @@ class RecordingSessionRecoveryKeepSessionTest {
             sessionRecovery.keepSession(sessionId)
 
             coVerify { protectedPathsStore.protect(any()) }
-            coVerify { recordingRepository.deleteInProgressRecording(recordingId) }
+            coVerify { recordingRepository.deleteAbandonedInProgressRecording(recordingId) }
             assertNull(journal.findBySessionId(sessionId))
             assertTrue(audioFile.exists())
         }

@@ -5,9 +5,11 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
 import java.util.UUID
 
 class StopSnapshotWorkDataTest {
@@ -43,10 +45,11 @@ class StopSnapshotWorkDataTest {
 
 class RecordingFinalizeStopOutcomeApplierTest {
     @Test
-    fun persistenceFailed_deletesInProgressRow() =
+    fun persistenceFailedWithArtifacts_preservesInProgressRow() =
         runTest {
             val recordingId = UUID.randomUUID()
             val sessionId = UUID.randomUUID()
+            val audioFile = File.createTempFile("recoverable-finalize", ".m4a")
             val sessionJournal = mockk<RecordingSessionJournal>(relaxed = true)
             val recordingRepository = mockk<RecordingRepository>(relaxed = true)
 
@@ -57,7 +60,7 @@ class RecordingFinalizeStopOutcomeApplierTest {
                         origin = RecordingOrigin.APP,
                         profileId = null,
                         recordingId = recordingId,
-                        audioFilePath = "/tmp/active.m4a",
+                        audioFilePath = audioFile.absolutePath,
                         durationMs = 0L,
                         stoppedAtEpochMs = 0L,
                         wasPaused = false,
@@ -68,7 +71,38 @@ class RecordingFinalizeStopOutcomeApplierTest {
                 recordingRepository = recordingRepository,
             )
 
-            coVerify { sessionJournal.markAbandoned(sessionId) }
-            coVerify { recordingRepository.deleteInProgressRecording(recordingId) }
+            verify(exactly = 0) { sessionJournal.markAbandoned(sessionId) }
+            coVerify(exactly = 0) { recordingRepository.deleteAbandonedInProgressRecording(recordingId) }
+            audioFile.delete()
+        }
+
+    @Test
+    fun noAudioWithoutArtifacts_cleansUpInProgressRow() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            val sessionId = UUID.randomUUID()
+            val sessionJournal = mockk<RecordingSessionJournal>(relaxed = true)
+            val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+
+            RecordingFinalizeStopOutcomeApplier.apply(
+                result = StopPersistenceResult.NoAudioFile,
+                snapshot =
+                    StopSnapshot(
+                        origin = RecordingOrigin.APP,
+                        profileId = null,
+                        recordingId = recordingId,
+                        audioFilePath = "/tmp/missing-active.m4a",
+                        durationMs = 0L,
+                        stoppedAtEpochMs = 0L,
+                        wasPaused = false,
+                        correlationId = "corr",
+                    ),
+                sessionId = sessionId,
+                sessionJournal = sessionJournal,
+                recordingRepository = recordingRepository,
+            )
+
+            verify { sessionJournal.markAbandoned(sessionId) }
+            coVerify { recordingRepository.deleteAbandonedInProgressRecording(recordingId) }
         }
 }

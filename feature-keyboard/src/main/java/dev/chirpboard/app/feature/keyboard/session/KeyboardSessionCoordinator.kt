@@ -2,18 +2,20 @@ package dev.chirpboard.app.feature.keyboard.session
 
 import android.content.Context
 import android.util.Log
+import dev.chirpboard.app.core.llm.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingModeListItem
+import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStateManager
-import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
+import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,12 +32,12 @@ class KeyboardSessionCoordinator(
     private val context: Context,
     private val scope: CoroutineScope,
     val capture: QuickCaptureSessionImpl,
-    private val transcription: InlineTranscriptionCoordinator,
-    private val persistence: KeyboardInlineCapturePersistence,
+    private val transcription: InlineTranscriptionPort,
+    private val persistence: InlineCapturePersistence,
     private val transcriberProvider: TranscriberProvider,
     private val recordingStateManager: RecordingStateManager,
     private val keyboardPreferences: KeyboardPreferences,
-    private val modeRepository: ProcessingModeRepository,
+    private val modePort: ProcessingModePort,
 ) {
     private val isRecording = MutableStateFlow(false)
     private val permissionError = MutableStateFlow<String?>(null)
@@ -43,7 +45,7 @@ class KeyboardSessionCoordinator(
     private val modelInitFailedMessage = MutableStateFlow<String?>(null)
     private val llmEnabled = MutableStateFlow(true)
     private val currentMode = MutableStateFlow<ProcessingMode>(ProcessingMode.Proofread)
-    private val availableModes = MutableStateFlow<List<dev.chirpboard.app.feature.llm.model.ProcessingModeListItem>>(emptyList())
+    private val availableModes = MutableStateFlow<List<ProcessingModeListItem>>(emptyList())
 
     private var recordingJob: Job? = null
     private var transcriptionJob: Job? = null
@@ -106,10 +108,10 @@ class KeyboardSessionCoordinator(
             keyboardPreferences.microphoneGain.collect { capture.gainMultiplier = it }
         }
         scope.launch {
-            modeRepository.currentMode.collect { currentMode.value = it }
+            modePort.currentMode.collect { currentMode.value = it }
         }
         scope.launch {
-            modeRepository.selectableModes.collect { availableModes.value = it }
+            modePort.selectableModes.collect { availableModes.value = it }
         }
 
         capture.onRecordingError = { error ->
@@ -221,17 +223,17 @@ class KeyboardSessionCoordinator(
         recordingJob?.cancel()
         recordingJob = null
 
-        val samples = capture.stop()
+        val audioSource = capture.stopAsAudioSource()
         isRecording.value = false
 
-        if (samples.isEmpty()) {
+        if (audioSource == null) {
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
             return
         }
 
-        persistence.prepareSamples(samples)
+        persistence.prepareAudioSource(audioSource)
 
         recordingStateManager.transitionToStopping()
         recordingStateManager.startStoppingTimeout(fileSizeBytes = 0L)
@@ -242,9 +244,10 @@ class KeyboardSessionCoordinator(
                 transcription.transcribe(
                     request =
                         InlineTranscriptionRequest(
-                            samples = samples,
+                            samples = FloatArray(0),
                             llmEnabled = llmEnabled.value,
                             processingModeId = currentMode.value.id,
+                            audioSource = audioSource,
                         ),
                     persistence = persistence,
                     commitText = { text -> scope.launch(Dispatchers.Main) { commitText(text) } },
@@ -269,7 +272,7 @@ class KeyboardSessionCoordinator(
         HapticFeedback.onRecordStop(context)
         recordingJob?.cancel()
         recordingJob = null
-        capture.stop()
+        capture.cancelCapture()
         persistence.discardSamples()
         isRecording.value = false
         recordingStateManager.onRecordingCompleted()
@@ -291,12 +294,12 @@ class KeyboardSessionCoordinator(
         capture.abandonAudioFocus()
         recordingJob?.cancel()
         recordingJob = null
-        val samples = capture.stop().takeIf { it.isNotEmpty() }
+        val audioSource = capture.stopAsAudioSource()
         isRecording.value = false
         transcription.resetPhase()
         scope.launch {
-            persistence.persist(
-                samples = samples,
+            persistence.persistAudioSource(
+                audioSource = audioSource,
                 rawText = null,
                 processedText = null,
                 errorMessage = errorMessage,
@@ -318,7 +321,7 @@ class KeyboardSessionCoordinator(
 
     fun changeMode(modeId: String) {
         scope.launch {
-            modeRepository.setModeById(modeId)
+            modePort.setModeById(modeId)
         }
     }
 

@@ -1,7 +1,10 @@
 package dev.chirpboard.app.feature.studio
 
+import dev.chirpboard.app.core.transcription.ProcessingRecoveryActions
+import dev.chirpboard.app.core.transcription.ProcessingRecoveryQueueState
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
+import dev.chirpboard.app.core.transcription.deriveProcessingRecoveryActions
 import dev.chirpboard.app.data.model.RecordingStatus
 
 data class RecoveryDiagnosticsUi(
@@ -21,22 +24,11 @@ data class TranscriptionRecoveryActionsUi(
 fun computeTranscriptionRecoveryActions(
     status: RecordingStatus?,
     ownership: RecoveryOwnershipState,
-): TranscriptionRecoveryActionsUi {
-    val isRecoverableStatus =
-        status == RecordingStatus.PENDING_TRANSCRIPTION ||
-            status == RecordingStatus.ENHANCING
-    val disabledByOwnership =
-        ownership == RecoveryOwnershipState.ACTIVE ||
-            ownership == RecoveryOwnershipState.INSPECTION_TIMEOUT
-
-    return TranscriptionRecoveryActionsUi(
-        showPendingRecovery = status == RecordingStatus.PENDING_TRANSCRIPTION,
-        showEnhancementRecovery = status == RecordingStatus.ENHANCING,
-        showRetranscribeFromEnhancing = status == RecordingStatus.ENHANCING,
-        showFailedRetry = status == RecordingStatus.FAILED,
-        actionsEnabled = !isRecoverableStatus || !disabledByOwnership,
-    )
-}
+): TranscriptionRecoveryActionsUi =
+    deriveProcessingRecoveryActions(
+        queueState = status.toProcessingRecoveryQueueState(),
+        ownership = ownership,
+    ).toUiModel()
 
 fun RecoveryDiagnostics.toUiModel(): RecoveryDiagnosticsUi =
     RecoveryDiagnosticsUi(
@@ -50,3 +42,22 @@ object TranscriptionRecoveryTestTags {
     const val EnhancingRecoverButton = "enhancing_recover_button"
     const val EnhancingRetranscribeButton = "enhancing_retranscribe_button"
 }
+
+private fun RecordingStatus?.toProcessingRecoveryQueueState(): ProcessingRecoveryQueueState =
+    when (this) {
+        RecordingStatus.PENDING_TRANSCRIPTION -> ProcessingRecoveryQueueState.PENDING_TRANSCRIPTION
+        RecordingStatus.TRANSCRIBING -> ProcessingRecoveryQueueState.TRANSCRIBING
+        RecordingStatus.PENDING_ENHANCEMENT -> ProcessingRecoveryQueueState.PENDING_ENHANCEMENT
+        RecordingStatus.ENHANCING -> ProcessingRecoveryQueueState.ENHANCING
+        RecordingStatus.FAILED -> ProcessingRecoveryQueueState.FAILED
+        else -> ProcessingRecoveryQueueState.OTHER
+    }
+
+private fun ProcessingRecoveryActions.toUiModel(): TranscriptionRecoveryActionsUi =
+    TranscriptionRecoveryActionsUi(
+        showPendingRecovery = showPendingRecovery,
+        showEnhancementRecovery = showEnhancementRecovery,
+        showRetranscribeFromEnhancing = showRetranscribeFromEnhancing,
+        showFailedRetry = showFailedRetry,
+        actionsEnabled = actionsEnabled,
+    )

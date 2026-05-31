@@ -22,9 +22,27 @@ data class InlineTranscriptionRequest(
     val llmEnabled: Boolean,
     val processingModeId: String,
     val correlationPrefix: String = "keyboard",
+    val audioSource: InlineAudioSource = InlineAudioSource.InMemory(samples),
 )
 
+sealed interface InlineAudioSource {
+    val sampleRate: Int
+
+    data class InMemory(
+        val samples: FloatArray,
+        override val sampleRate: Int = 16000,
+    ) : InlineAudioSource
+
+    data class PcmFloatFile(
+        val path: String,
+        val sampleCount: Long,
+        override val sampleRate: Int = 16000,
+    ) : InlineAudioSource
+}
+
 interface InlineCapturePersistence {
+    fun prepareAudioSource(audioSource: InlineAudioSource) = Unit
+
     suspend fun persist(
         samples: FloatArray?,
         rawText: String?,
@@ -32,13 +50,27 @@ interface InlineCapturePersistence {
         errorMessage: String? = null,
     )
 
+    suspend fun persistAudioSource(
+        audioSource: InlineAudioSource?,
+        rawText: String?,
+        processedText: String?,
+        errorMessage: String? = null,
+    ) {
+        persist(
+            samples = (audioSource as? InlineAudioSource.InMemory)?.samples,
+            rawText = rawText,
+            processedText = processedText,
+            errorMessage = errorMessage,
+        )
+    }
+
     fun discardSamples()
 }
 
 /**
  * Shared inline STT + optional LLM path for IME and voice dialog surfaces.
  */
-interface InlineTranscriptionCoordinator {
+interface InlineTranscriptionPort {
     val phase: kotlinx.coroutines.flow.StateFlow<InlineTranscriptionPhase>
 
     fun resetPhase()
@@ -53,3 +85,5 @@ interface InlineTranscriptionCoordinator {
         onRecordingError: (String) -> Unit = {},
     )
 }
+
+interface InlineTranscriptionCoordinator : InlineTranscriptionPort

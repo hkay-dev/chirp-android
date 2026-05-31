@@ -7,6 +7,7 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -37,7 +38,7 @@ class WhisperModelManagerTest {
     }
 
     @Test
-    fun `deleteModel invalidates cache and refreshes gate`() = runTest {
+    fun `deleteModel invalidates cache without warming deleted model`() = runTest {
         coEvery { speechModelStore.deleteModel() } returns true
         coEvery { speechModelStore.evaluateReadiness() } returns
             ModelReadinessEvaluation(
@@ -50,7 +51,7 @@ class WhisperModelManagerTest {
         assertTrue(result)
         verify { speechModelStore.invalidateVerificationCache() }
         verify { readinessGate.invalidate() }
-        verify { readinessGate.warmupIfNeeded(any()) }
+        verify(exactly = 0) { readinessGate.warmupIfNeeded(any()) }
     }
 
     @Test
@@ -64,7 +65,7 @@ class WhisperModelManagerTest {
         classUnderTest.downloadModel()
 
         assertEquals(WhisperModelManager.ModelStatus.Ready, classUnderTest.modelStatus.value)
-        verify { readinessGate.warmupIfNeeded(any()) }
+        verify { readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD) }
     }
 
     @Test

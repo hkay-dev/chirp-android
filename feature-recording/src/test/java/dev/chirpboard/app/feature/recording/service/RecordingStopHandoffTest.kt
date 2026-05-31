@@ -15,12 +15,12 @@ class RecordingStopHandoffTest {
             val events = mutableListOf<String>()
 
             RecordingStopHandoff.handoff(
-                snapshot = snapshot(recordingId),
                 sessionId = sessionId,
                 stopCapture = {
                     events += "capture-stop-start"
                     events += "capture-stop-complete"
                 },
+                captureSnapshot = { snapshot(recordingId) },
                 markAbandoned = { _, _ -> events += "abandoned" },
                 markStopping = { id -> events += "stopping:$id" },
                 enqueueFinalize = { _, id -> events += "finalize:$id" },
@@ -46,9 +46,9 @@ class RecordingStopHandoffTest {
             val events = mutableListOf<String>()
 
             RecordingStopHandoff.handoff(
-                snapshot = snapshot(recordingId = null),
                 sessionId = sessionId,
                 stopCapture = { events += "capture-stop-complete" },
+                captureSnapshot = { snapshot(recordingId = null) },
                 markAbandoned = { id, recordingId -> events += "abandoned:$id:$recordingId" },
                 markStopping = { events += "stopping:$it" },
                 enqueueFinalize = { _, _ -> events += "finalize" },
