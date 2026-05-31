@@ -23,8 +23,12 @@ internal const val TRANSCRIPTION_MIN_ACTIVE_WAIT_MS = 5 * 60 * 1000L
 internal const val TRANSCRIPTION_ACTIVE_WAIT_PER_MINUTE_MS = 60_000L
 internal const val TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID = 2001
 internal const val TRANSCRIPTION_FOREGROUND_CHANNEL_ID = "transcription_progress"
+internal const val ENHANCEMENT_FOREGROUND_NOTIFICATION_ID = 2002
+internal const val ENHANCEMENT_FOREGROUND_CHANNEL_ID = "enhancement_progress"
 
 internal fun transcriptionProgressNotificationTitle(): String = "Transcribing recording"
+internal fun enhancementProgressNotificationTitle(): String = "Enhancing recording"
+internal fun backgroundWorkerForegroundServiceType(): Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 
 internal fun buildTranscriptionProgressNotification(context: Context): Notification {
     ensureTranscriptionProgressChannel(context)
@@ -43,7 +47,28 @@ internal fun buildTranscriptionForegroundInfo(context: Context): ForegroundInfo 
     return ForegroundInfo(
         TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID,
         notification,
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+        backgroundWorkerForegroundServiceType(),
+    )
+}
+
+internal fun buildEnhancementProgressNotification(context: Context): Notification {
+    ensureEnhancementProgressChannel(context)
+    return NotificationCompat
+        .Builder(context, ENHANCEMENT_FOREGROUND_CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.stat_sys_upload)
+        .setContentTitle(enhancementProgressNotificationTitle())
+        .setContentText("Applying recording enhancements in the background")
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
+        .build()
+}
+
+internal fun buildEnhancementForegroundInfo(context: Context): ForegroundInfo {
+    val notification = buildEnhancementProgressNotification(context)
+    return ForegroundInfo(
+        ENHANCEMENT_FOREGROUND_NOTIFICATION_ID,
+        notification,
+        backgroundWorkerForegroundServiceType(),
     )
 }
 
@@ -59,6 +84,23 @@ private fun ensureTranscriptionProgressChannel(context: Context) {
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = "Shows while a recording is being transcribed"
+            setShowBadge(false)
+    }
+    notificationManager.createNotificationChannel(channel)
+}
+
+private fun ensureEnhancementProgressChannel(context: Context) {
+    val notificationManager = context.getSystemService(NotificationManager::class.java)
+    if (notificationManager.getNotificationChannel(ENHANCEMENT_FOREGROUND_CHANNEL_ID) != null) {
+        return
+    }
+    val channel =
+        NotificationChannel(
+            ENHANCEMENT_FOREGROUND_CHANNEL_ID,
+            "Enhancement",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "Shows while a recording is being enhanced"
             setShowBadge(false)
         }
     notificationManager.createNotificationChannel(channel)

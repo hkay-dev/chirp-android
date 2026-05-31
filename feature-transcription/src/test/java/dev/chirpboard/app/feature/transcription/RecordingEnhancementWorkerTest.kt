@@ -1,8 +1,13 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.app.NotificationManager
 import android.content.Context
+import android.content.pm.ServiceInfo
 import androidx.work.Data
+import androidx.work.ForegroundInfo
+import androidx.work.ForegroundUpdater
 import androidx.work.WorkerParameters
+import androidx.work.impl.utils.futures.SettableFuture
 import dev.chirpboard.app.core.llm.LlmRuntimeSnapshot
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
@@ -26,7 +31,9 @@ import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.mockkStatic
 import io.mockk.runs
+import io.mockk.unmockkStatic
 import io.mockk.slot
 import io.mockk.unmockkObject
 import kotlinx.coroutines.test.runTest
@@ -49,23 +56,38 @@ class RecordingEnhancementWorkerTest {
     private lateinit var wordReplacementRepository: WordReplacementRepository
     private lateinit var wordReplacer: WordReplacer
     private lateinit var textEnhancement: FakeRecordingTextEnhancement
+    private lateinit var foregroundUpdater: ForegroundUpdater
 
     @Before
     fun setup() {
         context = mockk(relaxed = true)
+        every { context.getSystemService(NotificationManager::class.java) } returns mockk(relaxed = true)
         workerParams = mockk(relaxed = true)
+        foregroundUpdater = mockk(relaxed = true)
+        every { workerParams.foregroundUpdater } returns foregroundUpdater
+        every { foregroundUpdater.setForegroundAsync(any(), any(), any()) } answers {
+            SettableFuture.create<Void?>().apply { set(null) }
+        }
         recordingRepository = mockk(relaxed = true)
         wordReplacementRepository = mockk(relaxed = true)
         wordReplacer = mockk(relaxed = true)
         textEnhancement = FakeRecordingTextEnhancement()
 
         mockkObject(ReliabilityEventLogger)
+        mockkStatic("dev.chirpboard.app.feature.transcription.TranscriptionWorkerSupportKt")
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
+        every { buildEnhancementForegroundInfo(any()) } returns
+            ForegroundInfo(
+                ENHANCEMENT_FOREGROUND_NOTIFICATION_ID,
+                mockk(relaxed = true),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
+            )
     }
 
     @After
     fun tearDown() {
+        unmockkStatic("dev.chirpboard.app.feature.transcription.TranscriptionWorkerSupportKt")
         unmockkObject(ReliabilityEventLogger)
     }
 
