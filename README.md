@@ -2,14 +2,17 @@
 
 <img src="docs/assets/github-header.png" alt="Chirp - Parakeet Powered STT for Android" width="100%" />
 
-**A small Android voice-notes app for recording, local transcription, and gentle post-processing.**
+**An Android voice-notes app focused on offline transcription and practical text cleanup.**
 
-Chirp is a personal Android project for recording, on-device transcription, and turning spoken thoughts into text I can actually use.
+Chirp is a personal learning project, built in the open while I get better at Android development. The goal is simple: record thoughts, transcribe them on-device, and turn rough speech into text that is easier to use.
+
+---
 
 <p>
-  <img alt="Android" src="https://img.shields.io/badge/Android-Kotlin-3E7B6D?style=flat-square" />
-  <img alt="On-device transcription" src="https://img.shields.io/badge/STT-On--device-7A5C8E?style=flat-square" />
-  <img alt="LLM processing" src="https://img.shields.io/badge/LLM-Optional_API_processing-B76E45?style=flat-square" />
+  <img alt="Android Kotlin" src="https://img.shields.io/badge/Android-Kotlin-3E7B6D?style=for-the-badge&logo=android&logoColor=white&labelColor=244D45" />
+  <img alt="Parakeet TDT" src="https://img.shields.io/badge/STT-Parakeet%20TDT-6EA8FE?style=for-the-badge&labelColor=17324D" />
+  <img alt="Offline first" src="https://img.shields.io/badge/Transcription-Offline%20First-7A5C8E?style=for-the-badge&labelColor=38284A" />
+  <img alt="Optional AI" src="https://img.shields.io/badge/AI-Optional%20API%20Processing-B76E45?style=for-the-badge&labelColor=5A3525" />
 </p>
 
 </div>
@@ -36,47 +39,45 @@ Chirp is a personal Android project for recording, on-device transcription, and 
 
 ## Why
 
-I love apps like VoiceInk, TypeWhisper, Spokenly, and Superwhisper. They make excellent speech-to-text feel close at hand, especially with the NVIDIA Parakeet STT model in the mix.
+I love apps like VoiceInk, TypeWhisper, Spokenly, and Superwhisper. They make excellent speech-to-text feel close at hand, especially with NVIDIA Parakeet in the mix.
 
-On Android, most of the polished options I found were cloud-based, like Typeless and WisprFlow. Useful, but not quite what I wanted. Chirp is my attempt at fully offline transcription first, with optional API-based LLM post-processing on top.
+On Android, most polished options I found were cloud-based, like Typeless and WisprFlow. Chirp is my attempt at a local-first alternative: offline transcription first, optional API-based cleanup second.
 
-It started as a recording app, then grew into transcription, then LLM cleanup and summaries, then an input method. No local LLM support yet. The offline part is speech-to-text.
+It started as a recorder, then grew into transcription, LLM cleanup, summaries, and finally an input method. No local LLM support yet. The offline part is speech-to-text.
 
 ## Features
 
-Chirp is meant for the moments when typing is too slow or too fussy.
-
-- Record voice notes from the app.
-- Transcribe recordings on-device.
-- Keep a searchable recording history with playback.
-- Use recording profiles, tags, and word replacements to keep things organized.
-- Open a recording in Processing Studio for editing, summaries, structured outcomes, and chat.
-- Use a keyboard voice input flow for quick dictation in other apps.
-- Start and stop recording from a home-screen widget.
+- Record voice notes.
+- Transcribe on-device.
+- Search and play back recording history.
+- Organize with profiles, tags, and word replacements.
+- Edit, summarize, and explore transcripts in Processing Studio.
+- Dictate from Chirp Voice, the keyboard input method.
+- Start or stop recording from a home-screen widget.
 - Export transcripts to Obsidian as Markdown.
-- Optionally use AI processing to clean up, summarize, title, or work with transcript text.
+- Optionally use AI processing for cleanup, titles, summaries, structured outcomes, and chat.
 
 ## Details
 
 - Foreground recording services for long-running capture.
-- Recovery handling for interrupted recordings.
+- Recovery paths for interrupted recordings.
 - On-device model download and readiness checks.
 - Background transcription work through WorkManager.
 - Word-level timing support when the recognizer provides it.
 - Recording playback through a shared Media3 playback service.
-- Room-backed local storage for recordings, transcripts, tags, profiles, word replacements, and structured processing results.
+- Room-backed storage for recordings, transcripts, tags, profiles, word replacements, and processing results.
 - Profile-level settings for transcription, AI processing, Obsidian export, and audio behavior.
-- API-based LLM features for title generation, summaries, transcript cleanup, passage tools, structured outcomes, and recording-aware chat.
+- API-based LLM features for titles, summaries, cleanup, structured outcomes, and recording-aware chat.
 
 ## IME
 
-Chirp can be used as its own Android input method through **Chirp Voice**. Switch to the keyboard, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
+Chirp can be used as its own Android input method through **Chirp Voice**. Switch keyboards, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
 
-It can also work as a triggered speech recognition service from compatible keyboards and apps that let you choose which speech-to-text app handles voice input. SwiftKey supports this kind of flow. Gboard, sadly, does not currently expose that same choice.
+It can also work as a triggered speech recognition service from compatible keyboards and apps. SwiftKey supports this kind of flow. Gboard, sadly, does not currently expose the same choice.
 
 ## Stack
 
-Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout. It uses:
+Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 
 - Sherpa-ONNX with a local Parakeet TDT speech model for on-device transcription.
 - Jetpack Compose and Material 3 for the UI.
@@ -86,15 +87,15 @@ Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout.
 - Media3 for recording playback.
 - Optional Gemini-powered processing for summaries, cleanup, chat, and structured outcomes.
 
-Local transcription is the heart of the project. AI processing is optional and only sits on top of the transcript.
+Local transcription is the heart of the project. AI processing sits on top.
 
 ## Notes
 
-This isn't a polished product from a team. It's a working personal app, and a learning project.
+This is not a polished product from a team. It is a working personal app and a learning project.
 
 - All of my hands-on device testing is on a Samsung Galaxy S25 Ultra.
 - I'm still learning Android development as I go.
-- This project is 100% co-developed with various LLMs as I learn architecture, UI, Kotlin, tests, debugging, and cleanup.
+- This project is 100% co-developed with various LLMs as I learn architecture, UI, Kotlin, testing, debugging, and cleanup.
 - Some parts are more mature than others. The repo will keep changing as I learn better ways to build it.
 
 ## Focus
