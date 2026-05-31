@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.transcription
 import android.content.Context
 import androidx.lifecycle.LiveData
 import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.Operation
 import androidx.work.WorkInfo
@@ -82,6 +83,7 @@ class TranscriptionWorkRequestTest {
         
         assertTrue(capturedRequest.workSpec.constraints.requiresBatteryNotLow())
         assertTrue(capturedRequest.workSpec.constraints.requiresStorageNotLow())
+        assertEquals(NetworkType.NOT_REQUIRED, capturedRequest.workSpec.constraints.requiredNetworkType)
     }
 
     @Test

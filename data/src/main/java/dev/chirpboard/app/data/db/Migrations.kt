@@ -90,6 +90,55 @@ object Migrations {
         }
     }
 
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `recording_enhancement_intents` (
+                    `recordingId` TEXT NOT NULL,
+                    `processingModeId` TEXT,
+                    `autoTitle` INTEGER NOT NULL,
+                    `autoSummary` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `lastAttemptedAt` INTEGER,
+                    `lastErrorMessage` TEXT,
+                    PRIMARY KEY(`recordingId`),
+                    FOREIGN KEY(`recordingId`) REFERENCES `recordings`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT OR REPLACE INTO `recording_enhancement_intents` (
+                    `recordingId`,
+                    `processingModeId`,
+                    `autoTitle`,
+                    `autoSummary`,
+                    `createdAt`,
+                    `lastAttemptedAt`,
+                    `lastErrorMessage`
+                )
+                SELECT
+                    `recordings`.`id`,
+                    NULLIF(`profiles`.`defaultProcessingMode`, ''),
+                    COALESCE(`profiles`.`autoTitle`, 0),
+                    COALESCE(`profiles`.`autoSummary`, 0),
+                    strftime('%s', 'now') * 1000,
+                    NULL,
+                    `recordings`.`errorMessage`
+                FROM `recordings`
+                LEFT JOIN `profiles` ON `recordings`.`profileId` = `profiles`.`id`
+                WHERE `recordings`.`status` IN ('PENDING_ENHANCEMENT', 'ENHANCING')
+                    AND (
+                        NULLIF(`profiles`.`defaultProcessingMode`, '') IS NOT NULL
+                        OR COALESCE(`profiles`.`autoTitle`, 0) = 1
+                        OR COALESCE(`profiles`.`autoSummary`, 0) = 1
+                    )
+                """.trimIndent(),
+            )
+        }
+    }
+
     /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
@@ -101,6 +150,7 @@ object Migrations {
             MIGRATION_3_4,
             MIGRATION_4_5,
             MIGRATION_5_6,
+            MIGRATION_6_7,
         )
     // Example migration template (uncomment and modify when needed):
     /*

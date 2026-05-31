@@ -45,6 +45,9 @@ class TranscriptionQueueManagerTest {
         mockkObject(TranscriptionWorkRequest)
         every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } returns "test-work-id"
         every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(0)}" }
+        mockkObject(RecordingEnhancementWorkRequest)
+        every { RecordingEnhancementWorkRequest.enqueue(any(), any(), any()) } returns "test-enhancement-work-id"
+        every { RecordingEnhancementWorkRequest.workName(any()) } answers { "enhance_${arg<UUID>(0)}" }
 
         mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
@@ -62,6 +65,7 @@ class TranscriptionQueueManagerTest {
     fun tearDown() {
         io.mockk.unmockkStatic(WorkManager::class)
         unmockkObject(TranscriptionWorkRequest)
+        unmockkObject(RecordingEnhancementWorkRequest)
         unmockkObject(ReliabilityEventLogger)
     }
 
@@ -106,6 +110,25 @@ class TranscriptionQueueManagerTest {
         manager.cancel(id)
 
         coVerify { workManager.cancelUniqueWork("transcribe_$id") }
+        coVerify { workManager.cancelUniqueWork("enhance_$id") }
         coVerify { recordingRepository.updateStatusWithError(id, RecordingStatus.FAILED, "Cancelled by user") }
+    }
+
+    @Test
+    fun `recover pending enhancement enqueues enhancement work`() = runTest {
+        val id = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.status } returns RecordingStatus.PENDING_ENHANCEMENT
+        coEvery { recordingRepository.getRecording(id) } returns recording
+        every { workManager.getWorkInfosByTag("recording_$id") } returns com.google.common.util.concurrent.Futures.immediateFuture(emptyList())
+
+        manager.recoverPendingEnhancement(id)
+
+        coVerify {
+            recordingRepository.updateStatusWithError(id, RecordingStatus.PENDING_ENHANCEMENT, any())
+        }
+        coVerify {
+            RecordingEnhancementWorkRequest.enqueue(context, id, any())
+        }
     }
 }

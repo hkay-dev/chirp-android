@@ -52,6 +52,7 @@ class MigrationTest {
         db.recordingDao()
         db.transcriptDao()
         db.structuredOutcomeSnapshotDao()
+        db.recordingEnhancementIntentDao()
         db.profileDao()
         db.tagDao()
         db.wordReplacementDao()
@@ -429,6 +430,104 @@ class MigrationTest {
             org.junit.Assert.assertEquals("rev-1", cursor.getString(0))
             org.junit.Assert.assertEquals("READY", cursor.getString(1))
             org.junit.Assert.assertEquals("UmV2aWV3IHRoZSBkcmFmdA==", cursor.getString(2))
+        }
+
+        migratedDb.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate6To7_createsEnhancementIntentTableAndBackfillsProfileRequests() {
+        val profileId = UUID.randomUUID().toString()
+        val recordingId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+
+        helper.createDatabase(TEST_DB, 6).apply {
+            execSQL(
+                """
+                INSERT INTO profiles(
+                    id,
+                    name,
+                    icon,
+                    defaultProcessingMode,
+                    autoTranscribe,
+                    autoTitle,
+                    autoSummary,
+                    obsidianVaultPath,
+                    autoExportToObsidian,
+                    defaultTagIds,
+                    sortOrder,
+                    isQuickStartPinned
+                ) VALUES(
+                    '$profileId',
+                    'Enhance later',
+                    NULL,
+                    'cleanup',
+                    1,
+                    1,
+                    0,
+                    NULL,
+                    0,
+                    NULL,
+                    1,
+                    0
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO recordings(
+                    id,
+                    title,
+                    audioPath,
+                    status,
+                    source,
+                    profileId,
+                    createdAt,
+                    durationMs,
+                    errorMessage,
+                    lastExportedPath,
+                    lastExportedAt
+                ) VALUES(
+                    '$recordingId',
+                    'Pending enhancement',
+                    '/tmp/audio.m4a',
+                    'PENDING_ENHANCEMENT',
+                    'APP',
+                    '$profileId',
+                    $createdAt,
+                    4200,
+                    'recoverable',
+                    NULL,
+                    NULL
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val migratedDb =
+            Room
+                .databaseBuilder(
+                    context,
+                    AppDatabase::class.java,
+                    TEST_DB,
+                ).addMigrations(Migrations.MIGRATION_6_7)
+                .build()
+
+        migratedDb.openHelper.writableDatabase.query(
+            """
+            SELECT processingModeId, autoTitle, autoSummary, lastErrorMessage
+            FROM recording_enhancement_intents
+            WHERE recordingId = '$recordingId'
+            """.trimIndent(),
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("cleanup", cursor.getString(0))
+            org.junit.Assert.assertEquals(1, cursor.getInt(1))
+            org.junit.Assert.assertEquals(0, cursor.getInt(2))
+            org.junit.Assert.assertEquals("recoverable", cursor.getString(3))
         }
 
         migratedDb.close()

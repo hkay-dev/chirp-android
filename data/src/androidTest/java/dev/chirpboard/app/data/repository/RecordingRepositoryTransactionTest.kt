@@ -8,6 +8,8 @@ import dev.chirpboard.app.data.db.AppDatabase
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
+import dev.chirpboard.app.data.model.RecordingEnhancementIntent
+import dev.chirpboard.app.data.model.RecordingEnhancementResult
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import kotlinx.coroutines.runBlocking
@@ -40,6 +42,7 @@ class RecordingRepositoryTransactionTest {
                 recordingDao = database.recordingDao(),
                 transcriptDao = database.transcriptDao(),
                 structuredOutcomeSnapshotDao = database.structuredOutcomeSnapshotDao(),
+                enhancementIntentDao = database.recordingEnhancementIntentDao(),
                 database = database,
             )
     }
@@ -182,5 +185,89 @@ class RecordingRepositoryTransactionTest {
             assertNull(persistedTranscript?.manualCorrectionText)
             assertNull(persistedTranscript?.manualCorrectionSourceText)
             assertEquals("brand new raw", persistedTranscript?.effectiveText)
+        }
+
+    @Test
+    fun commitTranscriptionResult_persistsIntentAndPendingStatusAtomically() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Enhance after transcript",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.TRANSCRIBING,
+                )
+            repository.insert(recording)
+
+            repository.commitTranscriptionResult(
+                transcript =
+                    Transcript(
+                        recordingId = recording.id,
+                        rawText = "raw transcript",
+                        processedText = "processed transcript",
+                        processingMode = "word_replacement",
+                    ),
+                timings = emptyList(),
+                enhancementIntent =
+                    RecordingEnhancementIntent(
+                        processingModeId = "cleanup",
+                        autoTitle = true,
+                        autoSummary = false,
+                    ),
+            )
+
+            val persistedRecording = repository.getRecording(recording.id)
+            val snapshot = repository.beginEnhancement(recording.id)
+
+            assertEquals(RecordingStatus.PENDING_ENHANCEMENT, persistedRecording?.status)
+            assertNotNull(snapshot)
+            assertEquals("cleanup", snapshot?.intent?.processingModeId)
+            assertEquals(true, snapshot?.intent?.autoTitle)
+        }
+
+    @Test
+    fun completeEnhancement_updatesOutputsDeletesIntentAndCompletes() =
+        runBlocking {
+            val recording =
+                Recording(
+                    title = "Enhance complete",
+                    audioPath = "",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.TRANSCRIBING,
+                )
+            repository.insert(recording)
+            repository.commitTranscriptionResult(
+                transcript = Transcript(recordingId = recording.id, rawText = "raw transcript"),
+                timings = emptyList(),
+                enhancementIntent =
+                    RecordingEnhancementIntent(
+                        processingModeId = null,
+                        autoTitle = true,
+                        autoSummary = true,
+                    ),
+            )
+
+            val snapshot = repository.beginEnhancement(recording.id)
+            assertNotNull(snapshot)
+
+            repository.completeEnhancement(
+                recording.id,
+                RecordingEnhancementResult(
+                    processedText = "processed transcript",
+                    processingMode = "cleanup",
+                    title = "Generated title",
+                    summary = "Generated summary",
+                ),
+            )
+
+            val persistedRecording = repository.getRecording(recording.id)
+            val persistedTranscript = repository.getTranscript(recording.id)
+
+            assertEquals(RecordingStatus.COMPLETED, persistedRecording?.status)
+            assertEquals("Generated title", persistedRecording?.title)
+            assertEquals("processed transcript", persistedTranscript?.processedText)
+            assertEquals("cleanup", persistedTranscript?.processingMode)
+            assertEquals("Generated summary", persistedTranscript?.summary)
+            assertNull(repository.beginEnhancement(recording.id))
         }
 }

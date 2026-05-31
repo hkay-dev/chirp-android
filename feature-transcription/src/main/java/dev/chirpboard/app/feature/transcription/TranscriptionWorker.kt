@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -17,13 +16,11 @@ import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
+import dev.chirpboard.app.data.model.RecordingEnhancementIntent
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
-import dev.chirpboard.app.feature.llm.TextProcessor
-import dev.chirpboard.app.feature.llm.client.LlmClient
-import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import kotlinx.coroutines.CancellationException
@@ -49,9 +46,6 @@ class TranscriptionWorker
         private val profileRepository: ProfileRepository,
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
-        private val textProcessor: TextProcessor,
-        private val modeRepository: ProcessingModeRepository,
-        private val llmClient: LlmClient,
         private val llmPreferences: dev.chirpboard.app.feature.llm.settings.LlmPreferences,
         private val transcriberProvider: TranscriberProvider,
         private val audioDecoder: AudioDecoder,
@@ -105,8 +99,8 @@ class TranscriptionWorker
             }
 
             if (recording.status == RecordingStatus.PENDING_ENHANCEMENT) {
-                setForeground(buildTranscriptionForegroundInfo(applicationContext))
-                return runEnhancementOnly(recordingId, recording, correlationId)
+                enqueueEnhancement(recordingId, correlationId)
+                return androidx.work.ListenableWorker.Result.success()
             }
 
             // Update status to TRANSCRIBING
@@ -265,71 +259,31 @@ class TranscriptionWorker
                             endOffsetMs = timing.endTimestampMs,
                         )
                     }.orEmpty()
-            recordingRepository.saveTranscriptWithTiming(transcript, timings)
+            val enhancementIntent = resolveEnhancementIntent(recordingId, recording, correlationId)
+            recordingRepository.commitTranscriptionResult(transcript, timings, enhancementIntent)
 
-            applyEnhancement(recordingId, recording, processedText, correlationId)
-
-            // Mark as completed
-            recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
+            val enhancementQueued = enhancementIntent != null && enqueueEnhancement(recordingId, correlationId)
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.TRANSCRIPTION,
                 outcome = ReliabilityOutcome.SUCCESS,
                 correlationId = correlationId,
                 recordingId = recordingId,
-                reasonCode = "worker_completed",
+                reasonCode =
+                    if (enhancementQueued) {
+                        "worker_completed_pending_enhancement"
+                    } else {
+                        "worker_completed"
+                    },
             )
 
             return buildTranscriptionSuccessResult(transcript.id)
         }
 
-        private suspend fun runEnhancementOnly(
+        private suspend fun resolveEnhancementIntent(
             recordingId: UUID,
             recording: dev.chirpboard.app.data.entity.Recording,
             correlationId: String,
-        ): Result {
-            val transcript =
-                recordingRepository.getTranscript(recordingId)
-                    ?: run {
-                        val errorMessage = "No transcript found for enhancement"
-                        recordingRepository.updateStatusWithError(
-                            recordingId,
-                            RecordingStatus.FAILED,
-                            errorMessage,
-                        )
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.ENHANCEMENT,
-                            outcome = ReliabilityOutcome.FAILURE,
-                            correlationId = correlationId,
-                            recordingId = recordingId,
-                            reasonCode = "enhancement_missing_transcript",
-                            message = errorMessage,
-                        )
-                        return buildTranscriptionFailureResult(errorMessage)
-                    }
-
-            val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
-            val processedText =
-                transcript.processedText
-                    ?: wordReplacer.apply(transcript.rawText, enabledReplacements)
-
-            recordingRepository.updateProcessedText(recordingId, processedText, "word_replacement")
-            applyEnhancement(recordingId, recording, processedText, correlationId)
-
-            recordingRepository.updateStatus(recordingId, RecordingStatus.COMPLETED)
-            return Result.success(
-                Data
-                    .Builder()
-                    .putString(OUTPUT_TRANSCRIPT_ID, transcript.id.toString())
-                    .build(),
-            )
-        }
-
-        private suspend fun applyEnhancement(
-            recordingId: UUID,
-            recording: dev.chirpboard.app.data.entity.Recording,
-            processedText: String,
-            correlationId: String,
-        ) {
+        ): RecordingEnhancementIntent? {
             val profile = recording.profileId?.let { profileRepository.getProfile(it) }
             val policy =
                 resolveRecordingEnhancementPolicy(
@@ -345,7 +299,7 @@ class TranscriptionWorker
                     recordingId = recordingId,
                     reasonCode = "enhancement_not_requested",
                 )
-                return
+                return null
             }
 
             if (!llmPreferences.getLlmEnabled() || llmPreferences.fetchApiKey().isNullOrBlank()) {
@@ -356,73 +310,36 @@ class TranscriptionWorker
                     recordingId = recordingId,
                     reasonCode = "llm_unavailable",
                 )
-                return
+                return null
             }
 
-            recordingRepository.updateStatus(recordingId, RecordingStatus.ENHANCING)
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = ReliabilityOutcome.STARTED,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "enhancement_started",
-            )
-
-            var textForEnrichment = processedText
-            var transformApplied = false
-            var titleApplied = false
-            var summaryApplied = false
-
-            policy.processingModeId?.let { modeId ->
-                val mode = modeRepository.resolveMode(modeId)
-                val transformResult = textProcessor.process(processedText, mode)
-                if (transformResult.isSuccess) {
-                    textForEnrichment = transformResult.getOrThrow()
-                    recordingRepository.updateProcessedText(recordingId, textForEnrichment, mode.id)
-                    transformApplied = true
-                } else {
-                    Log.w(TAG, "Skipping transcript transform", transformResult.exceptionOrNull())
-                }
-            }
-
-            if (policy.autoTitle) {
-                val titleResult = llmClient.generateTitle(textForEnrichment)
-                if (titleResult.isSuccess) {
-                    recordingRepository.updateTitle(recordingId, titleResult.getOrThrow())
-                    titleApplied = true
-                } else {
-                    Log.w(TAG, "Skipping title generation", titleResult.exceptionOrNull())
-                }
-            }
-
-            if (policy.autoSummary) {
-                val summaryResult = llmClient.generateSummary(textForEnrichment)
-                if (summaryResult.isSuccess) {
-                    recordingRepository.updateSummary(recordingId, summaryResult.getOrThrow())
-                    summaryApplied = true
-                } else {
-                    Log.w(TAG, "Skipping summary generation", summaryResult.exceptionOrNull())
-                }
-            }
-
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome =
-                    if (transformApplied || titleApplied || summaryApplied) {
-                        ReliabilityOutcome.SUCCESS
-                    } else {
-                        ReliabilityOutcome.FAILURE
-                    },
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode =
-                    if (transformApplied || titleApplied || summaryApplied) {
-                        "enhancement_applied"
-                    } else {
-                        "enhancement_failed"
-                    },
-            )
+            return policy.toIntent()
         }
+
+        private suspend fun enqueueEnhancement(
+            recordingId: UUID,
+            correlationId: String,
+        ): Boolean =
+            try {
+                RecordingEnhancementWorkRequest.enqueue(applicationContext, recordingId, correlationId)
+                true
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                recordingRepository.updateStatusWithError(
+                    id = recordingId,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = "${RECOVERABLE_QUEUE_HANDOFF_PREFIX}enhancement enqueue failed. Cause: ${e.message.orEmpty()}",
+                )
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "enhancement_enqueue_failed",
+                    message = e.message,
+                )
+                true
+            }
 
         private fun showTranscriptionErrorNotification(recordingId: UUID, errorMessage: String) {
             val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

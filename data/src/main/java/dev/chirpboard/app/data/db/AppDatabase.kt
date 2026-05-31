@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import dev.chirpboard.app.data.dao.ProfileDao
+import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TagDao
@@ -11,6 +12,7 @@ import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.dao.WordReplacementDao
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.RecordingEnhancementIntentEntity
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.StructuredOutcomeSnapshotEntity
 import dev.chirpboard.app.data.entity.Tag
@@ -28,8 +30,9 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - Version 4: Added dedicated transcript timing rows keyed by recording and sequence order
  *   - Version 5: Added additive manual transcript correction fields
  *   - Version 6: Added structured outcome snapshot persistence for recording review
+ *   - Version 7: Added persisted recording enhancement intents
  *
- * Current Schema (v6):
+ * Current Schema (v7):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -77,6 +80,15 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - decisionItemsPayload: TEXT (nullable, base64 line list)
  *   - followUpItemsPayload: TEXT (nullable, base64 line list)
  *
+ * recording_enhancement_intents:
+ *   - recordingId: TEXT (PK/FK -> recordings.id, CASCADE on delete)
+ *   - processingModeId: TEXT (nullable)
+ *   - autoTitle: INTEGER (boolean)
+ *   - autoSummary: INTEGER (boolean)
+ *   - createdAt: INTEGER (Date as timestamp)
+ *   - lastAttemptedAt: INTEGER (nullable, Date as timestamp)
+ *   - lastErrorMessage: TEXT (nullable)
+ *
  * profiles:
  *   - id: TEXT (PK, UUID)
  *   - name: TEXT
@@ -115,12 +127,13 @@ import dev.chirpboard.app.data.entity.WordReplacement
         Transcript::class,
         TranscriptTiming::class,
         StructuredOutcomeSnapshotEntity::class,
+        RecordingEnhancementIntentEntity::class,
         Profile::class,
         Tag::class,
         RecordingTag::class,
         WordReplacement::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -130,6 +143,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transcriptDao(): TranscriptDao
 
     abstract fun structuredOutcomeSnapshotDao(): StructuredOutcomeSnapshotDao
+
+    abstract fun recordingEnhancementIntentDao(): RecordingEnhancementIntentDao
 
     abstract fun profileDao(): ProfileDao
 
