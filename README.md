@@ -15,11 +15,23 @@ Chirp is a personal Android project for recording, on-device transcription, and 
 </div>
 
 <div align="center">
-  <img src="docs/screenshots/home.svg" alt="Chirp home screen screenshot placeholder" width="240" />
-  <img src="docs/screenshots/studio.svg" alt="Chirp processing studio screenshot placeholder" width="240" />
-  <img src="docs/screenshots/keyboard.svg" alt="Chirp keyboard screenshot placeholder" width="240" />
+  <img src="docs/screenshots/home.png" alt="Chirp home screen with sample recordings" width="220" />
+  <img src="docs/screenshots/record.png" alt="Chirp record flow showing the local model requirement" width="220" />
+  <img src="docs/screenshots/keyboard.png" alt="Chirp Voice keyboard input method" width="220" />
   <br />
-  <sub>Screenshot placeholders: home, processing studio, and keyboard voice input.</sub>
+  <sub>Home, recording entry point, and Chirp Voice keyboard.</sub>
+  <br /><br />
+  <img src="docs/screenshots/details.png" alt="Chirp recording details with a long sample transcript" width="220" />
+  <img src="docs/screenshots/model-download.png" alt="Chirp voice model download settings" width="220" />
+  <img src="docs/screenshots/settings.png" alt="Chirp settings overview" width="220" />
+  <br />
+  <sub>Details, model download, and settings.</sub>
+  <br /><br />
+  <img src="docs/screenshots/ai-processing.png" alt="Chirp AI processing settings" width="220" />
+  <img src="docs/screenshots/keyboard-settings.png" alt="Chirp keyboard settings" width="220" />
+  <img src="docs/screenshots/audio-settings.png" alt="Chirp audio settings" width="220" />
+  <br />
+  <sub>AI processing, keyboard, and audio settings.</sub>
 </div>
 
 ## Why
@@ -97,10 +109,4 @@ Right now, I care most about everyday reliability:
 
 ## Screenshots
 
-The screenshot files are intentionally left as placeholders for now:
-
-- `docs/screenshots/home.svg`
-- `docs/screenshots/studio.svg`
-- `docs/screenshots/keyboard.svg`
-
-I'll add real screenshots once the main flows settle down a little more.
+These screenshots were captured from a clean Android emulator with sample recordings. No personal recordings are included.

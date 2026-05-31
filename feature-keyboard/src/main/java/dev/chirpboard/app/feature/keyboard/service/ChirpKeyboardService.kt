@@ -83,6 +83,7 @@ class ChirpKeyboardService :
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
 
     override fun onEvaluateFullscreenMode(): Boolean = false
+    override fun onEvaluateInputViewShown(): Boolean = true
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
