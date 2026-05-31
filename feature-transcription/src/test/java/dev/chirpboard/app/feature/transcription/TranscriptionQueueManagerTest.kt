@@ -4,9 +4,11 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.data.repository.RepositoryFlowState
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -15,14 +17,18 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.runs
 import io.mockk.unmockkObject
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import java.util.UUID
 
 class TranscriptionQueueManagerTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
 
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var constraintChecker: WorkConstraintChecker
@@ -106,6 +112,31 @@ class TranscriptionQueueManagerTest {
         }
         assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
         assertEquals(listOf(RecordingEnhancementWorkRequest.workName(id)), workScheduler.enhancements.map { it.workName })
+    }
+
+    @Test
+    fun `startup retries recordings failed by foreground service policy`() = runTest {
+        val id = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.id } returns id
+        every { recording.status } returns RecordingStatus.FAILED
+        every { recording.errorMessage } returns
+            "startForegroundService() not allowed due to mAllowStartForeground false: service dev.chirpboard.app/androidx.work.impl.foreground.SystemForegroundService"
+
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED) } returns flowOf(RepositoryFlowState(listOf(recording)))
+        coEvery { recordingRepository.getRecording(id) } returns recording
+        coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns false
+
+        manager.processPendingOnStartup()
+
+        coVerify {
+            recordingRepository.claimTranscriptionExecution(id, any(), RecordingStatus.PENDING_TRANSCRIPTION, null)
+        }
+        assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test

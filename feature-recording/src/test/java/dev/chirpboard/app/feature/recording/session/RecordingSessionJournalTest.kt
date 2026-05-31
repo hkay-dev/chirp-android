@@ -84,6 +84,21 @@ class RecordingSessionJournalTest {
     }
 
     @Test
+    fun pruneAbandonedEntries_keepsJournalsWithRecoverableAudio() {
+        val sessionId = UUID.randomUUID()
+        val audioFile =
+            File(context.filesDir, "recordings/recording_test.m4a").apply {
+                parentFile?.mkdirs()
+                writeText("x".repeat(RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES.toInt()))
+            }
+        journal.createSession(sessionId, audioFile.absolutePath, RecordingOrigin.APP, null, UUID.randomUUID(), "corr-1")
+        journal.markAbandoned(sessionId)
+
+        assertEquals(0, journal.pruneAbandonedEntries(maxAgeMs = 0))
+        assertEquals(SessionJournalState.ABANDONED, journal.findBySessionId(sessionId)?.state)
+    }
+
+    @Test
     fun commitPausedSegment_recordsCompletedHiddenSegment() {
         val sessionId = UUID.randomUUID()
         val finalPath = File(context.filesDir, "recordings/recording_test.m4a").absolutePath

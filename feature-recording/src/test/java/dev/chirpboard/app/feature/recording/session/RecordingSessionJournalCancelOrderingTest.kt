@@ -36,10 +36,29 @@ class RecordingSessionJournalCancelOrderingTest {
     }
 
     @Test
-    fun markAbandoned_removesSessionFromRecoverableList() {
+    fun markAbandoned_withoutAudioRemovesSessionFromRecoverableList() {
+        val sessionId = UUID.randomUUID()
+        val audioFile = File(context.filesDir, "recordings/recording_cancel.m4a")
+
+        journal.createSession(
+            sessionId = sessionId,
+            audioPath = audioFile.absolutePath,
+            origin = RecordingOrigin.APP,
+            profileId = null,
+            recordingId = UUID.randomUUID(),
+            correlationId = "corr",
+        )
+
+        journal.markAbandoned(sessionId)
+
+        assertTrue(journal.loadRecoverableSessions().none { it.sessionId == sessionId })
+    }
+
+    @Test
+    fun markAbandoned_withAudioKeepsSessionRecoverable() {
         val sessionId = UUID.randomUUID()
         val audioFile =
-            File(context.filesDir, "recordings/recording_cancel.m4a").apply {
+            File(context.filesDir, "recordings/recording_saved.m4a").apply {
                 parentFile?.mkdirs()
                 writeText("x".repeat(RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES.toInt()))
             }
@@ -55,6 +74,6 @@ class RecordingSessionJournalCancelOrderingTest {
 
         journal.markAbandoned(sessionId)
 
-        assertTrue(journal.loadRecoverableSessions().none { it.sessionId == sessionId })
+        assertTrue(journal.loadRecoverableSessions().any { it.sessionId == sessionId })
     }
 }

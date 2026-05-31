@@ -97,6 +97,30 @@ class RecordingSessionRecovery
                 }
             }
 
+        suspend fun recoverDurableStoppedSessions() {
+            val sessions =
+                withContext(Dispatchers.IO) {
+                    sessionJournal.loadRecoverableSessions().filter { entry ->
+                        !isLiveSession(entry) &&
+                            (entry.finalAudioPath
+                                ?.let(::File)
+                                ?.let { file -> file.exists() && file.length() >= RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES }
+                                == true)
+                    }
+                }
+
+            sessions.forEach { entry ->
+                when (val result = recoverSession(entry.sessionId)) {
+                    is SessionRecoveryResult.Recovered,
+                    SessionRecoveryResult.Kept,
+                    SessionRecoveryResult.Discarded,
+                    -> Unit
+                    is SessionRecoveryResult.Failed ->
+                        Log.w(TAG, "Durable stopped session recovery failed for ${entry.sessionId}: ${result.message}")
+                }
+            }
+        }
+
         suspend fun recoverSession(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
@@ -137,33 +161,29 @@ class RecordingSessionRecovery
                         RecordingOrigin.WIDGET -> RecordingSource.WIDGET
                     }
 
+                var linkedRecordingExists = false
                 entry.recordingId?.let { linkedRecordingId ->
                     when (val existing = recordingRepository.getRecording(linkedRecordingId)) {
-                        null -> {
-                            sessionJournal.markAbandoned(sessionId)
-                            return@withContext SessionRecoveryResult.Failed(
-                                "Linked recording no longer exists",
-                            )
-                        }
+                        null -> Unit
                         else ->
                             if (existing.status != RecordingStatus.RECORDING) {
                                 sessionJournal.markFinalized(sessionId)
                                 return@withContext SessionRecoveryResult.Recovered(
                                     recordingId = existing.id,
                                 )
+                            } else {
+                                linkedRecordingExists = true
                             }
                     }
                 }
 
                 return@withContext try {
                     val recording =
-                        if (entry.recordingId != null) {
+                        if (entry.recordingId != null && linkedRecordingExists) {
                             recordingRepository.finalizeInProgressRecording(
                                 recordingId = entry.recordingId,
                                 durationMs = durationMs,
                                 title = title,
-                            ) ?: return@withContext SessionRecoveryResult.Failed(
-                                "Linked recording could not be finalized",
                             )
                         } else {
                             recordingRepository.createRecording(
@@ -173,7 +193,9 @@ class RecordingSessionRecovery
                                 profileId = entry.profileId,
                                 durationMs = durationMs,
                             )
-                        }
+                        } ?: return@withContext SessionRecoveryResult.Failed(
+                            "Linked recording could not be finalized",
+                        )
 
                     ReliabilityEventLogger.log(
                         stage = ReliabilityStage.PERSISTENCE_SAVE,
