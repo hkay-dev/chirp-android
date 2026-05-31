@@ -405,6 +405,16 @@ class TranscriptionQueueManager
             }
         }
 
+        private suspend fun recoverRecordingsFailedByForegroundServicePolicy() {
+            val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
+            failed
+                .filter { recording -> recording.errorMessage.isForegroundServicePolicyFailure() }
+                .forEach { recording ->
+                    Log.w(TAG, "Recovering foreground-service policy failure for ${recording.id}")
+                    retry(recording.id)
+                }
+        }
+
         private suspend fun warmUpTranscriberIfNeeded(trigger: VerificationTrigger): Boolean {
             if (transcriberProvider.isReady()) {
                 return true
@@ -475,6 +485,7 @@ class TranscriptionQueueManager
             if (transcriberProvider.isModelDownloaded()) {
                 recoverRecordingsWaitingForModel()
             }
+            recoverRecordingsFailedByForegroundServicePolicy()
         }
 
         private suspend fun enqueueManualRecovery(
@@ -548,4 +559,12 @@ class TranscriptionQueueManager
                         correlationId = correlationId,
                     )
             }
+
+        private fun String?.isForegroundServicePolicyFailure(): Boolean {
+            if (this == null) return false
+            return contains("startForegroundService() not allowed") ||
+                contains("ForegroundServiceStartNotAllowedException") ||
+                contains("InvalidForegroundServiceTypeException") ||
+                contains("androidx.work.impl.foreground.SystemForegroundService")
+        }
     }

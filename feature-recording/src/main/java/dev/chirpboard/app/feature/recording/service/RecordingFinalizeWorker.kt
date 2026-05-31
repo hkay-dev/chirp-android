@@ -41,8 +41,6 @@ class RecordingFinalizeWorker
                     runCatching { UUID.fromString(raw) }.getOrNull()
                 }
 
-            setForeground(buildRecordingFinalizeForegroundInfo(applicationContext))
-
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.RECORDING_STOP,
                 outcome = ReliabilityOutcome.STARTED,

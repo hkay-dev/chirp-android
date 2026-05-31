@@ -115,7 +115,6 @@ class TranscriptionWorker
                         logStaleTranscription(recordingId, correlationId, "transcription_ownership_lost")
                         return androidx.work.ListenableWorker.Result.success()
                     }
-            setForeground(buildTranscriptionForegroundInfo(applicationContext))
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.TRANSCRIPTION,
                 outcome = ReliabilityOutcome.STARTED,

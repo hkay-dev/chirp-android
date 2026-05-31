@@ -9,6 +9,7 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.feature.recording.cleanup.OrphanedAudioCleaner
 import io.mockk.coEvery
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import java.io.File
@@ -26,6 +27,7 @@ class RecordingStartupCoordinatorTest {
     private lateinit var sessionJournal: RecordingSessionJournal
     private lateinit var pendingStopStore: KeyboardPendingStopStore
     private lateinit var recordingStateManager: RecordingStateManager
+    private lateinit var sessionRecovery: RecordingSessionRecovery
     private lateinit var coordinator: RecordingStartupCoordinator
 
     @Before
@@ -40,9 +42,11 @@ class RecordingStartupCoordinatorTest {
         orphanedAudioCleaner = mockk(relaxed = true)
         sessionJournal = mockk(relaxed = true)
         recordingStateManager = mockk(relaxed = true)
+        sessionRecovery = mockk(relaxed = true)
         val finalizeStartupReconciler = mockk<RecordingFinalizeStartupReconciler>(relaxed = true)
         coEvery { recoveryStore.refresh() } returns Unit
         coEvery { finalizeStartupReconciler.reconcilePendingFinalizations() } returns Unit
+        coEvery { sessionRecovery.recoverDurableStoppedSessions() } returns Unit
         coordinator =
             RecordingStartupCoordinator(
                 recoveryStore = recoveryStore,
@@ -51,6 +55,7 @@ class RecordingStartupCoordinatorTest {
                 pendingStopStore = pendingStopStore,
                 recordingStateManager = recordingStateManager,
                 finalizeStartupReconciler = finalizeStartupReconciler,
+                sessionRecovery = sessionRecovery,
             )
     }
 
@@ -80,5 +85,20 @@ class RecordingStartupCoordinatorTest {
             coordinator.onAppStart()
 
             assertEquals(null, pendingStopStore.peek())
+        }
+
+    @Test
+    fun onAppStart_refreshesRecoveryBeforePruningAndCleaning() =
+        runTest {
+            every { recordingStateManager.state } returns MutableStateFlow(RecordingState.Idle)
+
+            coordinator.onAppStart()
+
+            coVerifyOrder {
+                sessionRecovery.recoverDurableStoppedSessions()
+                recoveryStore.refresh()
+                sessionJournal.pruneAbandonedEntries()
+                orphanedAudioCleaner.cleanOrphanedFiles()
+            }
         }
 }

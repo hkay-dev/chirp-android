@@ -43,6 +43,17 @@ data class RecordingSessionEntry(
     val isSafelisted: Boolean
         get() = state == SessionJournalState.ACTIVE || state == SessionJournalState.STOPPING
 
+    val hasRecoverableAudioArtifact: Boolean
+        get() =
+            candidateRecoveryPaths()
+                .map(::File)
+                .any { file -> file.exists() && file.length() >= RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES }
+
+    val isRecoverable: Boolean
+        get() =
+            isSafelisted ||
+                (state == SessionJournalState.ABANDONED && hasRecoverableAudioArtifact)
+
     fun exportAudioPath(): String = finalAudioPath ?: audioPath
 
     fun orderedSegmentFiles(activePath: String? = null): List<File> {
@@ -55,6 +66,20 @@ data class RecordingSessionEntry(
     }
 
     fun usesSegmentCapture(): Boolean = finalAudioPath != null || segmentPaths.isNotEmpty()
+
+    private fun candidateRecoveryPaths(): List<String> =
+        buildList {
+            finalAudioPath?.let(::add)
+            add(audioPath)
+            addAll(segmentPaths)
+            checkpointPath?.let(::add)
+            add(RecordingFileValidator.checkpointPathFor(audioPath))
+            add(RecordingFileValidator.recoveryPathFor(audioPath))
+            finalAudioPath?.let { finalPath ->
+                add(RecordingFileValidator.checkpointPathFor(finalPath))
+                add(RecordingFileValidator.recoveryPathFor(finalPath))
+            }
+        }
 }
 
 @Singleton
@@ -235,6 +260,7 @@ class RecordingSessionJournal
             val stale =
                 loadAllEntries().filter { entry ->
                     entry.state == SessionJournalState.ABANDONED &&
+                        !entry.hasRecoverableAudioArtifact &&
                         entry.lastHeartbeatEpochMs < cutoff
                 }
             stale.forEach { deleteEntry(it.sessionId) }
@@ -243,7 +269,7 @@ class RecordingSessionJournal
 
         fun loadActiveSessions(): List<RecordingSessionEntry> = loadSessions { it.isSafelisted }
 
-        fun loadRecoverableSessions(): List<RecordingSessionEntry> = loadActiveSessions()
+        fun loadRecoverableSessions(): List<RecordingSessionEntry> = loadSessions { it.isRecoverable }
 
         fun loadAllEntries(): List<RecordingSessionEntry> = loadSessions { true }
 
