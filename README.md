@@ -1,6 +1,6 @@
 <div align="center">
 
-# Chirp
+<img src="docs/assets/github-header.png" alt="Chirp - Parakeet Powered STT for Android" width="100%" />
 
 **A small Android voice-notes app for recording, local transcription, and gentle post-processing.**
 
