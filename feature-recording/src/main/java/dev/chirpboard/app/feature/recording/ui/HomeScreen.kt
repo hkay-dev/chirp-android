@@ -110,7 +110,7 @@ fun HomeScreen(
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
     val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
-    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val playbackRowState by viewModel.playbackRowState.collectAsStateWithLifecycle()
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -600,7 +600,7 @@ fun HomeScreen(
                         Column {
                             RecordingListItem(
                                 item = item,
-                                playbackState = playbackState,
+                                playbackState = playbackRowState,
                                 recordingState = recordingState,
                                 onClick = { onRecordingClick(item) },
                                 onPlayClick = { viewModel.playRecording(item) },
@@ -698,7 +698,9 @@ fun HomeScreen(
 }
 
 internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean =
-    status == RecordingStatus.PENDING_TRANSCRIPTION || status == RecordingStatus.ENHANCING
+    status == RecordingStatus.PENDING_TRANSCRIPTION ||
+        status == RecordingStatus.PENDING_ENHANCEMENT ||
+        status == RecordingStatus.ENHANCING
 
 internal fun quickStartTestTag(profileId: UUID): String = "home_quick_start_$profileId"
 

@@ -56,7 +56,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -87,7 +86,7 @@ import java.util.UUID
 @Composable
 internal fun RecordingListItem(
     item: RecordingDisplayItem,
-    playbackState: RecordingPlaybackState,
+    playbackState: RecordingPlaybackRowState,
     recordingState: RecordingState,
     onClick: () -> Unit,
     onPlayClick: () -> Unit,

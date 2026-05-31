@@ -15,6 +15,23 @@ enum class RecoveryOwnershipState {
     INSPECTION_TIMEOUT,
 }
 
+enum class ProcessingRecoveryQueueState {
+    PENDING_TRANSCRIPTION,
+    TRANSCRIBING,
+    PENDING_ENHANCEMENT,
+    ENHANCING,
+    FAILED,
+    OTHER,
+}
+
+data class ProcessingRecoveryActions(
+    val showPendingRecovery: Boolean,
+    val showEnhancementRecovery: Boolean,
+    val showRetranscribeFromEnhancing: Boolean,
+    val showFailedRetry: Boolean,
+    val actionsEnabled: Boolean,
+)
+
 data class RecoveryDiagnostics(
     val latestReason: String?,
     val lastAttemptEpochMs: Long?,
@@ -37,6 +54,8 @@ interface TranscriptionRecovery {
 
     suspend fun recoverPendingTranscription(recordingId: UUID): ManualRecoveryResult
 
+    suspend fun recoverPendingEnhancement(recordingId: UUID): ManualRecoveryResult
+
     suspend fun recoverEnhancing(recordingId: UUID): ManualRecoveryResult
 
     suspend fun retranscribeFromEnhancing(recordingId: UUID): ManualRecoveryResult
@@ -58,3 +77,59 @@ fun ManualRecoveryResult.toUserMessage(success: String): String =
         ManualRecoveryResult.NOT_RECOVERABLE_STATE ->
             "Recovery is unavailable for this state"
     }
+
+fun deriveProcessingRecoveryActions(
+    queueState: ProcessingRecoveryQueueState,
+    ownership: RecoveryOwnershipState,
+): ProcessingRecoveryActions {
+    val ownershipAllowsManualRecovery = ownership == RecoveryOwnershipState.MISSING_OR_TERMINAL
+
+    return when (queueState) {
+        ProcessingRecoveryQueueState.PENDING_TRANSCRIPTION ->
+            ProcessingRecoveryActions(
+                showPendingRecovery = true,
+                showEnhancementRecovery = false,
+                showRetranscribeFromEnhancing = false,
+                showFailedRetry = false,
+                actionsEnabled = ownershipAllowsManualRecovery,
+            )
+
+        ProcessingRecoveryQueueState.PENDING_ENHANCEMENT ->
+            ProcessingRecoveryActions(
+                showPendingRecovery = false,
+                showEnhancementRecovery = true,
+                showRetranscribeFromEnhancing = false,
+                showFailedRetry = false,
+                actionsEnabled = ownershipAllowsManualRecovery,
+            )
+
+        ProcessingRecoveryQueueState.ENHANCING ->
+            ProcessingRecoveryActions(
+                showPendingRecovery = false,
+                showEnhancementRecovery = true,
+                showRetranscribeFromEnhancing = true,
+                showFailedRetry = false,
+                actionsEnabled = ownershipAllowsManualRecovery,
+            )
+
+        ProcessingRecoveryQueueState.FAILED ->
+            ProcessingRecoveryActions(
+                showPendingRecovery = false,
+                showEnhancementRecovery = false,
+                showRetranscribeFromEnhancing = false,
+                showFailedRetry = true,
+                actionsEnabled = true,
+            )
+
+        ProcessingRecoveryQueueState.TRANSCRIBING,
+        ProcessingRecoveryQueueState.OTHER,
+        ->
+            ProcessingRecoveryActions(
+                showPendingRecovery = false,
+                showEnhancementRecovery = false,
+                showRetranscribeFromEnhancing = false,
+                showFailedRetry = false,
+                actionsEnabled = ownershipAllowsManualRecovery,
+            )
+    }
+}

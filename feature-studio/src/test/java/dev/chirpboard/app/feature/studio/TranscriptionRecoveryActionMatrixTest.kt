@@ -33,6 +33,20 @@ class TranscriptionRecoveryActionMatrixTest {
     }
 
     @Test
+    fun `pending enhancement shows enhancement recovery without full retranscription`() {
+        val actions =
+            computeTranscriptionRecoveryActions(
+                status = RecordingStatus.PENDING_ENHANCEMENT,
+                ownership = RecoveryOwnershipState.MISSING_OR_TERMINAL,
+            )
+
+        assertFalse(actions.showPendingRecovery)
+        assertTrue(actions.showEnhancementRecovery)
+        assertFalse(actions.showRetranscribeFromEnhancing)
+        assertTrue(actions.actionsEnabled)
+    }
+
+    @Test
     fun `enhancing shows both recovery actions and disables on ownership timeout`() {
         val actions =
             computeTranscriptionRecoveryActions(

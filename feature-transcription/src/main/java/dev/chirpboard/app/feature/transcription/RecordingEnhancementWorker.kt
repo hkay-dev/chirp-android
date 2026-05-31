@@ -8,15 +8,15 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
+import dev.chirpboard.app.data.model.EnhancementSubworkStatus
 import dev.chirpboard.app.data.model.RecordingEnhancementResult
+import dev.chirpboard.app.data.model.RecordingEnhancementSubworkState
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
-import dev.chirpboard.app.feature.llm.TextProcessor
-import dev.chirpboard.app.feature.llm.client.LlmClient
-import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import kotlinx.coroutines.CancellationException
 import java.util.UUID
 
@@ -29,10 +29,7 @@ class RecordingEnhancementWorker
         private val recordingRepository: RecordingRepository,
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
-        private val textProcessor: TextProcessor,
-        private val modeRepository: ProcessingModeRepository,
-        private val llmClient: LlmClient,
-        private val llmPreferences: dev.chirpboard.app.feature.llm.settings.LlmPreferences,
+        private val textEnhancement: RecordingTextEnhancementPort,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "RecordingEnhancement"
@@ -53,20 +50,25 @@ class RecordingEnhancementWorker
             val correlationId =
                 inputData.getString(RecordingEnhancementWorkRequest.INPUT_CORRELATION_ID)
                     ?: ReliabilityEventLogger.newCorrelationId("enhancement")
+            val executionToken =
+                inputData.getString(RecordingEnhancementWorkRequest.INPUT_EXECUTION_TOKEN)
+                    ?: return buildEnhancementFailureResult("Missing enhancement execution token")
 
             return try {
-                enhanceRecording(recordingId, correlationId)
+                enhanceRecording(recordingId, correlationId, executionToken)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                handleError(recordingId, correlationId, e)
+                handleError(recordingId, correlationId, executionToken, e)
             }
         }
 
         private suspend fun enhanceRecording(
             recordingId: UUID,
             correlationId: String,
+            executionToken: String,
         ): Result {
-            val snapshot = recordingRepository.beginEnhancement(recordingId)
+            val snapshot = recordingRepository.beginEnhancement(recordingId, executionToken)
             if (snapshot == null) {
                 val recording = recordingRepository.getRecording(recordingId)
                 val transcript = recordingRepository.getTranscript(recordingId)
@@ -75,7 +77,7 @@ class RecordingEnhancementWorker
                 }
                 if (transcript == null) {
                     val errorMessage = "No transcript found for enhancement"
-                    recordingRepository.failEnhancement(recordingId, errorMessage)
+                    recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
                     ReliabilityEventLogger.log(
                         stage = ReliabilityStage.ENHANCEMENT,
                         outcome = ReliabilityOutcome.FAILURE,
@@ -86,22 +88,46 @@ class RecordingEnhancementWorker
                     )
                     return buildEnhancementFailureResult(errorMessage)
                 }
-                logSkipped(recordingId, correlationId, "enhancement_intent_missing")
-                recordingRepository.skipEnhancement(recordingId)
+                logSkipped(recordingId, correlationId, "enhancement_ownership_lost")
                 return Result.success()
             }
 
             val transcript = snapshot.transcript
-            val intent = snapshot.intent
-            if (!intent.hasRequestedWork) {
+            val execution = snapshot.execution
+            val hasExecutableSubwork =
+                execution.processingMode.requested ||
+                    execution.title.requested ||
+                    execution.summary.requested
+            if (!hasExecutableSubwork && !execution.legacyRequiresResolution) {
                 logSkipped(recordingId, correlationId, "enhancement_not_requested")
-                recordingRepository.skipEnhancement(recordingId)
+                recordingRepository.skipEnhancement(recordingId, executionToken)
                 return Result.success()
             }
-            if (!llmPreferences.getLlmEnabled() || llmPreferences.fetchApiKey().isNullOrBlank()) {
-                logSkipped(recordingId, correlationId, "llm_unavailable")
-                recordingRepository.skipEnhancement(recordingId)
-                return Result.success()
+            if (!hasExecutableSubwork && execution.legacyRequiresResolution) {
+                val errorMessage = "Legacy enhancement request requires full recovery"
+                recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "legacy_enhancement_requires_resolution",
+                    message = errorMessage,
+                )
+                return buildEnhancementFailureResult(errorMessage)
+            }
+            if (!textEnhancement.isEnhancementAvailable(execution.llmProviderId)) {
+                val errorMessage = "LLM credentials unavailable for queued enhancement"
+                recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "llm_unavailable",
+                    message = errorMessage,
+                )
+                return buildEnhancementFailureResult(errorMessage)
             }
 
             ReliabilityEventLogger.log(
@@ -120,48 +146,81 @@ class RecordingEnhancementWorker
                     )
 
             var textForEnrichment = baseProcessedText
-            var transformApplied = false
-            var titleApplied = false
-            var summaryApplied = false
+            var enrichmentContext =
+                textEnhancement.createContext(
+                    text = textForEnrichment,
+                    providerId = execution.llmProviderId,
+                    modelId = execution.llmModelId,
+                )
             var transformedText: String? = null
             var transformedMode: String? = null
             var generatedTitle: String? = null
             var generatedSummary: String? = null
+            var processingStatus: EnhancementSubworkStatus? = null
+            var processingError: String? = null
+            var titleStatus: EnhancementSubworkStatus? = null
+            var titleError: String? = null
+            var summaryStatus: EnhancementSubworkStatus? = null
+            var summaryError: String? = null
 
-            intent.processingModeId?.let { modeId ->
-                val mode = modeRepository.resolveMode(modeId)
-                val transformResult = textProcessor.process(baseProcessedText, mode)
+            execution.processingModeId?.takeIf { execution.processingMode.shouldRun() }?.let { modeId ->
+                val transformResult =
+                    textEnhancement.processResolved(
+                        context = enrichmentContext,
+                        prompt = execution.processingModePrompt,
+                        fallbackProcessingModeId = modeId,
+                    )
                 if (transformResult.isSuccess) {
                     textForEnrichment = transformResult.getOrThrow()
+                    enrichmentContext =
+                        textEnhancement.createContext(
+                            text = textForEnrichment,
+                            providerId = execution.llmProviderId,
+                            modelId = execution.llmModelId,
+                        )
                     transformedText = textForEnrichment
-                    transformedMode = mode.id
-                    transformApplied = true
+                    transformedMode = modeId
+                    processingStatus = EnhancementSubworkStatus.SUCCEEDED
                 } else {
+                    val message = transformResult.exceptionOrNull()?.message ?: "Processing mode transform failed"
+                    processingStatus = EnhancementSubworkStatus.FAILED
+                    processingError = message
                     Log.w(TAG, "Skipping transcript transform", transformResult.exceptionOrNull())
                 }
             }
 
-            if (intent.autoTitle) {
-                val titleResult = llmClient.generateTitle(textForEnrichment)
+            if (execution.title.shouldRun()) {
+                val titleResult =
+                    textEnhancement.generateTitle(enrichmentContext)
                 if (titleResult.isSuccess) {
                     generatedTitle = titleResult.getOrThrow()
-                    titleApplied = true
+                    titleStatus = EnhancementSubworkStatus.SUCCEEDED
                 } else {
+                    val message = titleResult.exceptionOrNull()?.message ?: "Title generation failed"
+                    titleStatus = EnhancementSubworkStatus.FAILED
+                    titleError = message
                     Log.w(TAG, "Skipping title generation", titleResult.exceptionOrNull())
                 }
             }
 
-            if (intent.autoSummary) {
-                val summaryResult = llmClient.generateSummary(textForEnrichment)
+            if (execution.summary.shouldRun()) {
+                val summaryResult =
+                    textEnhancement.generateSummary(enrichmentContext)
                 if (summaryResult.isSuccess) {
                     generatedSummary = summaryResult.getOrThrow()
-                    summaryApplied = true
+                    summaryStatus = EnhancementSubworkStatus.SUCCEEDED
                 } else {
+                    val message = summaryResult.exceptionOrNull()?.message ?: "Summary generation failed"
+                    summaryStatus = EnhancementSubworkStatus.FAILED
+                    summaryError = message
                     Log.w(TAG, "Skipping summary generation", summaryResult.exceptionOrNull())
                 }
             }
 
-            val applied = transformApplied || titleApplied || summaryApplied
+            val applied =
+                processingStatus == EnhancementSubworkStatus.SUCCEEDED ||
+                    titleStatus == EnhancementSubworkStatus.SUCCEEDED ||
+                    summaryStatus == EnhancementSubworkStatus.SUCCEEDED
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.ENHANCEMENT,
                 outcome = if (applied) ReliabilityOutcome.SUCCESS else ReliabilityOutcome.FAILURE,
@@ -169,31 +228,46 @@ class RecordingEnhancementWorker
                 recordingId = recordingId,
                 reasonCode = if (applied) "enhancement_applied" else "enhancement_failed",
             )
-            recordingRepository.completeEnhancement(
-                recordingId,
-                RecordingEnhancementResult(
-                    processedText = transformedText ?: baseProcessedText.takeIf { transcript.processedText == null },
-                    processingMode = transformedMode ?: "word_replacement".takeIf { transcript.processedText == null },
-                    title = generatedTitle,
-                    summary = generatedSummary,
-                ),
-            )
+
+            val committed =
+                recordingRepository.completeEnhancement(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
+                    sourceTranscriptRevision = execution.sourceTranscriptRevision,
+                    result =
+                        RecordingEnhancementResult(
+                            processedText = transformedText ?: baseProcessedText.takeIf { transcript.processedText == null },
+                            processingMode = transformedMode ?: "word_replacement".takeIf { transcript.processedText == null },
+                            title = generatedTitle,
+                            summary = generatedSummary,
+                            processingModeStatus = processingStatus,
+                            processingModeError = processingError,
+                            titleStatus = titleStatus,
+                            titleError = titleError,
+                            summaryStatus = summaryStatus,
+                            summaryError = summaryError,
+                        ),
+                )
+            if (!committed) {
+                logSkipped(recordingId, correlationId, "enhancement_commit_stale")
+            }
             return Result.success()
         }
 
         private suspend fun handleError(
             recordingId: UUID,
             correlationId: String,
+            executionToken: String,
             exception: Exception,
         ): Result {
             val errorMessage = exception.message ?: "Unknown enhancement error"
-            recordingRepository.failEnhancement(recordingId, errorMessage)
+            val updated = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.ENHANCEMENT,
-                outcome = ReliabilityOutcome.FAILURE,
+                outcome = if (updated) ReliabilityOutcome.FAILURE else ReliabilityOutcome.SKIPPED,
                 correlationId = correlationId,
                 recordingId = recordingId,
-                reasonCode = "enhancement_exception",
+                reasonCode = if (updated) "enhancement_exception" else "enhancement_error_stale",
                 message = errorMessage,
             )
             return buildEnhancementFailureResult(errorMessage)
@@ -213,6 +287,9 @@ class RecordingEnhancementWorker
             )
         }
     }
+
+private fun RecordingEnhancementSubworkState.shouldRun(): Boolean =
+    requested && status in setOf(EnhancementSubworkStatus.PENDING, EnhancementSubworkStatus.FAILED)
 
 private fun buildEnhancementFailureResult(errorMessage: String): androidx.work.ListenableWorker.Result =
     androidx.work.ListenableWorker.Result.failure(

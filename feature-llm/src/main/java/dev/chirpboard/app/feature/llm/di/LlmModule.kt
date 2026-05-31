@@ -9,6 +9,8 @@ import dev.chirpboard.app.feature.llm.client.LlmChatService
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.LlmClientImpl
 import dev.chirpboard.app.feature.llm.client.LlmRecordingTextEnrichment
+import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import dev.chirpboard.app.feature.llm.settings.LlmSettingsStore
 import javax.inject.Singleton
 
 @Module
@@ -21,4 +23,8 @@ object LlmModule {
     @Provides
     @Singleton
     fun provideRecordingTextEnrichment(impl: LlmRecordingTextEnrichment): RecordingTextEnrichment = impl
+
+    @Provides
+    @Singleton
+    fun provideLlmSettingsStore(preferences: LlmPreferences): LlmSettingsStore = preferences
 }

@@ -50,16 +50,62 @@ Transcript:
         override suspend fun process(
             text: String,
             systemPrompt: String,
-        ): Result<String> {
-            val fullPrompt = systemPrompt + text + "\n</transcript>"
-            return chatService.completePrompt(fullPrompt)
-        }
+        ): Result<String> = process(createTranscriptContext(text), systemPrompt)
+
+        override suspend fun process(
+            context: TranscriptLlmContext,
+            systemPrompt: String,
+        ): Result<String> = chatService.completePrompt(context.processPrompt(systemPrompt))
+
+        override suspend fun processWithRuntime(
+            text: String,
+            systemPrompt: String,
+            providerId: String?,
+            modelId: String?,
+        ): Result<String> = processWithRuntime(createTranscriptContext(text), systemPrompt, providerId, modelId)
+
+        override suspend fun processWithRuntime(
+            context: TranscriptLlmContext,
+            systemPrompt: String,
+            providerId: String?,
+            modelId: String?,
+        ): Result<String> = chatService.completePrompt(providerId, modelId, context.processPrompt(systemPrompt))
 
         override suspend fun generateTitle(transcript: String): Result<String> =
-            chatService.completePrompt(TITLE_PROMPT + transcript)
+            generateTitle(createTranscriptContext(transcript))
+
+        override suspend fun generateTitle(context: TranscriptLlmContext): Result<String> =
+            chatService.completePrompt(context.prefixedPrompt(TITLE_PROMPT))
+
+        override suspend fun generateTitleWithRuntime(
+            transcript: String,
+            providerId: String?,
+            modelId: String?,
+        ): Result<String> = generateTitleWithRuntime(createTranscriptContext(transcript), providerId, modelId)
+
+        override suspend fun generateTitleWithRuntime(
+            context: TranscriptLlmContext,
+            providerId: String?,
+            modelId: String?,
+        ): Result<String> = chatService.completePrompt(providerId, modelId, context.prefixedPrompt(TITLE_PROMPT))
 
         override suspend fun generateSummary(transcript: String): Result<String> =
-            chatService.completePrompt(SUMMARY_PROMPT + transcript)
+            generateSummary(createTranscriptContext(transcript))
+
+        override suspend fun generateSummary(context: TranscriptLlmContext): Result<String> =
+            chatService.completePrompt(context.prefixedPrompt(SUMMARY_PROMPT))
+
+        override suspend fun generateSummaryWithRuntime(
+            transcript: String,
+            providerId: String?,
+            modelId: String?,
+        ): Result<String> = generateSummaryWithRuntime(createTranscriptContext(transcript), providerId, modelId)
+
+        override suspend fun generateSummaryWithRuntime(
+            context: TranscriptLlmContext,
+            providerId: String?,
+            modelId: String?,
+        ): Result<String> = chatService.completePrompt(providerId, modelId, context.prefixedPrompt(SUMMARY_PROMPT))
 
         override suspend fun generateTranscriptPassageResponse(
             action: TranscriptPassageAction,

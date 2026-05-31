@@ -5,6 +5,8 @@ package dev.chirpboard.app.feature.llm.client
  * Abstracts the underlying LLM provider (Gemini, OpenAI, etc.)
  */
 interface LlmClient {
+    fun createTranscriptContext(transcript: String): TranscriptLlmContext = TranscriptLlmContext(transcript)
+
     /**
      * Process text with a system prompt.
      * @param text The input text to process
@@ -16,6 +18,25 @@ interface LlmClient {
         systemPrompt: String,
     ): Result<String>
 
+    suspend fun process(
+        context: TranscriptLlmContext,
+        systemPrompt: String,
+    ): Result<String> = process(context.transcript, systemPrompt)
+
+    suspend fun processWithRuntime(
+        text: String,
+        systemPrompt: String,
+        providerId: String?,
+        modelId: String?,
+    ): Result<String> = process(text, systemPrompt)
+
+    suspend fun processWithRuntime(
+        context: TranscriptLlmContext,
+        systemPrompt: String,
+        providerId: String?,
+        modelId: String?,
+    ): Result<String> = processWithRuntime(context.transcript, systemPrompt, providerId, modelId)
+
     /**
      * Generate a title for a transcript.
      * @param transcript The transcript to generate a title for
@@ -23,12 +44,40 @@ interface LlmClient {
      */
     suspend fun generateTitle(transcript: String): Result<String>
 
+    suspend fun generateTitle(context: TranscriptLlmContext): Result<String> = generateTitle(context.transcript)
+
+    suspend fun generateTitleWithRuntime(
+        transcript: String,
+        providerId: String?,
+        modelId: String?,
+    ): Result<String> = generateTitle(transcript)
+
+    suspend fun generateTitleWithRuntime(
+        context: TranscriptLlmContext,
+        providerId: String?,
+        modelId: String?,
+    ): Result<String> = generateTitleWithRuntime(context.transcript, providerId, modelId)
+
     /**
      * Generate a summary for a transcript.
      * @param transcript The transcript to summarize
      * @return Result containing the generated summary or error
      */
     suspend fun generateSummary(transcript: String): Result<String>
+
+    suspend fun generateSummary(context: TranscriptLlmContext): Result<String> = generateSummary(context.transcript)
+
+    suspend fun generateSummaryWithRuntime(
+        transcript: String,
+        providerId: String?,
+        modelId: String?,
+    ): Result<String> = generateSummary(transcript)
+
+    suspend fun generateSummaryWithRuntime(
+        context: TranscriptLlmContext,
+        providerId: String?,
+        modelId: String?,
+    ): Result<String> = generateSummaryWithRuntime(context.transcript, providerId, modelId)
 
     /**
      * Generate a scoped response for a selected transcript passage.

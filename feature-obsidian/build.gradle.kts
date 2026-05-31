@@ -31,7 +31,6 @@ android {
 dependencies {
     // Internal modules
     implementation(project(":core-ui"))
-    implementation(project(":data"))
 
     // Compose
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))

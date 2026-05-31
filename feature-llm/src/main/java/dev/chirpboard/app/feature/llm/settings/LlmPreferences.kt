@@ -21,12 +21,52 @@ import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "llm_settings")
 
+interface LlmSettingsStore {
+    suspend fun getLlmEnabled(): Boolean
+
+    suspend fun setLlmEnabled(enabled: Boolean)
+
+    fun getActiveProvider(): LlmProvider
+
+    fun setActiveProvider(provider: LlmProvider)
+
+    fun fetchApiKeyFor(provider: LlmProvider): String?
+
+    fun getModelFor(provider: LlmProvider): String
+
+    fun setModelFor(
+        provider: LlmProvider,
+        modelId: String,
+    )
+
+    fun hasApiKeyFor(provider: LlmProvider): Boolean
+
+    fun countConfiguredApiKeys(): Int
+
+    fun isSecureStorageAvailable(): Boolean
+
+    fun setApiKeyFor(
+        provider: LlmProvider,
+        apiKey: String,
+    )
+
+    fun clearApiKeyFor(provider: LlmProvider)
+
+    suspend fun getAutoTitle(): Boolean
+
+    suspend fun setAutoTitle(enabled: Boolean)
+
+    suspend fun getAutoSummary(): Boolean
+
+    suspend fun setAutoSummary(enabled: Boolean)
+}
+
 @Singleton
 class LlmPreferences
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
-    ) {
+    ) : LlmSettingsStore {
         private object Keys {
             val LLM_ENABLED = booleanPreferencesKey("llm_enabled")
             val AUTO_TITLE = booleanPreferencesKey("auto_title")
@@ -72,9 +112,9 @@ class LlmPreferences
         /** API key for the currently selected provider. */
         val apiKey: Flow<String?> = _apiKey.asStateFlow()
 
-        fun getActiveProvider(): LlmProvider = LlmProvider.fromId(appPrefs.getString(KEY_ACTIVE_PROVIDER, null))
+        override fun getActiveProvider(): LlmProvider = LlmProvider.fromId(appPrefs.getString(KEY_ACTIVE_PROVIDER, null))
 
-        fun setActiveProvider(provider: LlmProvider) {
+        override fun setActiveProvider(provider: LlmProvider) {
             appPrefs.edit().putString(KEY_ACTIVE_PROVIDER, provider.id).apply()
             _activeProvider.value = provider
             refreshActiveApiKey()
@@ -82,17 +122,17 @@ class LlmPreferences
 
         fun fetchApiKey(): String? = fetchApiKeyFor(getActiveProvider())
 
-        fun fetchApiKeyFor(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
+        override fun fetchApiKeyFor(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
 
         fun getModelName(): String = getModelFor(getActiveProvider())
 
-        fun getModelFor(provider: LlmProvider): String =
+        override fun getModelFor(provider: LlmProvider): String =
             resolveModelId(
                 provider = provider,
                 storedModelId = appPrefs.getString(modelPrefKey(provider), null),
             )
 
-        fun setModelFor(
+        override fun setModelFor(
             provider: LlmProvider,
             modelId: String,
         ) {
@@ -117,17 +157,17 @@ class LlmPreferences
                 preferences[Keys.AUTO_SUMMARY] ?: false
             }
 
-        suspend fun setLlmEnabled(enabled: Boolean) {
+        override suspend fun setLlmEnabled(enabled: Boolean) {
             context.dataStore.edit { preferences ->
                 preferences[Keys.LLM_ENABLED] = enabled
             }
         }
 
-        suspend fun setApiKey(key: String) {
+        fun setApiKey(key: String) {
             setApiKeyFor(getActiveProvider(), key)
         }
 
-        suspend fun setApiKeyFor(
+        override fun setApiKeyFor(
             provider: LlmProvider,
             key: String,
         ) {
@@ -148,11 +188,11 @@ class LlmPreferences
             }
         }
 
-        suspend fun clearApiKey() {
+        fun clearApiKey() {
             clearApiKeyFor(getActiveProvider())
         }
 
-        suspend fun clearApiKeyFor(provider: LlmProvider) {
+        override fun clearApiKeyFor(provider: LlmProvider) {
             val prefs = securePrefs ?: return
             if (prefs.edit().remove(apiKeyPrefKey(provider)).commit() && provider == getActiveProvider()) {
                 _apiKey.value = null
@@ -161,27 +201,27 @@ class LlmPreferences
 
         fun hasApiKey(): Boolean = hasApiKeyFor(getActiveProvider())
 
-        fun hasApiKeyFor(provider: LlmProvider): Boolean = !fetchApiKeyFor(provider).isNullOrBlank()
+        override fun hasApiKeyFor(provider: LlmProvider): Boolean = !fetchApiKeyFor(provider).isNullOrBlank()
 
-        fun isSecureStorageAvailable(): Boolean = securePrefs != null
+        override fun isSecureStorageAvailable(): Boolean = securePrefs != null
 
-        suspend fun setAutoTitle(enabled: Boolean) {
+        override suspend fun setAutoTitle(enabled: Boolean) {
             context.dataStore.edit { preferences ->
                 preferences[Keys.AUTO_TITLE] = enabled
             }
         }
 
-        suspend fun setAutoSummary(enabled: Boolean) {
+        override suspend fun setAutoSummary(enabled: Boolean) {
             context.dataStore.edit { preferences ->
                 preferences[Keys.AUTO_SUMMARY] = enabled
             }
         }
 
-        suspend fun getAutoTitle(): Boolean = autoTitle.first()
+        override suspend fun getAutoTitle(): Boolean = autoTitle.first()
 
-        suspend fun getAutoSummary(): Boolean = autoSummary.first()
+        override suspend fun getAutoSummary(): Boolean = autoSummary.first()
 
-        suspend fun getLlmEnabled(): Boolean = llmEnabled.first()
+        override suspend fun getLlmEnabled(): Boolean = llmEnabled.first()
 
         fun buildSettingsSnapshot(): LlmSettingsSnapshot {
             val apiKeys =
@@ -223,7 +263,7 @@ class LlmPreferences
             refreshActiveApiKey()
         }
 
-        fun countConfiguredApiKeys(): Int =
+        override fun countConfiguredApiKeys(): Int =
             LlmProvider.entries.count { hasApiKeyFor(it) }
 
         private fun refreshActiveApiKey() {

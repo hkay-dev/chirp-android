@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.session
 import android.content.Context
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
+import androidx.work.WorkContinuation
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.common.util.concurrent.Futures
@@ -40,6 +41,9 @@ class RecordingFinalizeStartupReconcilerTest {
         workManager = mockk(relaxed = true)
         mockkStatic(WorkManager::class)
         every { WorkManager.getInstance(context) } returns workManager
+        every {
+            workManager.beginUniqueWork(any(), any<ExistingWorkPolicy>(), any<OneTimeWorkRequest>())
+        } returns mockk<WorkContinuation>(relaxed = true)
         reconciler =
             RecordingFinalizeStartupReconciler(
                 context = context,
@@ -98,6 +102,55 @@ class RecordingFinalizeStartupReconcilerTest {
             reconciler.reconcilePendingFinalizations()
 
             verify(exactly = 0) {
+                workManager.beginUniqueWork(
+                    RecordingFinalizeWorkRequest.FINALIZE_PIPELINE,
+                    ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    any<OneTimeWorkRequest>(),
+                )
+            }
+        }
+
+    @Test
+    fun `reconcilePendingFinalizations reenqueues stopping journal with linked recording row`() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            every { journal.loadAllEntries() } returns
+                listOf(
+                    RecordingSessionEntry(
+                        sessionId = sessionId,
+                        audioPath = "/tmp/active.m4a",
+                        finalAudioPath = "/tmp/final.m4a",
+                        segmentPaths = listOf("/tmp/active.m4a"),
+                        origin = RecordingOrigin.APP,
+                        profileId = null,
+                        recordingId = recordingId,
+                        startedAtEpochMs = 1L,
+                        lastHeartbeatEpochMs = 2L,
+                        lastSegmentFinalizedAtEpochMs = 3L,
+                        activeSegmentStartedAtEpochMs = 1L,
+                        fileBytes = 4L,
+                        checkpointPath = null,
+                        state = SessionJournalState.STOPPING,
+                        correlationId = "corr",
+                    ),
+                )
+            coEvery { recordingRepository.getRecording(recordingId) } returns
+                Recording(
+                    id = recordingId,
+                    title = "In progress",
+                    audioPath = "/tmp/final.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                    createdAt = Date(),
+                )
+            every {
+                workManager.getWorkInfosByTag(RecordingFinalizeWorkRequest.workTag(recordingId))
+            } returns Futures.immediateFuture(emptyList())
+
+            reconciler.reconcilePendingFinalizations()
+
+            verify {
                 workManager.beginUniqueWork(
                     RecordingFinalizeWorkRequest.FINALIZE_PIPELINE,
                     ExistingWorkPolicy.APPEND_OR_REPLACE,

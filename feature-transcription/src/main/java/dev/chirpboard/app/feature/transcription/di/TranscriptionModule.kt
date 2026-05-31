@@ -9,6 +9,8 @@ import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.feature.transcription.inline.InlineTranscriptionCoordinatorImpl
 import dev.chirpboard.app.feature.transcription.TranscriptionQueueManager
+import dev.chirpboard.app.feature.transcription.TranscriptionWorkScheduler
+import dev.chirpboard.app.feature.transcription.WorkManagerTranscriptionWorkScheduler
 import javax.inject.Singleton
 
 @Module
@@ -31,4 +33,10 @@ abstract class TranscriptionModule {
     abstract fun bindInlineTranscriptionCoordinator(
         impl: InlineTranscriptionCoordinatorImpl,
     ): InlineTranscriptionCoordinator
+
+    @Binds
+    @Singleton
+    internal abstract fun bindTranscriptionWorkScheduler(
+        impl: WorkManagerTranscriptionWorkScheduler,
+    ): TranscriptionWorkScheduler
 }

@@ -21,9 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.recording.RecordingSource
 import dev.chirpboard.app.core.util.formatAsDuration
 import dev.chirpboard.app.core.util.formatRelative
-import dev.chirpboard.app.data.model.RecordingSource
 import java.util.Date
 
 /**

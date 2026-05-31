@@ -15,6 +15,7 @@ import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import dev.chirpboard.app.core.playback.RecordingPlaybackController
+import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
@@ -51,6 +52,10 @@ class ProcessingStudioViewModel
         private var currentTranscript: Transcript? = null
         private var recordingObservationJob: Job? = null
         private var missingRecordingJob: Job? = null
+        private var recoveryDiagnosticsJob: Job? = null
+        private var lastScheduledRecoveryKey: RecoveryDiagnosticsRefreshKey? = null
+        private var playbackRevealJob: Job? = null
+        private var lastScheduledPlaybackRevealKey: PlaybackRevealKey? = null
 
         private val _message = MutableStateFlow<String?>(null)
         val message: StateFlow<String?> = _message.asStateFlow()
@@ -138,6 +143,10 @@ class ProcessingStudioViewModel
             missingRecordingJob = null
             recordingObservationJob?.cancel()
             recordingObservationJob = null
+            recoveryDiagnosticsJob?.cancel()
+            recoveryDiagnosticsJob = null
+            lastScheduledRecoveryKey = null
+            cancelPlaybackReveal()
         }
 
         private fun loadRecording(id: UUID) {
@@ -244,17 +253,23 @@ class ProcessingStudioViewModel
                             nextState = nextState.exitTranscriptSelectionMode()
                         }
 
-                        val shouldRefreshRecovery =
-                            nextState.status != currentState.status ||
-                                nextState.recoveryDiagnostics == null
-                        val stateWithRecovery =
-                            if (shouldRefreshRecovery) {
-                                refreshRecoveryState(nextState, recording.id, recording.status)
-                            } else {
-                                nextState
-                            }
+                        val recoveryKey =
+                            RecoveryDiagnosticsRefreshKey(
+                                recordingId = recording.id,
+                                status = recording.status,
+                                errorMessage = recording.errorMessage,
+                            )
+                        val stateWithRecoveryActions =
+                            nextState.copy(
+                                recoveryActions =
+                                    computeTranscriptionRecoveryActions(
+                                        recording.status,
+                                        currentState.recoveryDiagnostics.ownership,
+                                    ),
+                            )
 
-                        _uiState.value = refreshTranscriptInteractionState(stateWithRecovery)
+                        _uiState.value = refreshTranscriptInteractionState(stateWithRecoveryActions)
+                        scheduleRecoveryDiagnosticsRefresh(recoveryKey)
 
                         if (recording.status != RecordingStatus.RECORDING) {
                             scheduleDeferredStudioPlayback(
@@ -297,12 +312,25 @@ class ProcessingStudioViewModel
             title: String,
             audioPath: String,
         ) {
-            viewModelScope.launch {
+            if (audioPath.isBlank()) return
+            val revealKey = PlaybackRevealKey(recordingId = recordingId, audioPath = audioPath)
+            if (lastScheduledPlaybackRevealKey == revealKey) return
+
+            playbackRevealJob?.cancel()
+            lastScheduledPlaybackRevealKey = revealKey
+            _uiState.value = _uiState.value.copy(playerRevealReady = false)
+            playbackRevealJob = viewModelScope.launch {
                 delay(ChirpMotion.RECORD_HANDOFF_MS)
-                if (currentRecordingId != recordingId) return@launch
+                if (currentRecordingId != recordingId || _uiState.value.audioPath != audioPath) return@launch
                 _uiState.value = _uiState.value.copy(playerRevealReady = true)
                 playbackController.onStudioOpened(recordingId, title, audioPath)
             }
+        }
+
+        private fun cancelPlaybackReveal() {
+            playbackRevealJob?.cancel()
+            playbackRevealJob = null
+            lastScheduledPlaybackRevealKey = null
         }
 
         fun togglePlayPause() {
@@ -652,7 +680,12 @@ class ProcessingStudioViewModel
         fun recoverEnhancing() {
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
-                val result = transcriptionRecovery.recoverEnhancing(recordingId)
+                val result =
+                    if (_uiState.value.status == RecordingStatus.PENDING_ENHANCEMENT) {
+                        transcriptionRecovery.recoverPendingEnhancement(recordingId)
+                    } else {
+                        transcriptionRecovery.recoverEnhancing(recordingId)
+                    }
                 _message.value = result.toUserMessage("Enhancement recovery queued")
                 refreshRecoveryForCurrentRecording()
             }
@@ -681,20 +714,48 @@ class ProcessingStudioViewModel
 
         private suspend fun refreshRecoveryForCurrentRecording() {
             val recordingId = currentRecordingId ?: return
-            val status = _uiState.value.status
-            _uiState.value = refreshRecoveryState(_uiState.value, recordingId, status)
+            val state = _uiState.value
+            val key =
+                RecoveryDiagnosticsRefreshKey(
+                    recordingId = recordingId,
+                    status = state.status,
+                    errorMessage = state.errorMessage,
+                )
+            applyRecoveryDiagnosticsResult(loadRecoveryDiagnostics(key))
         }
 
-        private suspend fun refreshRecoveryState(
-            state: ProcessingStudioState,
-            recordingId: UUID,
-            status: RecordingStatus?,
-        ): ProcessingStudioState {
-            val diagnostics = transcriptionRecovery.getRecoveryDiagnostics(recordingId).toUiModel()
-            return state.copy(
-                recoveryDiagnostics = diagnostics,
-                recoveryActions = computeTranscriptionRecoveryActions(status, diagnostics.ownership),
-            )
+        private fun scheduleRecoveryDiagnosticsRefresh(key: RecoveryDiagnosticsRefreshKey) {
+            if (lastScheduledRecoveryKey == key) return
+
+            lastScheduledRecoveryKey = key
+            recoveryDiagnosticsJob?.cancel()
+            recoveryDiagnosticsJob =
+                viewModelScope.launch {
+                    applyRecoveryDiagnosticsResult(loadRecoveryDiagnostics(key))
+                }
+        }
+
+        private suspend fun loadRecoveryDiagnostics(key: RecoveryDiagnosticsRefreshKey): RecoveryDiagnosticsResult {
+            val diagnostics = transcriptionRecovery.getRecoveryDiagnostics(key.recordingId)
+            return RecoveryDiagnosticsResult(key = key, diagnostics = diagnostics)
+        }
+
+        private fun applyRecoveryDiagnosticsResult(result: RecoveryDiagnosticsResult) {
+            val state = _uiState.value
+            val currentKey =
+                RecoveryDiagnosticsRefreshKey(
+                    recordingId = currentRecordingId ?: return,
+                    status = state.status,
+                    errorMessage = state.errorMessage,
+                )
+            if (currentKey != result.key) return
+
+            val diagnostics = result.diagnostics.toUiModel()
+            _uiState.value =
+                state.copy(
+                    recoveryDiagnostics = diagnostics,
+                    recoveryActions = computeTranscriptionRecoveryActions(state.status, diagnostics.ownership),
+                )
         }
 
         fun cancelEditingTitle() {
@@ -886,6 +947,22 @@ private data class StudioRecordingLoadState(
     val structuredOutcomeSnapshot: dev.chirpboard.app.data.model.StructuredOutcomeSnapshot?,
     val isStructuredOutcomeGenerating: Boolean,
  )
+
+private data class RecoveryDiagnosticsRefreshKey(
+    val recordingId: UUID,
+    val status: RecordingStatus?,
+    val errorMessage: String?,
+)
+
+private data class RecoveryDiagnosticsResult(
+    val key: RecoveryDiagnosticsRefreshKey,
+    val diagnostics: RecoveryDiagnostics,
+)
+
+private data class PlaybackRevealKey(
+    val recordingId: UUID,
+    val audioPath: String,
+)
 
 private fun StructuredOutcomeGroup.displayLabel(): String =
     when (this) {

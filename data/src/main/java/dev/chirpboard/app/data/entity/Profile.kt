@@ -1,9 +1,7 @@
 package dev.chirpboard.app.data.entity
 
 import androidx.annotation.Keep
-import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import java.util.UUID
@@ -35,21 +33,8 @@ data class Profile(
     val obsidianVaultPath: String? = null,
     /** Auto-export to Obsidian after processing */
     val autoExportToObsidian: Boolean = false,
-    /** Default tags to apply (stored as comma-separated UUIDs) */
-    val defaultTagIds: String? = null,
     /** Position for ordering in UI */
     val sortOrder: Int = 0,
     /** Keep this profile visible in home quick starts even when not recently used */
     val isQuickStartPinned: Boolean = false,
- ) {
-    /** Parse defaultTagIds into list of UUIDs */
-    fun getDefaultTags(): List<UUID> =
-        defaultTagIds
-            ?.split(",")
-            ?.filter { it.isNotBlank() }
-            ?.map { UUID.fromString(it.trim()) }
-            ?: emptyList()
-
-    /** Create defaultTagIds from list of UUIDs */
-    fun withDefaultTags(tags: List<UUID>): Profile = copy(defaultTagIds = tags.joinToString(",") { it.toString() })
-}
+)

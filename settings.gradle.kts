@@ -18,6 +18,7 @@ dependencyResolutionManagement {
 rootProject.name = "Chirp"
 include(":app")
 include(":core-contracts")
+include(":core-recording-runtime")
 include(":core-audio")
 include(":core-ui")
 include(":core-playback")

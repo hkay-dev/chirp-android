@@ -6,8 +6,7 @@ import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
-import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
-import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.download.SpeechModelWarmupCoordinator
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
 import dev.chirpboard.app.feature.widget.WidgetStateObserver
@@ -30,7 +29,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var apiKeyMigration: ApiKeyMigration
 
     @Inject
-    lateinit var modelReadinessGate: SpeechModelReadinessGate
+    lateinit var speechModelWarmupCoordinator: SpeechModelWarmupCoordinator
     
     @Inject
     lateinit var recordingStartupCoordinator: RecordingStartupCoordinator
@@ -68,10 +67,10 @@ class ChirpApplication : Application(), Configuration.Provider {
 
         applicationScope.launch {
             try {
-                modelReadinessGate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+                speechModelWarmupCoordinator.warmupOnAppStartupIfCandidate()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Failed to warm model readiness on startup", e)
+                Log.e(TAG, "Failed to evaluate speech model warmup candidates on startup", e)
             }
         }
 

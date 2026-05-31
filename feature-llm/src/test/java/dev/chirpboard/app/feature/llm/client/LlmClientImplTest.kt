@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.llm.client
 
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
@@ -25,6 +26,19 @@ class LlmClientImplTest {
         val result = client.process("hello", "system")
 
         assertTrue(result.isSuccess)
+    }
+
+    @Test
+    fun `transcript context reuses assembled transcript for phases`() = runTest {
+        val context = client.createTranscriptContext("hello")
+        coEvery { chatService.completePrompt(any()) } returns Result.success("OK")
+
+        client.process(context, "system")
+        client.generateTitle(context)
+        client.generateSummary(context)
+
+        coVerify { chatService.completePrompt("systemhello\n</transcript>") }
+        coVerify { chatService.completePrompt(match { it.endsWith("Transcript:\nhello") }) }
     }
 
     @Test

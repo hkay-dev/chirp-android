@@ -32,9 +32,10 @@ android {
 dependencies {
     // Internal modules
     implementation(project(":core-audio"))
+    implementation(project(":core-contracts"))
+    implementation(project(":core-recording-runtime"))
     implementation(project(":core-ui"))
     implementation(project(":data"))
-    implementation(project(":feature-llm"))
 
     // Compose
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))

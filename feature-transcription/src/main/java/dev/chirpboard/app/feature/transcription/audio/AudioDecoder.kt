@@ -5,10 +5,14 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.util.Log
 import dev.chirpboard.app.core.audio.WavFileWriter
+import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.ReliabilityOutcome
+import dev.chirpboard.app.core.reliability.ReliabilityStage
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -324,23 +328,36 @@ class AudioDecoder @Inject constructor() {
      * @return Flow of audio sample arrays (normalized to [-1.0, 1.0] at 16kHz mono)
      * @throws AudioDecoderException if decoding fails
      */
-    fun decodeAsFlow(filePath: String): Flow<FloatArray> = callbackFlow {
+    fun decodeAsFlow(filePath: String): Flow<FloatArray> = channelFlow {
         var totalSamples = 0L
+        var emittedChunks = 0L
         try {
             totalSamples = decode(filePath) { samples ->
-                trySend(samples)
+                try {
+                    send(samples)
+                    emittedChunks++
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    recordDecodeDeliveryFailure(e)
+                    throw AudioDecoderException("Failed to deliver decoded audio chunk: ${e.message}", e)
+                }
             }
-            Log.d(TAG, "Flow completed: emitted $totalSamples samples")
+            Log.d(TAG, "Flow completed: emitted $emittedChunks chunks and $totalSamples samples")
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Flow error during decode", e)
             throw e
-        } finally {
-            close()
         }
-        awaitClose { 
-            Log.d(TAG, "Flow closed")
-        }
+    }.buffer(Channel.RENDEZVOUS)
+
+    private fun recordDecodeDeliveryFailure(error: Throwable) {
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.TRANSCRIPTION,
+            outcome = ReliabilityOutcome.FAILURE,
+            correlationId = ReliabilityEventLogger.newCorrelationId("decode"),
+            reasonCode = "decode_chunk_delivery_failed",
+            message = error.message,
+        )
     }
 
     /**

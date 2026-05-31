@@ -1,15 +1,14 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
 import android.util.Log
-import androidx.work.WorkManager
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
@@ -46,13 +45,12 @@ import javax.inject.Singleton
 class TranscriptionQueueManager
     @Inject
     constructor(
-        @ApplicationContext private val context: Context,
         private val recordingRepository: RecordingRepository,
         private val constraintChecker: WorkConstraintChecker,
         private val transcriberProvider: dev.chirpboard.app.core.transcription.TranscriberProvider,
         private val readinessGate: SpeechModelReadinessGate,
+        private val workScheduler: TranscriptionWorkScheduler,
     ) : TranscriptionRecovery, TranscriptionQueueLifecycle {
-        private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
         private val reconciliationMutex = Mutex()
         private var reconciliationJob: Job? = null
 
@@ -60,9 +58,9 @@ class TranscriptionQueueManager
         private var reconciliationStarted = false
         private val queueReconciler by lazy {
             TranscriptionQueueReconciler(
-                context = context,
                 recordingRepository = recordingRepository,
                 constraintChecker = constraintChecker,
+                workScheduler = workScheduler,
                 setConstraintWarning = { _constraintWarning.value = it },
                 setActiveCount = { _activeCount.value = it },
             )
@@ -172,16 +170,19 @@ class TranscriptionQueueManager
             val status = constraintChecker.checkConstraints()
             _constraintWarning.value = constraintChecker.getConstraintMessage(status)
 
-            // Update status to pending and clear stale error metadata
-            recordingRepository.updateStatusWithError(
-                id = recordingId,
-                status = RecordingStatus.PENDING_TRANSCRIPTION,
-                errorMessage = null,
+            val executionToken = UUID.randomUUID().toString()
+            recordingRepository.claimTranscriptionExecution(
+                recordingId = recordingId,
+                executionToken = executionToken,
             )
 
             try {
-                // Schedule the work
-                val workId = TranscriptionWorkRequest.enqueue(context, recordingId, corrId)
+                val workId =
+                    workScheduler.enqueueTranscription(
+                        recordingId = recordingId,
+                        executionToken = executionToken,
+                        correlationId = corrId,
+                    )
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.QUEUE_ENQUEUE,
                     outcome = ReliabilityOutcome.SUCCESS,
@@ -189,6 +190,7 @@ class TranscriptionQueueManager
                     recordingId = recordingId,
                     reasonCode = "enqueue_scheduled",
                 )
+                readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
                 return workId
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -254,20 +256,30 @@ class TranscriptionQueueManager
                 val status = constraintChecker.checkConstraints()
                 _constraintWarning.value = constraintChecker.getConstraintMessage(status)
 
-                // Clear error and reset status
-                recordingRepository.updateStatusWithError(
-                    id = recordingId,
-                    status = RecordingStatus.PENDING_TRANSCRIPTION,
-                    errorMessage = null,
+                val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retry")
+                if (recordingRepository.hasUnresolvedEnhancementSnapshot(recordingId)) {
+                    val executionToken = UUID.randomUUID().toString()
+                    if (recordingRepository.claimEnhancementExecution(recordingId, executionToken)) {
+                        workScheduler.enqueueEnhancement(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                            correlationId = correlationId,
+                        )
+                    }
+                    return
+                }
+
+                warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+
+                val executionToken = UUID.randomUUID().toString()
+                recordingRepository.claimTranscriptionExecution(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
                 )
-
-                warmUpTranscriberIfNeeded()
-
-                // Re-enqueue for processing
-                TranscriptionWorkRequest.enqueue(
-                    context,
-                    recordingId,
-                    ReliabilityEventLogger.newCorrelationId("queue-retry"),
+                workScheduler.enqueueTranscription(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
+                    correlationId = correlationId,
                 )
             }
         }
@@ -288,7 +300,7 @@ class TranscriptionQueueManager
             )
         }
 
-        suspend fun recoverPendingEnhancement(recordingId: UUID): ManualRecoveryResult {
+        override suspend fun recoverPendingEnhancement(recordingId: UUID): ManualRecoveryResult {
             val recording =
                 recordingRepository.getRecording(recordingId)
                     ?: return ManualRecoveryResult.NOT_RECOVERABLE_STATE
@@ -333,6 +345,7 @@ class TranscriptionQueueManager
                 recordingId = recordingId,
                 status = RecordingStatus.PENDING_TRANSCRIPTION,
                 reason = "Queued full retranscription from enhancing",
+                supersedeEnhancement = true,
             )
         }
 
@@ -371,25 +384,34 @@ class TranscriptionQueueManager
             if (!transcriberProvider.isModelDownloaded()) {
                 return
             }
-            if (!warmUpTranscriberIfNeeded()) {
+            val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
+            val waitingForModel =
+                failed.filter {
+                    it.errorMessage?.startsWith("Model not downloaded") == true ||
+                        it.errorMessage?.startsWith("Failed to initialize") == true ||
+                        it.errorMessage?.startsWith("Speech model unavailable") == true ||
+                        it.errorMessage?.startsWith("Recognizer not ready") == true
+                }
+            if (waitingForModel.isEmpty()) {
+                return
+            }
+            if (!warmUpTranscriberIfNeeded(VerificationTrigger.RECOVERY)) {
                 Log.w(TAG, "Speech model files are ready but recognizer init is still unavailable")
                 return
             }
 
-            val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
-            failed.filter {
-                it.errorMessage?.startsWith("Model not downloaded") == true ||
-                    it.errorMessage?.startsWith("Failed to initialize") == true ||
-                    it.errorMessage?.startsWith("Speech model unavailable") == true ||
-                    it.errorMessage?.startsWith("Recognizer not ready") == true
-            }.forEach { recording ->
+            waitingForModel.forEach { recording ->
                 retry(recording.id)
             }
         }
 
-        private suspend fun warmUpTranscriberIfNeeded(): Boolean {
+        private suspend fun warmUpTranscriberIfNeeded(trigger: VerificationTrigger): Boolean {
             if (transcriberProvider.isReady()) {
                 return true
+            }
+            when (readinessGate.ensureReady(trigger)) {
+                is ModelReadyResult.Ready -> Unit
+                else -> return false
             }
             return transcriberProvider.initialize()
         }
@@ -404,9 +426,8 @@ class TranscriptionQueueManager
             val recording = recordingRepository.getRecording(recordingId)
 
             if (recording != null) {
-                // Cancel any pending work for this recording
-                workManager.cancelUniqueWork(TranscriptionWorkRequest.workName(recordingId))
-                workManager.cancelUniqueWork(RecordingEnhancementWorkRequest.workName(recordingId))
+                workScheduler.cancelTranscription(recordingId)
+                workScheduler.cancelEnhancement(recordingId)
 
                 // Mark as FAILED so it doesn't get automatically restarted by the reconciler
                 when (recording.status) {
@@ -447,6 +468,10 @@ class TranscriptionQueueManager
             reconciliationMutex.withLock {
                 queueReconciler.reconcileQueueHealth(ReconciliationTrigger.STARTUP)
             }
+            val pending = recordingRepository.getPendingRecordings()
+            if (pending.any { it.status == RecordingStatus.PENDING_TRANSCRIPTION }) {
+                readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+            }
             if (transcriberProvider.isModelDownloaded()) {
                 recoverRecordingsWaitingForModel()
             }
@@ -456,6 +481,7 @@ class TranscriptionQueueManager
             recordingId: UUID,
             status: RecordingStatus,
             reason: String,
+            supersedeEnhancement: Boolean = false,
         ): ManualRecoveryResult {
             val ownership = reconciliationMutex.withLock { queueReconciler.inspectQueueOwnership(recordingId) }
             val blockResult = blockedManualRecoveryResult(ownership)
@@ -466,17 +492,37 @@ class TranscriptionQueueManager
             val statusCheck = constraintChecker.checkConstraints()
             _constraintWarning.value = constraintChecker.getConstraintMessage(statusCheck)
 
-            recordingRepository.updateStatusWithError(
-                id = recordingId,
-                status = status,
-                errorMessage = buildManualRecoveryMessage(reason),
-            )
+            val executionToken = UUID.randomUUID().toString()
+            val manualRecoveryMessage = buildManualRecoveryMessage(reason)
+            when (status) {
+                RecordingStatus.PENDING_ENHANCEMENT -> {
+                    if (!recordingRepository.claimEnhancementExecution(recordingId, executionToken, status, manualRecoveryMessage)) {
+                        return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+                    }
+                }
+
+                else -> {
+                    if (supersedeEnhancement) {
+                        recordingRepository.deleteEnhancementSnapshot(recordingId)
+                    }
+                    recordingRepository.claimTranscriptionExecution(
+                        recordingId = recordingId,
+                        executionToken = executionToken,
+                        status = status,
+                        errorMessage = manualRecoveryMessage,
+                    )
+                }
+            }
 
             enqueueWorkForStatus(
                 recordingId = recordingId,
                 status = status,
+                executionToken = executionToken,
                 correlationId = ReliabilityEventLogger.newCorrelationId("queue-manual-recovery"),
             )
+            if (status == RecordingStatus.PENDING_TRANSCRIPTION) {
+                readinessGate.warmupIfNeeded(VerificationTrigger.RECOVERY)
+            }
 
             return ManualRecoveryResult.ENQUEUED
         }
@@ -484,20 +530,21 @@ class TranscriptionQueueManager
         private fun enqueueWorkForStatus(
             recordingId: UUID,
             status: RecordingStatus,
+            executionToken: String,
             correlationId: String,
         ): String =
             when (status) {
                 RecordingStatus.PENDING_ENHANCEMENT ->
-                    RecordingEnhancementWorkRequest.enqueue(
-                        context = context,
+                    workScheduler.enqueueEnhancement(
                         recordingId = recordingId,
+                        executionToken = executionToken,
                         correlationId = correlationId,
                     )
 
                 else ->
-                    TranscriptionWorkRequest.enqueue(
-                        context = context,
+                    workScheduler.enqueueTranscription(
                         recordingId = recordingId,
+                        executionToken = executionToken,
                         correlationId = correlationId,
                     )
             }

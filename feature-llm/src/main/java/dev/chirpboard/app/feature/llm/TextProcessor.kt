@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.llm
 
 import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.model.ProcessingModeDefaults
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
@@ -65,9 +66,21 @@ class TextProcessor
             text: String,
             mode: ProcessingMode,
         ): Result<String> {
-            val prompt = resolvePrompt(text, mode)
-            return llmClient.process(text, prompt)
+            return process(llmClient.createTranscriptContext(text), mode)
         }
+
+        suspend fun process(
+            context: TranscriptLlmContext,
+            mode: ProcessingMode,
+        ): Result<String> {
+            val prompt = resolvePrompt(context.transcript, mode)
+            return llmClient.process(context, prompt)
+        }
+
+        suspend fun resolvePromptForSnapshot(
+            text: String,
+            mode: ProcessingMode,
+        ): String? = resolvePrompt(text, mode)
 
         private suspend fun resolvePrompt(
             text: String,

@@ -1,14 +1,13 @@
 package dev.chirpboard.app.data.repository
 
-import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
+import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.db.AppDatabase
 import dev.chirpboard.app.data.entity.toEntity
 import dev.chirpboard.app.data.entity.toModel
-import dev.chirpboard.app.data.model.RecordingSource
-import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeSnapshot
 import io.mockk.coEvery
@@ -16,7 +15,6 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
@@ -26,7 +24,7 @@ class RecordingRepositoryTest {
     private lateinit var recordingDao: RecordingDao
     private lateinit var transcriptDao: TranscriptDao
     private lateinit var structuredOutcomeSnapshotDao: StructuredOutcomeSnapshotDao
-    private lateinit var enhancementIntentDao: RecordingEnhancementIntentDao
+    private lateinit var enhancementSnapshotDao: RecordingEnhancementSnapshotDao
     private lateinit var repository: RecordingRepository
 
     @Before
@@ -35,30 +33,15 @@ class RecordingRepositoryTest {
         recordingDao = mockk(relaxed = true)
         transcriptDao = mockk(relaxed = true)
         structuredOutcomeSnapshotDao = mockk(relaxed = true)
-        enhancementIntentDao = mockk(relaxed = true)
+        enhancementSnapshotDao = mockk(relaxed = true)
         repository =
             RecordingRepository(
                 database,
                 recordingDao,
                 transcriptDao,
                 structuredOutcomeSnapshotDao,
-                enhancementIntentDao,
+                enhancementSnapshotDao,
             )
-    }
-
-    @Test
-    fun `createRecording inserts and returns new recording`() = runTest {
-        val result = repository.createRecording(
-            title = "New Recording",
-            audioPath = "/path/to/audio",
-            source = RecordingSource.APP,
-            durationMs = 1000L
-        )
-        assertNotNull(result)
-        assertEquals("New Recording", result.title)
-        assertEquals(RecordingStatus.PENDING_TRANSCRIPTION, result.status)
-        assertEquals(1000L, result.durationMs)
-        coVerify(exactly = 1) { recordingDao.insert(any()) }
     }
 
     @Test
@@ -124,4 +107,24 @@ class RecordingRepositoryTest {
             )
         }
     }
+
+    @Test
+    fun `getTranscripts chunks large recording ID lists`() =
+        runTest {
+            val ids = List(1_005) { index ->
+                UUID.nameUUIDFromBytes("recording-$index".toByteArray())
+            }
+            coEvery { transcriptDao.getTranscripts(any()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                val batch = invocation.args[0] as List<UUID>
+                batch.map { recordingId ->
+                    Transcript(recordingId = recordingId, rawText = recordingId.toString())
+                }
+            }
+
+            val transcripts = repository.getTranscripts(ids)
+
+            assertEquals(ids.size, transcripts.size)
+            coVerify(exactly = 2) { transcriptDao.getTranscripts(any()) }
+        }
 }

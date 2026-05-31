@@ -15,6 +15,9 @@ interface GaplessSegmentCaptureEngine {
 
     fun stopAndFinalize(): File?
 
+    fun stopAndFinalizeBounded(timeoutMs: Long): CaptureStopResult =
+        BoundedCaptureStop.stop(this, timeoutMs)
+
     fun releaseWithoutSave()
 
     val maxAmplitude: Int

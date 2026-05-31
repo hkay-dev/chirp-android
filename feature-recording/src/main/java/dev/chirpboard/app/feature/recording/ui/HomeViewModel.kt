@@ -10,40 +10,43 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.llm.RecordingTextEnrichment
+import dev.chirpboard.app.core.playback.RecordingPlaybackController
+import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
-import dev.chirpboard.app.core.playback.RecordingPlaybackController
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.model.TranscriptPreview
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
-import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
 import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
-import dev.chirpboard.app.core.transcription.ManualRecoveryResult
-import dev.chirpboard.app.core.transcription.toUserMessage
-import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -98,6 +101,24 @@ data class HomeQuickStartEntry(
     val icon: String? = null,
     val isPinned: Boolean = false,
 )
+
+@androidx.compose.runtime.Stable
+data class RecordingPlaybackRowState(
+    val recordingId: UUID? = null,
+    val isPlaying: Boolean = false,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null,
+) {
+    fun isForRecording(recordingId: UUID): Boolean = this.recordingId == recordingId
+}
+
+internal fun RecordingPlaybackState.toHomeRowState(): RecordingPlaybackRowState =
+    RecordingPlaybackRowState(
+        recordingId = recordingId,
+        isPlaying = isPlaying,
+        isLoading = isLoading,
+        errorMessage = errorMessage,
+    )
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -180,20 +201,23 @@ class HomeViewModel
 
         private val recordingsWithTagsAndTranscripts: StateFlow<List<RecordingDisplayItem>> =
             filteredRecordings
-                .map { recordings ->
-                    withContext(Dispatchers.IO) {
-                        val recordingIds = recordings.map(Recording::id)
-                        val tagsByRecordingId = tagRepository.getTagsForRecordingIds(recordingIds)
-                        val transcriptsByRecordingId = recordingRepository.getTranscripts(recordingIds)
-
-                        recordings.map { recording ->
-                            val tags = tagsByRecordingId[recording.id].orEmpty()
-                            val transcript = transcriptsByRecordingId[recording.id]
-                            RecordingDisplayItem(
-                                recording = recording,
-                                tags = tags.toImmutableList(),
-                                summary =
-                                    transcript?.summary ?: transcript?.effectiveText?.take(120),
+                .flatMapLatest { recordings ->
+                    val recordingIds = recordings.map(Recording::id)
+                    if (recordingIds.isEmpty()) {
+                        flowOf(emptyList())
+                    } else {
+                        combine(
+                            tagRepository
+                                .getTagsForRecordingIdsFlow(recordingIds)
+                                .unwrapRepositoryFlow { _errorMessage.value = it },
+                            recordingRepository
+                                .getTranscriptPreviewsFlow(recordingIds, HOME_TRANSCRIPT_PREVIEW_LIMIT)
+                                .unwrapRepositoryFlow { _errorMessage.value = it },
+                        ) { tagsByRecordingId, previewsByRecordingId ->
+                            buildRecordingDisplayItems(
+                                recordings = recordings,
+                                tagsByRecordingId = tagsByRecordingId,
+                                previewsByRecordingId = previewsByRecordingId,
                             )
                         }
                     }
@@ -242,8 +266,7 @@ class HomeViewModel
             allDisplayItems
                 .map { items ->
                     items.count { item ->
-                        item.status == RecordingStatus.PENDING_TRANSCRIPTION ||
-                            item.status == RecordingStatus.ENHANCING
+                        isProcessingOrStuckStatus(item.status)
                     }
                 }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
@@ -272,7 +295,13 @@ class HomeViewModel
 
         private val _recoverableSessions = sessionRecovery.actionablePendingSessions
         val recoverableSessions: StateFlow<List<RecoverableRecordingSession>> = _recoverableSessions
-        val playbackState: StateFlow<dev.chirpboard.app.core.playback.RecordingPlaybackState> = playbackController.state
+        val playbackState: StateFlow<RecordingPlaybackState> = playbackController.state
+        val playbackRowState: StateFlow<RecordingPlaybackRowState> =
+            playbackController
+                .state
+                .map(RecordingPlaybackState::toHomeRowState)
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingPlaybackRowState())
 
         init {
             refreshRecoverableSessions()
@@ -505,6 +534,10 @@ class HomeViewModel
                             transcriptionRecovery.recoverPendingTranscription(recording.id)
                         }
 
+                        RecordingStatus.PENDING_ENHANCEMENT -> {
+                            transcriptionRecovery.recoverPendingEnhancement(recording.id)
+                        }
+
                         RecordingStatus.ENHANCING -> {
                             transcriptionRecovery.recoverEnhancing(recording.id)
                         }
@@ -667,6 +700,23 @@ internal fun isHomeListProcessingItem(
             recording.status == RecordingStatus.RECORDING &&
                 shouldShowRecordingOnHomeList(recording, recordingState)
         )
+
+internal fun buildRecordingDisplayItems(
+    recordings: List<Recording>,
+    tagsByRecordingId: Map<UUID, List<Tag>>,
+    previewsByRecordingId: Map<UUID, TranscriptPreview>,
+): List<RecordingDisplayItem> =
+    recordings.map { recording ->
+        val tags = tagsByRecordingId[recording.id].orEmpty()
+        val transcriptPreview = previewsByRecordingId[recording.id]
+        RecordingDisplayItem(
+            recording = recording,
+            tags = tags.toImmutableList(),
+            summary = transcriptPreview?.summary ?: transcriptPreview?.previewText,
+        )
+    }
+
+private const val HOME_TRANSCRIPT_PREVIEW_LIMIT = 120
 
 internal fun deriveHomeQuickStarts(
     profiles: List<Profile>,

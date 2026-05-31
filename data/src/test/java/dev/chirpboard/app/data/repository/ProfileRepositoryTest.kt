@@ -12,6 +12,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.UUID
 
 class ProfileRepositoryTest {
     private lateinit var profileDao: ProfileDao
@@ -32,7 +33,7 @@ class ProfileRepositoryTest {
             assertEquals("New Profile", result.name)
             assertEquals(6, result.sortOrder)
             assertFalse(result.isQuickStartPinned)
-            coVerify(exactly = 1) { profileDao.insert(any()) }
+            coVerify(exactly = 1) { profileDao.insertWithDefaultTags(any(), emptyList()) }
         }
 
     @Test
@@ -50,9 +51,32 @@ class ProfileRepositoryTest {
 
             assertTrue(result.isQuickStartPinned)
             coVerify {
-                profileDao.insert(match<Profile> {
-                    it.name == "Pinned Profile" && it.isQuickStartPinned
-                })
+                profileDao.insertWithDefaultTags(
+                    match<Profile> {
+                        it.name == "Pinned Profile" && it.isQuickStartPinned
+                    },
+                    emptyList(),
+                )
             }
+        }
+
+    @Test
+    fun `getProfiles chunks large ID lists`() =
+        runTest {
+            val ids = List(1_005) { index ->
+                UUID.nameUUIDFromBytes("profile-$index".toByteArray())
+            }
+            coEvery { profileDao.getProfiles(any()) } answers {
+                @Suppress("UNCHECKED_CAST")
+                val batch = invocation.args[0] as List<UUID>
+                batch.map { id ->
+                    Profile(id = id, name = id.toString())
+                }
+            }
+
+            val profiles = repository.getProfiles(ids)
+
+            assertEquals(ids.size, profiles.size)
+            coVerify(exactly = 2) { profileDao.getProfiles(any()) }
         }
 }

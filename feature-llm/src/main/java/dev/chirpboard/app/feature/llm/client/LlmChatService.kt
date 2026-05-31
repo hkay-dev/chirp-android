@@ -59,6 +59,32 @@ class LlmChatService
                 }
             }
 
+        suspend fun completePrompt(
+            providerId: String?,
+            modelId: String?,
+            prompt: String,
+        ): Result<String> =
+            withContext(Dispatchers.IO) {
+                val provider = LlmProvider.fromId(providerId)
+                val apiKey = preferences.fetchApiKeyFor(provider)?.trim().orEmpty()
+                val model = modelId?.takeIf { it.isNotBlank() } ?: preferences.getModelFor(provider)
+                if (apiKey.isBlank()) {
+                    return@withContext Result.failure(
+                        Exception("API key not configured. Add your ${provider.displayName} key in Settings."),
+                    )
+                }
+
+                executeWithRetry(provider.displayName) {
+                    when (provider) {
+                        LlmProvider.GEMINI -> completeGeminiPrompt(apiKey, model, prompt)
+                        LlmProvider.ANTHROPIC -> completeAnthropicPrompt(apiKey, model, prompt)
+                        LlmProvider.OPENAI -> completeOpenAiCompatiblePrompt(OPENAI_CHAT_URL, apiKey, model, prompt)
+                        LlmProvider.GROQ -> completeOpenAiCompatiblePrompt(GROQ_CHAT_URL, apiKey, model, prompt)
+                        LlmProvider.CEREBRAS -> completeOpenAiCompatiblePrompt(CEREBRAS_CHAT_URL, apiKey, model, prompt)
+                    }
+                }
+            }
+
         suspend fun completeChat(
             systemPrompt: String,
             messages: List<ChatMessage>,

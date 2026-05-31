@@ -5,7 +5,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
@@ -39,7 +38,7 @@ class RecordingListItemProgressTest {
             MaterialTheme {
                 RecordingListItem(
                     item = item,
-                    playbackState = RecordingPlaybackState(),
+                    playbackState = RecordingPlaybackRowState(),
                     recordingState = RecordingState.Idle,
                     onClick = {},
                     onPlayClick = {},

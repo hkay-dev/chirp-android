@@ -1,10 +1,10 @@
 package dev.chirpboard.app.feature.keyboard.session
 
 import androidx.annotation.StringRes
+import dev.chirpboard.app.core.llm.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.feature.keyboard.R
-import dev.chirpboard.app.feature.llm.model.ProcessingMode
-import dev.chirpboard.app.feature.llm.model.ProcessingModeListItem
 
 enum class VoicePanelPhase {
     Idle,

@@ -3,9 +3,9 @@ package dev.chirpboard.app.feature.llm.settings
 import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -22,7 +22,7 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LlmSettingsViewModelTest {
-    private lateinit var preferences: LlmPreferences
+    private lateinit var preferences: LlmSettingsStore
     private lateinit var backupManager: LlmApiKeyBackupManager
     private lateinit var llmClient: LlmClient
     private lateinit var viewModel: LlmSettingsViewModel
@@ -36,9 +36,7 @@ class LlmSettingsViewModelTest {
         every { preferences.getActiveProvider() } returns LlmProvider.GEMINI
         every { preferences.getModelFor(LlmProvider.GEMINI) } returns DEFAULT_GEMINI_MODEL
         every { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns "initial-key"
-        every { preferences.fetchApiKey() } returns "initial-key"
         every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
-        every { preferences.hasApiKey() } returns true
         every { preferences.isSecureStorageAvailable() } returns true
         every { preferences.countConfiguredApiKeys() } returns 1
         coEvery { preferences.getAutoTitle() } returns false
@@ -77,7 +75,7 @@ class LlmSettingsViewModelTest {
             assertEquals("new-key", state.apiKey)
             assertTrue(state.isKeyConfigured)
 
-            coVerify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
+            verify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
         }
 
     @Test
@@ -100,7 +98,7 @@ class LlmSettingsViewModelTest {
             viewModel.saveApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "saved-key") }
+            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "saved-key") }
         }
 
     @Test
@@ -110,7 +108,7 @@ class LlmSettingsViewModelTest {
             viewModel.clearApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
+            verify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
             assertEquals("", viewModel.uiState.value.apiKey)
         }
 
@@ -132,12 +130,12 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
             every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any(), any()) } returns Result.success("OK")
+            coEvery { llmClient.process(any<String>(), any<String>()) } returns Result.success("OK")
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "valid-key") }
+            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "valid-key") }
             val result = viewModel.uiState.value.connectionTestResult
             assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Success)
         }
@@ -146,7 +144,7 @@ class LlmSettingsViewModelTest {
     fun `testConnection failure`() =
         runTest {
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any(), any()) } returns Result.failure(Exception("Network Error"))
+            coEvery { llmClient.process(any<String>(), any<String>()) } returns Result.failure(Exception("Network Error"))
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -162,7 +160,7 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
             every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any(), any()) } returns Result.success("OK")
+            coEvery { llmClient.process(any<String>(), any<String>()) } returns Result.success("OK")
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 

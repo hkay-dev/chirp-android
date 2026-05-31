@@ -29,7 +29,12 @@ import kotlinx.coroutines.withContext
 import java.io.Closeable
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.recording.WaveformBuffer
+import java.io.BufferedOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -62,6 +67,7 @@ class VoiceRecorder(
     private val context: Context,
     private val coroutineScope: CoroutineScope,
     private val inputDeviceSelector: AudioInputDeviceSelector? = null,
+    private val captureStorageMode: CaptureStorageMode = CaptureStorageMode.InMemory,
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -76,10 +82,23 @@ class VoiceRecorder(
         private const val INITIAL_SAMPLE_CAPACITY = SAMPLE_RATE * 60
     }
 
+    enum class CaptureStorageMode {
+        InMemory,
+        FileBacked,
+    }
+
+    data class CapturedPcmFloatFile(
+        val file: File,
+        val sampleRate: Int,
+        val sampleCount: Int,
+    )
+
     private var audioRecord: AudioRecord? = null
     private val isRecording = AtomicBoolean(false)
     private var samples = FloatArray(INITIAL_SAMPLE_CAPACITY) // Pre-allocate 1 min
     private var sampleCount = 0
+    private var sampleFile: File? = null
+    private var sampleOutput: BufferedOutputStream? = null
     private val sampleLock = Any()
 
     // Synchronization for race condition between start() and collectSamples()
@@ -173,6 +192,12 @@ class VoiceRecorder(
 
                 synchronized(sampleLock) {
                     sampleCount = 0
+                    resetFileBackedCaptureLocked(deleteExisting = true)
+                    if (captureStorageMode == CaptureStorageMode.FileBacked) {
+                        val captureFile = createCaptureFile()
+                        sampleFile = captureFile
+                        sampleOutput = BufferedOutputStream(FileOutputStream(captureFile))
+                    }
                 }
                 waveformBuffer.clear()
                 _sampleCountFlow.value = 0L
@@ -189,6 +214,9 @@ class VoiceRecorder(
                 Log.e(TAG, "Failed to start recording", e)
                 audioRecord?.release()
                 audioRecord = null
+                synchronized(sampleLock) {
+                    resetFileBackedCaptureLocked(deleteExisting = true)
+                }
                 recordingReady.completeExceptionally(e)
                 false
             }
@@ -247,23 +275,36 @@ class VoiceRecorder(
                     readResult > 0 -> {
                         // Normal case - process samples
                         synchronized(sampleLock) {
-                            if (sampleCount + readResult > samples.size) {
-                                if (samples.size < MAX_SAMPLE_CAPACITY) {
-                                    samples = samples.copyOf(minOf(MAX_SAMPLE_CAPACITY, maxOf(samples.size * 2, sampleCount + readResult)))
-                                }
-                            }
-                            
-                            val spaceLeft = samples.size - sampleCount
+                            val spaceLeft = MAX_SAMPLE_CAPACITY - sampleCount
                             val toProcess = minOf(readResult, spaceLeft)
-                            
+
                             if (toProcess > 0) {
-                                for (i in 0 until toProcess) {
-                                    // Apply gain boost and clamp to prevent distortion
-                                    val boostedSample = (buffer[i] * gainMultiplier).coerceIn(-1f, 1f)
-                                    samples[sampleCount++] = boostedSample
+                                when (captureStorageMode) {
+                                    CaptureStorageMode.InMemory -> {
+                                        if (sampleCount + toProcess > samples.size) {
+                                            if (samples.size < MAX_SAMPLE_CAPACITY) {
+                                                samples =
+                                                    samples.copyOf(
+                                                        minOf(
+                                                            MAX_SAMPLE_CAPACITY,
+                                                            maxOf(samples.size * 2, sampleCount + toProcess),
+                                                        ),
+                                                    )
+                                            }
+                                        }
+
+                                        for (i in 0 until toProcess) {
+                                            samples[sampleCount + i] = boostedSample(buffer[i])
+                                        }
+                                    }
+
+                                    CaptureStorageMode.FileBacked -> {
+                                        writeFloatSamplesLocked(buffer, toProcess)
+                                    }
                                 }
+                                sampleCount += toProcess
                             }
-                            
+
                             if (sampleCount >= MAX_SAMPLE_CAPACITY && isRecording.get()) {
                                 isRecording.set(false)
                                 onLimitReached?.invoke()
@@ -284,13 +325,15 @@ class VoiceRecorder(
         }
 
     fun stop(): FloatArray {
-        isRecording.set(false)
+        val durationMs = stopAudioRecord()
 
-        val durationMs = System.currentTimeMillis() - recordingStartTimeMs
-
-        audioRecord?.stop()
-        audioRecord?.release()
-        audioRecord = null
+        if (captureStorageMode == CaptureStorageMode.FileBacked) {
+            synchronized(sampleLock) {
+                resetFileBackedCaptureLocked(deleteExisting = true)
+                sampleCount = 0
+            }
+            return FloatArray(0)
+        }
 
         // Check for too-short recording
         if (durationMs < MINIMUM_RECORDING_MS) {
@@ -309,11 +352,98 @@ class VoiceRecorder(
         }
     }
 
+    fun stopToFileBacked(): CapturedPcmFloatFile? {
+        val durationMs = stopAudioRecord()
+
+        if (captureStorageMode != CaptureStorageMode.FileBacked) {
+            return null
+        }
+
+        return synchronized(sampleLock) {
+            closeSampleOutputLocked()
+            val file = sampleFile
+            val count = sampleCount
+            sampleFile = null
+            sampleCount = 0
+
+            if (durationMs < MINIMUM_RECORDING_MS || count <= 0 || file == null) {
+                if (durationMs < MINIMUM_RECORDING_MS) {
+                    Log.w(TAG, "Recording too short: ${durationMs}ms")
+                    onRecordingError?.invoke(RecordingError.TooShort)
+                }
+                runCatching { file?.delete() }
+                null
+            } else {
+                CapturedPcmFloatFile(
+                    file = file,
+                    sampleRate = SAMPLE_RATE,
+                    sampleCount = count,
+                )
+            }
+        }
+    }
+
+    fun cancelCapture() {
+        stopAudioRecord()
+        synchronized(sampleLock) {
+            sampleCount = 0
+            resetFileBackedCaptureLocked(deleteExisting = true)
+            if (samples.size != INITIAL_SAMPLE_CAPACITY) {
+                samples = FloatArray(INITIAL_SAMPLE_CAPACITY)
+            }
+        }
+    }
+
     fun isRecording(): Boolean = isRecording.get()
 
     override fun close() {
         scope.cancel()
+        synchronized(sampleLock) {
+            resetFileBackedCaptureLocked(deleteExisting = true)
+        }
         audioRecord?.release()
         audioRecord = null
+    }
+
+    private fun stopAudioRecord(): Long {
+        isRecording.set(false)
+        val durationMs = System.currentTimeMillis() - recordingStartTimeMs
+        runCatching { audioRecord?.stop() }
+        audioRecord?.release()
+        audioRecord = null
+        return durationMs
+    }
+
+    private fun boostedSample(sample: Float): Float = (sample * gainMultiplier).coerceIn(-1f, 1f)
+
+    private fun createCaptureFile(): File {
+        val dir = File(context.cacheDir, "keyboard-capture").apply { mkdirs() }
+        return File.createTempFile("dictation-", ".f32pcm", dir)
+    }
+
+    private fun writeFloatSamplesLocked(
+        buffer: FloatArray,
+        count: Int,
+    ) {
+        val output = sampleOutput ?: return
+        val byteBuffer = ByteBuffer.allocate(count * java.lang.Float.BYTES).order(ByteOrder.LITTLE_ENDIAN)
+        for (index in 0 until count) {
+            byteBuffer.putFloat(boostedSample(buffer[index]))
+        }
+        output.write(byteBuffer.array())
+    }
+
+    private fun resetFileBackedCaptureLocked(deleteExisting: Boolean) {
+        closeSampleOutputLocked()
+        if (deleteExisting) {
+            runCatching { sampleFile?.delete() }
+        }
+        sampleFile = null
+    }
+
+    private fun closeSampleOutputLocked() {
+        runCatching { sampleOutput?.flush() }
+        runCatching { sampleOutput?.close() }
+        sampleOutput = null
     }
 }

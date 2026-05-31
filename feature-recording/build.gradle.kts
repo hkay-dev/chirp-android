@@ -32,6 +32,7 @@ android {
 dependencies {
     // Internal modules
     implementation(project(":core-audio"))
+    implementation(project(":core-recording-runtime"))
     implementation(project(":core-ui"))
     implementation(project(":core-playback"))
     implementation(project(":data"))

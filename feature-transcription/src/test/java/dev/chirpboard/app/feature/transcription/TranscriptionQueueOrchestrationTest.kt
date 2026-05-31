@@ -1,31 +1,25 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import com.google.common.util.concurrent.Futures
-import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
-import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
-import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
-import dev.chirpboard.app.data.entity.Recording
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
-import io.mockk.unmockkObject
-import io.mockk.just
 import io.mockk.runs
+import io.mockk.unmockkObject
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
-import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import org.junit.Test
 import java.util.Date
 import java.util.UUID
@@ -35,29 +29,16 @@ class TranscriptionQueueOrchestrationTest {
     val androidLog = MockAndroidLogRule()
 
 
-    private lateinit var context: Context
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var constraintChecker: WorkConstraintChecker
-    private lateinit var manager: TranscriptionQueueManager
-    private lateinit var workManager: WorkManager
     private lateinit var reconciler: TranscriptionQueueReconciler
+    private lateinit var workScheduler: FakeTranscriptionWorkScheduler
 
     @Before
     fun setup() {
-        context = mockk(relaxed = true)
         recordingRepository = mockk(relaxed = true)
         constraintChecker = mockk(relaxed = true)
-        workManager = mockk(relaxed = true)
-
-        io.mockk.mockkStatic(WorkManager::class)
-        every { WorkManager.getInstance(any()) } returns workManager
-
-        mockkObject(TranscriptionWorkRequest)
-        every { TranscriptionWorkRequest.enqueue(any(), any(), any()) } returns "test-work-id"
-        every { TranscriptionWorkRequest.workName(any()) } answers { "transcribe_${arg<UUID>(0)}" }
-        mockkObject(RecordingEnhancementWorkRequest)
-        every { RecordingEnhancementWorkRequest.enqueue(any(), any(), any()) } returns "test-enhancement-work-id"
-        every { RecordingEnhancementWorkRequest.workName(any()) } answers { "enhance_${arg<UUID>(0)}" }
+        workScheduler = FakeTranscriptionWorkScheduler()
 
         mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
@@ -65,22 +46,19 @@ class TranscriptionQueueOrchestrationTest {
 
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
-        every { workManager.getWorkInfosByTag(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION) } returns Futures.immediateFuture(emptyList())
-        every { workManager.getWorkInfosByTag(RecordingEnhancementWorkRequest.WORK_TAG_ENHANCEMENT) } returns Futures.immediateFuture(emptyList())
 
-        val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
-        every { readinessGate.state } returns kotlinx.coroutines.flow.MutableStateFlow(ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE))
-        manager = TranscriptionQueueManager(context, recordingRepository, constraintChecker, mockk(relaxed = true), readinessGate)
-        reconciler = TranscriptionQueueReconciler(
-            context, recordingRepository, constraintChecker, {}, {}
-        )
+        reconciler =
+            TranscriptionQueueReconciler(
+                recordingRepository = recordingRepository,
+                constraintChecker = constraintChecker,
+                workScheduler = workScheduler,
+                setConstraintWarning = {},
+                setActiveCount = {},
+            )
     }
 
     @After
     fun tearDown() {
-        io.mockk.unmockkStatic(WorkManager::class)
-        unmockkObject(TranscriptionWorkRequest)
-        unmockkObject(RecordingEnhancementWorkRequest)
         unmockkObject(ReliabilityEventLogger)
     }
 
@@ -98,9 +76,8 @@ class TranscriptionQueueOrchestrationTest {
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(emptyList()))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
 
-        val workInfo = mockk<WorkInfo>()
-        every { workInfo.state } returns WorkInfo.State.FAILED
-        every { workManager.getWorkInfosForUniqueWork(any()) } returns Futures.immediateFuture(listOf(workInfo))
+        workScheduler.uniqueWorkInfos[TranscriptionWorkRequest.workName(id)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.FAILED))
 
         reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
 
@@ -122,15 +99,12 @@ class TranscriptionQueueOrchestrationTest {
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(emptyList()))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
 
-        val workInfo = mockk<WorkInfo>()
-        every { workInfo.state } returns WorkInfo.State.CANCELLED
-        every { workManager.getWorkInfosForUniqueWork(any()) } returns Futures.immediateFuture(listOf(workInfo))
+        workScheduler.uniqueWorkInfos[TranscriptionWorkRequest.workName(id)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.CANCELLED))
 
         reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
 
-        coVerify {
-            TranscriptionWorkRequest.enqueue(context, id, any())
-        }
+        assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test
@@ -146,14 +120,12 @@ class TranscriptionQueueOrchestrationTest {
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(listOf(pendingRecording)))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
 
-        val workInfo = mockk<WorkInfo>()
-        every { workInfo.state } returns WorkInfo.State.CANCELLED
-        every { workManager.getWorkInfosForUniqueWork("enhance_$id") } returns Futures.immediateFuture(listOf(workInfo))
+        coEvery { recordingRepository.claimEnhancementExecution(id, any(), any(), any()) } returns true
+        workScheduler.uniqueWorkInfos[RecordingEnhancementWorkRequest.workName(id)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.CANCELLED))
 
         reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
 
-        coVerify {
-            RecordingEnhancementWorkRequest.enqueue(context, id, any())
-        }
+        assertEquals(listOf(RecordingEnhancementWorkRequest.workName(id)), workScheduler.enhancements.map { it.workName })
     }
 }

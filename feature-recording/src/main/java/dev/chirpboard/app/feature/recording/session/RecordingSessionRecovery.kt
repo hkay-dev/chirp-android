@@ -157,19 +157,23 @@ class RecordingSessionRecovery
 
                 return@withContext try {
                     val recording =
-                        entry.recordingId?.let { inProgressId ->
+                        if (entry.recordingId != null) {
                             recordingRepository.finalizeInProgressRecording(
-                                recordingId = inProgressId,
+                                recordingId = entry.recordingId,
                                 durationMs = durationMs,
                                 title = title,
+                            ) ?: return@withContext SessionRecoveryResult.Failed(
+                                "Linked recording could not be finalized",
                             )
-                        } ?: recordingRepository.createRecording(
-                            title = title,
-                            audioPath = exportFile.absolutePath,
-                            source = source,
-                            profileId = entry.profileId,
-                            durationMs = durationMs,
-                        )
+                        } else {
+                            recordingRepository.createRecording(
+                                title = title,
+                                audioPath = exportFile.absolutePath,
+                                source = source,
+                                profileId = entry.profileId,
+                                durationMs = durationMs,
+                            )
+                        }
 
                     ReliabilityEventLogger.log(
                         stage = ReliabilityStage.PERSISTENCE_SAVE,
@@ -210,7 +214,7 @@ class RecordingSessionRecovery
         suspend fun discardSession(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
-                entry?.recordingId?.let { recordingRepository.deleteInProgressRecording(it) }
+                entry?.recordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
                 entry?.let { deleteSessionArtifacts(it) }
                 sessionJournal.markFinalized(sessionId)
                 SessionRecoveryResult.Discarded
@@ -221,7 +225,7 @@ class RecordingSessionRecovery
                 val entry = sessionJournal.findBySessionId(sessionId)
                 if (entry != null) {
                     protectedPathsStore.protect(sessionJournal.referencedPathsFor(entry))
-                    entry.recordingId?.let { recordingRepository.deleteInProgressRecording(it) }
+                    entry.recordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
                     sessionJournal.markFinalized(sessionId)
                 }
                 SessionRecoveryResult.Kept

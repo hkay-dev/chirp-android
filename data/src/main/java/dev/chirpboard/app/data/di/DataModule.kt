@@ -9,6 +9,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
+import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TagDao
@@ -55,6 +56,10 @@ object DataModule {
     @Provides
     fun provideRecordingEnhancementIntentDao(database: AppDatabase): RecordingEnhancementIntentDao =
         database.recordingEnhancementIntentDao()
+
+    @Provides
+    fun provideRecordingEnhancementSnapshotDao(database: AppDatabase): RecordingEnhancementSnapshotDao =
+        database.recordingEnhancementSnapshotDao()
 
     @Provides
     fun provideWordReplacementDao(database: AppDatabase): WordReplacementDao = database.wordReplacementDao()

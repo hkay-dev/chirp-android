@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.Date
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -99,9 +100,36 @@ class RecordingDaoTest {
         dao.insert(inProgress)
         dao.insert(completed)
 
-        val results = dao.searchRecordings("Live").first()
+        val results = dao.searchRecordings("Live", limit = 10).first()
 
         assertEquals(1, results.size)
         assertEquals(completed.id, results.single().id)
+    }
+
+    @Test
+    fun searchRecordings_appliesLimitAndStableOrdering() = runTest {
+        val ids =
+            listOf(
+                UUID.fromString("00000000-0000-0000-0000-000000000001"),
+                UUID.fromString("00000000-0000-0000-0000-000000000002"),
+                UUID.fromString("00000000-0000-0000-0000-000000000003"),
+            )
+        ids.forEach { id ->
+            dao.insert(
+                Recording(
+                    id = id,
+                    title = "Match note",
+                    audioPath = "/tmp/$id.m4a",
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                    createdAt = Date(1_000L),
+                ),
+            )
+        }
+
+        val results = dao.searchRecordings("Match", limit = 2).first()
+
+        assertEquals(2, results.size)
+        assertEquals(ids.take(2), results.map { it.id })
     }
 }
