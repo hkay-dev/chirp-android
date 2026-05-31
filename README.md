@@ -22,7 +22,7 @@ Chirp is a personal project I'm building while I learn more Android development.
   <sub>Screenshot placeholders: home, processing studio, and keyboard voice input.</sub>
 </div>
 
-## Why I Started It
+## Why
 
 I love apps like VoiceInk, TypeWhisper, Spokenly, and Superwhisper. A big part of the appeal is that they make excellent speech-to-text feel close at hand, especially with the NVIDIA Parakeet STT model in the mix.
 
@@ -32,15 +32,7 @@ Chirp didn't start with all of that figured out. It first started as a recording
 
 There isn't local LLM support yet. For now, transcription is the offline part, and LLM features are optional API-based processing on top.
 
-<div align="center">
-
-| Capture | Transcribe | Shape | Type |
-| --- | --- | --- | --- |
-| Record voice notes | Run speech-to-text locally | Optionally clean up with an API LLM | Use Chirp as a voice input method |
-
-</div>
-
-## What It Does
+## Features
 
 Chirp is meant for the moments when typing is too slow or too fussy. Record something, let the app transcribe it locally, then decide what to do with it afterward.
 
@@ -54,13 +46,27 @@ Chirp is meant for the moments when typing is too slow or too fussy. Record some
 - Export transcripts to Obsidian as Markdown.
 - Optionally use AI processing to clean up, summarize, title, or work with transcript text.
 
-## Input Method Support
+## Details
+
+A little more concretely, the app currently includes:
+
+- Foreground recording services for long-running capture.
+- Recovery handling for interrupted recordings.
+- On-device model download and readiness checks.
+- Background transcription work through WorkManager.
+- Word-level timing support when the recognizer provides it.
+- Recording playback through a shared Media3 playback service.
+- Room-backed local storage for recordings, transcripts, tags, profiles, word replacements, and structured processing results.
+- Profile-level settings for transcription, AI processing, Obsidian export, and audio behavior.
+- API-based LLM features for title generation, summaries, transcript cleanup, passage tools, structured outcomes, and recording-aware chat.
+
+## IME
 
 Chirp can be used as its own dedicated Android input method through **Chirp Voice**. The idea is simple: switch to the keyboard, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
 
 It can also work as a triggered speech recognition service from compatible keyboards and apps that let you choose which speech-to-text app handles voice input. SwiftKey supports this kind of flow. Gboard, sadly, does not currently expose that same choice.
 
-## What Powers It
+## Stack
 
 The app is built as a Kotlin Android project with Jetpack Compose and a modular feature layout. Under the hood it uses:
 
@@ -74,7 +80,7 @@ The app is built as a Kotlin Android project with Jetpack Compose and a modular 
 
 The local transcription piece is the heart of the project. AI processing is optional and sits on top of the transcript when I want extra help shaping the text.
 
-## Development Notes
+## Notes
 
 This isn't a polished product from a team. It's a working personal app, and it's also a learning project.
 
@@ -83,7 +89,7 @@ This isn't a polished product from a team. It's a working personal app, and it's
 - This project is 100% co-developed with various LLMs. I use them to help me reason through architecture, UI, Kotlin, tests, debugging, and cleanup.
 - Some parts are more mature than others, and the repo will probably keep changing as I learn better ways to build it.
 
-## Current Focus
+## Focus
 
 Right now, I care most about making Chirp reliable for everyday capture:
 
