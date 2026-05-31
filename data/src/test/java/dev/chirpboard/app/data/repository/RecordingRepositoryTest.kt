@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.repository
 
+import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TranscriptDao
@@ -25,6 +26,7 @@ class RecordingRepositoryTest {
     private lateinit var recordingDao: RecordingDao
     private lateinit var transcriptDao: TranscriptDao
     private lateinit var structuredOutcomeSnapshotDao: StructuredOutcomeSnapshotDao
+    private lateinit var enhancementIntentDao: RecordingEnhancementIntentDao
     private lateinit var repository: RecordingRepository
 
     @Before
@@ -33,7 +35,15 @@ class RecordingRepositoryTest {
         recordingDao = mockk(relaxed = true)
         transcriptDao = mockk(relaxed = true)
         structuredOutcomeSnapshotDao = mockk(relaxed = true)
-        repository = RecordingRepository(database, recordingDao, transcriptDao, structuredOutcomeSnapshotDao)
+        enhancementIntentDao = mockk(relaxed = true)
+        repository =
+            RecordingRepository(
+                database,
+                recordingDao,
+                transcriptDao,
+                structuredOutcomeSnapshotDao,
+                enhancementIntentDao,
+            )
     }
 
     @Test

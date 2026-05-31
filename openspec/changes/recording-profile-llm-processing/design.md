@@ -16,10 +16,9 @@ The transform runs before title and summary generation so metadata is based on t
 
 ## Non-goals
 
-- Splitting transcription and enhancement into separate workers.
 - Adding a network constraint to the transcription worker.
 - Changing inline dictation behavior.
 
-## Follow-up
+## Follow-up Status
 
-Network-backed enhancement still shares a worker with offline transcription. A separate enhancement worker would let offline transcription complete immediately and defer only LLM work until network is available.
+`split-transcription-enhancement-work` separates network-backed enhancement into dedicated WorkManager work while keeping the profile policy defined here.

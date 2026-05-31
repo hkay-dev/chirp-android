@@ -27,25 +27,19 @@ internal class TranscriptionQueueReconciler(
     private val setActiveCount: (Int) -> Unit
 ) {
     private val workManager: WorkManager by lazy { WorkManager.getInstance(context) }
-    private var ownershipCache: Map<UUID, QueueOwnership>? = null
 
     suspend fun reconcileQueueHealth(trigger: ReconciliationTrigger) {
         Log.i(TAG, "Running queue reconciliation. trigger=$trigger")
 
-        ownershipCache = buildOwnershipCache()
-        try {
-            recoverStaleTranscribing(trigger)
-            recoverStaleEnhancing(trigger)
-            reconcilePendingQueueOwnership()
-            updateActiveCount()
+        recoverStaleTranscribing(trigger)
+        recoverStaleEnhancing(trigger)
+        reconcilePendingQueueOwnership()
+        updateActiveCount()
 
-            val pending = loadPendingRecordings()
-            if (pending.isNotEmpty()) {
-                val status = constraintChecker.checkConstraints()
-                setConstraintWarning(constraintChecker.getConstraintMessage(status))
-            }
-        } finally {
-            ownershipCache = null
+        val pending = loadPendingRecordings()
+        if (pending.isNotEmpty()) {
+            val status = constraintChecker.checkConstraints()
+            setConstraintWarning(constraintChecker.getConstraintMessage(status))
         }
     }
 
@@ -79,7 +73,7 @@ internal class TranscriptionQueueReconciler(
             .firstValueOrLog("TRANSCRIBING")
 
         transcribing.forEach { recording ->
-            val ownership = inspectQueueOwnership(recording.id)
+            val ownership = inspectQueueOwnership(recording)
             val shouldRecover = shouldRecoverStaleTranscribing(
                 trigger = trigger,
                 createdAtEpochMs = recording.createdAt.time,
@@ -107,7 +101,7 @@ internal class TranscriptionQueueReconciler(
             .firstValueOrLog("ENHANCING")
 
         enhancing.forEach { recording ->
-            val ownership = inspectQueueOwnership(recording.id)
+            val ownership = inspectQueueOwnership(recording)
             val shouldRecover = shouldRecoverStaleEnhancing(
                 trigger = trigger,
                 createdAtEpochMs = recording.createdAt.time,
@@ -121,7 +115,7 @@ internal class TranscriptionQueueReconciler(
                 Log.w(TAG, "Recovering stale ENHANCING recording ${recording.id}")
                 recordingRepository.updateStatusWithError(
                     id = recording.id,
-                    status = RecordingStatus.FAILED,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
                     errorMessage = reason
                 )
             }
@@ -130,15 +124,14 @@ internal class TranscriptionQueueReconciler(
 
     private suspend fun reconcilePendingQueueOwnership() {
         loadPendingRecordings().forEach { recording ->
-            val ownership = inspectQueueOwnership(recording.id)
+            val ownership = inspectQueueOwnership(recording)
 
             when {
                 shouldRequeuePending(ownership) -> {
                     try {
-                        TranscriptionWorkRequest.enqueue(
-                            context = context,
-                            recordingId = recording.id,
-                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile")
+                        enqueueWorkForRecording(
+                            recording = recording,
+                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
                         )
                         ReliabilityEventLogger.log(
                             stage = ReliabilityStage.QUEUE_ENQUEUE,
@@ -178,10 +171,9 @@ internal class TranscriptionQueueReconciler(
     }
 
     internal suspend fun inspectQueueOwnership(recordingId: UUID): QueueOwnership {
-        ownershipCache?.get(recordingId)?.let { return it }
-
         return try {
-            val workInfos = loadWorkInfosWithTimeout(TranscriptionWorkRequest.workName(recordingId))
+            val workInfos =
+                loadWorkInfosByTagWithTimeout("${TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX}$recordingId")
                 ?: return QueueOwnership.INSPECTION_TIMEOUT
 
             ownershipFromWorkInfos(workInfos)
@@ -192,26 +184,27 @@ internal class TranscriptionQueueReconciler(
         }
     }
 
-    private suspend fun buildOwnershipCache(): Map<UUID, QueueOwnership> {
-        val allWorkInfos =
-            loadWorkInfosByTagWithTimeout(TranscriptionWorkRequest.WORK_TAG_TRANSCRIPTION)
-                ?: return emptyMap()
+    private suspend fun inspectQueueOwnership(recording: Recording): QueueOwnership {
+        val workName =
+            when (recording.status) {
+                RecordingStatus.PENDING_ENHANCEMENT,
+                RecordingStatus.ENHANCING,
+                -> RecordingEnhancementWorkRequest.workName(recording.id)
 
-        return allWorkInfos
-            .flatMap { workInfo ->
-                workInfo.tags.mapNotNull { tag ->
-                    recordingIdFromWorkTag(tag)?.let { id -> id to workInfo }
-                }
-            }.groupBy({ it.first }, { it.second })
-            .mapValues { (_, infos) -> ownershipFromWorkInfos(infos) }
-    }
+                else -> TranscriptionWorkRequest.workName(recording.id)
+            }
 
-    private fun recordingIdFromWorkTag(tag: String): UUID? {
-        if (!tag.startsWith(TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX)) {
-            return null
+        return try {
+            val workInfos =
+                loadWorkInfosWithTimeout(workName)
+                    ?: return QueueOwnership.INSPECTION_TIMEOUT
+
+            ownershipFromWorkInfos(workInfos)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "Failed to inspect queue ownership for ${recording.id}", e)
+            QueueOwnership.INSPECTION_TIMEOUT
         }
-        val rawId = tag.removePrefix(TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX)
-        return runCatching { UUID.fromString(rawId) }.getOrNull()
     }
 
     private fun ownershipFromWorkInfos(workInfos: List<WorkInfo>): QueueOwnership {
@@ -268,6 +261,26 @@ internal class TranscriptionQueueReconciler(
         )
     }
 
+    private fun enqueueWorkForRecording(
+        recording: Recording,
+        correlationId: String,
+    ): String =
+        when (recording.status) {
+            RecordingStatus.PENDING_ENHANCEMENT ->
+                RecordingEnhancementWorkRequest.enqueue(
+                    context = context,
+                    recordingId = recording.id,
+                    correlationId = correlationId,
+                )
+
+            else ->
+                TranscriptionWorkRequest.enqueue(
+                    context = context,
+                    recordingId = recording.id,
+                    correlationId = correlationId,
+                )
+        }
+
     private suspend fun updateActiveCount() {
         val transcribing = recordingRepository
             .getRecordingsByStatus(RecordingStatus.TRANSCRIBING)
@@ -278,6 +291,7 @@ internal class TranscriptionQueueReconciler(
     private fun Recording.hasRecoverablePendingError(): Boolean {
         return errorMessage?.startsWith(RECOVERABLE_QUEUE_HANDOFF_PREFIX) == true ||
             errorMessage?.startsWith(RECOVERABLE_STALE_TRANSCRIBING_PREFIX) == true ||
+            errorMessage?.startsWith(RECOVERABLE_STALE_ENHANCING_PREFIX) == true ||
             errorMessage?.startsWith(MANUAL_RECOVERY_PREFIX) == true
     }
 

@@ -12,6 +12,7 @@
 | `external-voice-recognition-capture-lock` | P1 | Shared capture lock for Android speech-recognition entry points |
 | `model-readiness-authoritative-state` | P1–P2 | Readiness invalidation and complete-directory validation |
 | `recording-profile-llm-processing` | P2 | Profile default LLM transform and metadata settings in saved recording enhancement |
+| `split-transcription-enhancement-work` | P2 | Separate offline transcription from network-backed LLM enhancement work |
 | `transcription-storage-and-text-persistence` | P2 | Storage constraint and processed text persistence |
 | `share-audio-mime-correctness` | P2 | Format-derived audio share MIME types |
 | `recording-recovery-orphan-cleanup-integrity` | P2 | Nested capture artifact cleanup |

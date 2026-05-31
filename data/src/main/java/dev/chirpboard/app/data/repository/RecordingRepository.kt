@@ -1,15 +1,20 @@
 package dev.chirpboard.app.data.repository
 
 import androidx.room.withTransaction
+import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.db.AppDatabase
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.RecordingEnhancementIntentEntity
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.entity.toEntity
 import dev.chirpboard.app.data.entity.toModel
+import dev.chirpboard.app.data.model.RecordingEnhancementIntent
+import dev.chirpboard.app.data.model.RecordingEnhancementResult
+import dev.chirpboard.app.data.model.RecordingEnhancementSnapshot
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
@@ -36,6 +41,7 @@ class RecordingRepository
         private val recordingDao: RecordingDao,
         private val transcriptDao: TranscriptDao,
         private val structuredOutcomeSnapshotDao: StructuredOutcomeSnapshotDao,
+        private val enhancementIntentDao: RecordingEnhancementIntentDao,
     ) {
         companion object {
             private const val TAG = "RecordingRepository"
@@ -215,6 +221,101 @@ class RecordingRepository
             }
         }
 
+        suspend fun commitTranscriptionResult(
+            transcript: Transcript,
+            timings: List<TranscriptTiming>,
+            enhancementIntent: RecordingEnhancementIntent?,
+        ) {
+            database.withTransaction {
+                val existing = transcriptDao.getTranscript(transcript.recordingId)
+                transcriptDao.insert(
+                    mergePipelineTranscript(
+                        transcript = transcript,
+                        existing = existing,
+                        clearManualCorrection = true,
+                    ),
+                )
+                transcriptDao.deleteTimingsByRecordingId(transcript.recordingId)
+                if (timings.isNotEmpty()) {
+                    transcriptDao.insertTimings(timings)
+                }
+
+                if (enhancementIntent?.hasRequestedWork == true) {
+                    enhancementIntentDao.upsert(enhancementIntent.toEntity(transcript.recordingId))
+                    recordingDao.updateStatusWithError(
+                        id = transcript.recordingId,
+                        status = RecordingStatus.PENDING_ENHANCEMENT,
+                        errorMessage = null,
+                    )
+                } else {
+                    enhancementIntentDao.deleteByRecordingId(transcript.recordingId)
+                    recordingDao.updateStatusWithError(
+                        id = transcript.recordingId,
+                        status = RecordingStatus.COMPLETED,
+                        errorMessage = null,
+                    )
+                }
+            }
+        }
+
+        suspend fun beginEnhancement(recordingId: UUID): RecordingEnhancementSnapshot? =
+            database.withTransaction {
+                val recording = recordingDao.getRecording(recordingId) ?: return@withTransaction null
+                val transcript = transcriptDao.getTranscript(recordingId) ?: return@withTransaction null
+                val intent = enhancementIntentDao.getIntent(recordingId)?.toModel() ?: return@withTransaction null
+
+                recordingDao.updateStatusWithError(recordingId, RecordingStatus.ENHANCING, null)
+                enhancementIntentDao.markAttempt(recordingId)
+
+                RecordingEnhancementSnapshot(
+                    recording = recording.copy(status = RecordingStatus.ENHANCING, errorMessage = null),
+                    transcript = transcript,
+                    intent = intent,
+                )
+            }
+
+        suspend fun completeEnhancement(
+            recordingId: UUID,
+            result: RecordingEnhancementResult,
+        ) {
+            database.withTransaction {
+                val now = Date()
+                val transcript = transcriptDao.getTranscript(recordingId)
+                if (transcript != null) {
+                    transcriptDao.insert(
+                        transcript.copy(
+                            processedText = result.processedText ?: transcript.processedText,
+                            processingMode = result.processingMode ?: transcript.processingMode,
+                            summary = result.summary ?: transcript.summary,
+                            updatedAt = now,
+                        ),
+                    )
+                }
+                result.title?.let { title ->
+                    recordingDao.updateTitle(recordingId, title)
+                }
+                enhancementIntentDao.deleteByRecordingId(recordingId)
+                recordingDao.updateStatusWithError(recordingId, RecordingStatus.COMPLETED, null)
+            }
+        }
+
+        suspend fun skipEnhancement(recordingId: UUID) {
+            database.withTransaction {
+                enhancementIntentDao.deleteByRecordingId(recordingId)
+                recordingDao.updateStatusWithError(recordingId, RecordingStatus.COMPLETED, null)
+            }
+        }
+
+        suspend fun failEnhancement(
+            recordingId: UUID,
+            errorMessage: String,
+        ) {
+            database.withTransaction {
+                enhancementIntentDao.updateError(recordingId, errorMessage)
+                recordingDao.updateStatusWithError(recordingId, RecordingStatus.FAILED, errorMessage)
+            }
+        }
+
         suspend fun updateRawText(
             recordingId: UUID,
             rawText: String,
@@ -346,5 +447,20 @@ class RecordingRepository
             transcript.copy(
                 manualCorrectionText = if (clearManualCorrection) null else existing?.manualCorrectionText,
                 manualCorrectionSourceText = if (clearManualCorrection) null else existing?.manualCorrectionSourceText,
+            )
+
+        private fun RecordingEnhancementIntent.toEntity(recordingId: UUID): RecordingEnhancementIntentEntity =
+            RecordingEnhancementIntentEntity(
+                recordingId = recordingId,
+                processingModeId = processingModeId,
+                autoTitle = autoTitle,
+                autoSummary = autoSummary,
+            )
+
+        private fun RecordingEnhancementIntentEntity.toModel(): RecordingEnhancementIntent =
+            RecordingEnhancementIntent(
+                processingModeId = processingModeId,
+                autoTitle = autoTitle,
+                autoSummary = autoSummary,
             )
     }

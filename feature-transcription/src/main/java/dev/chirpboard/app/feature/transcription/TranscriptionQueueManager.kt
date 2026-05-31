@@ -406,10 +406,14 @@ class TranscriptionQueueManager
             if (recording != null) {
                 // Cancel any pending work for this recording
                 workManager.cancelUniqueWork(TranscriptionWorkRequest.workName(recordingId))
+                workManager.cancelUniqueWork(RecordingEnhancementWorkRequest.workName(recordingId))
 
                 // Mark as FAILED so it doesn't get automatically restarted by the reconciler
                 when (recording.status) {
-                    RecordingStatus.TRANSCRIBING, RecordingStatus.PENDING_TRANSCRIPTION -> {
+                    RecordingStatus.TRANSCRIBING,
+                    RecordingStatus.PENDING_TRANSCRIPTION,
+                    RecordingStatus.ENHANCING,
+                    RecordingStatus.PENDING_ENHANCEMENT -> {
                         recordingRepository.updateStatusWithError(recordingId, RecordingStatus.FAILED, "Cancelled by user")
                     }
 
@@ -468,12 +472,33 @@ class TranscriptionQueueManager
                 errorMessage = buildManualRecoveryMessage(reason),
             )
 
-            TranscriptionWorkRequest.enqueue(
-                context,
-                recordingId,
-                ReliabilityEventLogger.newCorrelationId("queue-manual-recovery"),
+            enqueueWorkForStatus(
+                recordingId = recordingId,
+                status = status,
+                correlationId = ReliabilityEventLogger.newCorrelationId("queue-manual-recovery"),
             )
 
             return ManualRecoveryResult.ENQUEUED
         }
+
+        private fun enqueueWorkForStatus(
+            recordingId: UUID,
+            status: RecordingStatus,
+            correlationId: String,
+        ): String =
+            when (status) {
+                RecordingStatus.PENDING_ENHANCEMENT ->
+                    RecordingEnhancementWorkRequest.enqueue(
+                        context = context,
+                        recordingId = recordingId,
+                        correlationId = correlationId,
+                    )
+
+                else ->
+                    TranscriptionWorkRequest.enqueue(
+                        context = context,
+                        recordingId = recordingId,
+                        correlationId = correlationId,
+                    )
+            }
     }

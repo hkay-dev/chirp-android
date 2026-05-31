@@ -10,6 +10,7 @@ Canonical fix specs for findings in `docs/recording-lifecycle-spec.md` § Audit 
 | P1 | External Android speech recognition can bypass the shared microphone capture lock | [external-voice-recognition-capture-lock](./external-voice-recognition-capture-lock/) | proposed |
 | P1-P2 | Model readiness can accept stale cache or split model files across directories | [model-readiness-authoritative-state](./model-readiness-authoritative-state/) | proposed |
 | P2 | Saved recording enhancement ignores profile default LLM processing, auto-title, and auto-summary settings | [recording-profile-llm-processing](./recording-profile-llm-processing/) | proposed |
+| P2 | Network-backed LLM enhancement is coupled to offline transcription worker execution | [split-transcription-enhancement-work](./split-transcription-enhancement-work/) | proposed |
 | P2 | Transcription work lacks storage constraint and first transcript commit drops processed text | [transcription-storage-and-text-persistence](./transcription-storage-and-text-persistence/) | proposed |
 | P2 | Audio sharing uses non-canonical `audio/m4a` instead of format-derived MIME types | [share-audio-mime-correctness](./share-audio-mime-correctness/) | proposed |
 | P2 | Orphan cleanup misses stale nested capture directories | [recording-recovery-orphan-cleanup-integrity](./recording-recovery-orphan-cleanup-integrity/) | proposed |
@@ -29,10 +30,11 @@ Canonical fix specs for findings in `docs/recording-lifecycle-spec.md` § Audit 
 4. `external-voice-recognition-capture-lock`
 5. `model-readiness-authoritative-state`
 6. `recording-profile-llm-processing`
-7. `transcription-storage-and-text-persistence`
-8. `share-audio-mime-correctness`
-9. `recording-recovery-orphan-cleanup-integrity`
-10. `android-16-sdk-alignment`
+7. `split-transcription-enhancement-work`
+8. `transcription-storage-and-text-persistence`
+9. `share-audio-mime-correctness`
+10. `recording-recovery-orphan-cleanup-integrity`
+11. `android-16-sdk-alignment`
 
 ## Archive reference
 
