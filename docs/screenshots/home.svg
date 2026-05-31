@@ -1,0 +1,12 @@
+<svg width="720" height="1280" viewBox="0 0 720 1280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="1280" rx="56" fill="#F7F3EA"/>
+  <rect x="56" y="72" width="608" height="1136" rx="42" fill="#FEFCF7" stroke="#D7CFC1" stroke-width="4"/>
+  <text x="360" y="180" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#23312D">Chirp</text>
+  <text x="360" y="238" text-anchor="middle" font-family="Arial, sans-serif" font-size="24" fill="#63706B">Home screen placeholder</text>
+  <rect x="116" y="320" width="488" height="172" rx="28" fill="#E9F2EE"/>
+  <rect x="116" y="532" width="488" height="104" rx="22" fill="#F0E6D8"/>
+  <rect x="116" y="664" width="488" height="104" rx="22" fill="#F0E6D8"/>
+  <rect x="116" y="796" width="488" height="104" rx="22" fill="#F0E6D8"/>
+  <circle cx="360" cy="1052" r="74" fill="#B94E48"/>
+  <text x="360" y="1180" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#7C7164">Replace with app screenshot</text>
+</svg>
