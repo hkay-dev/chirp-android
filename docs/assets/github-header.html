@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: oklch(0.23 0.045 252);
+        --muted: oklch(0.47 0.075 256);
+        --panel: oklch(0.985 0.01 83);
+        --paper: oklch(0.965 0.016 249);
+        --peach: oklch(0.88 0.055 42);
+        --blue: oklch(0.69 0.125 255);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1280px;
+        height: 300px;
+        margin: 0;
+        overflow: hidden;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        background: transparent;
+        font-family: "Google Sans Flex", system-ui, sans-serif;
+      }
+
+      .header {
+        position: relative;
+        overflow: hidden;
+        width: 920px;
+        height: 224px;
+        display: grid;
+        grid-template-columns: 210px auto;
+        align-items: center;
+        justify-content: center;
+        column-gap: 38px;
+        padding: 0 58px;
+        border-radius: 56px;
+        background:
+          radial-gradient(circle at 98% -10%, oklch(0.89 0.018 255) 0 112px, transparent 113px),
+          radial-gradient(circle at 96% 116%, var(--peach) 0 128px, transparent 129px),
+          linear-gradient(135deg, oklch(0.992 0.011 76), var(--paper));
+        box-shadow:
+          0 18px 42px color-mix(in oklch, var(--ink) 10%, transparent),
+          inset 0 1px 0 color-mix(in oklch, white 55%, transparent);
+      }
+
+      .icon {
+        width: 196px;
+        height: 196px;
+        filter: drop-shadow(0 18px 22px color-mix(in oklch, var(--ink) 17%, transparent));
+      }
+
+      .copy {
+        display: grid;
+        gap: 8px;
+        transform: translateY(-2px);
+      }
+
+      h1 {
+        margin: 0;
+        color: var(--ink);
+        font-size: 108px;
+        font-weight: 700;
+        line-height: 0.88;
+        letter-spacing: 0;
+        font-variation-settings: "opsz" 96, "wght" 700;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 33px;
+        font-weight: 500;
+        line-height: 1.05;
+        letter-spacing: 0;
+        font-variation-settings: "opsz" 36, "wght" 500;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="header" aria-label="Chirp, Parakeet Powered STT for Android">
+      <img class="icon" src="./chirp-app-icon.png" alt="" />
+      <div class="copy">
+        <h1>Chirp</h1>
+        <p>Parakeet Powered STT for Android</p>
+      </div>
+    </main>
+  </body>
+</html>
