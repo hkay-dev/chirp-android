@@ -12,9 +12,9 @@ import javax.inject.Singleton
 class KeyboardRecordingStopBridge
     @Inject
     constructor() {
-        private val stopHandler = AtomicReference<(() -> Unit)?>(null)
+        private val stopHandler = AtomicReference<(() -> Boolean)?>(null)
 
-        fun registerStopHandler(handler: () -> Unit) {
+        fun registerStopHandler(handler: () -> Boolean) {
             stopHandler.set(handler)
         }
 
@@ -22,10 +22,9 @@ class KeyboardRecordingStopBridge
             stopHandler.set(null)
         }
 
-        /** Returns true when a keyboard handler was invoked. */
+        /** Returns true when a keyboard handler accepted the stop request. */
         fun requestStop(): Boolean {
             val handler = stopHandler.get() ?: return false
-            handler.invoke()
-            return true
+            return handler.invoke()
         }
     }
