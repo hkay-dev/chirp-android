@@ -57,6 +57,7 @@ class KeyboardInputConnectionActionsTest {
     fun `commitSpace calls commitText with space`() {
         val connection = mockk<InputConnection>(relaxed = true)
         commitSpace(connection)
+        verify { connection.finishComposingText() }
         verify { connection.commitText(" ", 1) }
     }
 
@@ -82,6 +83,18 @@ class KeyboardInputConnectionActionsTest {
         deletePreviousWord(connection)
 
         verify { connection.deleteSurroundingText(7, 0) }
+    }
+
+    @Test
+    fun `deletePreviousWord stops at punctuation boundary`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(512, 0) } returns "hello.world"
+        every { connection.deleteSurroundingText(5, 0) } returns true
+
+        deletePreviousWord(connection)
+
+        verify { connection.deleteSurroundingText(5, 0) }
     }
 
     @Test
@@ -125,6 +138,40 @@ class KeyboardInputConnectionActionsTest {
 
         verify(exactly = 0) { connection.setSelection(any(), any()) }
         verify(exactly = 0) { connection.sendKeyEvent(any()) }
+    }
+
+    @Test
+    fun `moveCursor collapses selection to movement edge`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "hello"
+                selectionStart = 1
+                selectionEnd = 4
+            }
+        every { connection.setSelection(4, 4) } returns true
+
+        moveCursor(connection, 1)
+
+        verify { connection.setSelection(4, 4) }
+        verify(exactly = 0) { connection.setSelection(5, 5) }
+    }
+
+    @Test
+    fun `moveCursor skips surrogate pair boundaries`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "😀a"
+                selectionStart = 0
+                selectionEnd = 0
+            }
+        every { connection.setSelection(2, 2) } returns true
+
+        moveCursor(connection, 1)
+
+        verify { connection.setSelection(2, 2) }
+        verify(exactly = 0) { connection.setSelection(1, 1) }
     }
 
     @Test

@@ -15,9 +15,15 @@ internal class KeyboardInputSessionGuard {
     val isSensitiveInput: Boolean
         get() = sensitiveInput
 
-    fun startInput(info: EditorInfo?) {
-        generation += 1
-        sensitiveInput = info.isSensitiveKeyboardInput()
+    fun startInput(
+        info: EditorInfo?,
+        preserveSession: Boolean = false,
+    ) {
+        val nowSensitive = info.isSensitiveKeyboardInput()
+        if (!preserveSession || nowSensitive || sensitiveInput) {
+            generation += 1
+        }
+        sensitiveInput = nowSensitive
     }
 
     fun finishInput() {
@@ -45,7 +51,7 @@ internal class KeyboardInputSessionGuard {
 }
 
 internal fun EditorInfo?.isSensitiveKeyboardInput(): Boolean {
-    if (this == null) return false
+    if (this == null) return true
     if ((imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0) {
         return true
     }
