@@ -10,6 +10,7 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
+import dev.chirpboard.app.data.model.EnhancementSubworkStatus
 import dev.chirpboard.app.data.model.RecordingEnhancementIntent
 import dev.chirpboard.app.data.model.RecordingEnhancementResult
 import dev.chirpboard.app.data.model.RecordingSource
@@ -487,6 +488,8 @@ class RecordingRepositoryTransactionTest {
                     processingMode = "cleanup",
                     title = "Generated title",
                     summary = "Generated summary",
+                    titleStatus = EnhancementSubworkStatus.SUCCEEDED,
+                    summaryStatus = EnhancementSubworkStatus.SUCCEEDED,
                 ),
             )
 
