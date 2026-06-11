@@ -4,13 +4,16 @@ import android.content.Context
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -48,6 +51,17 @@ class RecordingManagerTest {
         val result = manager.startRecording()
         assertTrue(result is RecordingStartResult.AlreadyRecording)
         assertEquals(RecordingOrigin.WIDGET, (result as RecordingStartResult.AlreadyRecording).currentOrigin)
+    }
+
+    @Test
+    fun `startRecording reports error when service dispatch is rejected`() {
+        every { stateManager.canStartRecording() } returns true
+        mockkObject(RecordingServiceCommands)
+        every { RecordingServiceCommands.startRecording(any(), any(), any()) } returns false
+
+        manager.startRecording()
+
+        verify { stateManager.onRecordingError("Could not start the recording service") }
     }
 
     @Test

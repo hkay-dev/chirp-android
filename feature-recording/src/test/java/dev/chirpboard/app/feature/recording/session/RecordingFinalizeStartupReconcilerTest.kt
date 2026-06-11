@@ -59,7 +59,7 @@ class RecordingFinalizeStartupReconcilerTest {
     }
 
     @Test
-    fun `reconcilePendingFinalizations skips recording with unfinished finalize work`() =
+    fun `reconcilePendingFinalizations reports session with unfinished finalize work without re-enqueueing`() =
         runTest {
             val sessionId = UUID.randomUUID()
             val recordingId = UUID.randomUUID()
@@ -102,7 +102,9 @@ class RecordingFinalizeStartupReconcilerTest {
 
             val enqueuedSessionIds = reconciler.reconcilePendingFinalizations()
 
-            assertEquals(emptySet<UUID>(), enqueuedSessionIds)
+            // The session must be reported as handled so startup recovery excludes it,
+            // even though no new work is enqueued for it.
+            assertEquals(setOf(sessionId), enqueuedSessionIds)
 
             verify(exactly = 0) {
                 workManager.beginUniqueWork(

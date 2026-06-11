@@ -82,6 +82,15 @@ class VoiceRecorder(
         private const val AMPLITUDE_DEBOUNCE_MS = 16L
         const val MAX_SAMPLE_CAPACITY = SAMPLE_RATE * 60 * 10 // 10 minutes
         private const val INITIAL_SAMPLE_CAPACITY = SAMPLE_RATE * 60
+
+        /** Cache subdirectory where file-backed dictation captures are written. */
+        const val KEYBOARD_CAPTURE_CACHE_DIR = "keyboard-capture"
+
+        /** Filename prefix of file-backed dictation capture temp files. */
+        const val DICTATION_CAPTURE_FILE_PREFIX = "dictation-"
+
+        /** Filename suffix of file-backed dictation capture temp files. */
+        const val DICTATION_CAPTURE_FILE_SUFFIX = ".f32pcm"
     }
 
     enum class CaptureStorageMode {
@@ -126,103 +135,135 @@ class VoiceRecorder(
     private val _sampleCountFlow = MutableStateFlow(0L)
     val sampleCountFlow: StateFlow<Long> = _sampleCountFlow.asStateFlow()
 
-    @SuppressLint("MissingPermission")
-    suspend fun start(): Boolean =
-        withContext(Dispatchers.IO) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                hasError = true
-                onRecordingError?.invoke(RecordingError.PermissionDenied)
-                return@withContext false
+    suspend fun start(): Boolean {
+        var attemptCommitted = false
+        return try {
+            withContext(Dispatchers.IO) {
+                startInternal(onAttemptCommitted = { attemptCommitted = true })
             }
-            if (isRecording.get()) return@withContext false
-
-            // Reset synchronization
-            recordingReady = CompletableDeferred()
-            hasError = false
-
-            val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
-                recordingReady.completeExceptionally(IllegalStateException("Invalid buffer size"))
-                return@withContext false
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Cancellation can surface at the withContext boundary after the
+            // microphone is already recording; clean up before propagating so
+            // the AudioRecord is never left hot. Skip attempts that bailed out
+            // early (e.g. a previous session is still active and must survive).
+            if (attemptCommitted) {
+                abortStart(e)
             }
-
-            try {
-                var retryCount = 0
-                val maxRetries = 3
-                var initException: Exception? = null
-
-                while (retryCount < maxRetries) {
-                    try {
-                        audioRecord =
-                            inputDeviceSelector?.let { selector ->
-                                selector.buildAudioRecord(
-                                    audioSource = MediaRecorder.AudioSource.MIC,
-                                    sampleRate = SAMPLE_RATE,
-                                    channelConfig = CHANNEL_CONFIG,
-                                    audioFormat = AUDIO_FORMAT,
-                                    bufferSize = bufferSize * 2,
-                                )
-                            } ?: AudioRecord(
-                                MediaRecorder.AudioSource.MIC,
-                                SAMPLE_RATE,
-                                CHANNEL_CONFIG,
-                                AUDIO_FORMAT,
-                                bufferSize * 2,
-                            )
-                        if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
-                            break
-                        }
-                        audioRecord?.release()
-                        audioRecord = null
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        initException = e
-                        audioRecord?.release()
-                        audioRecord = null
-                    }
-
-                    retryCount++
-                    if (retryCount < maxRetries) {
-                        delay(150)
-                    }
-                }
-
-                if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                    recordingReady.completeExceptionally(initException ?: IllegalStateException("AudioRecord not initialized after retries"))
-                    return@withContext false
-                }
-
-                synchronized(sampleLock) {
-                    sampleCount = 0
-                    resetFileBackedCaptureLocked(deleteExisting = true)
-                    if (captureStorageMode == CaptureStorageMode.FileBacked) {
-                        val captureFile = createCaptureFile()
-                        sampleFile = captureFile
-                        sampleOutput = BufferedOutputStream(FileOutputStream(captureFile))
-                    }
-                }
-                waveformBuffer.clear()
-                _sampleCountFlow.value = 0L
-                audioRecord?.startRecording()
-                isRecording.set(true)
-                recordingStartTimeMs = SystemClock.elapsedRealtime()
-
-                // Signal that recording is ready for collection
-                recordingReady.complete(Unit)
-
-                true
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Failed to start recording", e)
-                audioRecord?.release()
-                audioRecord = null
-                synchronized(sampleLock) {
-                    resetFileBackedCaptureLocked(deleteExisting = true)
-                }
-                recordingReady.completeExceptionally(e)
-                false
-            }
+            throw e
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun startInternal(onAttemptCommitted: () -> Unit): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            hasError = true
+            onRecordingError?.invoke(RecordingError.PermissionDenied)
+            return false
+        }
+        if (isRecording.get()) return false
+
+        // Reset synchronization
+        onAttemptCommitted()
+        recordingReady = CompletableDeferred()
+        hasError = false
+
+        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+        if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+            recordingReady.completeExceptionally(IllegalStateException("Invalid buffer size"))
+            return false
+        }
+
+        return try {
+            var retryCount = 0
+            val maxRetries = 3
+            var initException: Exception? = null
+
+            while (retryCount < maxRetries) {
+                try {
+                    audioRecord =
+                        inputDeviceSelector?.let { selector ->
+                            selector.buildAudioRecord(
+                                audioSource = MediaRecorder.AudioSource.MIC,
+                                sampleRate = SAMPLE_RATE,
+                                channelConfig = CHANNEL_CONFIG,
+                                audioFormat = AUDIO_FORMAT,
+                                bufferSize = bufferSize * 2,
+                            )
+                        } ?: AudioRecord(
+                            MediaRecorder.AudioSource.MIC,
+                            SAMPLE_RATE,
+                            CHANNEL_CONFIG,
+                            AUDIO_FORMAT,
+                            bufferSize * 2,
+                        )
+                    if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
+                        break
+                    }
+                    audioRecord?.release()
+                    audioRecord = null
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    initException = e
+                    audioRecord?.release()
+                    audioRecord = null
+                }
+
+                retryCount++
+                if (retryCount < maxRetries) {
+                    delay(150)
+                }
+            }
+
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                recordingReady.completeExceptionally(initException ?: IllegalStateException("AudioRecord not initialized after retries"))
+                return false
+            }
+
+            synchronized(sampleLock) {
+                sampleCount = 0
+                resetFileBackedCaptureLocked(deleteExisting = true)
+                if (captureStorageMode == CaptureStorageMode.FileBacked) {
+                    val captureFile = createCaptureFile()
+                    sampleFile = captureFile
+                    sampleOutput = BufferedOutputStream(FileOutputStream(captureFile))
+                }
+            }
+            waveformBuffer.clear()
+            _sampleCountFlow.value = 0L
+            audioRecord?.startRecording()
+            isRecording.set(true)
+            recordingStartTimeMs = SystemClock.elapsedRealtime()
+
+            // Signal that recording is ready for collection
+            recordingReady.complete(Unit)
+
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Clean up before rethrowing so a cancellation that lands after
+            // AudioRecord.startRecording() cannot leave the microphone hot.
+            abortStart(e)
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start recording", e)
+            abortStart(e)
+            false
+        }
+    }
+
+    /**
+     * Aborts an in-flight or just-completed start: stops and releases the
+     * AudioRecord, clears any partial capture state, and unblocks collectors.
+     * Safe to call multiple times.
+     */
+    private fun abortStart(cause: Throwable) {
+        stopAudioRecord()
+        synchronized(sampleLock) {
+            sampleCount = 0
+            resetFileBackedCaptureLocked(deleteExisting = true)
+        }
+        // No-op if start() already completed it (boundary cancellation case).
+        recordingReady.completeExceptionally(cause)
+    }
 
     suspend fun collectSamples() =
         withContext(Dispatchers.IO) {
@@ -245,32 +286,22 @@ class VoiceRecorder(
                 // Check for errors
                 when {
                     readResult == AudioRecord.ERROR_INVALID_OPERATION -> {
-                        if (isRecording.get()) {
-                            hasError = true
-                            onRecordingError?.invoke(RecordingError.InvalidOperation)
-                        }
-                        isRecording.set(false)
+                        failCollect(RecordingError.InvalidOperation)
                         return@withContext
                     }
 
                     readResult == AudioRecord.ERROR_BAD_VALUE -> {
-                        hasError = true
-                        onRecordingError?.invoke(RecordingError.BadValue)
-                        isRecording.set(false)
+                        failCollect(RecordingError.BadValue)
                         return@withContext
                     }
 
                     readResult == AudioRecord.ERROR_DEAD_OBJECT -> {
-                        hasError = true
-                        onRecordingError?.invoke(RecordingError.DeadObject)
-                        isRecording.set(false)
+                        failCollect(RecordingError.DeadObject)
                         return@withContext
                     }
 
                     readResult < 0 -> {
-                        hasError = true
-                        onRecordingError?.invoke(RecordingError.Generic(readResult))
-                        isRecording.set(false)
+                        failCollect(RecordingError.Generic(readResult))
                         return@withContext
                     }
 
@@ -307,8 +338,6 @@ class VoiceRecorder(
                                                 writeFloatSamplesLocked(buffer, toProcess)
                                             }.isFailure
                                         if (writeFailed) {
-                                            hasError = true
-                                            isRecording.set(false)
                                             resetFileBackedCaptureLocked(deleteExisting = true)
                                             return@synchronized
                                         }
@@ -325,7 +354,7 @@ class VoiceRecorder(
                         }
                         if (writeFailed) {
                             Log.e(TAG, "Failed to write file-backed capture samples")
-                            onRecordingError?.invoke(RecordingError.StorageUnavailable)
+                            failCollect(RecordingError.StorageUnavailable)
                             return@withContext
                         }
                         // Calculate amplitude for visualization (RMS of buffer)
@@ -448,11 +477,26 @@ class VoiceRecorder(
         return durationMs
     }
 
+    /**
+     * Shared cleanup for abnormal collectSamples exits: stops and releases the
+     * AudioRecord so the microphone never stays hot, and reports the error only
+     * if stop() has not already ended the session (reads racing a stop() can
+     * surface spurious errors). Leaves the recorder safe for a later start().
+     */
+    private fun failCollect(error: RecordingError) {
+        val wasRecording = isRecording.getAndSet(false)
+        stopAudioRecord()
+        if (wasRecording) {
+            hasError = true
+            onRecordingError?.invoke(error)
+        }
+    }
+
     private fun boostedSample(sample: Float): Float = (sample * gainMultiplier).coerceIn(-1f, 1f)
 
     private fun createCaptureFile(): File {
-        val dir = File(context.cacheDir, "keyboard-capture").apply { mkdirs() }
-        return File.createTempFile("dictation-", ".f32pcm", dir)
+        val dir = File(context.cacheDir, KEYBOARD_CAPTURE_CACHE_DIR).apply { mkdirs() }
+        return File.createTempFile(DICTATION_CAPTURE_FILE_PREFIX, DICTATION_CAPTURE_FILE_SUFFIX, dir)
     }
 
     private fun writeFloatSamplesLocked(

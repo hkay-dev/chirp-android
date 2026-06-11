@@ -47,10 +47,10 @@ class InlineTranscriptionCoordinatorImpl
             _phase.value = InlineTranscriptionPhase.Error(message)
         }
 
-        override suspend fun transcribe(
+        override suspend fun transcribeWithCommitResult(
             request: InlineTranscriptionRequest,
             persistence: InlineCapturePersistence?,
-            commitText: (String) -> Unit,
+            commitText: (String) -> Boolean,
             onRecordingCompleted: () -> Unit,
             onRecordingError: (String) -> Unit,
         ) {
@@ -97,7 +97,15 @@ class InlineTranscriptionCoordinatorImpl
 
                 _phase.value = InlineTranscriptionPhase.Transcribing
 
-                val mappedOutcome = transcribeAudioSource(request.audioSource)
+                val mappedOutcome =
+                    try {
+                        transcribeAudioSource(request.audioSource)
+                    } catch (e: OutOfMemoryError) {
+                        // Never let an OOM from assembling large sample arrays crash the IME
+                        // process; fall through to the failure path so the audio is rescued.
+                        Log.e(tag, "Out of memory while transcribing dictation audio", e)
+                        InlineTranscriptionResolution.Failure("Not enough memory to transcribe dictation")
+                    }
                 val rawText =
                     when (mappedOutcome) {
                         is InlineTranscriptionResolution.Success -> mappedOutcome.text
@@ -172,10 +180,20 @@ class InlineTranscriptionCoordinatorImpl
                                         correlationId = correlationId,
                                         reasonCode = "${request.correlationPrefix}_enhancement_completed",
                                     )
-                                    commitText("$polishedText ")
-                                    persistence?.persistAudioSource(request.audioSource, rawText, polishedText, null)
-                                    onRecordingCompleted()
-                                    _phase.value = InlineTranscriptionPhase.Idle
+                                    deliverTranscript(
+                                        delivery =
+                                            TranscriptDelivery(
+                                                request = request,
+                                                persistence = persistence,
+                                                rawText = rawText,
+                                                processedText = polishedText,
+                                                phaseOnCommit = InlineTranscriptionPhase.Idle,
+                                                correlationId = correlationId,
+                                            ),
+                                        commitText = commitText,
+                                        onRecordingCompleted = onRecordingCompleted,
+                                        onRecordingError = onRecordingError,
+                                    )
                                 },
                                 onFailure = { error ->
                                     ReliabilityEventLogger.log(
@@ -185,11 +203,21 @@ class InlineTranscriptionCoordinatorImpl
                                         reasonCode = "${request.correlationPrefix}_enhancement_failed",
                                         message = error.message,
                                     )
-                                    commitText("$rawText ")
-                                    persistence?.persistAudioSource(request.audioSource, rawText, null, null)
-                                    onRecordingCompleted()
-                                    _phase.value =
-                                        InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}")
+                                    deliverTranscript(
+                                        delivery =
+                                            TranscriptDelivery(
+                                                request = request,
+                                                persistence = persistence,
+                                                rawText = rawText,
+                                                processedText = null,
+                                                phaseOnCommit =
+                                                    InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}"),
+                                                correlationId = correlationId,
+                                            ),
+                                        commitText = commitText,
+                                        onRecordingCompleted = onRecordingCompleted,
+                                        onRecordingError = onRecordingError,
+                                    )
                                 },
                             )
                         } else {
@@ -199,18 +227,38 @@ class InlineTranscriptionCoordinatorImpl
                                 correlationId = correlationId,
                                 reasonCode = "${request.correlationPrefix}_enhancement_timeout",
                             )
-                            commitText("$rawText ")
-                            persistence?.persistAudioSource(request.audioSource, rawText, null, null)
-                            onRecordingCompleted()
-                            _phase.value = InlineTranscriptionPhase.Idle
+                            deliverTranscript(
+                                delivery =
+                                    TranscriptDelivery(
+                                        request = request,
+                                        persistence = persistence,
+                                        rawText = rawText,
+                                        processedText = null,
+                                        phaseOnCommit = InlineTranscriptionPhase.Idle,
+                                        correlationId = correlationId,
+                                    ),
+                                commitText = commitText,
+                                onRecordingCompleted = onRecordingCompleted,
+                                onRecordingError = onRecordingError,
+                            )
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        commitText("$rawText ")
-                        persistence?.persistAudioSource(request.audioSource, rawText, null, null)
-                        onRecordingCompleted()
-                        _phase.value = InlineTranscriptionPhase.Idle
+                        deliverTranscript(
+                            delivery =
+                                TranscriptDelivery(
+                                    request = request,
+                                    persistence = persistence,
+                                    rawText = rawText,
+                                    processedText = null,
+                                    phaseOnCommit = InlineTranscriptionPhase.Idle,
+                                    correlationId = correlationId,
+                                ),
+                            commitText = commitText,
+                            onRecordingCompleted = onRecordingCompleted,
+                            onRecordingError = onRecordingError,
+                        )
                     }
                 }
             } catch (e: CancellationException) {
@@ -244,6 +292,50 @@ class InlineTranscriptionCoordinatorImpl
                 }
                 onRecordingError(errorMessage)
             }
+        }
+
+        /**
+         * Commits the transcript to its target, falling back to a rescue persistence entry
+         * when the commit is refused (stale input session or missing input connection) so
+         * the user's speech is never silently dropped.
+         */
+        private suspend fun deliverTranscript(
+            delivery: TranscriptDelivery,
+            commitText: (String) -> Boolean,
+            onRecordingCompleted: () -> Unit,
+            onRecordingError: (String) -> Unit,
+        ) {
+            val textToCommit = delivery.processedText ?: delivery.rawText
+            val committed = commitText("$textToCommit ")
+            if (committed) {
+                delivery.persistence?.persistAudioSource(
+                    audioSource = delivery.request.audioSource,
+                    rawText = delivery.rawText,
+                    processedText = delivery.processedText,
+                    errorMessage = null,
+                )
+                onRecordingCompleted()
+                _phase.value = delivery.phaseOnCommit
+                return
+            }
+
+            Log.w(tag, "Commit refused; persisting transcript as a rescue entry")
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.TRANSCRIPTION,
+                outcome = ReliabilityOutcome.FAILURE,
+                correlationId = delivery.correlationId,
+                reasonCode = "${delivery.request.correlationPrefix}_commit_refused",
+            )
+            withContext(NonCancellable) {
+                delivery.persistence?.persistAudioSource(
+                    audioSource = delivery.request.audioSource,
+                    rawText = delivery.rawText,
+                    processedText = delivery.processedText,
+                    errorMessage = COMMIT_REFUSED_MESSAGE,
+                )
+            }
+            onRecordingError(COMMIT_REFUSED_MESSAGE)
+            _phase.value = InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE)
         }
 
         private suspend fun ensureRecognizerReady(): Boolean {
@@ -297,6 +389,18 @@ class InlineTranscriptionCoordinatorImpl
                 }
             }
     }
+
+internal const val COMMIT_REFUSED_MESSAGE =
+    "Couldn't insert dictated text into the field; transcript saved to recordings"
+
+private data class TranscriptDelivery(
+    val request: InlineTranscriptionRequest,
+    val persistence: InlineCapturePersistence?,
+    val rawText: String,
+    val processedText: String?,
+    val phaseOnCommit: InlineTranscriptionPhase,
+    val correlationId: String,
+)
 
 private class InlineTranscriptionFailureException(
     message: String,

@@ -1,20 +1,31 @@
 package dev.chirpboard.app.data.repository
 
+import androidx.room.withTransaction
 import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.db.AppDatabase
+import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.toEntity
 import dev.chirpboard.app.data.entity.toModel
 import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeSnapshot
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.slot
+import io.mockk.unmockkStatic
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
@@ -34,6 +45,11 @@ class RecordingRepositoryTest {
         transcriptDao = mockk(relaxed = true)
         structuredOutcomeSnapshotDao = mockk(relaxed = true)
         enhancementSnapshotDao = mockk(relaxed = true)
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        val transactionBlock = slot<suspend () -> Any?>()
+        coEvery { database.withTransaction(capture(transactionBlock)) } coAnswers {
+            transactionBlock.captured.invoke()
+        }
         repository =
             RecordingRepository(
                 database,
@@ -43,6 +59,25 @@ class RecordingRepositoryTest {
                 enhancementSnapshotDao,
             )
     }
+
+    @After
+    fun tearDown() {
+        unmockkStatic("androidx.room.RoomDatabaseKt")
+    }
+
+    private fun recording(
+        status: RecordingStatus,
+        executionToken: String? = null,
+        errorMessage: String? = null,
+    ): Recording =
+        Recording(
+            title = "Recording",
+            audioPath = "/tmp/recording.m4a",
+            source = RecordingSource.APP,
+            status = status,
+            errorMessage = errorMessage,
+            transcriptionExecutionToken = executionToken,
+        )
 
     @Test
     fun `saveStructuredOutcomeSuccess replaces snapshot payload`() = runTest {
@@ -126,5 +161,197 @@ class RecordingRepositoryTest {
 
             assertEquals(ids.size, transcripts.size)
             coVerify(exactly = 2) { transcriptDao.getTranscripts(any()) }
+        }
+
+    @Test
+    fun `claimTranscriptionExecution returns true and guards out terminal statuses`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val allowedStatuses = slot<List<RecordingStatus>>()
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = id,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    errorMessage = null,
+                    executionToken = "token-1",
+                    allowedCurrentStatuses = capture(allowedStatuses),
+                    expectedExecutionToken = null,
+                )
+            } returns 1
+
+            val claimed = repository.claimTranscriptionExecution(id, "token-1")
+
+            assertTrue(claimed)
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.PENDING_TRANSCRIPTION))
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.TRANSCRIBING))
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.ENHANCING))
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.FAILED))
+            assertFalse(allowedStatuses.captured.contains(RecordingStatus.COMPLETED))
+            assertFalse(allowedStatuses.captured.contains(RecordingStatus.RECORDING))
+        }
+
+    @Test
+    fun `claimTranscriptionExecution returns false when row is not claimable`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = any(),
+                    status = any(),
+                    errorMessage = any(),
+                    executionToken = any(),
+                    allowedCurrentStatuses = any(),
+                    expectedExecutionToken = any(),
+                )
+            } returns 0
+
+            assertFalse(repository.claimTranscriptionExecution(id, "token-1"))
+        }
+
+    @Test
+    fun `beginTranscriptionExecution resumes own interrupted transcribing run`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(
+                    status = RecordingStatus.TRANSCRIBING,
+                    executionToken = "token-1",
+                    errorMessage = "interrupted",
+                )
+
+            val resumed = repository.beginTranscriptionExecution(id, "token-1")
+
+            assertEquals(RecordingStatus.TRANSCRIBING, resumed?.status)
+            assertNull(resumed?.errorMessage)
+            coVerify(exactly = 0) {
+                recordingDao.updateStatusForTranscriptionExecution(any(), any(), any(), any(), any())
+            }
+        }
+
+    @Test
+    fun `beginTranscriptionExecution rejects transcribing row owned by another token`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(status = RecordingStatus.TRANSCRIBING, executionToken = "other-token")
+
+            assertNull(repository.beginTranscriptionExecution(id, "token-1"))
+            coVerify(exactly = 0) {
+                recordingDao.updateStatusForTranscriptionExecution(any(), any(), any(), any(), any())
+            }
+        }
+
+    @Test
+    fun `beginTranscriptionExecution promotes pending row to transcribing`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(status = RecordingStatus.PENDING_TRANSCRIPTION, executionToken = "token-1")
+            coEvery {
+                recordingDao.updateStatusForTranscriptionExecution(
+                    id = id,
+                    expectedStatus = RecordingStatus.PENDING_TRANSCRIPTION,
+                    executionToken = "token-1",
+                    newStatus = RecordingStatus.TRANSCRIBING,
+                    errorMessage = null,
+                )
+            } returns 1
+
+            val started = repository.beginTranscriptionExecution(id, "token-1")
+
+            assertEquals(RecordingStatus.TRANSCRIBING, started?.status)
+        }
+
+    @Test
+    fun `updateStatusWithError allows already-pending transcription row`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val allowedStatuses = slot<List<RecordingStatus>>()
+            coEvery {
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    errorMessage = "recovery marker",
+                    allowedStatuses = capture(allowedStatuses),
+                )
+            } returns 1
+
+            val result =
+                repository.updateStatusWithError(id, RecordingStatus.PENDING_TRANSCRIPTION, "recovery marker")
+
+            assertEquals(RecordingStatusTransitionResult.TransitionApplied, result)
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.PENDING_TRANSCRIPTION))
+        }
+
+    @Test
+    fun `updateStatusWithError allows already-pending enhancement row`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val allowedStatuses = slot<List<RecordingStatus>>()
+            coEvery {
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = null,
+                    allowedStatuses = capture(allowedStatuses),
+                )
+            } returns 1
+
+            val result = repository.updateStatusWithError(id, RecordingStatus.PENDING_ENHANCEMENT, null)
+
+            assertEquals(RecordingStatusTransitionResult.TransitionApplied, result)
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.PENDING_ENHANCEMENT))
+        }
+
+    @Test
+    fun `token-guarded commitTranscriptionResult requires transcribing status and token in DAO update`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(status = RecordingStatus.TRANSCRIBING, executionToken = "token-1")
+            coEvery { transcriptDao.getTranscript(id) } returns null
+
+            val committed =
+                repository.commitTranscriptionResult(
+                    transcript = Transcript(recordingId = id, rawText = "hello"),
+                    timings = emptyList(),
+                    enhancementIntent = null,
+                    expectedExecutionToken = "token-1",
+                    enhancementExecutionToken = null,
+                )
+
+            assertTrue(committed)
+            coVerify(exactly = 1) {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = id,
+                    status = RecordingStatus.COMPLETED,
+                    errorMessage = null,
+                    executionToken = null,
+                    allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                    expectedExecutionToken = "token-1",
+                )
+            }
+        }
+
+    @Test
+    fun `token-guarded commitTranscriptionResult rejects stale execution token`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(status = RecordingStatus.TRANSCRIBING, executionToken = "newer-token")
+
+            val committed =
+                repository.commitTranscriptionResult(
+                    transcript = Transcript(recordingId = id, rawText = "hello"),
+                    timings = emptyList(),
+                    enhancementIntent = null,
+                    expectedExecutionToken = "token-1",
+                    enhancementExecutionToken = null,
+                )
+
+            assertFalse(committed)
+            coVerify(exactly = 0) {
+                recordingDao.updateStatusWithTranscriptionToken(any(), any(), any(), any(), any(), any())
+            }
         }
 }

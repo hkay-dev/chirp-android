@@ -1,10 +1,12 @@
 package dev.chirpboard.app.feature.recording.session.validation
 
+import dev.chirpboard.app.core.audio.WavFileWriter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.io.RandomAccessFile
 
 class RecordingFileValidatorTest {
     private val validator = RecordingFileValidator()
@@ -45,6 +47,43 @@ class RecordingFileValidatorTest {
             "/data/recording.m4a.checkpoint.m4a",
             RecordingFileValidator.checkpointPathFor("/data/recording.m4a"),
         )
+    }
+
+    @Test
+    fun validateForStop_acceptsFinalizedWav() {
+        val file = finalizedWavFile()
+        assertTrue(validator.validateForStop(file).isPlayable)
+        file.delete()
+    }
+
+    @Test
+    fun validateForStop_rejectsWavWithCrashedHeader() {
+        val file = crashedWavFile()
+        assertEquals(RecordingValidationLevel.INVALID, validator.validateForStop(file).level)
+        file.delete()
+    }
+
+    @Test
+    fun validateForRecovery_treatsCrashedWavAsRecoverableStub() {
+        val file = crashedWavFile()
+        assertTrue(validator.validateForRecovery(file).isRecoverableStub)
+        file.delete()
+    }
+
+    private fun finalizedWavFile(): File {
+        val file = File.createTempFile("finalized", ".wav")
+        WavFileWriter(file, sampleRate = 16_000).use { writer ->
+            writer.appendPcm16(ByteArray(2048) { 1 }, 2048)
+        }
+        return file
+    }
+
+    private fun crashedWavFile(): File {
+        val file = finalizedWavFile()
+        RandomAccessFile(file, "rw").use { raf ->
+            raf.write(ByteArray(WavFileWriter.WAV_HEADER_BYTES))
+        }
+        return file
     }
 
     private fun createFtypOnlyFile(): File {

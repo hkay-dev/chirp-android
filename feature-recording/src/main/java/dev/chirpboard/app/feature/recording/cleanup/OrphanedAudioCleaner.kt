@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.cleanup
 import android.content.Context
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
@@ -29,15 +30,26 @@ class OrphanedAudioCleaner
         suspend fun cleanOrphanedFiles() {
             withContext(Dispatchers.IO) {
                 try {
+                    val dictationDeletedCount = cleanStaleDictationCaptures(System.currentTimeMillis())
+                    if (dictationDeletedCount > 0) {
+                        Log.i(TAG, "Cleaned up $dictationDeletedCount stale dictation capture file(s)")
+                    }
+
                     val recordingsDir = File(context.filesDir, "recordings")
                     if (!recordingsDir.exists() || !recordingsDir.isDirectory) {
                         return@withContext
                     }
 
+                    // validPaths covers EVERY recording row regardless of status, so audio
+                    // referenced by RECORDING (in-progress) rows is never deleted here.
+                    // Live journal entries (ACTIVE/STOPPING) are covered by safelistedPaths,
+                    // and journalReferencedPaths additionally includes quarantined
+                    // (unparseable) journal entries' best-effort paths.
                     val validPaths = recordingRepository.getAllAudioPaths().toSet()
                     val journalReferencedPaths = sessionJournal.getAllReferencedAudioPaths()
                     val safelistedPaths = sessionJournal.getSafelistedAudioPaths()
                     val protectedPaths = protectedPathsStore.activeProtectedPaths()
+                    val expiredProtectedPaths = protectedPathsStore.consumeExpiredPaths()
                     val startedAtByPath = sessionJournal.startedAtByAudioPath()
                     val now = System.currentTimeMillis()
 
@@ -64,6 +76,14 @@ class OrphanedAudioCleaner
 
                         if (ageMs < graceMs) continue
 
+                        if (expiredProtectedPaths.contains(absolutePath) && looksRecoverable(file)) {
+                            // The user explicitly kept this audio and the 7-day protection
+                            // lapsed; prefer quarantine over deletion while it still looks
+                            // recoverable.
+                            quarantineExpiredProtectedFile(recordingsDir, file)
+                            continue
+                        }
+
                         val deleted = file.delete()
                         if (deleted) {
                             deletedCount++
@@ -89,6 +109,7 @@ class OrphanedAudioCleaner
                             journalReferencedPaths = journalReferencedPaths,
                             now = now,
                         )
+                    deletedCount += purgeStaleQuarantine(recordingsDir, now)
 
                     if (deletedCount > 0) {
                         Log.i(TAG, "Cleaned up $deletedCount orphaned audio file(s)")
@@ -148,11 +169,92 @@ class OrphanedAudioCleaner
             return deletedCount
         }
 
+        private fun looksRecoverable(file: File): Boolean =
+            file.length() >= RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES
+
+        private fun quarantineExpiredProtectedFile(
+            recordingsDir: File,
+            file: File,
+        ) {
+            val quarantineDir = File(recordingsDir, QUARANTINE_DIR_NAME).apply { mkdirs() }
+            val target = uniqueQuarantineTarget(quarantineDir, file.name)
+            if (file.renameTo(target)) {
+                target.setLastModified(System.currentTimeMillis())
+                Log.i(TAG, "Quarantined expired protected audio: ${file.name}")
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.PERSISTENCE_SAVE,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
+                    reasonCode = "orphan_audio_quarantined",
+                    message = file.name,
+                )
+            } else {
+                Log.e(TAG, "Failed to quarantine expired protected audio: ${file.name}")
+            }
+        }
+
+        private fun uniqueQuarantineTarget(
+            quarantineDir: File,
+            name: String,
+        ): File {
+            val direct = File(quarantineDir, name)
+            if (!direct.exists()) return direct
+            return File(quarantineDir, "${System.currentTimeMillis()}_$name")
+        }
+
+        /**
+         * Deletes leftover keyboard dictation capture files (cacheDir/keyboard-capture/
+         * dictation-*.f32pcm) that VoiceRecorder wrote but a crashed or killed IME never
+         * cleaned up. Anything older than [DICTATION_CAPTURE_MAX_AGE_MS] is dead: live
+         * dictations are consumed within a single keyboard session.
+         */
+        private fun cleanStaleDictationCaptures(now: Long): Int {
+            val captureDir = File(context.cacheDir, VoiceRecorder.KEYBOARD_CAPTURE_CACHE_DIR)
+            if (!captureDir.isDirectory) return 0
+            var deleted = 0
+            captureDir.listFiles()?.forEach { file ->
+                val isDictationCapture =
+                    file.isFile &&
+                        file.name.startsWith(VoiceRecorder.DICTATION_CAPTURE_FILE_PREFIX) &&
+                        file.name.endsWith(VoiceRecorder.DICTATION_CAPTURE_FILE_SUFFIX)
+                val stale = now - file.lastModified() >= DICTATION_CAPTURE_MAX_AGE_MS
+                if (isDictationCapture && stale) {
+                    if (file.delete()) {
+                        deleted++
+                        Log.d(TAG, "Deleted stale dictation capture: ${file.name}")
+                    } else {
+                        Log.e(TAG, "Failed to delete stale dictation capture: ${file.name}")
+                    }
+                }
+            }
+            return deleted
+        }
+
+        private fun purgeStaleQuarantine(
+            recordingsDir: File,
+            now: Long,
+        ): Int {
+            val quarantineDir = File(recordingsDir, QUARANTINE_DIR_NAME)
+            if (!quarantineDir.isDirectory) return 0
+            var deleted = 0
+            quarantineDir.listFiles()?.forEach { file ->
+                val stale = now - file.lastModified() >= QUARANTINE_RETENTION_MS
+                if (file.isFile && stale && file.delete()) {
+                    deleted++
+                    Log.d(TAG, "Deleted stale quarantined audio: ${file.name}")
+                }
+            }
+            return deleted
+        }
+
         companion object {
             private const val TAG = "OrphanedAudioCleaner"
             internal val ORPHAN_EXTENSIONS = setOf("m4a", "wav", "mp3")
+            internal const val QUARANTINE_DIR_NAME = ".quarantine"
             private const val DEFAULT_ORPHAN_GRACE_MS = 5 * 60 * 1000L
             private const val UNKNOWN_LARGE_ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000L
             private const val LARGE_ORPHAN_BYTES = 1_000_000L
+            private const val QUARANTINE_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
+            internal const val DICTATION_CAPTURE_MAX_AGE_MS = 24 * 60 * 60 * 1000L
         }
     }

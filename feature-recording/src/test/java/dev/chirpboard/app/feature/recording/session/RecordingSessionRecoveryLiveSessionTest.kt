@@ -7,6 +7,7 @@ import dev.chirpboard.app.feature.recording.session.validation.RecordingFileVali
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -20,12 +21,16 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import java.util.Date
 import java.util.UUID
 
 class RecordingSessionRecoveryLiveSessionTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     private lateinit var context: Context
     private lateinit var journal: RecordingSessionJournal
     private lateinit var recordingStateManager: RecordingStateManager
@@ -50,6 +55,7 @@ class RecordingSessionRecoveryLiveSessionTest {
             RecordingFileValidation(RecordingValidationLevel.PLAYABLE)
         sessionRecovery =
             RecordingSessionRecovery(
+                context = context,
                 sessionJournal = journal,
                 recordingRepository = recordingRepository,
                 transcriptionRecovery = mockk(relaxed = true),

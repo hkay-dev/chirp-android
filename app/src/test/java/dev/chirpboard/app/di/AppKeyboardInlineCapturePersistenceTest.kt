@@ -127,6 +127,49 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
+    fun persist_withErrorMessage_savesRescueEntryEvenWhenSaveDisabled() =
+        runTest {
+            val root = createTempDir("keyboard-persist-rescue")
+            val audioEncoder = audioEncoderWritingFile()
+            val recordingRepository = mockk<RecordingRepository>()
+            val savedRecording = CompletableDeferred<Recording>()
+            coEvery {
+                recordingRepository.createRecordingWithTranscript(any(), any(), any())
+            } answers {
+                firstArg<Recording>().also { savedRecording.complete(it) }
+            }
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+
+            // A rescue entry is an error artifact, not a normal keyboard recording: it must
+            // be saved even with saveKeyboardRecordings off so the transcript is retrievable.
+            persistence.persist(
+                samples = floatArrayOf(0.1f, 0.2f),
+                rawText = "rescued dictation",
+                processedText = null,
+                errorMessage = "Couldn't insert dictated text into the field",
+            )
+
+            val recording = savedRecording.await()
+            assertEquals(RecordingSource.KEYBOARD, recording.source)
+            assertEquals("Couldn't insert dictated text into the field", recording.errorMessage)
+            assertTrue(File(recording.audioPath).exists())
+            coVerify {
+                recordingRepository.createRecordingWithTranscript(
+                    match { it.errorMessage == "Couldn't insert dictated text into the field" },
+                    match<Transcript> { it.rawText == "rescued dictation" },
+                    emptyList(),
+                )
+            }
+        }
+
+    @Test
     fun persist_cancelledAfterStartStillCompletesLocalSave() =
         runTest {
             val root = createTempDir("keyboard-persist-cancelled")

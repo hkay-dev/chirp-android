@@ -171,10 +171,21 @@ class TranscriptionQueueManager
             _constraintWarning.value = constraintChecker.getConstraintMessage(status)
 
             val executionToken = UUID.randomUUID().toString()
-            recordingRepository.claimTranscriptionExecution(
-                recordingId = recordingId,
-                executionToken = executionToken,
-            )
+            val claimed =
+                recordingRepository.claimTranscriptionExecution(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
+                )
+            if (!claimed) {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = corrId,
+                    recordingId = recordingId,
+                    reasonCode = "enqueue_claim_rejected",
+                )
+                return TranscriptionWorkRequest.workName(recordingId)
+            }
 
             try {
                 val workId =
@@ -272,10 +283,14 @@ class TranscriptionQueueManager
                 warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
 
                 val executionToken = UUID.randomUUID().toString()
-                recordingRepository.claimTranscriptionExecution(
-                    recordingId = recordingId,
-                    executionToken = executionToken,
-                )
+                val claimed =
+                    recordingRepository.claimTranscriptionExecution(
+                        recordingId = recordingId,
+                        executionToken = executionToken,
+                    )
+                if (!claimed) {
+                    return
+                }
                 workScheduler.enqueueTranscription(
                     recordingId = recordingId,
                     executionToken = executionToken,
@@ -516,12 +531,16 @@ class TranscriptionQueueManager
                     if (supersedeEnhancement) {
                         recordingRepository.deleteEnhancementSnapshot(recordingId)
                     }
-                    recordingRepository.claimTranscriptionExecution(
-                        recordingId = recordingId,
-                        executionToken = executionToken,
-                        status = status,
-                        errorMessage = manualRecoveryMessage,
-                    )
+                    val claimed =
+                        recordingRepository.claimTranscriptionExecution(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                            status = status,
+                            errorMessage = manualRecoveryMessage,
+                        )
+                    if (!claimed) {
+                        return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+                    }
                 }
             }
 

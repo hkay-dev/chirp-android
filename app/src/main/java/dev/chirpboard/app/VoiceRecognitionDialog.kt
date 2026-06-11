@@ -75,12 +75,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.delay
 
 @Composable
-fun VoiceRecognitionDialog(
+internal fun VoiceRecognitionDialog(
     waveformBuffer: WaveformBuffer,
     sampleCountFlow: StateFlow<Long>,
     recordingStateFlow: StateFlow<RecordingState>,
     shouldDismissFlow: StateFlow<Boolean>,
     partialTranscriptFlow: StateFlow<String>,
+    modelStateFlow: StateFlow<VoiceRecognitionModelState>,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
     onStart: () -> Unit,
@@ -92,12 +93,16 @@ fun VoiceRecognitionDialog(
     val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
+    val modelState by modelStateFlow.collectAsStateWithLifecycle(VoiceRecognitionModelState.Initializing)
     var isVisible by remember { mutableStateOf(true) }
 
     val sampleCount by sampleCountFlow.collectAsStateWithLifecycle(0L)
 
-    LaunchedEffect(Unit) {
-        onStart()
+    // Auto-start only once the transcription model is actually ready.
+    LaunchedEffect(modelState) {
+        if (modelState == VoiceRecognitionModelState.Ready) {
+            onStart()
+        }
     }
 
     LaunchedEffect(shouldDismiss) {
@@ -145,6 +150,7 @@ fun VoiceRecognitionDialog(
                 waveformBuffer = waveformBuffer,
                 sampleCount = sampleCount,
                 partialTranscript = partialTranscript,
+                modelState = modelState,
                 llmEnabled = llmEnabled,
                 currentMode = currentMode,
                 onStart = {
@@ -166,6 +172,7 @@ private fun VoiceRecognitionDialogContent(
     waveformBuffer: WaveformBuffer,
     sampleCount: Long,
     partialTranscript: String,
+    modelState: VoiceRecognitionModelState,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
     onStart: () -> Unit,
@@ -175,6 +182,7 @@ private fun VoiceRecognitionDialogContent(
 ) {
     val isRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Starting || recordingState is RecordingState.Stopping
     val isProcessing = recordingState is RecordingState.Stopping
+    val isModelReady = modelState == VoiceRecognitionModelState.Ready
     val showRecordingVisuals = isRecording && !isProcessing
     val recordingVisualEnter =
         fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
@@ -256,24 +264,46 @@ private fun VoiceRecognitionDialogContent(
                         },
                         label = "transcript_animation",
                     ) { text ->
-                        if (text.isNotBlank()) {
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                textAlign = TextAlign.Center,
-                                maxLines = 3,
-                            )
-                        } else if (isRecording && !isProcessing) {
-                            RecordingTimer(
-                                recordingState = recordingState,
-                                isRecording = true,
-                                textStyle = MaterialTheme.typography.displaySmall.copy(
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Light,
-                                    letterSpacing = 2.sp,
+                        when {
+                            text.isNotBlank() -> {
+                                Text(
+                                    text = text,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 3,
                                 )
-                            )
+                            }
+
+                            modelState == VoiceRecognitionModelState.Initializing -> {
+                                Text(
+                                    text = stringResource(R.string.voice_recognition_model_loading),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+
+                            modelState == VoiceRecognitionModelState.Unavailable -> {
+                                Text(
+                                    text = stringResource(R.string.voice_recognition_model_unavailable),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.error,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+
+                            isRecording && !isProcessing -> {
+                                RecordingTimer(
+                                    recordingState = recordingState,
+                                    isRecording = true,
+                                    textStyle = MaterialTheme.typography.displaySmall.copy(
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Light,
+                                        letterSpacing = 2.sp,
+                                    )
+                                )
+                            }
                         }
                     }
                 }
@@ -309,16 +339,16 @@ private fun VoiceRecognitionDialogContent(
                     contentAlignment = Alignment.Center,
                 ) {
                     val buttonColor =
-                        if (isRecording && !isProcessing) {
-                            MaterialTheme.colorScheme.errorContainer
-                        } else {
-                            MaterialTheme.colorScheme.primaryContainer
+                        when {
+                            isRecording && !isProcessing -> MaterialTheme.colorScheme.errorContainer
+                            !isModelReady -> MaterialTheme.colorScheme.surfaceVariant
+                            else -> MaterialTheme.colorScheme.primaryContainer
                         }
                     val iconColor =
-                        if (isRecording && !isProcessing) {
-                            MaterialTheme.colorScheme.onErrorContainer
-                        } else {
-                            MaterialTheme.colorScheme.onPrimaryContainer
+                        when {
+                            isRecording && !isProcessing -> MaterialTheme.colorScheme.onErrorContainer
+                            !isModelReady -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.onPrimaryContainer
                         }
 
                     Box(
@@ -330,7 +360,7 @@ private fun VoiceRecognitionDialogContent(
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = ripple(bounded = false, radius = 56.dp),
-                                    enabled = !isProcessing,
+                                    enabled = !isProcessing && isModelReady,
                                     onClick = {
                                         if (isRecording) {
                                             onStop()

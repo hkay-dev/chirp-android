@@ -46,6 +46,7 @@ class TranscriptionQueueOrchestrationTest {
 
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
+        coEvery { recordingRepository.claimTranscriptionExecution(any(), any(), any(), any()) } returns true
 
         reconciler =
             TranscriptionQueueReconciler(
@@ -105,6 +106,28 @@ class TranscriptionQueueOrchestrationTest {
         reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
 
         assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `reconcileQueueHealth does not requeue pending recording when claim is rejected`() = runTest {
+        val pendingRecording = mockk<Recording>()
+        val id = UUID.randomUUID()
+        every { pendingRecording.id } returns id
+        every { pendingRecording.status } returns RecordingStatus.PENDING_TRANSCRIPTION
+        every { pendingRecording.errorMessage } returns null
+
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(listOf(pendingRecording)))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.claimTranscriptionExecution(id, any(), any(), any()) } returns false
+
+        workScheduler.uniqueWorkInfos[TranscriptionWorkRequest.workName(id)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.CANCELLED))
+
+        reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
+
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test

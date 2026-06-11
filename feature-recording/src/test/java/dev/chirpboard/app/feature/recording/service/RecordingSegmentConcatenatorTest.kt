@@ -39,6 +39,23 @@ class RecordingSegmentConcatenatorTest {
         assertTrue(export.exists())
     }
 
+    @Test
+    fun concatToExport_repairsHeaderWhenSingleCrashedWavSegmentIsCopied() {
+        val classUnderTest = RecordingSegmentConcatenator(mockk<AudioEncoder>(relaxed = true))
+        val segment = File(temporaryFolder.root, "seg-000.wav")
+        val export = File(temporaryFolder.root, "recording.wav")
+        writeWav(segment)
+        // Simulate a crash that left a zeroed header on the active segment.
+        java.io.RandomAccessFile(segment, "rw").use { raf ->
+            raf.write(ByteArray(WavFileWriter.WAV_HEADER_BYTES))
+        }
+
+        val result = classUnderTest.concatToExport(listOf(segment), export)
+
+        assertTrue(result is SegmentConcatResult.Success)
+        assertTrue(WavFileWriter.hasAccurateHeader(export))
+    }
+
     private fun writeWav(file: File) {
         WavFileWriter(file, sampleRate = 16_000).use { writer ->
             writer.appendPcm16(ByteArray(2048) { 1 }, 2048)

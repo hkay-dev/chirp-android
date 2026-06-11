@@ -70,7 +70,10 @@ class RecordingManager
             }
 
             // Start the service (it will do the actual atomic check)
-            RecordingServiceCommands.startRecording(context, origin, profileId)
+            val dispatched = RecordingServiceCommands.startRecording(context, origin, profileId)
+            if (!dispatched) {
+                stateManager.onRecordingError("Could not start the recording service")
+            }
             return RecordingStartResult.Success
         }
 

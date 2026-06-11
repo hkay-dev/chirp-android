@@ -88,6 +88,9 @@ class RecordingSessionJournal
     constructor(
         @ApplicationContext private val context: Context,
     ) {
+        /** Serializes journal read-modify-write cycles so concurrent mutators cannot lose updates. */
+        private val journalLock = Any()
+
         private val sessionsDir: File
             get() = File(context.filesDir, "recordings/.sessions").apply { mkdirs() }
 
@@ -119,7 +122,9 @@ class RecordingSessionJournal
                     state = SessionJournalState.ACTIVE,
                     correlationId = correlationId,
                 )
-            writeEntry(entry)
+            synchronized(journalLock) {
+                writeEntry(entry)
+            }
             return entry
         }
 
@@ -281,7 +286,7 @@ class RecordingSessionJournal
         fun getAllReferencedAudioPaths(): Set<String> =
             loadAllEntries()
                 .flatMap { entry -> referencedPathsFor(entry) }
-                .toSet()
+                .toSet() + quarantinedReferencedPaths()
 
         fun startedAtByAudioPath(): Map<String, Long> =
             loadAllEntries().flatMap { entry ->
@@ -289,7 +294,12 @@ class RecordingSessionJournal
             }.toMap()
 
         fun findBySessionId(sessionId: UUID): RecordingSessionEntry? =
-            sessionFile(sessionId).takeIf { it.exists() }?.let { readEntry(it) }
+            sessionFile(sessionId).takeIf { it.exists() }?.let { file ->
+                runCatching { readEntry(file) }.getOrElse { error ->
+                    quarantineCorruptEntry(file, error)
+                    null
+                }
+            }
 
         internal fun referencedPathsFor(entry: RecordingSessionEntry): List<String> =
             buildList {
@@ -310,7 +320,12 @@ class RecordingSessionJournal
                 .listFiles()
                 ?.filter { it.extension == "json" }
                 ?.mapNotNull { file ->
-                    runCatching { readEntry(file) }.getOrNull()
+                    runCatching { readEntry(file) }.getOrElse { error ->
+                        // Quarantine instead of silently dropping: the entry stays on disk for
+                        // diagnosis and its referenced audio stays out of orphan cleanup.
+                        quarantineCorruptEntry(file, error)
+                        null
+                    }
                 }.orEmpty()
                 .filter(predicate)
 
@@ -318,18 +333,70 @@ class RecordingSessionJournal
             sessionId: UUID,
             transform: (RecordingSessionEntry) -> RecordingSessionEntry,
         ) {
-            val file = sessionFile(sessionId)
-            if (!file.exists()) return
-            val updated = transform(readEntry(file))
-            writeEntry(updated)
+            synchronized(journalLock) {
+                val file = sessionFile(sessionId)
+                if (!file.exists()) return
+                val current =
+                    runCatching { readEntry(file) }.getOrElse { error ->
+                        quarantineCorruptEntry(file, error)
+                        return
+                    }
+                writeEntry(transform(current))
+            }
         }
 
         private fun deleteEntry(sessionId: UUID) {
-            val deleted = sessionFile(sessionId).delete()
-            if (!deleted) {
-                Log.w(TAG, "Failed to delete session journal for $sessionId")
+            synchronized(journalLock) {
+                val deleted = sessionFile(sessionId).delete()
+                if (!deleted) {
+                    Log.w(TAG, "Failed to delete session journal for $sessionId")
+                }
             }
         }
+
+        private fun quarantineCorruptEntry(
+            file: File,
+            error: Throwable,
+        ) {
+            synchronized(journalLock) {
+                if (!file.exists()) return
+                val quarantined = File(file.parentFile, "${file.name}$CORRUPT_SUFFIX")
+                if (file.renameTo(quarantined)) {
+                    Log.w(TAG, "Quarantined unparseable session journal ${file.name}", error)
+                } else {
+                    Log.w(TAG, "Failed to quarantine unparseable session journal ${file.name}", error)
+                }
+            }
+        }
+
+        /**
+         * Best-effort audio paths referenced by quarantined (unparseable) journal entries.
+         * These files must stay out of orphan cleanup even though the entry cannot be
+         * fully decoded any more.
+         */
+        private fun quarantinedReferencedPaths(): Set<String> =
+            sessionsDir
+                .listFiles()
+                ?.filter { it.name.endsWith(CORRUPT_SUFFIX) }
+                ?.flatMap(::bestEffortReferencedPaths)
+                ?.toSet()
+                .orEmpty()
+
+        private fun bestEffortReferencedPaths(file: File): List<String> =
+            runCatching {
+                val values = parseSimpleJsonObject(file.readText())
+                buildList {
+                    listOfNotNull(values["audioPath"], values["finalAudioPath"])
+                        .filter { it.isNotBlank() }
+                        .forEach { path ->
+                            add(path)
+                            add(RecordingFileValidator.checkpointPathFor(path))
+                            add(RecordingFileValidator.recoveryPathFor(path))
+                        }
+                    addAll(decodeSegmentPaths(values["segmentPaths"]))
+                    values["checkpointPath"]?.takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }.getOrDefault(emptyList())
 
         private fun sessionFile(sessionId: UUID): File = File(sessionsDir, "$sessionId.json")
 
@@ -425,6 +492,7 @@ class RecordingSessionJournal
         companion object {
             private const val TAG = "RecordingSessionJournal"
             private const val SEGMENT_PATH_DELIMITER = "\u001f"
+            const val CORRUPT_SUFFIX = ".corrupt"
             const val MIN_RECOVERABLE_FILE_BYTES = 512L
             const val CHECKPOINT_INTERVAL_MS = 15 * 60 * 1000L
             const val SEGMENT_ROTATION_INTERVAL_MS = 5 * 60 * 1000L

@@ -99,6 +99,7 @@ interface RecordingDao {
         """
         UPDATE recordings
         SET title = CASE WHEN :title IS NULL THEN title ELSE :title END,
+            audioPath = CASE WHEN :audioPath IS NULL THEN audioPath ELSE :audioPath END,
             durationMs = :durationMs,
             status = :destinationStatus,
             errorMessage = NULL
@@ -109,10 +110,17 @@ interface RecordingDao {
         id: UUID,
         durationMs: Long,
         title: String?,
+        audioPath: String? = null,
         expectedStatus: RecordingStatus = RecordingStatus.RECORDING,
         destinationStatus: RecordingStatus = RecordingStatus.PENDING_TRANSCRIPTION,
     ): Int
 
+    /**
+     * Token-handoff status update. The WHERE clause requires the row to still be in one of
+     * [allowedCurrentStatuses], and, when [expectedExecutionToken] is non-null, to still carry
+     * that execution token. This way a stale worker or queue pass holding an old token can
+     * never regress a row that has already moved on (e.g. back out of COMPLETED).
+     */
     @Query(
         """
         UPDATE recordings
@@ -120,6 +128,8 @@ interface RecordingDao {
             errorMessage = :errorMessage,
             transcriptionExecutionToken = :executionToken
         WHERE id = :id
+            AND status IN (:allowedCurrentStatuses)
+            AND (:expectedExecutionToken IS NULL OR transcriptionExecutionToken = :expectedExecutionToken)
         """,
     )
     suspend fun updateStatusWithTranscriptionToken(
@@ -127,7 +137,9 @@ interface RecordingDao {
         status: RecordingStatus,
         errorMessage: String?,
         executionToken: String?,
-    )
+        allowedCurrentStatuses: List<RecordingStatus>,
+        expectedExecutionToken: String?,
+    ): Int
 
     @Query(
         """

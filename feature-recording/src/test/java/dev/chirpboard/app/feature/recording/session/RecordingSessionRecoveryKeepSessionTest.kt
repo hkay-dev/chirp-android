@@ -37,6 +37,7 @@ class RecordingSessionRecoveryKeepSessionTest {
             }
         sessionRecovery =
             RecordingSessionRecovery(
+                context = context,
                 sessionJournal = journal,
                 recordingRepository = recordingRepository,
                 transcriptionRecovery = mockk(relaxed = true),

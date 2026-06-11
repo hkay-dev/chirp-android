@@ -51,6 +51,24 @@ class VoiceRecognitionCaptureGateTest {
     }
 
     @Test
+    fun `second acquire while held returns busy instead of re-entrant success`() {
+        val manager = RecordingStateManager()
+        val gate = VoiceRecognitionCaptureGate(manager)
+
+        assertEquals(VoiceRecognitionCaptureGateResult.Acquired, gate.tryAcquire())
+
+        val second = gate.tryAcquire()
+
+        assertEquals(VoiceRecognitionCaptureGateResult.Busy("keyboard"), second)
+        assertTrue(gate.isHeld())
+
+        gate.releaseCompleted()
+
+        assertFalse(gate.isHeld())
+        assertEquals(VoiceRecognitionCaptureGateResult.Acquired, gate.tryAcquire())
+    }
+
+    @Test
     fun `acquire returns busy source when another recording owns the lock`() {
         val manager = RecordingStateManager()
         val gate = VoiceRecognitionCaptureGate(manager)

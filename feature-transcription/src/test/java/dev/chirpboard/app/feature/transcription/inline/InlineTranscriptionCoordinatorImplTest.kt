@@ -9,6 +9,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
@@ -122,6 +123,61 @@ class InlineTranscriptionCoordinatorImplTest {
         assertEquals(2, calls)
     }
 
+    @Test
+    fun `refused commit persists transcript as rescue entry instead of dropping it`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello world")
+        val persistence = CapturingPersistence()
+        var reportedError: String? = null
+
+        coordinator.transcribeWithCommitResult(
+            request =
+                InlineTranscriptionRequest(
+                    samples = floatArrayOf(0.1f, 0.2f),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                ),
+            persistence = persistence,
+            commitText = { false },
+            onRecordingError = { reportedError = it },
+        )
+
+        assertEquals("hello world", persistence.lastRawText)
+        assertEquals(COMMIT_REFUSED_MESSAGE, persistence.lastErrorMessage)
+        assertEquals(COMMIT_REFUSED_MESSAGE, reportedError)
+        assertEquals(InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE), coordinator.phase.value)
+    }
+
+    @Test
+    fun `accepted commit persists transcript without an error message`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello world")
+        val persistence = CapturingPersistence()
+        var committed = ""
+        var completed = false
+
+        coordinator.transcribeWithCommitResult(
+            request =
+                InlineTranscriptionRequest(
+                    samples = floatArrayOf(0.1f, 0.2f),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                ),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+            onRecordingCompleted = { completed = true },
+        )
+
+        assertEquals("hello world ", committed)
+        assertEquals(true, completed)
+        assertEquals("hello world", persistence.lastRawText)
+        assertEquals(null, persistence.lastErrorMessage)
+        assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
+    }
+
     private fun writeFloatPcm(
         file: java.io.File,
         sampleCount: Int,
@@ -142,12 +198,20 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     private class CapturingPersistence : InlineCapturePersistence {
+        var lastRawText: String? = null
+        var lastProcessedText: String? = null
+        var lastErrorMessage: String? = null
+
         override suspend fun persist(
             samples: FloatArray?,
             rawText: String?,
             processedText: String?,
             errorMessage: String?,
-        ) = Unit
+        ) {
+            lastRawText = rawText
+            lastProcessedText = processedText
+            lastErrorMessage = errorMessage
+        }
 
         override fun discardSamples() = Unit
     }

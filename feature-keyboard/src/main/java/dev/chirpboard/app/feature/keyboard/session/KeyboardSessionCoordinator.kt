@@ -7,8 +7,11 @@ import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
+import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
@@ -40,6 +43,7 @@ class KeyboardSessionCoordinator(
     private val recordingStateManager: RecordingStateManager,
     private val keyboardPreferences: KeyboardPreferences,
     private val modePort: ProcessingModePort,
+    private val pendingStopStore: KeyboardPendingStopStore,
 ) {
     private val isRecording = MutableStateFlow(false)
     private val permissionError = MutableStateFlow<String?>(null)
@@ -54,6 +58,21 @@ class KeyboardSessionCoordinator(
     private var startJob: Job? = null
     private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
+
+    /**
+     * Identifies the stop pipeline currently allowed to drive the recording state machine.
+     * A pipeline detached by the stopping-timeout rescue keeps transcribing in the
+     * background but must no longer touch the (already recovered) state machine.
+     */
+    @Volatile
+    private var activeStopToken: Any? = null
+
+    /**
+     * Supplies a commit callback bound to the live input session. Set by the IME service so
+     * stops it does not initiate directly (for example the max-duration limit) still commit
+     * recognized text to the field exactly like a user-initiated stop.
+     */
+    var commitTextProvider: () -> ((String) -> Boolean)? = { null }
 
     val uiState: StateFlow<KeyboardUiState> =
         combine(
@@ -99,11 +118,12 @@ class KeyboardSessionCoordinator(
             ),
         )
 
+    private val stoppingTimeoutRescue: suspend (RecordingState.Stopping) -> Unit = {
+        rescueStoppingTimeout()
+    }
+
     init {
-        recordingStateManager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD) {
-            cancelRecording()
-            recordingStateManager.onRecordingError("Failed to stop dictation")
-        }
+        recordingStateManager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, stoppingTimeoutRescue)
 
         scope.launch {
             keyboardPreferences.llmEnabled.collect { llmEnabled.value = it }
@@ -120,19 +140,68 @@ class KeyboardSessionCoordinator(
 
         capture.onRecordingError = { error ->
             scope.launch {
-                capture.abandonAudioFocus()
-                recordingStateManager.onRecordingError(error.userMessage)
-                isRecording.value = false
-                transcription.setError(error.userMessage)
+                if (!isRecording.value) {
+                    // A concurrent stop already tore the capture down; a late capture error
+                    // must not clobber the stop pipeline or in-flight transcription.
+                    Log.w(tag, "Ignoring capture error after recording stopped: ${error.userMessage}")
+                } else {
+                    isRecording.value = false
+                    recordingJob?.cancel()
+                    recordingJob = null
+                    capture.abandonAudioFocus()
+                    recordingStateManager.onRecordingError(error.userMessage)
+                    transcription.setError(error.userMessage)
+                }
             }
         }
 
         capture.onLimitReached = {
             scope.launch {
                 if (isRecording.value) {
-                    stopAndTranscribe(commitText = {})
+                    // Commit limit-triggered stops through the live input session exactly like
+                    // a user-initiated stop. With no input session available the commit reports
+                    // failure, which routes the transcript into the rescue persistence path.
+                    val commitText = commitTextProvider() ?: { _: String -> false }
+                    stopAndTranscribe(commitText)
                 }
             }
+        }
+    }
+
+    /**
+     * Releases callbacks this coordinator registered on shared singletons.
+     * Clears the KEYBOARD stopping-timeout handler only when it is still ours.
+     */
+    fun destroy() {
+        recordingStateManager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, stoppingTimeoutRescue)
+    }
+
+    /**
+     * The stopping budget elapsed while the stop pipeline was still working. Never destroy
+     * in-flight transcription here: detach it to finish in the background, make sure the
+     * captured audio survives, and move the state machine out of STOPPING so the keyboard
+     * recovers.
+     */
+    private suspend fun rescueStoppingTimeout() {
+        withContext(Dispatchers.Main) {
+            activeStopToken = null
+            if (transcriptionJob?.isActive == true) {
+                Log.w(tag, "Stopping timed out with transcription in flight; continuing in background")
+                recordingStateManager.onRecordingCompleted()
+                transcription.setError(STOP_TIMEOUT_IN_PROGRESS_MESSAGE)
+            } else {
+                withContext(NonCancellable) {
+                    persistence.persistAudioSource(
+                        audioSource = null,
+                        rawText = null,
+                        processedText = null,
+                        errorMessage = STOP_TIMEOUT_RESCUE_MESSAGE,
+                    )
+                }
+                recordingStateManager.onRecordingCompleted()
+                transcription.setError(STOP_TIMEOUT_RESCUE_MESSAGE)
+            }
+            clearPendingStop()
         }
     }
 
@@ -178,7 +247,7 @@ class KeyboardSessionCoordinator(
             }
     }
 
-    fun onMicTap(commitText: (String) -> Unit) {
+    fun onMicTap(commitText: (String) -> Boolean) {
         val panel = uiState.value.voicePanel
         when {
             isRecording.value -> stopAndTranscribe(commitText)
@@ -243,7 +312,7 @@ class KeyboardSessionCoordinator(
         return true
     }
 
-    fun stopAndTranscribe(commitText: (String) -> Unit): Boolean {
+    fun stopAndTranscribe(commitText: (String) -> Boolean): Boolean {
         if (!isRecording.value) {
             return requestStopDuringStart()
         }
@@ -259,20 +328,23 @@ class KeyboardSessionCoordinator(
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
+            clearPendingStop()
             return true
         }
 
         persistence.prepareAudioSource(audioSource)
 
         recordingStateManager.transitionToStopping()
-        recordingStateManager.startStoppingTimeout(fileSizeBytes = 0L)
+        recordingStateManager.startStoppingTimeout(fileSizeBytes = audioSource.sizeInBytes())
 
         transcriptionJob?.cancel()
+        val stopToken = Any()
+        activeStopToken = stopToken
         var newJob: Job? = null
         newJob =
             scope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
                 try {
-                    transcription.transcribe(
+                    transcription.transcribeWithCommitResult(
                         request =
                             InlineTranscriptionRequest(
                                 samples = FloatArray(0),
@@ -282,8 +354,8 @@ class KeyboardSessionCoordinator(
                             ),
                         persistence = persistence,
                         commitText = commitText,
-                        onRecordingCompleted = { recordingStateManager.onRecordingCompleted() },
-                        onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
+                        onRecordingCompleted = { onStopPipelineCompleted(stopToken) },
+                        onRecordingError = { message -> onStopPipelineError(stopToken, message) },
                     )
                 } finally {
                     if (transcriptionJob === newJob) {
@@ -295,6 +367,38 @@ class KeyboardSessionCoordinator(
         checkNotNull(newJob).start()
         return true
     }
+
+    private fun onStopPipelineCompleted(stopToken: Any) {
+        if (activeStopToken === stopToken) {
+            activeStopToken = null
+            recordingStateManager.onRecordingCompleted()
+        }
+        clearPendingStop()
+    }
+
+    private fun onStopPipelineError(
+        stopToken: Any,
+        message: String,
+    ) {
+        if (activeStopToken === stopToken) {
+            activeStopToken = null
+            recordingStateManager.onRecordingError(message)
+        }
+        clearPendingStop()
+    }
+
+    private fun clearPendingStop() {
+        scope.launch {
+            runCatching { pendingStopStore.clear() }
+                .onFailure { Log.w(tag, "Failed to clear pending keyboard stop", it) }
+        }
+    }
+
+    private fun InlineAudioSource.sizeInBytes(): Long =
+        when (this) {
+            is InlineAudioSource.InMemory -> samples.size.toLong() * Float.SIZE_BYTES
+            is InlineAudioSource.PcmFloatFile -> sampleCount * Float.SIZE_BYTES
+        }
 
     fun cancelRecording() {
         val wasRecording = isRecording.value
@@ -310,11 +414,13 @@ class KeyboardSessionCoordinator(
             }
             return
         }
+        activeStopToken = null
         transcriptionJob?.cancel()
         transcriptionJob = null
         if (!wasRecording) {
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
+            clearPendingStop()
             return
         }
         capture.abandonAudioFocus()
@@ -325,6 +431,7 @@ class KeyboardSessionCoordinator(
         persistence.discardSamples()
         recordingStateManager.onRecordingCompleted()
         transcription.resetPhase()
+        clearPendingStop()
     }
 
     fun restartRecording() {
@@ -357,6 +464,7 @@ class KeyboardSessionCoordinator(
                 }
             } finally {
                 recordingStateManager.onRecordingCompleted()
+                clearPendingStop()
                 onComplete()
             }
         }
@@ -379,4 +487,11 @@ class KeyboardSessionCoordinator(
     }
 
     fun isRecordingActive(): Boolean = isRecording.value
+
+    companion object {
+        internal const val STOP_TIMEOUT_IN_PROGRESS_MESSAGE =
+            "Transcription is taking longer than expected"
+        internal const val STOP_TIMEOUT_RESCUE_MESSAGE =
+            "Dictation stop timed out; the captured audio was saved to recordings"
+    }
 }

@@ -19,7 +19,9 @@ internal class VoiceRecognitionCaptureGate(
     @Synchronized
     fun tryAcquire(): VoiceRecognitionCaptureGateResult {
         if (held) {
-            return VoiceRecognitionCaptureGateResult.Acquired
+            // Non-reentrant: a second session must never believe it owns the
+            // microphone while an earlier session still holds the gate.
+            return VoiceRecognitionCaptureGateResult.Busy(origin.sourceLabel())
         }
 
         return when (val result = recordingStateManager.tryStartRecording(origin)) {

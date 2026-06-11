@@ -288,6 +288,20 @@ class RecordingStateManager @Inject constructor() {
     }
 
     /**
+     * Remove the stopping-timeout handler for [origin] only when [handler] is the one
+     * currently registered. Lets an owner tear down its own handler without clobbering
+     * a replacement registered by a newer owner instance.
+     */
+    fun clearStoppingTimeoutHandler(
+        origin: RecordingOrigin,
+        handler: suspend (RecordingState.Stopping) -> Unit,
+    ) {
+        if (stoppingTimeoutHandlers[origin] === handler) {
+            stoppingTimeoutHandlers.remove(origin)
+        }
+    }
+
+    /**
      * Begin stopping timeout after recorder release completes.
      */
     fun startStoppingTimeout(fileSizeBytes: Long): Job? {

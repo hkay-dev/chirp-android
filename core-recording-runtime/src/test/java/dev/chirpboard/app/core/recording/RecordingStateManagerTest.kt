@@ -262,6 +262,53 @@ class RecordingStateManagerTest {
     }
 
     @Test
+    fun stoppingTimeout_handlerTransitioningOutOfStoppingPreventsErrorState() {
+        manager.stoppingTimeoutMsOverrideForTest = 10L
+        manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+        manager.transitionToStopping()
+
+        val handlerRan = java.util.concurrent.CountDownLatch(1)
+        manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD) { _ ->
+            // Rescue handlers recover the state machine themselves instead of failing.
+            manager.onRecordingCompleted()
+            handlerRan.countDown()
+        }
+
+        manager.startStoppingTimeout(fileSizeBytes = 0L)
+        assertTrue(handlerRan.await(2, java.util.concurrent.TimeUnit.SECONDS))
+        Thread.sleep(100)
+
+        assertTrue(manager.state.value is RecordingState.Idle)
+        val restart = manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+        assertTrue(restart is RecordingStartResult.Success)
+    }
+
+    @Test
+    fun clearStoppingTimeoutHandler_removesOnlyTheRegisteredHandler() {
+        manager.stoppingTimeoutMsOverrideForTest = 10L
+        var staleHandlerRan = false
+        var activeHandlerRan = false
+        val staleHandler: suspend (RecordingState.Stopping) -> Unit = { _ -> staleHandlerRan = true }
+        val activeHandler: suspend (RecordingState.Stopping) -> Unit = { _ -> activeHandlerRan = true }
+
+        manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, staleHandler)
+        manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, activeHandler)
+        // The stale owner clearing its old handler must not remove the active one.
+        manager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, staleHandler)
+
+        manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+        manager.transitionToStopping()
+        manager.startStoppingTimeout(fileSizeBytes = 0L)
+        Thread.sleep(100)
+
+        assertFalse(staleHandlerRan)
+        assertTrue(activeHandlerRan)
+
+        manager.clearError()
+        manager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, activeHandler)
+    }
+
+    @Test
     fun stoppingTimeout_awaitsHandlerBeforeErrorTransition() {
         manager.stoppingTimeoutMsOverrideForTest = 10L
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)

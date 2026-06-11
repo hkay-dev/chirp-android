@@ -21,16 +21,29 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/**
+ * Readiness of the on-device transcription model for the voice recognition dialog.
+ */
+internal enum class VoiceRecognitionModelState {
+    Initializing,
+    Ready,
+    Unavailable,
+}
 
 /**
  * Minimal dialog-style activity for voice recognition (like Google's).
@@ -42,9 +55,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
     private var recordingJob: Job? = null
 
+    /**
+     * Survives activity teardown so audio rescued in [onDestroy] is persisted even while
+     * [lifecycleScope] is being cancelled. Persistence work is short and non-cancellable.
+     */
+    private val rescueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     @Inject lateinit var transcriberProvider: TranscriberProvider
 
     @Inject lateinit var inlineTranscription: InlineTranscriptionPort
+
+    @Inject lateinit var capturePersistence: InlineCapturePersistence
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
@@ -58,6 +79,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     private val _shouldDismiss = MutableStateFlow(false)
     private val _partialTranscript = MutableStateFlow("")
+    private val _modelState = MutableStateFlow(VoiceRecognitionModelState.Initializing)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -74,11 +96,26 @@ class VoiceRecognitionActivity : ComponentActivity() {
         params.flags = params.flags and android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
         window.attributes = params
 
-        // Ensure transcriber is initialized
+        // Ensure transcriber is initialized; surface a model-not-ready state instead of
+        // failing silently when initialization does not complete.
         lifecycleScope.launch {
             Log.d(TAG, "Initializing transcriber...")
-            transcriberProvider.initialize()
-            Log.d(TAG, "Transcriber ready: ${transcriberProvider.isReady()}")
+            val initialized =
+                try {
+                    transcriberProvider.initialize()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e(TAG, "Transcriber initialization failed", e)
+                    false
+                }
+            val ready = initialized && transcriberProvider.isReady()
+            Log.d(TAG, "Transcriber ready: $ready")
+            _modelState.value =
+                if (ready) {
+                    VoiceRecognitionModelState.Ready
+                } else {
+                    VoiceRecognitionModelState.Unavailable
+                }
         }
 
         setContent {
@@ -92,6 +129,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     recordingStateFlow = _recordingState,
                     shouldDismissFlow = _shouldDismiss,
                     partialTranscriptFlow = _partialTranscript,
+                    modelStateFlow = _modelState,
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
                     onStart = ::startRecording,
@@ -120,6 +158,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun startRecording() {
         if (_recordingState.value !is RecordingState.Idle) {
             Log.w(TAG, "Already recording, ignoring start request")
+            return
+        }
+        if (_modelState.value != VoiceRecognitionModelState.Ready) {
+            Log.w(TAG, "Transcription model not ready, ignoring start request")
             return
         }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
@@ -194,7 +236,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             processingModeId = processingMode.id,
                             correlationPrefix = "voice",
                         ),
-                    persistence = null,
+                    persistence = capturePersistence,
                     commitText = { text ->
                         resultText = text
                         _partialTranscript.value = text.trim()
@@ -251,11 +293,37 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (captureGate.isHeld()) {
-            recorder.stop()
+            val samples = recorder.stop()
             captureGate.releaseCompleted()
+            rescueInterruptedCapture(samples)
         }
         recorder.close()
         super.onDestroy()
+    }
+
+    /**
+     * The activity is being destroyed while a recognition session is still capturing
+     * (e.g. the system killed the task mid-recording). Persist whatever audio was
+     * captured so the recording can be recovered from history instead of being lost.
+     */
+    private fun rescueInterruptedCapture(samples: FloatArray) {
+        if (samples.isEmpty()) {
+            return
+        }
+        Log.w(TAG, "Rescuing ${samples.size} samples from interrupted recognition")
+        rescueScope.launch {
+            try {
+                capturePersistence.persist(
+                    samples = samples,
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = "Voice recognition interrupted",
+                )
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to rescue interrupted recognition audio", e)
+            }
+        }
     }
 
     private fun returnError(errorCode: Int) {

@@ -44,6 +44,34 @@ class KeyboardPendingStopStoreTest {
         }
 
     @Test
+    fun peek_withinTtl_returnsPendingStop() =
+        runTest {
+            store.enqueue(RecordingOrigin.WIDGET)
+
+            val pending =
+                store.peek(
+                    nowEpochMs = System.currentTimeMillis() + KeyboardPendingStopStore.PENDING_STOP_TTL_MS - 1_000L,
+                )
+
+            assertEquals(RecordingOrigin.WIDGET, pending?.requesterOrigin)
+        }
+
+    @Test
+    fun peek_expiredEntryIsIgnoredAndCleared() =
+        runTest {
+            store.enqueue(RecordingOrigin.WIDGET)
+
+            val expired =
+                store.peek(
+                    nowEpochMs = System.currentTimeMillis() + KeyboardPendingStopStore.PENDING_STOP_TTL_MS + 1_000L,
+                )
+
+            assertNull(expired)
+            // The expired entry is also removed so it can never fire later.
+            assertNull(store.peek())
+        }
+
+    @Test
     fun reconcileStale_clearsWhenGlobalStateIdle() =
         runTest {
             store.enqueue(RecordingOrigin.WIDGET)

@@ -239,12 +239,16 @@ internal class TranscriptionQueueReconciler(
             }
 
             else -> {
-                recordingRepository.claimTranscriptionExecution(
-                    recordingId = recording.id,
-                    executionToken = executionToken,
-                    status = RecordingStatus.PENDING_TRANSCRIPTION,
-                    errorMessage = recording.errorMessage,
-                )
+                val claimed =
+                    recordingRepository.claimTranscriptionExecution(
+                        recordingId = recording.id,
+                        executionToken = executionToken,
+                        status = RecordingStatus.PENDING_TRANSCRIPTION,
+                        errorMessage = recording.errorMessage,
+                    )
+                if (!claimed) {
+                    return ""
+                }
                 workScheduler.enqueueTranscription(
                     recordingId = recording.id,
                     executionToken = executionToken,

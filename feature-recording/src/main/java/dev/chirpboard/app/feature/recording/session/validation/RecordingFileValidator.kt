@@ -74,8 +74,19 @@ class RecordingFileValidator
             if (file.length() < WavFileWriter.WAV_HEADER_BYTES + MIN_BYTES) {
                 return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is too small")
             }
-            if (!WavFileWriter.hasValidHeader(file)) {
-                return RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is not a valid WAV container")
+            if (!WavFileWriter.hasAccurateHeader(file)) {
+                // A crash can leave a zeroed or stale-size header on top of a plausible PCM
+                // payload. In recovery mode that payload is repairable, so surface it as a
+                // recoverable stub instead of discarding it; recovery repairs the header
+                // before treating the file as playable.
+                return if (allowRecoverableStub) {
+                    RecordingFileValidation(
+                        RecordingValidationLevel.RECOVERABLE_STUB,
+                        "WAV header is incomplete but PCM payload is recoverable",
+                    )
+                } else {
+                    RecordingFileValidation(RecordingValidationLevel.INVALID, "Audio file is not a valid WAV container")
+                }
             }
             return RecordingFileValidation(
                 if (allowRecoverableStub) RecordingValidationLevel.RECOVERABLE_STUB else RecordingValidationLevel.PLAYABLE,

@@ -35,13 +35,24 @@ class RecordingRecoveryProtectedPathsStore
 
         suspend fun activeProtectedPaths(): Set<String> {
             val now = System.currentTimeMillis()
+            val (active, _) = partition(now, decode(dataStore.data.first()[PROTECTED_PATHS_KEY].orEmpty()))
+            return active.keys
+        }
+
+        /**
+         * Returns paths whose protection TTL has lapsed and removes them from the store.
+         * Callers decide what happens to the underlying audio (quarantine over deletion
+         * when it still looks recoverable).
+         */
+        suspend fun consumeExpiredPaths(): Set<String> {
+            val now = System.currentTimeMillis()
             val (active, expired) = partition(now, decode(dataStore.data.first()[PROTECTED_PATHS_KEY].orEmpty()))
             if (expired.isNotEmpty()) {
                 dataStore.edit { preferences ->
                     preferences[PROTECTED_PATHS_KEY] = encode(active)
                 }
             }
-            return active.keys
+            return expired.keys
         }
 
         private fun encode(entries: Map<String, Long>): String =

@@ -10,9 +10,11 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidation
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
+import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -29,12 +31,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import java.util.Date
 import java.util.UUID
 
 class RecordingSessionRecoveryTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     private lateinit var context: Context
     private lateinit var journal: RecordingSessionJournal
     private lateinit var recordingRepository: RecordingRepository
@@ -69,6 +75,7 @@ class RecordingSessionRecoveryTest {
 
         sessionRecovery =
             RecordingSessionRecovery(
+                context = context,
                 sessionJournal = journal,
                 recordingRepository = recordingRepository,
                 transcriptionRecovery = transcriptionRecovery,
@@ -122,7 +129,7 @@ class RecordingSessionRecoveryTest {
             assertTrue(result.toString(), result is SessionRecoveryResult.Recovered)
             assertEquals(recordingId, (result as SessionRecoveryResult.Recovered).recordingId)
             assertNull(journal.findBySessionId(sessionId))
-            coVerify(exactly = 0) { recordingRepository.finalizeInProgressRecording(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.finalizeInProgressRecording(any(), any(), any(), any()) }
             coVerify(exactly = 0) { recordingRepository.createRecording(any(), any(), any(), any(), any()) }
             coVerify(exactly = 0) { transcriptionRecovery.enqueue(any(), any()) }
         }
@@ -145,7 +152,7 @@ class RecordingSessionRecoveryTest {
             )
 
             coEvery { recordingRepository.getRecording(recordingId) } returns null
-            coEvery { recordingRepository.finalizeInProgressRecording(recordingId, any(), any()) } returns null
+            coEvery { recordingRepository.finalizeInProgressRecording(recordingId, any(), any(), any()) } returns null
             coEvery {
                 recordingRepository.createRecording(any(), any(), any(), any(), any())
             } returns
@@ -163,7 +170,7 @@ class RecordingSessionRecoveryTest {
             assertTrue(result.toString(), result is SessionRecoveryResult.Recovered)
             assertEquals(replacementId, (result as SessionRecoveryResult.Recovered).recordingId)
             assertNull(journal.findBySessionId(sessionId))
-            coVerify(exactly = 0) { recordingRepository.finalizeInProgressRecording(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.finalizeInProgressRecording(any(), any(), any(), any()) }
             coVerify { recordingRepository.createRecording(any(), audioFile.absolutePath, RecordingSource.APP, null, any()) }
             coVerify { transcriptionRecovery.enqueue(replacementId, "corr-2") }
         }
@@ -193,6 +200,52 @@ class RecordingSessionRecoveryTest {
         }
 
     @Test
+    fun scanForRecoverableSessions_excludesSessionWithUnfinishedFinalizeWork() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val activeSegment = File(context.filesDir, "recordings/.capture/$sessionId/seg-000.m4a")
+            val finalFile = createRecoverableAudioFile("mid-finalize-final.m4a")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = activeSegment.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-7",
+                finalAudioPath = finalFile.absolutePath,
+            )
+            journal.markStopping(sessionId)
+
+            coEvery { recordingRepository.getRecording(recordingId) } returns
+                Recording(
+                    id = recordingId,
+                    title = "In progress",
+                    audioPath = finalFile.absolutePath,
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                    createdAt = Date(),
+                )
+
+            mockkObject(RecordingFinalizeWorkRequest)
+            try {
+                coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId) } returns true
+
+                assertTrue(sessionRecovery.scanForRecoverableSessions().isEmpty())
+
+                coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId) } returns false
+
+                assertEquals(
+                    listOf(sessionId),
+                    sessionRecovery.scanForRecoverableSessions().map { it.sessionId },
+                )
+            } finally {
+                unmockkObject(RecordingFinalizeWorkRequest)
+            }
+        }
+
+    @Test
     fun recoverSession_abandonedSessionWithFinalAudioCreatesRecording() =
         runTest {
             val sessionId = UUID.randomUUID()
@@ -213,7 +266,7 @@ class RecordingSessionRecoveryTest {
             journal.markAbandoned(sessionId)
 
             coEvery { recordingRepository.getRecording(linkedRecordingId) } returns null
-            coEvery { recordingRepository.finalizeInProgressRecording(linkedRecordingId, any(), any()) } returns null
+            coEvery { recordingRepository.finalizeInProgressRecording(linkedRecordingId, any(), any(), any()) } returns null
             every { segmentFinalize.materializeExportFile(sessionId, activeSegment.absolutePath) } returns finalFile
             coEvery {
                 recordingRepository.createRecording(any(), any(), any(), any(), any())
@@ -306,7 +359,7 @@ class RecordingSessionRecoveryTest {
             val finalized = inProgress.copy(status = RecordingStatus.PENDING_TRANSCRIPTION)
             coEvery { recordingRepository.getRecording(recordingId) } returns inProgress
             coEvery {
-                recordingRepository.finalizeInProgressRecording(recordingId, any(), any())
+                recordingRepository.finalizeInProgressRecording(recordingId, any(), any(), any())
             } returns finalized
 
             val result = sessionRecovery.recoverSession(sessionId)
@@ -314,7 +367,7 @@ class RecordingSessionRecoveryTest {
             assertTrue(result is SessionRecoveryResult.Recovered)
             assertEquals(recordingId, (result as SessionRecoveryResult.Recovered).recordingId)
             assertNull(journal.findBySessionId(sessionId))
-            coVerify { recordingRepository.finalizeInProgressRecording(recordingId, any(), any()) }
+            coVerify { recordingRepository.finalizeInProgressRecording(eq(recordingId), any(), any(), eq(audioFile.absolutePath)) }
             coVerify(exactly = 0) { recordingRepository.createRecording(any(), any(), any(), any(), any()) }
             coVerify { transcriptionRecovery.enqueue(recordingId, "corr-3") }
         }

@@ -31,6 +31,9 @@ class RecordingFinalizeStartupReconciler
                     return@forEach
                 }
                 if (RecordingFinalizeWorkRequest.hasUnfinishedWork(context, recordingId)) {
+                    // The worker already owns this session; report it as handled so callers
+                    // exclude it from synchronous recovery instead of double-finalizing.
+                    enqueuedSessionIds += entry.sessionId
                     return@forEach
                 }
                 val snapshot = StopSnapshot.fromSessionEntry(entry)

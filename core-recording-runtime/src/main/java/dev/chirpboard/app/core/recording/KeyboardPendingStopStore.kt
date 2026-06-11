@@ -23,11 +23,17 @@ class KeyboardPendingStopStore
             }
         }
 
-        suspend fun peek(): PendingKeyboardStop? {
+        suspend fun peek(nowEpochMs: Long = System.currentTimeMillis()): PendingKeyboardStop? {
             val preferences = dataStore.data.first()
             val requestedAt = preferences[REQUESTED_AT_KEY] ?: return null
             val originName = preferences[REQUESTER_ORIGIN_KEY] ?: return null
             val origin = runCatching { RecordingOrigin.valueOf(originName) }.getOrNull() ?: return null
+            if (nowEpochMs - requestedAt > PENDING_STOP_TTL_MS) {
+                // A stop request this old can only clobber a newer healthy session;
+                // drop it instead of letting it fire long after the fact.
+                clear()
+                return null
+            }
             return PendingKeyboardStop(
                 requestedAtEpochMs = requestedAt,
                 requesterOrigin = origin,
@@ -66,5 +72,8 @@ class KeyboardPendingStopStore
         companion object {
             private val REQUESTED_AT_KEY = longPreferencesKey("requested_at_epoch_ms")
             private val REQUESTER_ORIGIN_KEY = stringPreferencesKey("requester_origin")
+
+            /** Pending stops older than this are stale and must never fire. */
+            internal const val PENDING_STOP_TTL_MS = 2 * 60 * 1000L
         }
     }

@@ -54,11 +54,7 @@ class WidgetReceiver : BroadcastReceiver() {
     internal suspend fun toggleRecording(context: Context) {
         when (widgetToggleActionFor(recordingStateManager.state.value)) {
             WidgetToggleAction.Start -> {
-                RecordingServiceCommands.startRecording(
-                    context = context,
-                    origin = RecordingOrigin.WIDGET,
-                    profileId = null,
-                )
+                startRecordingFromWidget(context)
             }
             WidgetToggleAction.StopActive -> {
                 RecordingActiveStopCommands.stopActiveRecording(
@@ -85,12 +81,24 @@ class WidgetReceiver : BroadcastReceiver() {
             }
             WidgetToggleAction.ClearErrorAndStart -> {
                 recordingStateManager.clearError()
-                RecordingServiceCommands.startRecording(
-                    context = context,
-                    origin = RecordingOrigin.WIDGET,
-                    profileId = null,
-                )
+                startRecordingFromWidget(context)
             }
+        }
+    }
+
+    private fun startRecordingFromWidget(context: Context) {
+        val dispatched =
+            RecordingServiceCommands.startRecording(
+                context = context,
+                origin = RecordingOrigin.WIDGET,
+                profileId = null,
+            )
+        if (!dispatched) {
+            Toast.makeText(
+                context.applicationContext,
+                context.getString(R.string.widget_start_failed),
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 }

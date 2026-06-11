@@ -42,15 +42,17 @@
             </intent-filter>
         </activity>
 
-        <!-- Voice Recognition Activity for RECOGNIZE_SPEECH intents -->
+        <!-- Voice Recognition Activity for RECOGNIZE_SPEECH intents.
+             configChanges keeps rotation/theme changes from recreating the activity
+             mid-recognition. Standard launch mode (no taskAffinity override) keeps this
+             dialog-style activity in the caller's task so results are delivered back. -->
         <activity
             android:name=".VoiceRecognitionActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true"
-            android:taskAffinity=""
-            android:windowSoftInputMode="stateAlwaysHidden"
-            android:launchMode="singleTask">
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="stateAlwaysHidden">
             <intent-filter>
                 <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
                 <category android:name="android.intent.category.DEFAULT" />

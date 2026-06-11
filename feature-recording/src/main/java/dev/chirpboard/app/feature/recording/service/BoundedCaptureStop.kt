@@ -24,6 +24,7 @@ internal object BoundedCaptureStop {
             CaptureStopResult.Completed(future.get(timeoutMs, TimeUnit.MILLISECONDS))
         } catch (e: TimeoutException) {
             future.cancel(true)
+            releaseEngineAfterTimeout(capture)
             CaptureStopResult.TimedOut(timeoutMs)
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
@@ -32,6 +33,21 @@ internal object BoundedCaptureStop {
             CaptureStopResult.Failed(e.cause ?: e)
         } finally {
             executor.shutdownNow()
+        }
+    }
+
+    /**
+     * The stuck stop may still hold engine locks, so the non-destructive cleanup runs on a
+     * disposable daemon thread instead of blocking the caller; it releases the mic and closes
+     * encoders/writers as soon as the engine lock frees up, without deleting segment files.
+     */
+    private fun releaseEngineAfterTimeout(capture: GaplessSegmentCaptureEngine) {
+        Thread(
+            { runCatching { capture.releaseAfterStopTimeout() } },
+            "bounded-capture-cleanup",
+        ).apply {
+            isDaemon = true
+            start()
         }
     }
 }

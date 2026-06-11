@@ -1,6 +1,9 @@
 package dev.chirpboard.app.feature.recording.session
 
 import dev.chirpboard.app.feature.recording.util.probeDurationMs
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
@@ -13,7 +16,9 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
+import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -60,6 +65,7 @@ sealed class SessionRecoveryResult {
 class RecordingSessionRecovery
     @Inject
     constructor(
+        @ApplicationContext private val context: Context,
         private val sessionJournal: RecordingSessionJournal,
         private val recordingRepository: RecordingRepository,
         private val transcriptionRecovery: TranscriptionRecovery,
@@ -75,6 +81,11 @@ class RecordingSessionRecovery
                 sessionReconciler.reconcileCompletedSessions()
                 sessionJournal.loadRecoverableSessions().mapNotNull { entry ->
                     if (isLiveSession(entry)) {
+                        return@mapNotNull null
+                    }
+                    if (hasUnfinishedFinalizeWork(entry)) {
+                        // The finalize worker still owns this session; offering it in the
+                        // recovery UI would race the worker and double-finalize.
                         return@mapNotNull null
                     }
                     val resolved = resolveRecoveryFile(entry)
@@ -148,6 +159,11 @@ class RecordingSessionRecovery
                         validation.failureReason ?: "Recording file could not be validated",
                     )
                 }
+                if (RecordingOutputFormat.fromFile(exportFile) == RecordingOutputFormat.WAV) {
+                    // A crash can leave a zeroed or stale-size WAV header; repair it from the
+                    // actual PCM payload before treating the file as playable.
+                    WavFileWriter.repairHeaderIfNeeded(exportFile)
+                }
 
                 val durationMs = probeDurationMs(exportFile)
                 val correlationId = entry.correlationId ?: ReliabilityEventLogger.newCorrelationId("recover")
@@ -185,6 +201,7 @@ class RecordingSessionRecovery
                                 recordingId = entry.recordingId,
                                 durationMs = durationMs,
                                 title = title,
+                                audioPath = exportFile.absolutePath,
                             )
                         } else {
                             recordingRepository.createRecording(
@@ -253,6 +270,18 @@ class RecordingSessionRecovery
                 }
                 SessionRecoveryResult.Kept
             }
+
+        private suspend fun hasUnfinishedFinalizeWork(entry: RecordingSessionEntry): Boolean {
+            val recordingId = entry.recordingId ?: return false
+            return try {
+                RecordingFinalizeWorkRequest.hasUnfinishedWork(context, recordingId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not query finalize work for ${entry.sessionId}; assuming none", e)
+                false
+            }
+        }
 
         private fun isLiveSession(entry: RecordingSessionEntry): Boolean {
             val state = recordingStateManager.state.value

@@ -69,6 +69,19 @@ class RecordingRepository
             private const val SQLITE_BIND_LIMIT = 900
             private const val DEFAULT_SEARCH_LIMIT = 100
             private const val MAX_SEARCH_LIMIT = 500
+
+            /**
+             * Statuses a transcription claim may take ownership from. COMPLETED is excluded so
+             * a stale claim can never resurrect a finished recording, and RECORDING is excluded
+             * so an in-progress capture is never hijacked before finalize.
+             */
+            private val TRANSCRIPTION_CLAIMABLE_STATUSES =
+                listOf(
+                    RecordingStatus.PENDING_TRANSCRIPTION,
+                    RecordingStatus.TRANSCRIBING,
+                    RecordingStatus.ENHANCING,
+                    RecordingStatus.FAILED,
+                )
         }
 
         fun getAllRecordings(): Flow<RepositoryFlowState<List<Recording>>> =
@@ -141,10 +154,16 @@ class RecordingRepository
             return recording
         }
 
+        /**
+         * Finalizes an in-progress recording row. When [audioPath] is non-null the row is also
+         * pointed at the real exported file, so it never keeps referencing a temp segment path
+         * that cleanup may later delete. Null keeps the existing path.
+         */
         suspend fun finalizeInProgressRecording(
             recordingId: UUID,
             durationMs: Long,
             title: String? = null,
+            audioPath: String? = null,
         ): Recording? =
             database.withTransaction {
                 val updated =
@@ -152,6 +171,7 @@ class RecordingRepository
                         id = recordingId,
                         durationMs = durationMs,
                         title = title,
+                        audioPath = audioPath,
                     )
                 recordingDao.getRecording(recordingId)?.takeIf { updated == 1 || it.status != RecordingStatus.RECORDING }
             }
@@ -306,19 +326,29 @@ class RecordingRepository
             }
         }
 
+        /**
+         * Claims (or re-claims) transcription queue ownership by stamping a fresh execution
+         * token. The claim only applies while the row is in a claimable status; a recording
+         * that already reached COMPLETED (or is still RECORDING) can never be regressed by a
+         * stale queue pass.
+         *
+         * @return true when the claim was applied, false when the row was missing or no
+         *   longer in a claimable status.
+         */
         suspend fun claimTranscriptionExecution(
             recordingId: UUID,
             executionToken: String,
             status: RecordingStatus = RecordingStatus.PENDING_TRANSCRIPTION,
             errorMessage: String? = null,
-        ) {
+        ): Boolean =
             recordingDao.updateStatusWithTranscriptionToken(
                 id = recordingId,
                 status = status,
                 errorMessage = errorMessage,
                 executionToken = executionToken,
-            )
-        }
+                allowedCurrentStatuses = TRANSCRIPTION_CLAIMABLE_STATUSES,
+                expectedExecutionToken = null,
+            ) > 0
 
         suspend fun beginTranscriptionExecution(
             recordingId: UUID,
@@ -326,10 +356,16 @@ class RecordingRepository
         ): Recording? =
             database.withTransaction {
                 val recording = recordingDao.getRecording(recordingId) ?: return@withTransaction null
-                if (
-                    recording.status != RecordingStatus.PENDING_TRANSCRIPTION ||
-                    recording.transcriptionExecutionToken != executionToken
-                ) {
+                if (recording.transcriptionExecutionToken != executionToken) {
+                    return@withTransaction null
+                }
+                if (recording.status == RecordingStatus.TRANSCRIBING) {
+                    // A TRANSCRIBING row still carrying this run's token is our own
+                    // interrupted execution (process died before commit); resume it
+                    // instead of abandoning the row in TRANSCRIBING forever.
+                    return@withTransaction recording.copy(errorMessage = null)
+                }
+                if (recording.status != RecordingStatus.PENDING_TRANSCRIPTION) {
                     return@withTransaction null
                 }
 
@@ -459,6 +495,8 @@ class RecordingRepository
                         status = RecordingStatus.PENDING_ENHANCEMENT,
                         errorMessage = null,
                         executionToken = null,
+                        allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                        expectedExecutionToken = expectedExecutionToken,
                     )
                 } else {
                     enhancementSnapshotDao.deleteByRecordingId(transcript.recordingId)
@@ -467,6 +505,8 @@ class RecordingRepository
                         status = RecordingStatus.COMPLETED,
                         errorMessage = null,
                         executionToken = null,
+                        allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                        expectedExecutionToken = expectedExecutionToken,
                     )
                 }
                 true
@@ -920,9 +960,13 @@ class RecordingRepository
         private fun defaultAllowedSourceStatuses(destinationStatus: RecordingStatus): List<RecordingStatus> =
             when (destinationStatus) {
                 RecordingStatus.RECORDING -> emptyList()
+                // Same-status "transitions" are allowed for the pending destinations so queue
+                // recovery can stamp or clear recovery markers on an already-pending row
+                // (markPendingForQueueRecovery / clearPendingError).
                 RecordingStatus.PENDING_TRANSCRIPTION ->
                     listOf(
                         RecordingStatus.RECORDING,
+                        RecordingStatus.PENDING_TRANSCRIPTION,
                         RecordingStatus.TRANSCRIBING,
                         RecordingStatus.FAILED,
                     )
@@ -930,6 +974,7 @@ class RecordingRepository
                 RecordingStatus.PENDING_ENHANCEMENT ->
                     listOf(
                         RecordingStatus.TRANSCRIBING,
+                        RecordingStatus.PENDING_ENHANCEMENT,
                         RecordingStatus.ENHANCING,
                     )
                 RecordingStatus.ENHANCING -> listOf(RecordingStatus.PENDING_ENHANCEMENT)

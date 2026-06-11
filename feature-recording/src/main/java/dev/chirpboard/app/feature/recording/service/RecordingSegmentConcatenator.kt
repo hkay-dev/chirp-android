@@ -48,7 +48,13 @@ class RecordingSegmentConcatenator
             if (existingSegments.size == 1 && sourceFormat == outputFormat) {
                 return runCatching {
                     existingSegments.first().copyTo(outputFile, overwrite = true)
-                    if (outputFile.length() < RecordingFileValidator.MIN_BYTES) {
+                    if (outputFormat == RecordingOutputFormat.WAV &&
+                        !WavFileWriter.repairHeaderIfNeeded(outputFile)
+                    ) {
+                        // A raw copy propagates a crashed segment's zeroed/stale header;
+                        // the export must always carry a header computed from actual data.
+                        SegmentConcatResult.Failed("Could not finalize WAV header for single segment")
+                    } else if (outputFile.length() < RecordingFileValidator.MIN_BYTES) {
                         SegmentConcatResult.Failed("Merged file is too small")
                     } else {
                         SegmentConcatResult.Success
@@ -76,7 +82,9 @@ class RecordingSegmentConcatenator
         ): SegmentConcatResult {
             val wavSource =
                 if (segments.size == 1) {
-                    segments.first()
+                    // A crashed active segment may carry a zeroed/stale header; repair it
+                    // in place so the encoder reads the full PCM payload.
+                    segments.first().also { WavFileWriter.repairHeaderIfNeeded(it) }
                 } else {
                     File(outputFile.parentFile, "${outputFile.name}.segments.wav").also { temp ->
                         when (val result = concatWavSegments(segments, temp)) {
@@ -227,10 +235,14 @@ class RecordingSegmentConcatenator
                 input.skip(24)
                 val rateBytes = ByteArray(4)
                 input.read(rateBytes)
-                return (rateBytes[0].toInt() and 0xFF) or
-                    ((rateBytes[1].toInt() and 0xFF) shl 8) or
-                    ((rateBytes[2].toInt() and 0xFF) shl 16) or
-                    ((rateBytes[3].toInt() and 0xFF) shl 24)
+                val rate =
+                    (rateBytes[0].toInt() and 0xFF) or
+                        ((rateBytes[1].toInt() and 0xFF) shl 8) or
+                        ((rateBytes[2].toInt() and 0xFF) shl 16) or
+                        ((rateBytes[3].toInt() and 0xFF) shl 24)
+                // A zeroed header from a crashed segment must not produce a 0 Hz export header.
+                return rate.takeIf { it in MIN_PLAUSIBLE_SAMPLE_RATE..MAX_PLAUSIBLE_SAMPLE_RATE }
+                    ?: WavFileWriter.DEFAULT_REPAIR_SAMPLE_RATE
             }
         }
 
@@ -245,5 +257,7 @@ class RecordingSegmentConcatenator
         companion object {
             private const val TAG = "RecordingSegmentConcatenator"
             private const val BUFFER_SIZE = 256 * 1024
+            private const val MIN_PLAUSIBLE_SAMPLE_RATE = 8_000
+            private const val MAX_PLAUSIBLE_SAMPLE_RATE = 192_000
         }
     }

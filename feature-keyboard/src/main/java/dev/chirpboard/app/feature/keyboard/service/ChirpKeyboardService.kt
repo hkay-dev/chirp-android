@@ -140,10 +140,21 @@ class ChirpKeyboardService :
                 recordingStateManager = recordingStateManager,
                 keyboardPreferences = keyboardPreferences,
                 modePort = modePort,
+                pendingStopStore = pendingStopStore,
             )
 
-        audioFocusManager.onFocusLost = {
-            if (coordinator.isRecordingActive()) {
+        coordinator.commitTextProvider = {
+            inputSessionGuard.captureCommitSession()?.let { session ->
+                { text: String -> commitToInputSession(session, text) }
+            }
+        }
+
+        audioFocusManager.onFocusLost = { lossKind ->
+            // Transient loss or ducking (notification ding, assistant chirp) must not end
+            // dictation; only a permanent loss stops and commits the session.
+            if (lossKind == AudioFocusManager.FocusLossKind.PERMANENT &&
+                coordinator.isRecordingActive()
+            ) {
                 stopAndTranscribeForCurrentInput()
             }
         }
@@ -321,6 +332,7 @@ class ChirpKeyboardService :
         stopBridgeRegistration?.let(keyboardStopBridge::clearStopHandler)
         stopBridgeRegistration = null
         coordinator.cancelRecording()
+        coordinator.destroy()
         phoneCallHandler?.unregister()
         phoneCallHandler = null
         coordinator.capture.close()
@@ -364,11 +376,12 @@ class ChirpKeyboardService :
     private fun commitToInputSession(
         session: KeyboardInputCommitSession,
         text: String,
-    ) {
+    ): Boolean {
         val committed = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
         if (!committed) {
             Log.w(TAG, "Skipped dictation commit because the input session changed")
             coordinator.setPermissionError(getString(R.string.keyboard_input_changed))
         }
+        return committed
     }
 }

@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.cleanup
 
 import android.content.Context
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryProtectedPathsStore
@@ -31,14 +32,17 @@ class OrphanedAudioCleanerTest {
     @Before
     fun setup() {
         val root = createTempDir("orphan-cleaner-test")
+        val cacheRoot = createTempDir("orphan-cleaner-cache")
         context =
             mockk(relaxed = true) {
                 every { filesDir } returns root
+                every { cacheDir } returns cacheRoot
             }
         repository = mockk(relaxed = true)
         journal = RecordingSessionJournal(context)
         protectedPathsStore = mockk(relaxed = true)
         coEvery { protectedPathsStore.activeProtectedPaths() } returns emptySet()
+        coEvery { protectedPathsStore.consumeExpiredPaths() } returns emptySet()
         cleaner = OrphanedAudioCleaner(context, repository, journal, protectedPathsStore)
     }
 
@@ -109,6 +113,43 @@ class OrphanedAudioCleanerTest {
         }
 
     @Test
+    fun cleanOrphanedFiles_quarantinesExpiredProtectedRecoverableAudio() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val file =
+                File(recordingsDir, "kept_recording.m4a").apply {
+                    writeText("x".repeat(1024))
+                    setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+                }
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(file.absolutePath)
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(file.exists())
+            val quarantined = File(recordingsDir, "${OrphanedAudioCleaner.QUARANTINE_DIR_NAME}/${file.name}")
+            assertTrue(quarantined.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_deletesExpiredProtectedAudioTooSmallToRecover() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val file =
+                File(recordingsDir, "kept_stub.m4a").apply {
+                    writeText("tiny")
+                    setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+                }
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(file.absolutePath)
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(file.exists())
+            assertFalse(File(recordingsDir, "${OrphanedAudioCleaner.QUARANTINE_DIR_NAME}/${file.name}").exists())
+        }
+
+    @Test
     fun cleanOrphanedFiles_deletesUnreferencedCaptureDirectoryAfterGrace() =
         runTest {
             val captureDir =
@@ -127,6 +168,63 @@ class OrphanedAudioCleanerTest {
 
             assertFalse(segment.exists())
             assertFalse(captureDir.exists())
+        }
+
+    private fun dictationCapture(
+        name: String,
+        ageMs: Long,
+    ): File {
+        val captureDir =
+            File(context.cacheDir, VoiceRecorder.KEYBOARD_CAPTURE_CACHE_DIR).apply { mkdirs() }
+        return File(captureDir, name).also { file ->
+            file.writeText("fake pcm")
+            file.setLastModified(System.currentTimeMillis() - ageMs)
+        }
+    }
+
+    @Test
+    fun cleanOrphanedFiles_deletesStaleDictationCapture() =
+        runTest {
+            val file =
+                dictationCapture(
+                    name = "${VoiceRecorder.DICTATION_CAPTURE_FILE_PREFIX}stale${VoiceRecorder.DICTATION_CAPTURE_FILE_SUFFIX}",
+                    ageMs = OrphanedAudioCleaner.DICTATION_CAPTURE_MAX_AGE_MS + 60 * 60 * 1000,
+                )
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(file.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_retainsFreshDictationCapture() =
+        runTest {
+            val file =
+                dictationCapture(
+                    name = "${VoiceRecorder.DICTATION_CAPTURE_FILE_PREFIX}fresh${VoiceRecorder.DICTATION_CAPTURE_FILE_SUFFIX}",
+                    ageMs = 10 * 60 * 1000,
+                )
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertTrue(file.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_retainsStaleNonDictationFileInCaptureCacheDir() =
+        runTest {
+            val file =
+                dictationCapture(
+                    name = "unrelated.bin",
+                    ageMs = OrphanedAudioCleaner.DICTATION_CAPTURE_MAX_AGE_MS + 60 * 60 * 1000,
+                )
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertTrue(file.exists())
         }
 
     @Test

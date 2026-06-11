@@ -83,6 +83,30 @@ interface InlineTranscriptionPort {
         commitText: (String) -> Unit,
         onRecordingCompleted: () -> Unit = {},
         onRecordingError: (String) -> Unit = {},
+    ) {
+        transcribeWithCommitResult(
+            request = request,
+            persistence = persistence,
+            commitText = { text ->
+                commitText(text)
+                true
+            },
+            onRecordingCompleted = onRecordingCompleted,
+            onRecordingError = onRecordingError,
+        )
+    }
+
+    /**
+     * Like [transcribe] but [commitText] reports whether the text actually reached its target.
+     * When the commit is refused, implementations must persist the transcript through
+     * [persistence] as a rescue artifact instead of dropping it.
+     */
+    suspend fun transcribeWithCommitResult(
+        request: InlineTranscriptionRequest,
+        persistence: InlineCapturePersistence? = null,
+        commitText: (String) -> Boolean,
+        onRecordingCompleted: () -> Unit = {},
+        onRecordingError: (String) -> Unit = {},
     )
 }
 

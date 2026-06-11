@@ -17,7 +17,6 @@ import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -27,10 +26,14 @@ import javax.inject.Inject
 class ChirpRecognitionService : RecognitionService() {
     companion object {
         private const val TAG = "ChirpRecognition"
+        private const val RMS_SCALE = 100f
     }
 
     private val recorder by lazy { VoiceRecorder(this, scope, inputDeviceSelector) }
     private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
+    private val sessionCoordinator by lazy {
+        VoiceRecognitionSessionCoordinator(scope, captureGate, recorderControl)
+    }
 
     @Inject
     lateinit var transcriberProvider: TranscriberProvider
@@ -49,8 +52,37 @@ class ChirpRecognitionService : RecognitionService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
-    private var recordingJob: Job? = null
-    private var amplitudesJob: Job? = null
+    private val recorderControl =
+        object : VoiceRecognitionSessionCoordinator.RecorderControl {
+            override suspend fun prepare() {
+                recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
+            }
+
+            override suspend fun start(): Boolean = recorder.start()
+
+            override fun stop(): FloatArray = recorder.stop()
+
+            override fun cancel() = recorder.cancelCapture()
+
+            override suspend fun collectSamples() {
+                try {
+                    recorder.collectSamples()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error collecting samples", e)
+                }
+            }
+
+            override suspend fun streamRms(onRms: (Float) -> Unit) {
+                recorder.sampleCountFlow.collect { count ->
+                    if (count > 0L) {
+                        val amp = recorder.waveformBuffer.lastOrNull() ?: 0f
+                        onRms(amp * RMS_SCALE)
+                    }
+                }
+            }
+        }
 
     override fun onCreate() {
         super.onCreate()
@@ -94,73 +126,36 @@ class ChirpRecognitionService : RecognitionService() {
             return
         }
 
-        // Check if already recording
-        if (recorder.isRecording()) {
-            Log.w(TAG, "Recorder already busy")
-            listener.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
-            return
-        }
-
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             Log.w(TAG, "RECORD_AUDIO permission not granted")
             listener.error(SpeechRecognizer.ERROR_CLIENT)
             return
         }
 
+        val generation = sessionCoordinator.issueGeneration()
         scope.launch {
-            try {
-                when (val result = captureGate.tryAcquire()) {
-                    VoiceRecognitionCaptureGateResult.Acquired -> Unit
-                    is VoiceRecognitionCaptureGateResult.Busy -> {
-                        Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
-                        listener.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
-                        return@launch
-                    }
+            val result =
+                sessionCoordinator.start(
+                    generation = generation,
+                    onReadyForSpeech = { listener.readyForSpeech(Bundle()) },
+                    onBeginningOfSpeech = { listener.beginningOfSpeech() },
+                    onRms = { rms -> runCatching { listener.rmsChanged(rms) } },
+                )
+            when (result) {
+                VoiceRecognitionSessionCoordinator.StartResult.Started -> Unit
+
+                VoiceRecognitionSessionCoordinator.StartResult.Superseded ->
+                    Log.w(TAG, "Start superseded before running (generation=$generation)")
+
+                is VoiceRecognitionSessionCoordinator.StartResult.Busy -> {
+                    Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
+                    runCatching { listener.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY) }
                 }
 
-                // Notify ready
-                listener.readyForSpeech(Bundle())
-
-                recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
-
-                // Start recording
-                if (!recorder.start()) {
-                    Log.e(TAG, "Failed to start recording")
-                    captureGate.releaseError("Failed to start voice recognition")
-                    listener.error(SpeechRecognizer.ERROR_AUDIO)
-                    return@launch
+                is VoiceRecognitionSessionCoordinator.StartResult.Failed -> {
+                    Log.e(TAG, "Failed to start recognition capture", result.cause)
+                    runCatching { listener.error(SpeechRecognizer.ERROR_AUDIO) }
                 }
-                captureGate.onRecorderStarted("voice_recognition_service_temp_recording")
-
-                listener.beginningOfSpeech()
-
-                // Collect samples in background
-                recordingJob =
-                    scope.launch {
-                        try {
-                            recorder.collectSamples()
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            Log.e(TAG, "Error collecting samples", e)
-                        }
-                    }
-
-                // Monitor amplitudes for RMS reporting
-                amplitudesJob =
-                    scope.launch {
-                        recorder.sampleCountFlow.collect { count ->
-                            if (count > 0L) {
-                                val amp = recorder.waveformBuffer.lastOrNull() ?: 0f
-                                val rms = amp * 100f // Scale 0-100
-                                listener.rmsChanged(rms)
-                            }
-                        }
-                    }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Error in onStartListening", e)
-                captureGate.releaseError("Failed to start voice recognition", e)
-                listener.error(SpeechRecognizer.ERROR_AUDIO)
             }
         }
     }
@@ -168,94 +163,104 @@ class ChirpRecognitionService : RecognitionService() {
     override fun onStopListening(listener: Callback) {
         Log.d(TAG, "onStopListening")
 
+        val generation = sessionCoordinator.currentGeneration()
         scope.launch {
-            try {
-                amplitudesJob?.cancel()
-                recordingJob?.cancel()
-                val samples = recorder.stop()
-                captureGate.releaseCompleted()
-                listener.endOfSpeech()
+            val result = sessionCoordinator.stop(generation) { listener.endOfSpeech() }
+            when (result) {
+                VoiceRecognitionSessionCoordinator.StopResult.Stale ->
+                    Log.w(TAG, "Ignoring stop for inactive session (generation=$generation)")
 
-                if (samples.isEmpty()) {
-                    Log.w(TAG, "No audio samples")
-                    listener.error(SpeechRecognizer.ERROR_AUDIO)
-                    return@launch
+                is VoiceRecognitionSessionCoordinator.StopResult.Failed -> {
+                    Log.e(TAG, "Failed to stop recognition capture", result.cause)
+                    runCatching { listener.error(SpeechRecognizer.ERROR_AUDIO) }
                 }
 
-                // Check if recognizer is ready
-                if (!transcriberProvider.isReady()) {
-                    Log.w(TAG, "Recognizer not ready")
-                    listener.error(SpeechRecognizer.ERROR_SERVER)
-                    return@launch
-                }
-
-                // Transcribe with typed outcome
-                val outcome = transcriberProvider.transcribe(samples)
-                val text =
-                    when (outcome) {
-                        is TranscriptionOutcome.Success -> {
-                            outcome.text
-                        }
-
-                        TranscriptionOutcome.NoSpeech -> {
-                            Log.w(TAG, "No speech detected")
-                            listener.error(SpeechRecognizer.ERROR_AUDIO)
-                            return@launch
-                        }
-
-                        is TranscriptionOutcome.ModelUnavailable -> {
-                            Log.w(TAG, "Model unavailable: ${outcome.reason}")
-                            listener.error(SpeechRecognizer.ERROR_SERVER)
-                            return@launch
-                        }
-
-                        is TranscriptionOutcome.EngineError -> {
-                            Log.e(TAG, "Engine error: ${outcome.reason}")
-                            listener.error(SpeechRecognizer.ERROR_AUDIO)
-                            return@launch
-                        }
-                    }
-
-                Log.d(TAG, "Transcribed: $text")
-
-                // Save to history using data module
-                saveTranscription(text)
-
-                // Send results
-                val results =
-                    Bundle().apply {
-                        putStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION,
-                            arrayListOf(text),
-                        )
-                    }
-                listener.results(results)
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Error in onStopListening", e)
-                captureGate.releaseError("Failed to stop voice recognition", e)
-                listener.error(SpeechRecognizer.ERROR_AUDIO)
+                is VoiceRecognitionSessionCoordinator.StopResult.Captured ->
+                    transcribeAndDeliver(result.samples, listener)
             }
+        }
+    }
+
+    private suspend fun transcribeAndDeliver(
+        samples: FloatArray,
+        listener: Callback,
+    ) {
+        try {
+            if (samples.isEmpty()) {
+                Log.w(TAG, "No audio samples")
+                listener.error(SpeechRecognizer.ERROR_AUDIO)
+                return
+            }
+
+            // Check if recognizer is ready
+            if (!transcriberProvider.isReady()) {
+                Log.w(TAG, "Recognizer not ready")
+                listener.error(SpeechRecognizer.ERROR_SERVER)
+                return
+            }
+
+            // Transcribe with typed outcome
+            val outcome = transcriberProvider.transcribe(samples)
+            val text =
+                when (outcome) {
+                    is TranscriptionOutcome.Success -> {
+                        outcome.text
+                    }
+
+                    TranscriptionOutcome.NoSpeech -> {
+                        Log.w(TAG, "No speech detected")
+                        listener.error(SpeechRecognizer.ERROR_AUDIO)
+                        return
+                    }
+
+                    is TranscriptionOutcome.ModelUnavailable -> {
+                        Log.w(TAG, "Model unavailable: ${outcome.reason}")
+                        listener.error(SpeechRecognizer.ERROR_SERVER)
+                        return
+                    }
+
+                    is TranscriptionOutcome.EngineError -> {
+                        Log.e(TAG, "Engine error: ${outcome.reason}")
+                        listener.error(SpeechRecognizer.ERROR_AUDIO)
+                        return
+                    }
+                }
+
+            Log.d(TAG, "Transcribed: $text")
+
+            // Save to history using data module
+            saveTranscription(text)
+
+            // Send results
+            val results =
+                Bundle().apply {
+                    putStringArrayList(
+                        SpeechRecognizer.RESULTS_RECOGNITION,
+                        arrayListOf(text),
+                    )
+                }
+            listener.results(results)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "Error delivering recognition result", e)
+            runCatching { listener.error(SpeechRecognizer.ERROR_AUDIO) }
         }
     }
 
     override fun onCancel(listener: Callback) {
         Log.d(TAG, "onCancel")
-        amplitudesJob?.cancel()
-        recordingJob?.cancel()
-        recorder.stop()
-        captureGate.releaseCompleted()
-        // Don't call listener - cancelled means no results
+        val generation = sessionCoordinator.currentGeneration()
+        scope.launch {
+            if (!sessionCoordinator.cancel(generation)) {
+                Log.w(TAG, "Ignoring cancel for inactive session (generation=$generation)")
+            }
+            // Don't call listener - cancelled means no results
+        }
     }
 
     override fun onDestroy() {
         Log.d(TAG, "Service destroyed")
-        amplitudesJob?.cancel()
-        recordingJob?.cancel()
-        if (captureGate.isHeld()) {
-            recorder.stop()
-            captureGate.releaseCompleted()
-        }
+        sessionCoordinator.shutdown()
         recorder.close()
         scope.cancel()
         super.onDestroy()

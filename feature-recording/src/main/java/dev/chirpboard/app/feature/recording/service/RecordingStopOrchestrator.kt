@@ -78,6 +78,7 @@ class RecordingStopOrchestrator
                                 recordingId = inProgressId,
                                 durationMs = durationMs,
                                 title = title,
+                                audioPath = exportFile.absolutePath,
                             ) ?: recordingRepository.createRecording(
                                 title = title,
                                 audioPath = exportFile.absolutePath,

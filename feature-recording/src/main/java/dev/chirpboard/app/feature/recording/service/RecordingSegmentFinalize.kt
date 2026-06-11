@@ -1,5 +1,7 @@
 package dev.chirpboard.app.feature.recording.service
 
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import java.io.File
@@ -41,10 +43,18 @@ class RecordingSegmentFinalize
                 return null
             }
 
-            return when (val result = segmentConcatenator.concatToExport(segmentFiles, exportFile)) {
+            return when (segmentConcatenator.concatToExport(segmentFiles, exportFile)) {
                 is SegmentConcatResult.Success -> {
-                    capturePaths.deleteCaptureArtifacts(entry.sessionId)
-                    exportFile.takeIf { fileValidator.validateForStop(it).isPlayable }
+                    // Validate (and repair when possible) BEFORE deleting capture artifacts:
+                    // the segments are the only remaining source of audio if the export is bad.
+                    if (RecordingOutputFormat.fromFile(exportFile) == RecordingOutputFormat.WAV) {
+                        WavFileWriter.repairHeaderIfNeeded(exportFile)
+                    }
+                    val playableExport = exportFile.takeIf { fileValidator.validateForStop(it).isPlayable }
+                    if (playableExport != null) {
+                        capturePaths.deleteCaptureArtifacts(entry.sessionId)
+                    }
+                    playableExport
                 }
                 is SegmentConcatResult.Failed -> null
             }

@@ -47,6 +47,7 @@ class TranscriptionQueueManagerTest {
 
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
+        coEvery { recordingRepository.claimTranscriptionExecution(any(), any(), any(), any()) } returns true
 
         val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
         every { readinessGate.state } returns kotlinx.coroutines.flow.MutableStateFlow(ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE))
@@ -75,6 +76,30 @@ class TranscriptionQueueManagerTest {
             recordingRepository.claimTranscriptionExecution(id, any(), RecordingStatus.PENDING_TRANSCRIPTION, null)
         }
         assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `enqueue skips scheduling when claim is rejected`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.claimTranscriptionExecution(id, any(), any(), any()) } returns false
+
+        manager.enqueue(id)
+
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `retry skips scheduling when claim is rejected`() = runTest {
+        val id = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.status } returns RecordingStatus.FAILED
+        coEvery { recordingRepository.getRecording(id) } returns recording
+        coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns false
+        coEvery { recordingRepository.claimTranscriptionExecution(id, any(), any(), any()) } returns false
+
+        manager.retry(id)
+
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test

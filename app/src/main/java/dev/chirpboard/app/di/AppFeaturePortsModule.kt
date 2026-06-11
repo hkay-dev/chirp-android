@@ -294,7 +294,11 @@ class AppKeyboardInlineCapturePersistence
             withContext(NonCancellable + Dispatchers.IO) {
                 var sourceHandled = false
                 try {
-                    if (!shouldPersistCaptures(keyboardPreferences)) {
+                    // Rescue entries (errorMessage != null) are error artifacts, not normal
+                    // keyboard recordings: persist them even when saveKeyboardRecordings is
+                    // off so the user can retrieve undelivered transcripts from the app.
+                    val isRescueEntry = !errorMessage.isNullOrBlank()
+                    if (!isRescueEntry && !shouldPersistCaptures(keyboardPreferences)) {
                         source.discardTemporaryFile()
                         sourceHandled = true
                         return@withContext
