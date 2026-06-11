@@ -118,6 +118,7 @@ class ModelDownloader(
         VALID,
         MISSING,
         INVALID,
+        UNREADABLE,
     }
 
     private data class FileValidationResult(
@@ -129,6 +130,7 @@ class ModelDownloader(
         val allValid: Boolean,
         val hasInvalid: Boolean,
         val hasMissing: Boolean,
+        val hasUnreadable: Boolean,
         val sources: Set<ModelReadinessVerificationSource>,
     )
 
@@ -175,10 +177,14 @@ class ModelDownloader(
         }
 
         val reason =
-            if (persistentResult.hasInvalid || legacyResult.hasInvalid) {
-                ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
-            } else {
-                ModelReadinessUnavailableReason.MISSING_MODEL_FILES
+            when {
+                persistentResult.hasUnreadable || legacyResult.hasUnreadable ->
+                    ModelReadinessUnavailableReason.STORAGE_ACCESS_DENIED
+
+                persistentResult.hasInvalid || legacyResult.hasInvalid ->
+                    ModelReadinessUnavailableReason.INTEGRITY_MISMATCH
+
+                else -> ModelReadinessUnavailableReason.MISSING_MODEL_FILES
             }
         Log.d(TAG, "isModelDownloaded = false (reason=$reason)")
         return ModelReadinessEvaluation(
@@ -220,6 +226,7 @@ class ModelDownloader(
         val sources = linkedSetOf<ModelReadinessVerificationSource>()
         var hasInvalid = false
         var hasMissing = false
+        var hasUnreadable = false
 
         modelFiles.forEach { modelFile ->
             val file = File(path, modelFile.name)
@@ -240,13 +247,19 @@ class ModelDownloader(
                     hasMissing = true
                     Log.d(TAG, "  ${modelFile.name}: missing ($sourceLabel=false)")
                 }
+
+                FileValidationStatus.UNREADABLE -> {
+                    hasUnreadable = true
+                    Log.w(TAG, "  ${modelFile.name}: exists but unreadable ($sourceLabel) — storage access denied")
+                }
             }
         }
 
         return DirectoryValidationResult(
-            allValid = !hasInvalid && !hasMissing,
+            allValid = !hasInvalid && !hasMissing && !hasUnreadable,
             hasInvalid = hasInvalid,
             hasMissing = hasMissing,
+            hasUnreadable = hasUnreadable,
             sources = sources,
         )
     }
@@ -257,6 +270,22 @@ class ModelDownloader(
         flow {
             val modelPath = modelDirProvider(context)
             modelPath.mkdirs()
+
+            val unreadable =
+                modelFiles.filter { file ->
+                    validateModelCandidate(File(modelPath, file.name), file).status == FileValidationStatus.UNREADABLE
+                }
+            if (unreadable.isNotEmpty()) {
+                Log.w(TAG, "Download blocked: ${unreadable.size} model file(s) exist but are unreadable in $modelPath")
+                emit(
+                    DownloadState.Error(
+                        "Model files from a previous install were found but this install cannot access them. " +
+                            "Allow \"All files access\" for Chirpboard in system settings to reuse the existing model, " +
+                            "then try again.",
+                    ),
+                )
+                return@flow
+            }
 
             var totalDownloaded = 0L
             val totalSize = modelFiles.sumOf { it.expectedSize }
@@ -421,6 +450,12 @@ class ModelDownloader(
         if (!file.exists()) {
             clearCacheEntry(file.absolutePath)
             return FileValidationResult(FileValidationStatus.MISSING)
+        }
+
+        // A file left behind by a previous install stats fine but cannot be opened
+        // (scoped-storage ownership does not survive reinstall without All-files access).
+        if (!file.canRead()) {
+            return FileValidationResult(FileValidationStatus.UNREADABLE)
         }
 
         val fileSize = file.length()
@@ -594,7 +629,15 @@ internal fun validateFileIntegrity(
 ): Boolean {
     if (!file.exists()) return false
     if (file.length() != expectedSize) return false
-    return computeSha256(file) == expectedSha256
+    return try {
+        computeSha256(file) == expectedSha256
+    } catch (e: java.io.IOException) {
+        Log.w("ModelDownloader", "Cannot read ${file.absolutePath} for integrity check", e)
+        false
+    } catch (e: SecurityException) {
+        Log.w("ModelDownloader", "Access denied reading ${file.absolutePath} for integrity check", e)
+        false
+    }
 }
 
 internal suspend fun writeInputStreamToTempFile(

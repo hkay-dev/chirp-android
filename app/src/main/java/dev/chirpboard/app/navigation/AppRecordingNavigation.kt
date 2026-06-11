@@ -84,6 +84,15 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                         navigateToTranscriptionDownload = true,
                                     )
                                 }
+
+                                ModelReadinessUnavailableReason.STORAGE_ACCESS_DENIED -> {
+                                    RecordEntryDialogContent(
+                                        title = context.getString(R.string.record_entry_model_storage_denied_title),
+                                        message = context.getString(R.string.record_entry_model_storage_denied_message),
+                                        confirmLabelRes = R.string.dismiss,
+                                        navigateToTranscriptionDownload = false,
+                                    )
+                                }
                             }
                     }
 

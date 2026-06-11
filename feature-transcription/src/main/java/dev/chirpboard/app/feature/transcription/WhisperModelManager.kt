@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.util.Log
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
@@ -32,6 +33,7 @@ class WhisperModelManager
         private val readinessGate: SpeechModelReadinessGate,
     ) {
         companion object {
+            private const val TAG = "WhisperModelManager"
             const val MODEL_DISPLAY_NAME = SpeechModelStore.DISPLAY_NAME
             const val MODEL_SIZE_MB = SpeechModelStore.APPROXIMATE_SIZE_MB
         }
@@ -65,7 +67,16 @@ class WhisperModelManager
 
         fun refreshStatus() {
             scope.launch {
-                applyEvaluation(speechModelStore.evaluateReadiness())
+                try {
+                    applyEvaluation(speechModelStore.evaluateReadiness())
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // This scope lives in the IME-shared process; an evaluation failure
+                    // (e.g. storage access revoked) must degrade, never crash the process.
+                    Log.e(TAG, "Model readiness evaluation failed", e)
+                    _modelStatus.value = ModelStatus.Error("Could not check model status: ${e.message}")
+                }
             }
         }
 

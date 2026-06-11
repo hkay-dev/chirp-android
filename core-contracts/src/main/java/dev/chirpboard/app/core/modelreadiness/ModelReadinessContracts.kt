@@ -11,6 +11,7 @@ enum class ModelReadinessVerificationSource {
 enum class ModelReadinessUnavailableReason {
     MISSING_MODEL_FILES,
     INTEGRITY_MISMATCH,
+    STORAGE_ACCESS_DENIED,
 }
 
 enum class VerificationTrigger {

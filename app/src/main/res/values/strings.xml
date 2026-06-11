@@ -51,6 +51,8 @@
     <string name="record_entry_download_model">Download model</string>
     <string name="record_entry_model_integrity_failed_title">Model Integrity Check Failed</string>
     <string name="record_entry_model_integrity_failed_message">Model files are corrupted. Re-download the model in Settings.</string>
+    <string name="record_entry_model_storage_denied_title">Storage Access Needed</string>
+    <string name="record_entry_model_storage_denied_message">A downloaded model from a previous install was found, but Chirpboard can\'t access it. Allow \"All files access\" for Chirpboard in system settings (Apps \u2192 Special app access \u2192 All files access), then try again.</string>
     <string name="record_entry_model_check_error_title">Model Check Error</string>
     <string name="record_entry_model_check_error_message">Could not verify model readiness. %1$s</string>
     <string name="settings_title">Settings</string>

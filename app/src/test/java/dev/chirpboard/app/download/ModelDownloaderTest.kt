@@ -38,6 +38,7 @@ class ModelDownloaderTest {
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
         every { Log.w(any(), any<String>()) } returns 0
+        every { Log.w(any(), any<String>(), any()) } returns 0
         every { Log.e(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
 
@@ -132,5 +133,39 @@ class ModelDownloaderTest {
 
         val valid = validateFileIntegrity(file, 12L, "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447")
         assertTrue(valid)
+    }
+
+    @Test
+    fun `unreadable model file reports storage access denied instead of throwing`() {
+        // Simulates the post-reinstall state: the file from a previous install stats
+        // fine but cannot be opened (scoped-storage ownership lost).
+        val file = File(testModelsDir, "test_model.onnx")
+        file.writeText("hello world\n")
+        check(file.setReadable(false)) { "test environment cannot revoke read permission" }
+        try {
+            val evaluation = downloader.evaluateModelReadiness()
+
+            assertFalse(evaluation.isReady)
+            assertEquals(
+                dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason.STORAGE_ACCESS_DENIED,
+                evaluation.unavailableReason,
+            )
+        } finally {
+            file.setReadable(true)
+        }
+    }
+
+    @Test
+    fun `validateFileIntegrity returns false instead of throwing when file unreadable`() {
+        val file = File(testDir, "unreadable_integrity.txt")
+        file.writeText("hello world\n")
+        check(file.setReadable(false)) { "test environment cannot revoke read permission" }
+        try {
+            val valid =
+                validateFileIntegrity(file, 12L, "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447")
+            assertFalse(valid)
+        } finally {
+            file.setReadable(true)
+        }
     }
 }
