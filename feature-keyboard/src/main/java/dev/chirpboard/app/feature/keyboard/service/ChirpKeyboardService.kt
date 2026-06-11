@@ -2,11 +2,14 @@ package dev.chirpboard.app.feature.keyboard.service
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
+import android.os.SystemClock
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.AndroidUiDispatcher
@@ -45,8 +48,10 @@ import dev.chirpboard.app.feature.keyboard.ui.KeyboardScreen
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -60,6 +65,7 @@ class ChirpKeyboardService :
     companion object {
         private const val TAG = "ChirpKeyboard"
         private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
+        private const val CONFIG_CHANGE_GRACE_MS = 2000L
     }
 
     @Inject lateinit var recordingStateManager: RecordingStateManager
@@ -94,10 +100,15 @@ class ChirpKeyboardService :
     private val inputSessionGuard = KeyboardInputSessionGuard()
     private var phoneCallHandler: PhoneCallHandler? = null
     private var composeView: ComposeView? = null
+    private var configChangeGraceUntilUptimeMs = 0L
+    private var lastKnownOrientation = Configuration.ORIENTATION_UNDEFINED
+    private var orphanedRecordingFinalizeJob: Job? = null
+    private var pendingImeSwitchCleanup = false
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "onCreate")
+        lastKnownOrientation = resources.configuration.orientation
 
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -192,8 +203,30 @@ class ChirpKeyboardService :
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        configChangeGraceUntilUptimeMs = SystemClock.uptimeMillis() + CONFIG_CHANGE_GRACE_MS
+        super.onConfigurationChanged(newConfig)
+    }
+
+    // The view-restart messages from a rotation can arrive before or after our own
+    // onConfigurationChanged, so check both the grace window and the live orientation.
+    private fun isConfigChangeInFlight(): Boolean =
+        SystemClock.uptimeMillis() < configChangeGraceUntilUptimeMs ||
+            resources.configuration.orientation != lastKnownOrientation
+
+    override fun onBindInput() {
+        super.onBindInput()
+        pendingImeSwitchCleanup = true
+    }
+
     override fun onCreateInputView(): View {
-        return composeView ?: ComposeView(this).also { view ->
+        composeView?.let { existing ->
+            // The framework discards its old view hierarchy on configuration changes but
+            // leaves the cached view attached to the dead parent; detach it or addView throws.
+            (existing.parent as? ViewGroup)?.removeView(existing)
+            return existing
+        }
+        return ComposeView(this).also { view ->
             view.compositionContext = recomposer
             view.setViewTreeLifecycleOwner(this@ChirpKeyboardService)
             view.setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
@@ -228,7 +261,13 @@ class ChirpKeyboardService :
         restarting: Boolean,
     ) {
         super.onStartInputView(info, restarting)
-        inputSessionGuard.startInput(info)
+        orphanedRecordingFinalizeJob?.cancel()
+        orphanedRecordingFinalizeJob = null
+        val preserveSession = restarting && isConfigChangeInFlight()
+        lastKnownOrientation = resources.configuration.orientation
+        val cleanupStraySwitchCharacter = pendingImeSwitchCleanup && !restarting && !preserveSession
+        pendingImeSwitchCleanup = false
+        inputSessionGuard.startInput(info, preserveSession = preserveSession)
         if (inputSessionGuard.isSensitiveInput) {
             if (coordinator.isRecordingActive()) {
                 coordinator.finalizeActiveRecording(
@@ -237,6 +276,9 @@ class ChirpKeyboardService :
             }
             coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
             return
+        }
+        if (cleanupStraySwitchCharacter) {
+            removeStraySwitchCharacter(currentInputConnection)
         }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             coordinator.setPermissionError(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
@@ -249,7 +291,27 @@ class ChirpKeyboardService :
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
+        if (!finishingInput && isConfigChangeInFlight()) {
+            // Rotation tears the input view down and restarts it moments later; keep the
+            // dictation session alive so in-progress recording and pending commits survive.
+            scheduleOrphanedRecordingFinalize()
+            return
+        }
         inputSessionGuard.finishInput()
+        finalizeRecordingForClosedKeyboard()
+    }
+
+    private fun scheduleOrphanedRecordingFinalize() {
+        orphanedRecordingFinalizeJob?.cancel()
+        orphanedRecordingFinalizeJob =
+            scope.launch {
+                delay(CONFIG_CHANGE_GRACE_MS)
+                inputSessionGuard.finishInput()
+                finalizeRecordingForClosedKeyboard()
+            }
+    }
+
+    private fun finalizeRecordingForClosedKeyboard() {
         if (coordinator.isRecordingActive()) {
             coordinator.finalizeActiveRecording(
                 errorMessage = "Recording stopped when the keyboard closed before transcription finished",

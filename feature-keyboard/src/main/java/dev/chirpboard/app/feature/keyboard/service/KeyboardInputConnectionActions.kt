@@ -8,6 +8,7 @@ internal fun deletePreviousCharacter(inputConnection: InputConnection?) {
     val connection = inputConnection ?: return
 
     val selected = connection.getSelectedText(0)
+    connection.finishComposingText()
     if (selected != null && selected.isNotEmpty()) {
         connection.commitText("", 1)
         return
@@ -29,6 +30,8 @@ internal fun deletePreviousWord(inputConnection: InputConnection?) {
     val connection = inputConnection ?: return
 
     val selected = connection.getSelectedText(0)
+
+    connection.finishComposingText()
     if (selected != null && selected.isNotEmpty()) {
         connection.commitText("", 1)
         return
@@ -40,15 +43,7 @@ internal fun deletePreviousWord(inputConnection: InputConnection?) {
         return
     }
 
-    var index = before.length
-    while (index > 0 && before[index - 1].isWhitespace()) {
-        index--
-    }
-    while (index > 0 && !before[index - 1].isWhitespace()) {
-        index--
-    }
-
-    val deleteCount = before.length - index
+    val deleteCount = previousWordDeleteCount(before)
     if (deleteCount <= 0) {
         deletePreviousCharacter(connection)
         return
@@ -59,6 +54,27 @@ internal fun deletePreviousWord(inputConnection: InputConnection?) {
             deletePreviousCharacter(connection)
         }
     }
+}
+
+private fun previousWordDeleteCount(before: CharSequence): Int {
+    var index = before.length
+    while (index > 0 && before[index - 1].isWhitespace()) {
+        index--
+    }
+    if (index == 0) {
+        return before.length
+    }
+
+    if (before[index - 1].isLetterOrDigit()) {
+        while (index > 0 && before[index - 1].isLetterOrDigit()) {
+            index--
+        }
+    } else {
+        while (index > 0 && !before[index - 1].isWhitespace() && !before[index - 1].isLetterOrDigit()) {
+            index--
+        }
+    }
+    return before.length - index
 }
 
 private fun codeUnitDeleteCount(before: CharSequence): Int {
@@ -72,12 +88,15 @@ private fun codeUnitDeleteCount(before: CharSequence): Int {
 }
 
 internal fun commitSpace(inputConnection: InputConnection?) {
-    inputConnection?.commitText(" ", 1)
+    val connection = inputConnection ?: return
+    connection.finishComposingText()
+    connection.commitText(" ", 1)
 }
 
 internal fun moveCursor(inputConnection: InputConnection?, delta: Int) {
     val connection = inputConnection ?: return
     if (delta == 0) return
+    connection.finishComposingText()
 
     val extracted =
         connection.getExtractedText(
@@ -97,10 +116,12 @@ internal fun moveCursor(inputConnection: InputConnection?, delta: Int) {
             connection.setSelection(current, current)
             selectionEnd = current
         } else if (current != selectionEnd) {
-            current = if (delta > 0) maxOf(current, selectionEnd) else minOf(current, selectionEnd)
+            val collapsed = if (delta > 0) maxOf(current, selectionEnd) else minOf(current, selectionEnd)
+            connection.setSelection(collapsed, collapsed)
+            return
         }
 
-        val newPos = (current + delta).coerceIn(0, textLength)
+        val newPos = moveCursorByCodePoints(text, current, delta)
         if (newPos != current) {
             connection.setSelection(newPos, newPos)
         }
@@ -108,6 +129,59 @@ internal fun moveCursor(inputConnection: InputConnection?, delta: Int) {
     }
 
     moveCursorWithKeyEvents(connection, delta)
+}
+
+private fun moveCursorByCodePoints(
+    text: CharSequence,
+    current: Int,
+    delta: Int,
+): Int {
+    var index = current.coerceIn(0, text.length)
+    repeat(kotlin.math.abs(delta)) {
+        val next =
+            if (delta > 0) {
+                nextCodePointBoundary(text, index)
+            } else {
+                previousCodePointBoundary(text, index)
+            }
+        if (next == index) {
+            return index
+        }
+        index = next
+    }
+    return index
+}
+
+private fun nextCodePointBoundary(
+    text: CharSequence,
+    index: Int,
+): Int {
+    if (index >= text.length) return text.length
+    return if (
+        index + 1 < text.length &&
+        Character.isHighSurrogate(text[index]) &&
+        Character.isLowSurrogate(text[index + 1])
+    ) {
+        index + 2
+    } else {
+        index + 1
+    }
+}
+
+private fun previousCodePointBoundary(
+    text: CharSequence,
+    index: Int,
+): Int {
+    if (index <= 0) return 0
+    return if (
+        index >= 2 &&
+        Character.isLowSurrogate(text[index - 1]) &&
+        Character.isHighSurrogate(text[index - 2])
+    ) {
+        index - 2
+    } else {
+        index - 1
+    }
 }
 
 private fun moveCursorWithKeyEvents(connection: InputConnection, delta: Int) {
