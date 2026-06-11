@@ -193,12 +193,8 @@ class ChirpKeyboardService :
                         coordinator.isRecordingActive() ||
                             (state is RecordingState.Stopping && state.origin == RecordingOrigin.KEYBOARD)
                     )
-            if (shouldDrainPendingStop) {
-                try {
-                    stopAndTranscribeForCurrentInput()
-                } finally {
-                    pendingStopStore.clear()
-                }
+            if (shouldDrainPendingStop && stopAndTranscribeForCurrentInput()) {
+                pendingStopStore.clear()
             }
         }
     }
@@ -353,13 +349,12 @@ class ChirpKeyboardService :
         coordinator.onMicTap { text -> commitToInputSession(session, text) }
     }
 
-    private fun stopAndTranscribeForCurrentInput() {
-        val session = inputSessionGuard.captureCommitSession()
-        if (session == null) {
-            coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
-            return
+    private fun stopAndTranscribeForCurrentInput(): Boolean {
+        if (!coordinator.isRecordingActive()) {
+            return false
         }
-        coordinator.stopAndTranscribe { text -> commitToInputSession(session, text) }
+        val session = inputSessionGuard.captureCommitSession() ?: return false
+        return coordinator.stopAndTranscribe { text -> commitToInputSession(session, text) }
     }
 
     private fun commitToInputSession(

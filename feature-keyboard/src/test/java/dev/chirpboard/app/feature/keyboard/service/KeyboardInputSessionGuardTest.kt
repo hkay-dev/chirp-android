@@ -14,6 +14,13 @@ import org.junit.Test
 
 class KeyboardInputSessionGuardTest {
     @Test
+    fun `session cannot be captured before input starts`() {
+        val guard = KeyboardInputSessionGuard()
+
+        assertNull(guard.captureCommitSession())
+    }
+
+    @Test
     fun `password text input cannot capture commit session`() {
         val guard = KeyboardInputSessionGuard()
 
@@ -62,6 +69,16 @@ class KeyboardInputSessionGuardTest {
         assertTrue(guard.commitIfCurrent(session, connection, "hello"))
 
         verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `finished input cannot capture commit session`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(EditorInfo())
+
+        guard.finishInput()
+
+        assertNull(guard.captureCommitSession())
     }
 
     @Test

@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -101,7 +102,12 @@ private val KeyboardPanelShape = RoundedCornerShape(20.dp)
 private val RecordingActionsHeight = 64.dp
 private const val VoiceTransitionMs = 280
 private val SpaceCursorDragStep = 10.dp
-private const val SpaceCursorDragStartThresholdPx = 2f
+
+internal fun shouldStartSpaceCursorDrag(
+    dx: Float,
+    dy: Float,
+    thresholdPx: Float,
+): Boolean = (dx * dx + dy * dy) > thresholdPx * thresholdPx
 
 private enum class ProcessingPhase {
     Transcribing,
@@ -810,13 +816,14 @@ private fun SpaceBarKey(
     val context = LocalContext.current
     val density = LocalDensity.current
     val cursorStepPx = with(density) { SpaceCursorDragStep.toPx() }
+    val cursorDragStartThresholdPx = LocalViewConfiguration.current.touchSlop
 
     Box(
         modifier =
             modifier
                 .clip(ChirpShapes.Small)
                 .background(MaterialTheme.colorScheme.secondaryContainer)
-                .pointerInput(onSpace, onMoveCursor, cursorStepPx) {
+                .pointerInput(onSpace, onMoveCursor, cursorStepPx, cursorDragStartThresholdPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var cursorMode = false
@@ -834,7 +841,7 @@ private fun SpaceBarKey(
 
                             val dx = change.position.x - down.position.x
                             val dy = change.position.y - down.position.y
-                            if (!cursorMode && (dx * dx + dy * dy) > SpaceCursorDragStartThresholdPx * SpaceCursorDragStartThresholdPx) {
+                            if (!cursorMode && shouldStartSpaceCursorDrag(dx, dy, cursorDragStartThresholdPx)) {
                                 cursorMode = true
                             }
 

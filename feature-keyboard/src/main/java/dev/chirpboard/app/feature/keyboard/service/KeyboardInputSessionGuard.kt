@@ -11,6 +11,7 @@ internal data class KeyboardInputCommitSession(
 internal class KeyboardInputSessionGuard {
     private var generation: Long = 0L
     private var sensitiveInput = false
+    private var activeInput = false
 
     val isSensitiveInput: Boolean
         get() = sensitiveInput
@@ -20,19 +21,21 @@ internal class KeyboardInputSessionGuard {
         preserveSession: Boolean = false,
     ) {
         val nowSensitive = info.isSensitiveKeyboardInput()
-        if (!preserveSession || nowSensitive || sensitiveInput) {
+        if (!preserveSession || nowSensitive || sensitiveInput || !activeInput) {
             generation += 1
         }
         sensitiveInput = nowSensitive
+        activeInput = !nowSensitive
     }
 
     fun finishInput() {
         generation += 1
         sensitiveInput = false
+        activeInput = false
     }
 
     fun captureCommitSession(): KeyboardInputCommitSession? =
-        if (sensitiveInput) {
+        if (sensitiveInput || !activeInput) {
             null
         } else {
             KeyboardInputCommitSession(generation)
@@ -43,7 +46,7 @@ internal class KeyboardInputSessionGuard {
         connection: InputConnection?,
         text: String,
     ): Boolean {
-        if (sensitiveInput || session.generation != generation) {
+        if (sensitiveInput || !activeInput || session.generation != generation) {
             return false
         }
         return connection?.commitText(text, 1) == true

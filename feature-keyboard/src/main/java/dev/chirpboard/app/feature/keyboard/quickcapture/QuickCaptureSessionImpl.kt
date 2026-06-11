@@ -64,17 +64,9 @@ class QuickCaptureSessionImpl(
             )
         }
 
-        when (audioFocusManager.requestFocus()) {
-            is AudioFocusManager.FocusResult.Denied ->
-                return QuickCaptureStartResult.AudioFocusDenied("Another app is using audio")
-            is AudioFocusManager.FocusResult.Granted -> Unit
-            else -> Unit
-        }
-
         when (val result = recordingStateManager.tryStartRecording(RecordingOrigin.KEYBOARD)) {
             is RecordingStartResult.Success -> Unit
             is RecordingStartResult.AlreadyRecording -> {
-                audioFocusManager.abandonFocus()
                 val sourceLabel =
                     when (result.currentOrigin) {
                         RecordingOrigin.APP -> "app"
@@ -84,6 +76,16 @@ class QuickCaptureSessionImpl(
                 Toast.makeText(context, "Microphone in use by $sourceLabel", Toast.LENGTH_SHORT).show()
                 return QuickCaptureStartResult.AlreadyRecording(sourceLabel)
             }
+        }
+
+        when (audioFocusManager.requestFocus()) {
+            is AudioFocusManager.FocusResult.Denied -> {
+                val message = "Another app is using audio"
+                recordingStateManager.onRecordingError(message)
+                return QuickCaptureStartResult.AudioFocusDenied(message)
+            }
+            is AudioFocusManager.FocusResult.Granted -> Unit
+            else -> Unit
         }
 
         if (!recorder.start()) {

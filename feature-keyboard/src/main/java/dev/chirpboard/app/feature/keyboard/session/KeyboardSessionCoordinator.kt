@@ -48,6 +48,7 @@ class KeyboardSessionCoordinator(
     private val availableModes = MutableStateFlow<List<ProcessingModeListItem>>(emptyList())
 
     private var recordingJob: Job? = null
+    private var startJob: Job? = null
     private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
 
@@ -188,35 +189,44 @@ class KeyboardSessionCoordinator(
     }
 
     fun startRecording() {
-        scope.launch {
-            when (val result = capture.start()) {
-                is QuickCaptureStartResult.Success -> {
-                    HapticFeedback.onRecordStart(context)
-                    isRecording.value = true
-                    recordingJob = scope.launch { capture.collectSamples() }
-                }
-
-                is QuickCaptureStartResult.PermissionDenied -> {
-                    permissionError.value = result.message
-                }
-
-                is QuickCaptureStartResult.AudioFocusDenied -> {
-                    transcription.setError(result.message)
-                }
-
-                is QuickCaptureStartResult.Failed -> {
-                    transcription.setError(result.message)
-                }
-
-                is QuickCaptureStartResult.AlreadyRecording -> Unit
-            }
-        }
-    }
-
-    fun stopAndTranscribe(commitText: (String) -> Unit) {
-        if (!isRecording.value) {
+        if (isRecording.value || startJob?.isActive == true) {
             return
         }
+        startJob =
+            scope.launch {
+                try {
+                    when (val result = capture.start()) {
+                        is QuickCaptureStartResult.Success -> {
+                            HapticFeedback.onRecordStart(context)
+                            isRecording.value = true
+                            recordingJob = scope.launch { capture.collectSamples() }
+                        }
+
+                        is QuickCaptureStartResult.PermissionDenied -> {
+                            permissionError.value = result.message
+                        }
+
+                        is QuickCaptureStartResult.AudioFocusDenied -> {
+                            transcription.setError(result.message)
+                        }
+
+                        is QuickCaptureStartResult.Failed -> {
+                            transcription.setError(result.message)
+                        }
+
+                        is QuickCaptureStartResult.AlreadyRecording -> Unit
+                    }
+                } finally {
+                    startJob = null
+                }
+            }
+    }
+
+    fun stopAndTranscribe(commitText: (String) -> Unit): Boolean {
+        if (!isRecording.value) {
+            return false
+        }
+        isRecording.value = false
 
         capture.abandonAudioFocus()
         HapticFeedback.onRecordStop(context)
@@ -224,13 +234,11 @@ class KeyboardSessionCoordinator(
         recordingJob = null
 
         val audioSource = capture.stopAsAudioSource()
-        isRecording.value = false
-
         if (audioSource == null) {
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
-            return
+            return true
         }
 
         persistence.prepareAudioSource(audioSource)
@@ -241,20 +249,25 @@ class KeyboardSessionCoordinator(
         transcriptionJob?.cancel()
         transcriptionJob =
             scope.launch(Dispatchers.Default) {
-                transcription.transcribe(
-                    request =
-                        InlineTranscriptionRequest(
-                            samples = FloatArray(0),
-                            llmEnabled = llmEnabled.value,
-                            processingModeId = currentMode.value.id,
-                            audioSource = audioSource,
-                        ),
-                    persistence = persistence,
-                    commitText = { text -> scope.launch(Dispatchers.Main) { commitText(text) } },
-                    onRecordingCompleted = { recordingStateManager.onRecordingCompleted() },
-                    onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
-                )
+                try {
+                    transcription.transcribe(
+                        request =
+                            InlineTranscriptionRequest(
+                                samples = FloatArray(0),
+                                llmEnabled = llmEnabled.value,
+                                processingModeId = currentMode.value.id,
+                                audioSource = audioSource,
+                            ),
+                        persistence = persistence,
+                        commitText = { text -> scope.launch(Dispatchers.Main) { commitText(text) } },
+                        onRecordingCompleted = { recordingStateManager.onRecordingCompleted() },
+                        onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
+                    )
+                } finally {
+                    transcriptionJob = null
+                }
             }
+        return true
     }
 
     fun cancelRecording() {
@@ -265,6 +278,7 @@ class KeyboardSessionCoordinator(
         transcriptionJob?.cancel()
         transcriptionJob = null
         if (!wasRecording) {
+            recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
             return
         }
@@ -274,7 +288,6 @@ class KeyboardSessionCoordinator(
         recordingJob = null
         capture.cancelCapture()
         persistence.discardSamples()
-        isRecording.value = false
         recordingStateManager.onRecordingCompleted()
         transcription.resetPhase()
     }
