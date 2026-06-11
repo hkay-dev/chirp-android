@@ -118,7 +118,10 @@ class InlineTranscriptionCoordinatorImpl
                                 reasonCode = "${request.correlationPrefix}_no_speech",
                             )
                             withContext(Dispatchers.Main) {
-                                persistence?.discardSamples()
+                                // Discard only this request's audio: when this pipeline was
+                                // detached by a stop timeout, discardSamples() could delete a
+                                // newer dictation's staged source instead of ours.
+                                persistence?.discardAudioSource(request.audioSource)
                                 onRecordingCompleted()
                                 _phase.value = InlineTranscriptionPhase.Idle
                             }

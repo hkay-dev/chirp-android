@@ -257,6 +257,96 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
+    fun releasePendingAudioSource_keepsBackingFileForDetachedPipeline() =
+        runTest {
+            val root = createTempDir("keyboard-release-pending")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val detachedFile = File(root, "detached.f32pcm").apply { writeText("detached") }
+            persistence.prepareAudioSource(
+                InlineAudioSource.PcmFloatFile(
+                    path = detachedFile.absolutePath,
+                    sampleCount = 1,
+                ),
+            )
+
+            // Ownership handoff: the detached pipeline still needs the backing file.
+            persistence.releasePendingAudioSource()
+
+            assertTrue(detachedFile.exists())
+            // The staged reference is gone, so a later discardSamples (e.g. from the
+            // next dictation's stop path) cannot delete the detached pipeline's audio.
+            persistence.discardSamples()
+            assertTrue(detachedFile.exists())
+        }
+
+    @Test
+    fun discardAudioSource_deletesOnlyThatSourceAndKeepsNewerPendingSource() =
+        runTest {
+            val root = createTempDir("keyboard-discard-explicit-source")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val detachedFile = File(root, "detached.f32pcm").apply { writeText("detached") }
+            val pendingFile = File(root, "pending.f32pcm").apply { writeText("pending") }
+            persistence.prepareAudioSource(
+                InlineAudioSource.PcmFloatFile(
+                    path = pendingFile.absolutePath,
+                    sampleCount = 1,
+                ),
+            )
+
+            persistence.discardAudioSource(
+                InlineAudioSource.PcmFloatFile(
+                    path = detachedFile.absolutePath,
+                    sampleCount = 1,
+                ),
+            )
+
+            assertFalse(detachedFile.exists())
+            assertTrue(pendingFile.exists())
+            // The newer staged source is still owned by the persistence layer.
+            persistence.discardSamples()
+            assertFalse(pendingFile.exists())
+        }
+
+    @Test
+    fun discardAudioSource_clearsPendingReferenceWhenDiscardingStagedSource() =
+        runTest {
+            val root = createTempDir("keyboard-discard-staged-source")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val stagedFile = File(root, "staged.f32pcm").apply { writeText("staged") }
+            val stagedSource =
+                InlineAudioSource.PcmFloatFile(
+                    path = stagedFile.absolutePath,
+                    sampleCount = 1,
+                )
+            persistence.prepareAudioSource(stagedSource)
+
+            persistence.discardAudioSource(stagedSource)
+
+            assertFalse(stagedFile.exists())
+        }
+
+    @Test
     fun persistAudioSource_discardsFileBackedSourceWhenPreferenceReadFails() =
         runTest {
             val root = createTempDir("keyboard-persist-throwing-preference")

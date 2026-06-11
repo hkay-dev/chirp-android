@@ -43,6 +43,14 @@ sealed interface InlineAudioSource {
 interface InlineCapturePersistence {
     fun prepareAudioSource(audioSource: InlineAudioSource) = Unit
 
+    /**
+     * Drops the reference staged by [prepareAudioSource] without touching its backing
+     * file. Used when a detached pipeline takes over ownership of the staged source and
+     * will persist or discard it itself; a later [prepareAudioSource] or [discardSamples]
+     * must not delete audio it no longer owns.
+     */
+    fun releasePendingAudioSource() = Unit
+
     suspend fun persist(
         samples: FloatArray?,
         rawText: String?,
@@ -65,6 +73,15 @@ interface InlineCapturePersistence {
     }
 
     fun discardSamples()
+
+    /**
+     * Discards exactly [audioSource] and clears any staged reference only when it still
+     * points at the same source. Unlike [discardSamples] this can never delete audio
+     * staged by a newer dictation, so detached pipelines can call it safely.
+     */
+    fun discardAudioSource(audioSource: InlineAudioSource) {
+        discardSamples()
+    }
 }
 
 /**

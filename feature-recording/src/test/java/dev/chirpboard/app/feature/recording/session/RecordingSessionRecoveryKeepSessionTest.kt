@@ -2,20 +2,28 @@ package dev.chirpboard.app.feature.recording.session
 
 import android.content.Context
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import java.io.File
 import java.util.UUID
 
 class RecordingSessionRecoveryKeepSessionTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     private lateinit var context: Context
     private lateinit var journal: RecordingSessionJournal
     private lateinit var protectedPathsStore: RecordingRecoveryProtectedPathsStore
@@ -81,5 +89,41 @@ class RecordingSessionRecoveryKeepSessionTest {
             coVerify { recordingRepository.deleteAbandonedInProgressRecording(recordingId) }
             assertNull(journal.findBySessionId(sessionId))
             assertTrue(audioFile.exists())
+        }
+
+    @Test
+    fun keepSession_refusesWhileFinalizeWorkerOwnsSession() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val audioFile =
+                File(context.filesDir, "recordings/recording_keep_owned.m4a").apply {
+                    parentFile?.mkdirs()
+                    writeText("audio")
+                }
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = audioFile.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr",
+            )
+
+            mockkObject(RecordingFinalizeWorkRequest)
+            try {
+                coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId) } returns true
+
+                val result = sessionRecovery.keepSession(sessionId)
+
+                assertTrue(result.toString(), result is SessionRecoveryResult.Failed)
+            } finally {
+                unmockkObject(RecordingFinalizeWorkRequest)
+            }
+
+            // The worker still owns the recording row and journal entry.
+            assertTrue(journal.findBySessionId(sessionId) != null)
+            coVerify(exactly = 0) { recordingRepository.deleteAbandonedInProgressRecording(any()) }
         }
 }

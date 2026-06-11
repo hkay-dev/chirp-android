@@ -52,6 +52,13 @@ interface TranscriptionRecovery {
 
     suspend fun retry(recordingId: UUID)
 
+    /**
+     * Explicit user-requested re-transcription. Unlike [enqueue], this may also claim a
+     * COMPLETED recording, resetting it back through the transcription pipeline. Returns
+     * the actual outcome so callers never report success for a rejected claim.
+     */
+    suspend fun retranscribe(recordingId: UUID): ManualRecoveryResult
+
     suspend fun recoverPendingTranscription(recordingId: UUID): ManualRecoveryResult
 
     suspend fun recoverPendingEnhancement(recordingId: UUID): ManualRecoveryResult

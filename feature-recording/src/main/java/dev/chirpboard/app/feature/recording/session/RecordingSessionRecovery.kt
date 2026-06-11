@@ -138,6 +138,12 @@ class RecordingSessionRecovery
                 val entry = sessionJournal.findBySessionId(sessionId)
                     ?: return@withContext SessionRecoveryResult.Failed("Session not found")
 
+                if (hasUnfinishedFinalizeWork(entry)) {
+                    // The finalize worker still owns this session (e.g. a stale recovery
+                    // card raced the worker); recovering here would double-finalize it.
+                    return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                }
+
                 val assessment = SessionRecoveryAssessor.assess(entry)
 
                 val exportFile =
@@ -254,6 +260,11 @@ class RecordingSessionRecovery
         suspend fun discardSession(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
+                if (entry != null && hasUnfinishedFinalizeWork(entry)) {
+                    // The finalize worker still owns this session; deleting its artifacts
+                    // now would race the worker's move/validate of the same files.
+                    return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                }
                 entry?.recordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
                 entry?.let { deleteSessionArtifacts(it) }
                 sessionJournal.markFinalized(sessionId)
@@ -264,6 +275,11 @@ class RecordingSessionRecovery
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
                 if (entry != null) {
+                    if (hasUnfinishedFinalizeWork(entry)) {
+                        // Same race as recover/discard: the finalize worker still owns the
+                        // recording row and journal entry for this session.
+                        return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                    }
                     protectedPathsStore.protect(sessionJournal.referencedPathsFor(entry))
                     entry.recordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
                     sessionJournal.markFinalized(sessionId)
@@ -337,5 +353,7 @@ class RecordingSessionRecovery
 
         companion object {
             private const val TAG = "RecordingSessionRecovery"
+            internal const val FINALIZE_IN_PROGRESS_MESSAGE =
+                "Recording is still being finalized. Try again in a moment."
         }
     }

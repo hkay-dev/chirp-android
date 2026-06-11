@@ -440,6 +440,14 @@ class RecordingService : Service() {
             startCheckpointCopies()
             startSegmentRotation()
         } catch (e: kotlinx.coroutines.CancellationException) {
+            if (startGenerationToken != startGeneration.get()) {
+                // A newer start, restart, cancel, or stop superseded this start and owns
+                // all cleanup and service lifecycle. Every superseding initiator bumps the
+                // start generation before cancelling this job; running this handler late
+                // would abandon the new session's audio focus, wipe its fields, and
+                // stopSelf() the service out from under the restarted recording.
+                throw e
+            }
             currentInProgressRecordingId?.let { recordingRepository.deleteInProgressRecording(it) }
             currentInProgressRecordingId = null
             currentSessionId?.let { sessionJournal.markAbandoned(it) }

@@ -299,6 +299,56 @@ class TranscriptionQueueManager
             }
         }
 
+        /**
+         * Explicit user-requested re-transcription. Claims ownership even from COMPLETED
+         * (resetting the row to PENDING_TRANSCRIPTION) before scheduling work, mirroring
+         * how [retry] resets FAILED recordings. Returns the actual outcome so the caller
+         * never reports success when the claim or scheduling was refused.
+         */
+        override suspend fun retranscribe(recordingId: UUID): ManualRecoveryResult {
+            val ownership = reconciliationMutex.withLock { queueReconciler.inspectQueueOwnership(recordingId) }
+            val blockResult = blockedManualRecoveryResult(ownership)
+            if (blockResult != null) {
+                return blockResult
+            }
+
+            val constraintStatus = constraintChecker.checkConstraints()
+            _constraintWarning.value = constraintChecker.getConstraintMessage(constraintStatus)
+
+            val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retranscribe")
+            val executionToken = UUID.randomUUID().toString()
+            val claimed =
+                recordingRepository.claimRetranscriptionExecution(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
+                )
+            if (!claimed) {
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                    reasonCode = "retranscribe_claim_rejected",
+                )
+                return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+            }
+
+            workScheduler.enqueueTranscription(
+                recordingId = recordingId,
+                executionToken = executionToken,
+                correlationId = correlationId,
+            )
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.QUEUE_ENQUEUE,
+                outcome = ReliabilityOutcome.SUCCESS,
+                correlationId = correlationId,
+                recordingId = recordingId,
+                reasonCode = "retranscribe_scheduled",
+            )
+            readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+            return ManualRecoveryResult.ENQUEUED
+        }
+
         override suspend fun recoverPendingTranscription(recordingId: UUID): ManualRecoveryResult {
             val recording =
                 recordingRepository.getRecording(recordingId)

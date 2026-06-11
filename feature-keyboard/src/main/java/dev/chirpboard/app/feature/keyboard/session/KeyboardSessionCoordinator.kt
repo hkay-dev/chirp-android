@@ -187,6 +187,12 @@ class KeyboardSessionCoordinator(
             activeStopToken = null
             if (transcriptionJob?.isActive == true) {
                 Log.w(tag, "Stopping timed out with transcription in flight; continuing in background")
+                // Fully detach the in-flight pipeline: it persists or discards its own
+                // explicit audio source on every terminal path, so the next stop must not
+                // cancel it (transcriptionJob.cancel) or delete its temp PCM via
+                // prepareAudioSource -> discardSamples on the still-staged source.
+                transcriptionJob = null
+                persistence.releasePendingAudioSource()
                 recordingStateManager.onRecordingCompleted()
                 transcription.setError(STOP_TIMEOUT_IN_PROGRESS_MESSAGE)
             } else {

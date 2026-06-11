@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 @Singleton
@@ -22,6 +24,7 @@ class RecordingRecoveryStore
         private val deferStore: RecordingRecoveryDeferStore,
     ) {
         private val storeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        private val refreshMutex = Mutex()
 
         private val _pendingSessions = MutableStateFlow<List<RecoverableRecordingSession>>(emptyList())
         val pendingSessions: StateFlow<List<RecoverableRecordingSession>> = _pendingSessions.asStateFlow()
@@ -41,11 +44,15 @@ class RecordingRecoveryStore
         }
 
         suspend fun refresh() {
-            _pendingSessions.value = sessionRecovery.scanForRecoverableSessions()
-            val pendingIds = _pendingSessions.value.map { it.sessionId }.toSet()
-            val retainedDeferred = deferStore.loadDeferredSessionIds().intersect(pendingIds)
-            deferStore.retainOnly(retainedDeferred)
-            _deferredSessionIds.value = retainedDeferred
+            // Serialized so concurrent refreshes cannot interleave their scan results
+            // and deferred-id writes (last-writer-wins would publish a stale snapshot).
+            refreshMutex.withLock {
+                _pendingSessions.value = sessionRecovery.scanForRecoverableSessions()
+                val pendingIds = _pendingSessions.value.map { it.sessionId }.toSet()
+                val retainedDeferred = deferStore.loadDeferredSessionIds().intersect(pendingIds)
+                deferStore.retainOnly(retainedDeferred)
+                _deferredSessionIds.value = retainedDeferred
+            }
         }
 
         fun deferSession(sessionId: UUID) {

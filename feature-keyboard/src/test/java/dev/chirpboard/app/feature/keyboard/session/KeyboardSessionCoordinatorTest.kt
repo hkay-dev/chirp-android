@@ -229,6 +229,57 @@ class KeyboardSessionCoordinatorTest {
         }
 
     @Test
+    fun stoppingTimeoutRescue_detachesJobSoNextStopCannotCancelIt() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val firstStarted = CompletableDeferred<Unit>()
+            val firstGate = CompletableDeferred<Unit>()
+            val firstFinished = CountDownLatch(1)
+            val secondStarted = CountDownLatch(1)
+            var firstCancelled = false
+            var transcribeCalls = 0
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                transcribeCalls++
+                if (transcribeCalls == 1) {
+                    firstStarted.complete(Unit)
+                    try {
+                        firstGate.await()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        firstCancelled = true
+                        throw e
+                    } finally {
+                        firstFinished.countDown()
+                    }
+                } else {
+                    secondStarted.countDown()
+                }
+            }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            firstStarted.await()
+
+            stoppingTimeoutHandler.captured.invoke(stoppingState())
+
+            // Detach hands audio-source ownership to the in-flight pipeline without
+            // deleting its temp file.
+            assertEquals(1, persistence.releasePendingCalls)
+
+            // The next dictation's stop must not cancel the detached pipeline.
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            assertTrue(secondStarted.await(5, TimeUnit.SECONDS))
+            assertEquals(2, transcribeCalls)
+            assertFalse(firstCancelled)
+
+            firstGate.complete(Unit)
+            assertTrue(firstFinished.await(5, TimeUnit.SECONDS))
+            assertFalse(firstCancelled)
+        }
+
+    @Test
     fun stoppingTimeoutRescue_withoutInFlightJobPersistsRescueEntry() =
         runTest {
             buildCoordinator()
@@ -323,6 +374,11 @@ class KeyboardSessionCoordinatorTest {
     private class RecordingPersistence : InlineCapturePersistence {
         var persistCalls = 0
         var lastErrorMessage: String? = null
+        var releasePendingCalls = 0
+
+        override fun releasePendingAudioSource() {
+            releasePendingCalls++
+        }
 
         override suspend fun persist(
             samples: FloatArray?,

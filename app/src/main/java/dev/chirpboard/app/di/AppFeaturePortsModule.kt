@@ -266,6 +266,12 @@ class AppKeyboardInlineCapturePersistence
             pendingAudioSource = audioSource
         }
 
+        override fun releasePendingAudioSource() {
+            // Ownership handoff only: the detached pipeline persists or discards the
+            // source itself, so the backing temp file must survive this call.
+            pendingAudioSource = null
+        }
+
         override suspend fun persist(
             samples: FloatArray?,
             rawText: String?,
@@ -345,6 +351,13 @@ class AppKeyboardInlineCapturePersistence
         override fun discardSamples() {
             pendingAudioSource?.discardTemporaryFile()
             pendingAudioSource = null
+        }
+
+        override fun discardAudioSource(audioSource: InlineAudioSource) {
+            if (pendingAudioSource == audioSource) {
+                pendingAudioSource = null
+            }
+            audioSource.discardTemporaryFile()
         }
 
         private companion object {

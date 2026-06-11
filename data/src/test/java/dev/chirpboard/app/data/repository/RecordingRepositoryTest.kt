@@ -191,6 +191,48 @@ class RecordingRepositoryTest {
         }
 
     @Test
+    fun `claimRetranscriptionExecution allows completed rows but still guards out recording`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val allowedStatuses = slot<List<RecordingStatus>>()
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = id,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    errorMessage = null,
+                    executionToken = "token-1",
+                    allowedCurrentStatuses = capture(allowedStatuses),
+                    expectedExecutionToken = null,
+                )
+            } returns 1
+
+            val claimed = repository.claimRetranscriptionExecution(id, "token-1")
+
+            assertTrue(claimed)
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.COMPLETED))
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.FAILED))
+            assertFalse(allowedStatuses.captured.contains(RecordingStatus.RECORDING))
+        }
+
+    @Test
+    fun `claimRetranscriptionExecution returns false when row is not claimable`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = any(),
+                    status = any(),
+                    errorMessage = any(),
+                    executionToken = any(),
+                    allowedCurrentStatuses = any(),
+                    expectedExecutionToken = any(),
+                )
+            } returns 0
+
+            assertFalse(repository.claimRetranscriptionExecution(id, "token-1"))
+        }
+
+    @Test
     fun `claimTranscriptionExecution returns false when row is not claimable`() =
         runTest {
             val id = UUID.randomUUID()

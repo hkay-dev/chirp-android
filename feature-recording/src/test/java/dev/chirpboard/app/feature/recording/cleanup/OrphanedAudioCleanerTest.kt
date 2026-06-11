@@ -170,6 +170,65 @@ class OrphanedAudioCleanerTest {
             assertFalse(captureDir.exists())
         }
 
+    @Test
+    fun cleanOrphanedFiles_quarantinesExpiredProtectedCaptureDirectory() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val captureDir = File(recordingsDir, ".capture/$sessionId").apply { mkdirs() }
+            val segment =
+                File(captureDir, "seg-000.m4a").apply {
+                    writeText("x".repeat(1024))
+                    setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+                }
+            captureDir.setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(segment.absolutePath)
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(captureDir.exists())
+            val quarantinedDir = File(recordingsDir, "${OrphanedAudioCleaner.QUARANTINE_DIR_NAME}/$sessionId")
+            assertTrue(quarantinedDir.isDirectory)
+            assertTrue(File(quarantinedDir, segment.name).exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_deletesExpiredProtectedCaptureDirectoryTooSmallToRecover() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val captureDir = File(recordingsDir, ".capture/$sessionId").apply { mkdirs() }
+            val segment =
+                File(captureDir, "seg-000.m4a").apply {
+                    writeText("tiny")
+                    setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+                }
+            captureDir.setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(segment.absolutePath)
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(captureDir.exists())
+            assertFalse(File(recordingsDir, "${OrphanedAudioCleaner.QUARANTINE_DIR_NAME}/$sessionId").exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_purgesStaleQuarantinedDirectory() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val quarantinedDir =
+                File(recordingsDir, "${OrphanedAudioCleaner.QUARANTINE_DIR_NAME}/stale-session").apply { mkdirs() }
+            File(quarantinedDir, "seg-000.m4a").writeText("old segment")
+            quarantinedDir.setLastModified(System.currentTimeMillis() - 31L * 24 * 60 * 60 * 1000)
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(quarantinedDir.exists())
+        }
+
     private fun dictationCapture(
         name: String,
         ageMs: Long,

@@ -246,6 +246,78 @@ class RecordingSessionRecoveryTest {
         }
 
     @Test
+    fun recoverSession_refusesWhileFinalizeWorkerOwnsSession() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val audioFile = createRecoverableAudioFile("worker-owned-recover.m4a")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = audioFile.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-8",
+            )
+            journal.markStopping(sessionId)
+
+            mockkObject(RecordingFinalizeWorkRequest)
+            try {
+                coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId) } returns true
+
+                val result = sessionRecovery.recoverSession(sessionId)
+
+                assertTrue(result.toString(), result is SessionRecoveryResult.Failed)
+                assertEquals(
+                    RecordingSessionRecovery.FINALIZE_IN_PROGRESS_MESSAGE,
+                    (result as SessionRecoveryResult.Failed).message,
+                )
+            } finally {
+                unmockkObject(RecordingFinalizeWorkRequest)
+            }
+
+            assertTrue(journal.findBySessionId(sessionId) != null)
+            coVerify(exactly = 0) { recordingRepository.finalizeInProgressRecording(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.createRecording(any(), any(), any(), any(), any()) }
+            coVerify(exactly = 0) { transcriptionRecovery.enqueue(any(), any()) }
+        }
+
+    @Test
+    fun discardSession_refusesWhileFinalizeWorkerOwnsSession() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val audioFile = createRecoverableAudioFile("worker-owned-discard.m4a")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = audioFile.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-9",
+            )
+            journal.markStopping(sessionId)
+
+            mockkObject(RecordingFinalizeWorkRequest)
+            try {
+                coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId) } returns true
+
+                val result = sessionRecovery.discardSession(sessionId)
+
+                assertTrue(result.toString(), result is SessionRecoveryResult.Failed)
+            } finally {
+                unmockkObject(RecordingFinalizeWorkRequest)
+            }
+
+            // The worker still owns the session: its files and journal entry must survive.
+            assertTrue(audioFile.exists())
+            assertTrue(journal.findBySessionId(sessionId) != null)
+            coVerify(exactly = 0) { recordingRepository.deleteAbandonedInProgressRecording(any()) }
+        }
+
+    @Test
     fun recoverSession_abandonedSessionWithFinalAudioCreatesRecording() =
         runTest {
             val sessionId = UUID.randomUUID()

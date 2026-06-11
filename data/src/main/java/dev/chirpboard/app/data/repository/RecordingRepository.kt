@@ -82,6 +82,15 @@ class RecordingRepository
                     RecordingStatus.ENHANCING,
                     RecordingStatus.FAILED,
                 )
+
+            /**
+             * Statuses an explicit user-requested re-transcription may claim from. Unlike
+             * [TRANSCRIPTION_CLAIMABLE_STATUSES] this includes COMPLETED, because the user is
+             * deliberately sending a finished recording back through the pipeline. RECORDING
+             * stays excluded so an in-progress capture is never hijacked.
+             */
+            private val RETRANSCRIPTION_CLAIMABLE_STATUSES =
+                TRANSCRIPTION_CLAIMABLE_STATUSES + RecordingStatus.COMPLETED
         }
 
         fun getAllRecordings(): Flow<RepositoryFlowState<List<Recording>>> =
@@ -347,6 +356,27 @@ class RecordingRepository
                 errorMessage = errorMessage,
                 executionToken = executionToken,
                 allowedCurrentStatuses = TRANSCRIPTION_CLAIMABLE_STATUSES,
+                expectedExecutionToken = null,
+            ) > 0
+
+        /**
+         * Claims transcription ownership for an explicit user-requested re-transcription.
+         * Identical to [claimTranscriptionExecution] except a COMPLETED recording may also
+         * be reset back to PENDING_TRANSCRIPTION.
+         *
+         * @return true when the claim was applied, false when the row was missing or in a
+         *   non-claimable status (e.g. still RECORDING).
+         */
+        suspend fun claimRetranscriptionExecution(
+            recordingId: UUID,
+            executionToken: String,
+        ): Boolean =
+            recordingDao.updateStatusWithTranscriptionToken(
+                id = recordingId,
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                errorMessage = null,
+                executionToken = executionToken,
+                allowedCurrentStatuses = RETRANSCRIPTION_CLAIMABLE_STATUSES,
                 expectedExecutionToken = null,
             ) > 0
 

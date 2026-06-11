@@ -662,9 +662,9 @@ class ProcessingStudioViewModel
 
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
-                transcriptionRecovery.enqueue(recordingId)
+                val result = transcriptionRecovery.retranscribe(recordingId)
                 refreshRecoveryForCurrentRecording()
-                _message.value = "Re-queued for transcription"
+                _message.value = result.toUserMessage("Re-queued for transcription")
             }
         }
 

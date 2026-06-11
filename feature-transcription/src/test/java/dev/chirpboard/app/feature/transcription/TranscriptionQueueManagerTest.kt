@@ -5,6 +5,7 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -137,6 +138,41 @@ class TranscriptionQueueManagerTest {
         }
         assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
         assertEquals(listOf(RecordingEnhancementWorkRequest.workName(id)), workScheduler.enhancements.map { it.workName })
+    }
+
+    @Test
+    fun `retranscribe claims completed recording and schedules work`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.claimRetranscriptionExecution(id, any()) } returns true
+
+        val result = manager.retranscribe(id)
+
+        assertEquals(ManualRecoveryResult.ENQUEUED, result)
+        coVerify { recordingRepository.claimRetranscriptionExecution(id, any()) }
+        assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `retranscribe reports not recoverable when claim is rejected`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.claimRetranscriptionExecution(id, any()) } returns false
+
+        val result = manager.retranscribe(id)
+
+        assertEquals(ManualRecoveryResult.NOT_RECOVERABLE_STATE, result)
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `retranscribe is blocked while queue work is still active`() = runTest {
+        val id = UUID.randomUUID()
+        workScheduler.recordingTagInfos[id] = listOf(ScheduledWorkInfo(ScheduledWorkState.RUNNING))
+
+        val result = manager.retranscribe(id)
+
+        assertEquals(ManualRecoveryResult.BLOCKED_ACTIVE_WORK, result)
+        coVerify(exactly = 0) { recordingRepository.claimRetranscriptionExecution(any(), any()) }
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test

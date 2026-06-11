@@ -46,13 +46,18 @@ class RecordingRecoveryProtectedPathsStore
          */
         suspend fun consumeExpiredPaths(): Set<String> {
             val now = System.currentTimeMillis()
-            val (active, expired) = partition(now, decode(dataStore.data.first()[PROTECTED_PATHS_KEY].orEmpty()))
-            if (expired.isNotEmpty()) {
-                dataStore.edit { preferences ->
+            // Partition inside the edit transform: DataStore serializes edits, so a
+            // concurrent protect() can never be overwritten by a stale snapshot read
+            // outside the transform.
+            var expiredPaths: Set<String> = emptySet()
+            dataStore.edit { preferences ->
+                val (active, expired) = partition(now, decode(preferences[PROTECTED_PATHS_KEY].orEmpty()))
+                expiredPaths = expired.keys
+                if (expired.isNotEmpty()) {
                     preferences[PROTECTED_PATHS_KEY] = encode(active)
                 }
             }
-            return expired.keys
+            return expiredPaths
         }
 
         private fun encode(entries: Map<String, Long>): String =

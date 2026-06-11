@@ -107,6 +107,7 @@ class OrphanedAudioCleaner
                             safelistedPaths = safelistedPaths,
                             protectedPaths = protectedPaths,
                             journalReferencedPaths = journalReferencedPaths,
+                            expiredProtectedPaths = expiredProtectedPaths,
                             now = now,
                         )
                     deletedCount += purgeStaleQuarantine(recordingsDir, now)
@@ -128,6 +129,7 @@ class OrphanedAudioCleaner
             safelistedPaths: Set<String>,
             protectedPaths: Set<String>,
             journalReferencedPaths: Set<String>,
+            expiredProtectedPaths: Set<String>,
             now: Long,
         ): Int {
             val captureRoot = File(recordingsDir, ".capture")
@@ -158,6 +160,18 @@ class OrphanedAudioCleaner
                         .maxOrNull()
                         ?: sessionDir.lastModified()
                 if (now - newestModified < DEFAULT_ORPHAN_GRACE_MS) continue
+
+                val keptRecoverableAudio =
+                    audioFiles.any { file ->
+                        expiredProtectedPaths.contains(file.absolutePath) && looksRecoverable(file)
+                    }
+                if (keptRecoverableAudio) {
+                    // The user explicitly kept segment audio in this session dir and the
+                    // 7-day protection lapsed on this very run; quarantine the directory
+                    // instead of hard-deleting it.
+                    quarantineExpiredProtectedCaptureDir(recordingsDir, sessionDir)
+                    continue
+                }
 
                 if (sessionDir.deleteRecursively()) {
                     deletedCount++
@@ -190,6 +204,27 @@ class OrphanedAudioCleaner
                 )
             } else {
                 Log.e(TAG, "Failed to quarantine expired protected audio: ${file.name}")
+            }
+        }
+
+        private fun quarantineExpiredProtectedCaptureDir(
+            recordingsDir: File,
+            sessionDir: File,
+        ) {
+            val quarantineDir = File(recordingsDir, QUARANTINE_DIR_NAME).apply { mkdirs() }
+            val target = uniqueQuarantineTarget(quarantineDir, sessionDir.name)
+            if (sessionDir.renameTo(target)) {
+                target.setLastModified(System.currentTimeMillis())
+                Log.i(TAG, "Quarantined expired protected capture directory: ${sessionDir.name}")
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.PERSISTENCE_SAVE,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
+                    reasonCode = "orphan_capture_dir_quarantined",
+                    message = sessionDir.name,
+                )
+            } else {
+                Log.e(TAG, "Failed to quarantine expired protected capture directory: ${sessionDir.name}")
             }
         }
 
@@ -239,7 +274,9 @@ class OrphanedAudioCleaner
             var deleted = 0
             quarantineDir.listFiles()?.forEach { file ->
                 val stale = now - file.lastModified() >= QUARANTINE_RETENTION_MS
-                if (file.isFile && stale && file.delete()) {
+                if (!stale) return@forEach
+                val removed = if (file.isDirectory) file.deleteRecursively() else file.delete()
+                if (removed) {
                     deleted++
                     Log.d(TAG, "Deleted stale quarantined audio: ${file.name}")
                 }
