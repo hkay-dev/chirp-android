@@ -7,8 +7,20 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
+import dev.chirpboard.app.core.recording.WaveformBuffer
+import java.io.BufferedOutputStream
+import java.io.Closeable
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -17,26 +29,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import java.io.Closeable
-import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
-import dev.chirpboard.app.core.recording.WaveformBuffer
-import java.io.BufferedOutputStream
-import java.util.concurrent.atomic.AtomicBoolean
-import java.io.File
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import kotlin.math.abs
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Errors that can occur during audio recording.
@@ -55,6 +56,7 @@ sealed class RecordingError(
     ) : RecordingError("Recording failed (code: $code)")
 
     object TooShort : RecordingError("Recording too short")
+    object StorageUnavailable : RecordingError("Recording storage unavailable")
 
     object PermissionDenied : RecordingError("Microphone permission denied")
 }
@@ -203,7 +205,7 @@ class VoiceRecorder(
                 _sampleCountFlow.value = 0L
                 audioRecord?.startRecording()
                 isRecording.set(true)
-                recordingStartTimeMs = System.currentTimeMillis()
+                recordingStartTimeMs = SystemClock.elapsedRealtime()
 
                 // Signal that recording is ready for collection
                 recordingReady.complete(Unit)
@@ -273,6 +275,7 @@ class VoiceRecorder(
                     }
 
                     readResult > 0 -> {
+                        var writeFailed = false
                         // Normal case - process samples
                         synchronized(sampleLock) {
                             val spaceLeft = MAX_SAMPLE_CAPACITY - sampleCount
@@ -299,7 +302,16 @@ class VoiceRecorder(
                                     }
 
                                     CaptureStorageMode.FileBacked -> {
-                                        writeFloatSamplesLocked(buffer, toProcess)
+                                        writeFailed =
+                                            runCatching {
+                                                writeFloatSamplesLocked(buffer, toProcess)
+                                            }.isFailure
+                                        if (writeFailed) {
+                                            hasError = true
+                                            isRecording.set(false)
+                                            resetFileBackedCaptureLocked(deleteExisting = true)
+                                            return@synchronized
+                                        }
                                     }
                                 }
                                 sampleCount += toProcess
@@ -310,6 +322,11 @@ class VoiceRecorder(
                                 onLimitReached?.invoke()
                                 return@withContext
                             }
+                        }
+                        if (writeFailed) {
+                            Log.e(TAG, "Failed to write file-backed capture samples")
+                            onRecordingError?.invoke(RecordingError.StorageUnavailable)
+                            return@withContext
                         }
                         // Calculate amplitude for visualization (RMS of buffer)
                         var sum = 0f
@@ -335,9 +352,15 @@ class VoiceRecorder(
             return FloatArray(0)
         }
 
-        // Check for too-short recording
+        if (hasError) {
+            clearInMemoryCapture()
+            hasError = false
+            return FloatArray(0)
+        }
+
         if (durationMs < MINIMUM_RECORDING_MS) {
             Log.w(TAG, "Recording too short: ${durationMs}ms")
+            clearInMemoryCapture()
             onRecordingError?.invoke(RecordingError.TooShort)
             return FloatArray(0)
         }
@@ -366,10 +389,12 @@ class VoiceRecorder(
             sampleFile = null
             sampleCount = 0
 
-            if (durationMs < MINIMUM_RECORDING_MS || count <= 0 || file == null) {
-                if (durationMs < MINIMUM_RECORDING_MS) {
+            val failed = hasError
+            hasError = false
+
+            if (failed || durationMs < MINIMUM_RECORDING_MS || count <= 0 || file == null) {
+                if (!failed && durationMs < MINIMUM_RECORDING_MS) {
                     Log.w(TAG, "Recording too short: ${durationMs}ms")
-                    onRecordingError?.invoke(RecordingError.TooShort)
                 }
                 runCatching { file?.delete() }
                 null
@@ -397,17 +422,26 @@ class VoiceRecorder(
     fun isRecording(): Boolean = isRecording.get()
 
     override fun close() {
+        stopAudioRecord()
         scope.cancel()
         synchronized(sampleLock) {
+            sampleCount = 0
             resetFileBackedCaptureLocked(deleteExisting = true)
         }
-        audioRecord?.release()
-        audioRecord = null
+    }
+
+    private fun clearInMemoryCapture() {
+        synchronized(sampleLock) {
+            sampleCount = 0
+            if (samples.size != INITIAL_SAMPLE_CAPACITY) {
+                samples = FloatArray(INITIAL_SAMPLE_CAPACITY)
+            }
+        }
     }
 
     private fun stopAudioRecord(): Long {
         isRecording.set(false)
-        val durationMs = System.currentTimeMillis() - recordingStartTimeMs
+        val durationMs = SystemClock.elapsedRealtime() - recordingStartTimeMs
         runCatching { audioRecord?.stop() }
         audioRecord?.release()
         audioRecord = null

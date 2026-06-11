@@ -389,18 +389,20 @@ class HomeViewModel
          * Toggle recording on/off.
          */
         fun toggleRecording(profileId: UUID? = null) {
-            val result = recordingManager.toggleRecording(RecordingOrigin.APP, profileId)
+            viewModelScope.launch {
+                val result = recordingManager.toggleRecording(RecordingOrigin.APP, profileId)
 
-            if (result is dev.chirpboard.app.feature.recording.ToggleResult.Started &&
-                result.startResult is RecordingStartResult.AlreadyRecording
-            ) {
-                val originText =
-                    when (result.startResult.currentOrigin) {
-                        RecordingOrigin.APP -> "the app"
-                        RecordingOrigin.KEYBOARD -> "the keyboard"
-                        RecordingOrigin.WIDGET -> "the widget"
-                    }
-                _errorMessage.value = "Recording already in progress from $originText"
+                if (result is dev.chirpboard.app.feature.recording.ToggleResult.Started &&
+                    result.startResult is RecordingStartResult.AlreadyRecording
+                ) {
+                    val originText =
+                        when (result.startResult.currentOrigin) {
+                            RecordingOrigin.APP -> "the app"
+                            RecordingOrigin.KEYBOARD -> "the keyboard"
+                            RecordingOrigin.WIDGET -> "the widget"
+                        }
+                    _errorMessage.value = "Recording already in progress from $originText"
+                }
             }
         }
 

@@ -26,25 +26,9 @@ class AudioFocusManager(
     var onFocusLost: ((FocusLossKind) -> Unit)? = null
 
     private var focusRequest: AudioFocusRequest? = null
+    private var hasFocus = false
 
-    private val focusChangeListener =
-        AudioManager.OnAudioFocusChangeListener { focusChange ->
-            when (focusChange) {
-                AudioManager.AUDIOFOCUS_LOSS -> {
-                    Log.d(TAG, "Audio focus lost permanently: $focusChange")
-                    onFocusLost?.invoke(FocusLossKind.PERMANENT)
-                }
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
-                -> {
-                    Log.d(TAG, "Audio focus lost transiently: $focusChange")
-                    onFocusLost?.invoke(FocusLossKind.TRANSIENT)
-                }
-                AudioManager.AUDIOFOCUS_GAIN -> {
-                    Log.d(TAG, "Audio focus gained")
-                }
-            }
-        }
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener(::handleFocusChange)
 
     fun requestFocus(): FocusResult {
         val attributes =
@@ -63,10 +47,13 @@ class AudioFocusManager(
 
         return when (result) {
             AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                hasFocus = true
                 Log.d(TAG, "Audio focus granted")
                 FocusResult.Granted
             }
             else -> {
+                focusRequest = null
+                hasFocus = false
                 Log.w(TAG, "Audio focus denied: $result")
                 FocusResult.Denied
             }
@@ -76,7 +63,31 @@ class AudioFocusManager(
     fun abandonFocus() {
         focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         focusRequest = null
+        hasFocus = false
         Log.d(TAG, "Audio focus abandoned")
+    }
+
+    internal fun handleFocusChange(focusChange: Int) {
+        if (!hasFocus) {
+            return
+        }
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                hasFocus = false
+                Log.d(TAG, "Audio focus lost permanently: $focusChange")
+                onFocusLost?.invoke(FocusLossKind.PERMANENT)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK,
+            -> {
+                Log.d(TAG, "Audio focus lost transiently: $focusChange")
+                onFocusLost?.invoke(FocusLossKind.TRANSIENT)
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasFocus = true
+                Log.d(TAG, "Audio focus gained")
+            }
+        }
     }
 
     companion object {

@@ -17,11 +17,12 @@ class RecordingFinalizeStartupReconciler
         private val sessionJournal: RecordingSessionJournal,
         private val recordingRepository: RecordingRepository,
     ) {
-        suspend fun reconcilePendingFinalizations() {
+        suspend fun reconcilePendingFinalizations(): Set<java.util.UUID> {
             val stoppingSessions =
                 sessionJournal.loadAllEntries().filter { entry ->
                     entry.state == SessionJournalState.STOPPING && entry.recordingId != null
                 }
+            val enqueuedSessionIds = mutableSetOf<java.util.UUID>()
 
             stoppingSessions.forEach { entry ->
                 val recordingId = entry.recordingId ?: return@forEach
@@ -38,6 +39,8 @@ class RecordingFinalizeStartupReconciler
                     snapshot = snapshot,
                     sessionId = entry.sessionId,
                 )
+                enqueuedSessionIds += entry.sessionId
             }
+            return enqueuedSessionIds
         }
     }

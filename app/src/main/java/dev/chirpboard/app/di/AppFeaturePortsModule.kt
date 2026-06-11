@@ -287,42 +287,53 @@ class AppKeyboardInlineCapturePersistence
             errorMessage: String?,
         ) {
             val source = audioSource ?: pendingAudioSource ?: return
-            pendingAudioSource = null
+            if (audioSource == null || pendingAudioSource == source) {
+                pendingAudioSource = null
+            }
 
             withContext(NonCancellable + Dispatchers.IO) {
-                if (!shouldPersistCaptures(keyboardPreferences)) {
-                    source.discardTemporaryFile()
-                    return@withContext
-                }
+                var sourceHandled = false
+                try {
+                    if (!shouldPersistCaptures(keyboardPreferences)) {
+                        source.discardTemporaryFile()
+                        sourceHandled = true
+                        return@withContext
+                    }
 
-                val plan = buildCapturePersistencePlan(rawText, processedText, errorMessage)
-                val recording =
-                    saveCaptureRecording(
-                        filesDir = context.filesDir,
-                        audioEncoder = audioEncoder,
-                        recordingRepository = recordingRepository,
-                        plan = plan,
-                        audioSource = source,
-                        recordingQualityPreset = captureRecordingQualityPreset(keyboardPreferences),
-                        outputFormat = captureOutputFormat(keyboardPreferences),
-                    )
+                    val plan = buildCapturePersistencePlan(rawText, processedText, errorMessage)
+                    val recording =
+                        saveCaptureRecording(
+                            filesDir = context.filesDir,
+                            audioEncoder = audioEncoder,
+                            recordingRepository = recordingRepository,
+                            plan = plan,
+                            audioSource = source,
+                            recordingQualityPreset = captureRecordingQualityPreset(keyboardPreferences),
+                            outputFormat = captureOutputFormat(keyboardPreferences),
+                        )
+                    sourceHandled = true
 
-                val transcript = processedText ?: rawText
-                if (recording != null && transcript != null) {
-                    transcriptExportPort
-                        .exportIfEnabled(
-                            recording =
-                                TranscriptExportRecording(
-                                    title = recording.title,
-                                    createdAtEpochMs = recording.createdAt.time,
-                                    durationMs = recording.durationMs,
-                                    sourceName = recording.source.name.lowercase(),
-                                ),
-                            transcript = transcript,
-                            summary = null,
-                        ).onFailure { error ->
-                            Log.e(TAG, "Failed to auto-export inline capture", error)
-                        }
+                    val transcript = processedText ?: rawText
+                    if (recording != null && transcript != null) {
+                        transcriptExportPort
+                            .exportIfEnabled(
+                                recording =
+                                    TranscriptExportRecording(
+                                        title = recording.title,
+                                        createdAtEpochMs = recording.createdAt.time,
+                                        durationMs = recording.durationMs,
+                                        sourceName = recording.source.name.lowercase(),
+                                    ),
+                                transcript = transcript,
+                                summary = null,
+                            ).onFailure { error ->
+                                Log.e(TAG, "Failed to auto-export inline capture", error)
+                            }
+                    }
+                } finally {
+                    if (!sourceHandled) {
+                        source.discardTemporaryFile()
+                    }
                 }
             }
         }
