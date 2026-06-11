@@ -261,30 +261,25 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     },
                 )
 
-                when (inlineTranscription.phase.value) {
-                    is InlineTranscriptionPhase.Error,
-                    is InlineTranscriptionPhase.LlmError,
-                    -> returnError(SpeechRecognizer.ERROR_CLIENT)
-
-                    InlineTranscriptionPhase.Idle -> {
-                        if (resultText.isBlank()) {
-                            returnError(SpeechRecognizer.ERROR_NO_MATCH)
-                        } else {
-                            Log.d(TAG, "Returning result to caller: '$resultText'")
-                            dismissWithResult(
-                                resultCode = Activity.RESULT_OK,
-                                data =
-                                    Intent().apply {
-                                        putStringArrayListExtra(
-                                            RecognizerIntent.EXTRA_RESULTS,
-                                            arrayListOf(resultText),
-                                        )
-                                    },
-                            )
+                when (val delivery = resolveRecognitionDelivery(resultText, inlineTranscription.phase.value)) {
+                    is RecognitionDelivery.Success -> {
+                        if (inlineTranscription.phase.value is InlineTranscriptionPhase.LlmError) {
+                            Log.w(TAG, "LLM polish failed; returning raw transcript to caller")
                         }
+                        Log.d(TAG, "Returning result to caller: '${delivery.text}'")
+                        dismissWithResult(
+                            resultCode = Activity.RESULT_OK,
+                            data =
+                                Intent().apply {
+                                    putStringArrayListExtra(
+                                        RecognizerIntent.EXTRA_RESULTS,
+                                        arrayListOf(delivery.text),
+                                    )
+                                },
+                        )
                     }
 
-                    else -> returnError(SpeechRecognizer.ERROR_CLIENT)
+                    is RecognitionDelivery.Failure -> returnError(delivery.errorCode)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -375,6 +370,33 @@ class VoiceRecognitionActivity : ComponentActivity() {
         private const val TAG = "VoiceRecognitionActivity"
     }
 }
+
+/** Outcome the activity returns to the calling app after the inline pipeline finishes. */
+internal sealed interface RecognitionDelivery {
+    data class Success(val text: String) : RecognitionDelivery
+
+    data class Failure(val errorCode: Int) : RecognitionDelivery
+}
+
+/**
+ * Decides what to return to the host app once the inline transcription pipeline settles.
+ *
+ * The committed text is the source of truth: if the pipeline committed anything, deliver
+ * it. A failed LLM polish leaves the phase at [InlineTranscriptionPhase.LlmError] but
+ * still commits the raw transcript (exactly as the keyboard surface does), so a polish
+ * failure must never discard the user's words. Only a genuine transcription failure
+ * (phase [InlineTranscriptionPhase.Error] with nothing committed) or an empty result
+ * surfaces an error to the caller.
+ */
+internal fun resolveRecognitionDelivery(
+    committedText: String,
+    terminalPhase: InlineTranscriptionPhase,
+): RecognitionDelivery =
+    when {
+        committedText.isNotBlank() -> RecognitionDelivery.Success(committedText)
+        terminalPhase is InlineTranscriptionPhase.Error -> RecognitionDelivery.Failure(SpeechRecognizer.ERROR_CLIENT)
+        else -> RecognitionDelivery.Failure(SpeechRecognizer.ERROR_NO_MATCH)
+    }
 
 /**
  * Wraps the shared capture persistence for a single dictation hand-off to the inline
