@@ -51,6 +51,20 @@ internal class KeyboardInputSessionGuard {
         }
         return connection?.commitText(text, 1) == true
     }
+
+    /**
+     * Builds a commit-text provider for stops the IME does not initiate directly (for
+     * example the max-duration limit). The provider must capture a fresh commit session
+     * on EVERY invocation — at stop time — never once at registration: a provider that
+     * cached the session would commit later transcripts against a stale input session.
+     * Yields null when no commitable session is live at stop time.
+     */
+    fun commitTextProvider(commit: (KeyboardInputCommitSession, String) -> Boolean): () -> ((String) -> Boolean)? =
+        {
+            captureCommitSession()?.let { session ->
+                { text: String -> commit(session, text) }
+            }
+        }
 }
 
 internal fun EditorInfo?.isSensitiveKeyboardInput(): Boolean {

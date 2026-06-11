@@ -103,11 +103,22 @@ class RecordingManager
             RecordingServiceCommands.cancelRecording(context)
         }
 
+        /**
+         * Restart the current recording: discard it and immediately begin a new one.
+         *
+         * @return true when the restart command was dispatched to the recording service.
+         *   A rejected dispatch is surfaced through the shared error state so the UI is
+         *   never left believing a restart silently happened.
+         */
         fun restartRecording(
             origin: RecordingOrigin = RecordingOrigin.APP,
             profileId: UUID? = null,
-        ) {
-            RecordingServiceCommands.restartRecording(context, origin, profileId)
+        ): Boolean {
+            val dispatched = RecordingServiceCommands.restartRecording(context, origin, profileId)
+            if (!dispatched) {
+                stateManager.onRecordingError("Could not restart the recording service")
+            }
+            return dispatched
         }
 
         /**

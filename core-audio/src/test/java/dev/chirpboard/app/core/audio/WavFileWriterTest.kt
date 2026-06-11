@@ -99,6 +99,57 @@ class WavFileWriterTest {
         assertFalse(WavFileWriter.repairHeader(file))
     }
 
+    @Test
+    fun `repairHeader leaves foreign WAV with trailing chunks untouched`() {
+        val file = File(temporaryFolder.root, "foreign.wav")
+        WavFileWriter(file, sampleRate = 16_000).use { writer ->
+            writer.appendPcm16(ByteArray(2048) { 1 }, 2048)
+        }
+        // Append a well-formed LIST/INFO chunk after the data chunk, the layout a
+        // hand-imported WAV may carry; the header stays accurate for that layout.
+        val infoPayload = "INFOISFT".toByteArray() + byteArrayOf(4, 0, 0, 0) + "test".toByteArray()
+        RandomAccessFile(file, "rw").use { raf ->
+            raf.seek(raf.length())
+            raf.write("LIST".toByteArray())
+            raf.writeIntLittleEndian(infoPayload.size)
+            raf.write(infoPayload)
+        }
+        val before = file.readBytes()
+        assertFalse(WavFileWriter.hasAccurateHeader(file))
+
+        assertFalse(WavFileWriter.repairHeader(file))
+
+        assertTrue(before.contentEquals(file.readBytes()))
+    }
+
+    @Test
+    fun `repairHeader leaves foreign non-RIFF file untouched`() {
+        val file = File(temporaryFolder.root, "foreign-magic.wav")
+        file.writeBytes("OggS".toByteArray() + ByteArray(2048) { 1 })
+        val before = file.readBytes()
+
+        assertFalse(WavFileWriter.repairHeader(file))
+
+        assertTrue(before.contentEquals(file.readBytes()))
+    }
+
+    @Test
+    fun `repairHeader still fixes stale header when remainder is raw PCM`() {
+        val file = File(temporaryFolder.root, "stale-pcm.wav")
+        WavFileWriter(file, sampleRate = 16_000).use { writer ->
+            writer.appendPcm16(ByteArray(2048) { 1 }, 2048)
+        }
+        RandomAccessFile(file, "rw").use { raf ->
+            raf.seek(40)
+            raf.writeIntLittleEndian(0)
+        }
+
+        assertTrue(WavFileWriter.repairHeader(file))
+
+        assertTrue(WavFileWriter.hasAccurateHeader(file))
+        assertEquals(2048, readDataSize(file))
+    }
+
     private fun readSampleRate(file: File): Int =
         RandomAccessFile(file, "r").use { raf ->
             raf.seek(24)

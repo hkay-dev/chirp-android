@@ -17,7 +17,6 @@ import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
-import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
@@ -123,6 +122,7 @@ class RecordingService : Service() {
     private var segmentRotationJob: Job? = null
     private val segmentTransitionMutex = Mutex()
     private val stopRequestGate = StopRequestGate()
+    private val restartStopCoordinator = RestartStopCoordinator(stopRequestGate)
     private var currentCorrelationId: String? = null
     private var stopRecordingJob: Job? = null
     private var startRecordingJob: Job? = null
@@ -178,18 +178,37 @@ class RecordingService : Service() {
     }
 
     /**
+     * True when this service instance owns the capture lifecycle behind the shared
+     * recording lock: a session is live, a start or stop is in flight, or teardown work
+     * holds the start-cancel mutex. The shared lock can also be claimed by in-process
+     * captures that never touch this service (keyboard quick capture, voice recognition),
+     * in which case a cold instance must never stop, finalize, or clobber that capture's
+     * state.
+     */
+    private fun serviceOwnsCapture(): Boolean =
+        currentSessionId != null ||
+            startRecordingJob?.isActive == true ||
+            stopRecordingJob?.isActive == true ||
+            stopRequestGate.isInProgress() ||
+            startCancelMutex.isLocked
+
+    /**
      * Invoked for null intents (START_STICKY system restarts) and unknown actions.
      * The service may have been launched via startForegroundService, so startForeground
      * must always run before deciding whether to keep running or shut down cleanly.
      */
     private fun handleCommandlessStart() {
-        if (recordingStateManager.state.value.isActive || stopRequestGate.isInProgress()) {
-            promoteToForegroundForActiveRecording()
-            return
-        }
-        promoteToForegroundImmediately()
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        RecordingServiceStartContract.runCommandlessStart(
+            keepRunningForActiveCapture =
+                serviceOwnsCapture() &&
+                    (recordingStateManager.state.value.isActive || stopRequestGate.isInProgress()),
+            promoteToForegroundStarting = ::promoteToForegroundImmediately,
+            promoteToForegroundActive = ::promoteToForegroundForActiveRecording,
+            shutDownService = {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            },
+        )
     }
 
     override fun onDestroy() {
@@ -200,6 +219,7 @@ class RecordingService : Service() {
             RecordingServiceLifecycleCleanup.prepareDestroy(
                 state = state,
                 stopInProgress = stopRequestGate.isInProgress(),
+                serviceOwnsCapture = serviceOwnsCapture(),
                 cancelPeriodicJobs = {
                     durationUpdateJob?.cancel()
                     amplitudeJob?.cancel()
@@ -235,48 +255,39 @@ class RecordingService : Service() {
         origin: RecordingOrigin,
         profileId: UUID?,
     ) {
-        if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
-            // Satisfy the startForegroundService contract before shutting down,
-            // otherwise Android kills the whole process (including the keyboard IME).
-            promoteToForegroundImmediately()
-            recordingStateManager.onRecordingError(
-                RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE,
-                SecurityException("RECORD_AUDIO permission missing"),
-            )
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return
-        }
-
-        // Try to acquire recording lock
-        when (val result = recordingStateManager.tryStartRecording(origin, profileId)) {
-            is RecordingStartResult.AlreadyRecording -> {
-                // Another recording is in progress. Still call startForeground for this
-                // command so the startForegroundService contract is met, without stopping
-                // the service that owns the active capture.
-                promoteToForegroundForActiveRecording()
+        RecordingServiceStartContract.runStartCommand(
+            hasRecordPermission = RecordingPermissionGuard.hasRecordAudioPermission(this),
+            tryAcquireRecordingLock = { recordingStateManager.tryStartRecording(origin, profileId) },
+            serviceOwnsCapture = ::serviceOwnsCapture,
+            promoteToForegroundStarting = ::promoteToForegroundImmediately,
+            promoteToForegroundActive = ::promoteToForegroundForActiveRecording,
+            onPermissionDenied = {
+                recordingStateManager.onRecordingError(
+                    RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE,
+                    SecurityException("RECORD_AUDIO permission missing"),
+                )
+            },
+            onAlreadyRecording = { ownedByThisService ->
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.RECORDING_START,
                     outcome = ReliabilityOutcome.SKIPPED,
                     correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "already_recording",
+                    reasonCode = if (ownedByThisService) "already_recording" else "already_recording_unowned",
                 )
-                return
-            }
-
-            is RecordingStartResult.Success -> {
-                // Lock acquired, proceed with recording
-            }
-        }
-
-        promoteToForegroundImmediately()
-
-        val generation = startGeneration.incrementAndGet()
-        startRecordingJob?.cancel()
-        startRecordingJob =
-            serviceScope.launch {
-                startRecordingAfterLockAcquired(origin, profileId, generation)
-            }
+            },
+            beginStart = {
+                val generation = startGeneration.incrementAndGet()
+                startRecordingJob?.cancel()
+                startRecordingJob =
+                    serviceScope.launch {
+                        startRecordingAfterLockAcquired(origin, profileId, generation)
+                    }
+            },
+            shutDownService = {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            },
+        )
     }
 
     private fun promoteToForegroundImmediately() {
@@ -648,16 +659,19 @@ class RecordingService : Service() {
      * Atomic restart: discard the current recording and immediately start a new one
      * without stopping the service in between.
      *
-     * Restart claims [stopRequestGate] for the duration of the teardown so it can never
-     * interleave with an in-flight stop: if a stop already holds the gate the restart is
-     * refused and the stop wins. The gate is reset only for the claim the restart itself
-     * acquired — a pending stop is never clobbered.
+     * Restart claims [stopRequestGate] (via [restartStopCoordinator]) for the duration of
+     * the teardown so it can never interleave with an in-flight stop: if a stop already
+     * holds the gate the restart is refused, the stop wins, and the user is told via a
+     * transient notification. The gate is reset only for the claim the restart itself
+     * acquired — a pending stop is never clobbered. A stop request arriving while the
+     * restart holds the gate is honored after the teardown by not starting a new
+     * recording.
      */
     private fun restartRecording(
         origin: RecordingOrigin,
         profileId: UUID?,
     ) {
-        if (!stopRequestGate.tryBegin()) {
+        if (!restartStopCoordinator.tryBeginRestart()) {
             Log.d(TAG, "Refusing restart while a stop is in progress")
             ReliabilityEventLogger.log(
                 stage = ReliabilityStage.RECORDING_START,
@@ -665,6 +679,7 @@ class RecordingService : Service() {
                 correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                 reasonCode = "restart_during_stop",
             )
+            notificationFactory.notifyRestartRefused(this)
             return
         }
 
@@ -686,10 +701,39 @@ class RecordingService : Service() {
                     discardActiveSessionForRestart()
                 }
             } finally {
-                stopRequestGate.reset()
+                restartStopCoordinator.finishRestart()
+            }
+            if (destroyed) {
+                Log.w(TAG, "Skipping post-restart start; service destroyed during teardown")
+                return@launch
+            }
+            if (restartStopCoordinator.consumeStopRequestedDuringRestart()) {
+                honorStopRequestedDuringRestart()
+                return@launch
             }
             startRecording(origin, profileId)
         }
+    }
+
+    /**
+     * A stop arrived while the restart held the gate. The old session was already
+     * discarded (that was the restart's irrevocable intent), so honoring the stop means
+     * not starting the new recording and shutting the service down cleanly.
+     */
+    private fun honorStopRequestedDuringRestart() {
+        Log.i(TAG, "Honoring stop received during restart teardown; not starting a new recording")
+        ReliabilityEventLogger.log(
+            stage = ReliabilityStage.RECORDING_STOP,
+            outcome = ReliabilityOutcome.SUCCESS,
+            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            reasonCode = "stop_honored_after_restart",
+        )
+        currentProfileId = null
+        currentCorrelationId = null
+        audioFocusManager.abandonFocus()
+        inputDeviceSelector.clearActiveDevice()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private suspend fun discardActiveSessionForRestart() {
@@ -704,10 +748,14 @@ class RecordingService : Service() {
 
         try {
             segmentCapture?.setCaptureErrorListener(null)
-            withContext(Dispatchers.IO) {
+            // NonCancellable so a destroy-triggered scope cancellation mid-restart can
+            // never leave the engine's audio resources held while the reference is
+            // dropped by detachSegmentCapture below.
+            withContext(NonCancellable + Dispatchers.IO) {
                 segmentCapture?.releaseWithoutSave()
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
         } finally {
             detachSegmentCapture()
             withContext(NonCancellable + Dispatchers.IO) {
@@ -722,8 +770,34 @@ class RecordingService : Service() {
     }
 
     private fun stopRecording() {
+        if (recordingStateManager.state.value.activeOrigin == RecordingOrigin.KEYBOARD && !serviceOwnsCapture()) {
+            // The active capture is an in-process keyboard capture that never touches this
+            // service; running the gated stop here would hand off a null recording id and
+            // force the live capture's state to Idle. Keyboard stops are routed through
+            // the keyboard stop bridge instead.
+            Log.w(TAG, "Ignoring stop for a keyboard capture this service instance does not own")
+            ReliabilityEventLogger.log(
+                stage = ReliabilityStage.RECORDING_STOP,
+                outcome = ReliabilityOutcome.SKIPPED,
+                correlationId = ReliabilityEventLogger.newCorrelationId("record"),
+                reasonCode = "stop_ignored_unowned_capture",
+            )
+            return
+        }
         if (!stopRequestGate.tryBegin()) {
-            Log.d(TAG, "Ignoring duplicate stop request while stop is in progress")
+            when (restartStopCoordinator.classifyRejectedStop()) {
+                RestartStopCoordinator.RejectedStop.QUEUED_BEHIND_RESTART -> {
+                    Log.i(TAG, "Stop requested during restart teardown; restart will stop instead of starting anew")
+                    ReliabilityEventLogger.log(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        outcome = ReliabilityOutcome.STARTED,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        reasonCode = "stop_queued_during_restart",
+                    )
+                }
+                RestartStopCoordinator.RejectedStop.DUPLICATE_STOP ->
+                    Log.d(TAG, "Ignoring duplicate stop request while stop is in progress")
+            }
             return
         }
         launchGatedStop()
@@ -1057,43 +1131,49 @@ class RecordingService : Service() {
      * through the single hardened stop entry point with stop-with-save semantics: whatever
      * audio the engine already finalized is handed to the finalize queue, never discarded.
      * If a stop already owns the gate, or the engine is no longer the active capture, the
-     * error is informational only — that other path owns finalization.
+     * error is informational only — that other path owns finalization. The decision order
+     * lives in [CaptureEngineErrorRouting] so it stays unit-testable.
      */
     private fun handleCaptureEngineError(
         engine: GaplessSegmentCaptureEngine,
         error: GaplessCaptureError,
     ) {
         val detail = captureErrorDetail(error)
-        if (destroyed) {
-            Log.w(TAG, "Dropping capture error after service destroy: $detail")
-            return
-        }
-        if (segmentCapture !== engine) {
-            // The session already moved past this engine (paused, stopped, restarted); its
-            // audio is owned by whichever path replaced it.
-            Log.w(TAG, "Ignoring capture error from a discarded engine: $detail")
-            return
-        }
-        if (!stopRequestGate.tryBegin()) {
-            Log.w(TAG, "Capture error while a stop is already in flight: $detail")
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_STOP,
-                outcome = ReliabilityOutcome.SKIPPED,
-                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                reasonCode = "capture_error_during_stop",
-                message = detail,
+        val decision =
+            CaptureEngineErrorRouting.decide(
+                destroyed = destroyed,
+                engineIsActive = segmentCapture === engine,
+                claimStopGate = stopRequestGate::tryBegin,
             )
-            return
+        when (decision) {
+            CaptureEngineErrorRouting.Decision.DROP_DESTROYED ->
+                Log.w(TAG, "Dropping capture error after service destroy: $detail")
+            CaptureEngineErrorRouting.Decision.DROP_STALE_ENGINE ->
+                // The session already moved past this engine (paused, stopped, restarted);
+                // its audio is owned by whichever path replaced it.
+                Log.w(TAG, "Ignoring capture error from a discarded engine: $detail")
+            CaptureEngineErrorRouting.Decision.INFORMATIONAL_STOP_IN_FLIGHT -> {
+                Log.w(TAG, "Capture error while a stop is already in flight: $detail")
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.RECORDING_STOP,
+                    outcome = ReliabilityOutcome.SKIPPED,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    reasonCode = "capture_error_during_stop",
+                    message = detail,
+                )
+            }
+            CaptureEngineErrorRouting.Decision.STOP_WITH_SAVE -> {
+                Log.e(TAG, "Capture engine died mid-recording; stopping with save: $detail")
+                ReliabilityEventLogger.log(
+                    stage = ReliabilityStage.RECORDING_STOP,
+                    outcome = ReliabilityOutcome.FAILURE,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    reasonCode = "capture_engine_error",
+                    message = detail,
+                )
+                launchGatedStop()
+            }
         }
-        Log.e(TAG, "Capture engine died mid-recording; stopping with save: $detail")
-        ReliabilityEventLogger.log(
-            stage = ReliabilityStage.RECORDING_STOP,
-            outcome = ReliabilityOutcome.FAILURE,
-            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-            reasonCode = "capture_engine_error",
-            message = detail,
-        )
-        launchGatedStop()
     }
 
     private fun captureErrorDetail(error: GaplessCaptureError): String {

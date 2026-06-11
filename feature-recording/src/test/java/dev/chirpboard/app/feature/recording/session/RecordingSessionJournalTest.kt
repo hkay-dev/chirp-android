@@ -137,6 +137,43 @@ class RecordingSessionJournalTest {
     }
 
     @Test
+    fun loadSessions_skipsUnreadableEntryWithoutQuarantine() {
+        // A directory with a .json name makes readText fail with an IOException; a
+        // transient read failure is not corruption and must not quarantine the entry.
+        val sessionId = UUID.randomUUID()
+        val journalFile = File(context.filesDir, "recordings/.sessions/$sessionId.json")
+        journalFile.mkdirs()
+
+        assertTrue(journal.loadAllEntries().isEmpty())
+        assertEquals(null, journal.findBySessionId(sessionId))
+        assertTrue(journalFile.exists())
+        assertFalse(File(journalFile.parentFile, "${journalFile.name}${RecordingSessionJournal.CORRUPT_SUFFIX}").exists())
+    }
+
+    @Test
+    fun pruneCorruptEntries_deletesOnlyStaleQuarantinedJournals() {
+        val sessionId = UUID.randomUUID()
+        val audioPath = File(context.filesDir, "recordings/recording_corrupt.m4a").absolutePath
+        journal.createSession(sessionId, audioPath, RecordingOrigin.APP, null, UUID.randomUUID(), "corr-1")
+        val journalFile = File(context.filesDir, "recordings/.sessions/$sessionId.json")
+        // Required fields are gone but the audio path is still extractable best-effort.
+        journalFile.writeText("""{"audioPath":"$audioPath"}""")
+        assertEquals(null, journal.findBySessionId(sessionId))
+        val quarantined = File(journalFile.parentFile, "${journalFile.name}${RecordingSessionJournal.CORRUPT_SUFFIX}")
+        assertTrue(quarantined.exists())
+
+        // Within retention the quarantined entry (and its audio shield) survives.
+        assertEquals(0, journal.pruneCorruptEntries(maxAgeMs = Long.MAX_VALUE))
+        assertTrue(quarantined.exists())
+        assertTrue(journal.getAllReferencedAudioPaths().contains(audioPath))
+
+        quarantined.setLastModified(System.currentTimeMillis() - 1_000)
+        assertEquals(1, journal.pruneCorruptEntries(maxAgeMs = 0))
+        assertFalse(quarantined.exists())
+        assertFalse(journal.getAllReferencedAudioPaths().contains(audioPath))
+    }
+
+    @Test
     fun updateEntry_serializesConcurrentSegmentAppends() {
         val sessionId = UUID.randomUUID()
         val finalPath = File(context.filesDir, "recordings/recording_test.m4a").absolutePath

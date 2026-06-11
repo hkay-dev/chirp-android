@@ -6,6 +6,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -272,6 +273,29 @@ class RecordingSessionJournal
             return stale.size
         }
 
+        /**
+         * Deletes quarantined (.corrupt) journal entries older than [maxAgeMs]. Their
+         * best-effort referenced audio loses its cleanup shield once the entry is gone,
+         * so retention is bounded (30 days, matching the audio quarantine purge) instead
+         * of shielding undecodable sessions forever.
+         */
+        fun pruneCorruptEntries(maxAgeMs: Long = DEFAULT_CORRUPT_PRUNE_AGE_MS): Int {
+            val cutoff = System.currentTimeMillis() - maxAgeMs
+            synchronized(journalLock) {
+                val stale =
+                    sessionsDir
+                        .listFiles()
+                        ?.filter { it.name.endsWith(CORRUPT_SUFFIX) && it.lastModified() < cutoff }
+                        .orEmpty()
+                stale.forEach { file ->
+                    if (!file.delete()) {
+                        Log.w(TAG, "Failed to prune corrupt session journal ${file.name}")
+                    }
+                }
+                return stale.size
+            }
+        }
+
         fun loadActiveSessions(): List<RecordingSessionEntry> = loadSessions { it.isSafelisted }
 
         fun loadRecoverableSessions(): List<RecordingSessionEntry> = loadSessions { it.isRecoverable }
@@ -294,10 +318,12 @@ class RecordingSessionJournal
             }.toMap()
 
         fun findBySessionId(sessionId: UUID): RecordingSessionEntry? =
-            sessionFile(sessionId).takeIf { it.exists() }?.let { file ->
-                runCatching { readEntry(file) }.getOrElse { error ->
-                    quarantineCorruptEntry(file, error)
-                    null
+            synchronized(journalLock) {
+                sessionFile(sessionId).takeIf { it.exists() }?.let { file ->
+                    runCatching { readEntry(file) }.getOrElse { error ->
+                        quarantineCorruptEntry(file, error)
+                        null
+                    }
                 }
             }
 
@@ -316,18 +342,22 @@ class RecordingSessionJournal
             }
 
         private fun loadSessions(predicate: (RecordingSessionEntry) -> Boolean): List<RecordingSessionEntry> =
-            sessionsDir
-                .listFiles()
-                ?.filter { it.extension == "json" }
-                ?.mapNotNull { file ->
-                    runCatching { readEntry(file) }.getOrElse { error ->
-                        // Quarantine instead of silently dropping: the entry stays on disk for
-                        // diagnosis and its referenced audio stays out of orphan cleanup.
-                        quarantineCorruptEntry(file, error)
-                        null
-                    }
-                }.orEmpty()
-                .filter(predicate)
+            synchronized(journalLock) {
+                // Reading under the journal lock prevents torn reads of writeEntry's
+                // non-atomic fallback write from being mistaken for corruption.
+                sessionsDir
+                    .listFiles()
+                    ?.filter { it.extension == "json" }
+                    ?.mapNotNull { file ->
+                        runCatching { readEntry(file) }.getOrElse { error ->
+                            // Quarantine instead of silently dropping: the entry stays on disk for
+                            // diagnosis and its referenced audio stays out of orphan cleanup.
+                            quarantineCorruptEntry(file, error)
+                            null
+                        }
+                    }.orEmpty()
+                    .filter(predicate)
+            }
 
         private fun updateEntry(
             sessionId: UUID,
@@ -360,8 +390,24 @@ class RecordingSessionJournal
         ) {
             synchronized(journalLock) {
                 if (!file.exists()) return
+                // Re-check under the lock before the destructive rename: the original
+                // failure may have been a torn read racing a writer or a transient
+                // read error, and quarantining a healthy live entry would silently
+                // disable journaling for its session.
+                val recheck = runCatching { readEntry(file) }
+                if (recheck.isSuccess) {
+                    Log.w(TAG, "Skipped quarantine of session journal ${file.name}; entry parsed on re-read", error)
+                    return
+                }
+                if (recheck.exceptionOrNull() is IOException) {
+                    // A read failure is not corruption; keep the entry for the next pass.
+                    Log.w(TAG, "Skipped quarantine of unreadable session journal ${file.name}", error)
+                    return
+                }
                 val quarantined = File(file.parentFile, "${file.name}$CORRUPT_SUFFIX")
                 if (file.renameTo(quarantined)) {
+                    // Stamp the quarantine time so pruneCorruptEntries retention starts now.
+                    quarantined.setLastModified(System.currentTimeMillis())
                     Log.w(TAG, "Quarantined unparseable session journal ${file.name}", error)
                 } else {
                     Log.w(TAG, "Failed to quarantine unparseable session journal ${file.name}", error)
@@ -497,5 +543,6 @@ class RecordingSessionJournal
             const val CHECKPOINT_INTERVAL_MS = 15 * 60 * 1000L
             const val SEGMENT_ROTATION_INTERVAL_MS = 5 * 60 * 1000L
             const val DEFAULT_ABANDONED_PRUNE_AGE_MS = 30L * 24 * 60 * 60 * 1000
+            const val DEFAULT_CORRUPT_PRUNE_AGE_MS = 30L * 24 * 60 * 60 * 1000
         }
     }

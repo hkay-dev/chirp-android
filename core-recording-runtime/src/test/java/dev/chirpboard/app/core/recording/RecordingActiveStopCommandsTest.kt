@@ -4,7 +4,10 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -101,6 +104,59 @@ class RecordingActiveStopCommandsTest {
             assertEquals(null, store.peek())
         }
 
+
+    @Test
+    fun `rejected service stop dispatch surfaces a recording error instead of dying silently`() =
+        runTest {
+            val stateManager = RecordingStateManager()
+            stateManager.tryStartRecording(RecordingOrigin.APP, profileId = null)
+            stateManager.onRecordingStarted(audioFilePath = "app.m4a", recordingId = UUID.randomUUID())
+            mockkObject(RecordingServiceCommands)
+            try {
+                every { RecordingServiceCommands.stopRecording(any()) } returns false
+
+                RecordingActiveStopCommands.stopActiveRecording(
+                    context = mockk(relaxed = true),
+                    recordingStateManager = stateManager,
+                    keyboardStopBridge = KeyboardRecordingStopBridge(),
+                    pendingStopStore = pendingStopStore(),
+                    requesterOrigin = RecordingOrigin.APP,
+                )
+
+                val state = stateManager.state.value
+                assertTrue(state is RecordingState.Error)
+                assertEquals(
+                    "Could not stop the recording service",
+                    (state as RecordingState.Error).message,
+                )
+            } finally {
+                unmockkObject(RecordingServiceCommands)
+            }
+        }
+
+    @Test
+    fun `accepted service stop dispatch leaves recording state untouched`() =
+        runTest {
+            val stateManager = RecordingStateManager()
+            stateManager.tryStartRecording(RecordingOrigin.APP, profileId = null)
+            stateManager.onRecordingStarted(audioFilePath = "app.m4a", recordingId = UUID.randomUUID())
+            mockkObject(RecordingServiceCommands)
+            try {
+                every { RecordingServiceCommands.stopRecording(any()) } returns true
+
+                RecordingActiveStopCommands.stopActiveRecording(
+                    context = mockk(relaxed = true),
+                    recordingStateManager = stateManager,
+                    keyboardStopBridge = KeyboardRecordingStopBridge(),
+                    pendingStopStore = pendingStopStore(),
+                    requesterOrigin = RecordingOrigin.APP,
+                )
+
+                assertTrue(stateManager.state.value is RecordingState.Recording)
+            } finally {
+                unmockkObject(RecordingServiceCommands)
+            }
+        }
 
     private fun pendingStopStore(): KeyboardPendingStopStore {
         val root = createTempDir("active-stop-command-test")

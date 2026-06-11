@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
@@ -15,6 +16,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import dev.chirpboard.app.feature.transcription.audio.asSampleFlow
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -39,12 +41,24 @@ class InlineTranscriptionCoordinatorImpl
         private val _phase = MutableStateFlow<InlineTranscriptionPhase>(InlineTranscriptionPhase.Idle)
         override val phase: StateFlow<InlineTranscriptionPhase> = _phase.asStateFlow()
 
+        /**
+         * Set by the owners of user-initiated cancellation right before they cancel the
+         * pipeline job; consumed (and reset) when a [CancellationException] is classified.
+         * Cleared at the start of every request so a mark left behind by a cancel that
+         * never reached an in-flight pipeline cannot misclassify a later interruption.
+         */
+        private val userCancelRequested = AtomicBoolean(false)
+
         override fun resetPhase() {
             _phase.value = InlineTranscriptionPhase.Idle
         }
 
         override fun setError(message: String) {
             _phase.value = InlineTranscriptionPhase.Error(message)
+        }
+
+        override fun markUserCancelled() {
+            userCancelRequested.set(true)
         }
 
         override suspend fun transcribeWithCommitResult(
@@ -55,6 +69,12 @@ class InlineTranscriptionCoordinatorImpl
             onRecordingError: (String) -> Unit,
         ) {
             var rawTextForPersistence: String? = null
+            userCancelRequested.set(false)
+            // True once this request's capture reached a terminal persist or discard.
+            // A cancellation surfacing after that point (e.g. on leaving a dispatcher
+            // boundary right after the committed-path persist) must not persist the
+            // same capture a second time.
+            val captureResolved = AtomicBoolean(false)
 
             try {
                 val correlationId = ReliabilityEventLogger.newCorrelationId(request.correlationPrefix)
@@ -87,7 +107,9 @@ class InlineTranscriptionCoordinatorImpl
                                 rawText = null,
                                 processedText = null,
                                 errorMessage = message,
+                                reason = InlineCapturePersistReason.RESCUE,
                             )
+                            captureResolved.set(true)
                             _phase.value = InlineTranscriptionPhase.Error(message)
                         }
                         onRecordingError(message)
@@ -122,6 +144,7 @@ class InlineTranscriptionCoordinatorImpl
                                 // detached by a stop timeout, discardSamples() could delete a
                                 // newer dictation's staged source instead of ours.
                                 persistence?.discardAudioSource(request.audioSource)
+                                captureResolved.set(true)
                                 onRecordingCompleted()
                                 _phase.value = InlineTranscriptionPhase.Idle
                             }
@@ -142,7 +165,9 @@ class InlineTranscriptionCoordinatorImpl
                                     rawText = rawTextForPersistence,
                                     processedText = null,
                                     errorMessage = mappedOutcome.message,
+                                    reason = InlineCapturePersistReason.RESCUE,
                                 )
+                                captureResolved.set(true)
                                 _phase.value = InlineTranscriptionPhase.Error(mappedOutcome.message)
                             }
                             onRecordingError(mappedOutcome.message)
@@ -192,6 +217,7 @@ class InlineTranscriptionCoordinatorImpl
                                                 processedText = polishedText,
                                                 phaseOnCommit = InlineTranscriptionPhase.Idle,
                                                 correlationId = correlationId,
+                                                captureResolved = captureResolved,
                                             ),
                                         commitText = commitText,
                                         onRecordingCompleted = onRecordingCompleted,
@@ -216,6 +242,7 @@ class InlineTranscriptionCoordinatorImpl
                                                 phaseOnCommit =
                                                     InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}"),
                                                 correlationId = correlationId,
+                                                captureResolved = captureResolved,
                                             ),
                                         commitText = commitText,
                                         onRecordingCompleted = onRecordingCompleted,
@@ -239,6 +266,7 @@ class InlineTranscriptionCoordinatorImpl
                                         processedText = null,
                                         phaseOnCommit = InlineTranscriptionPhase.Idle,
                                         correlationId = correlationId,
+                                        captureResolved = captureResolved,
                                     ),
                                 commitText = commitText,
                                 onRecordingCompleted = onRecordingCompleted,
@@ -257,6 +285,7 @@ class InlineTranscriptionCoordinatorImpl
                                     processedText = null,
                                     phaseOnCommit = InlineTranscriptionPhase.Idle,
                                     correlationId = correlationId,
+                                    captureResolved = captureResolved,
                                 ),
                             commitText = commitText,
                             onRecordingCompleted = onRecordingCompleted,
@@ -265,15 +294,13 @@ class InlineTranscriptionCoordinatorImpl
                     }
                 }
             } catch (e: CancellationException) {
-                Log.w(tag, "Transcription cancelled", e)
-                withContext(NonCancellable + Dispatchers.Main) {
-                    persistence?.persistAudioSource(
-                        audioSource = request.audioSource,
-                        rawText = rawTextForPersistence,
-                        processedText = null,
-                        errorMessage = "Dictation cancelled",
-                    )
-                }
+                persistCancelledRequest(
+                    request = request,
+                    persistence = persistence,
+                    rawText = rawTextForPersistence,
+                    captureResolved = captureResolved.get(),
+                    cause = e,
+                )
                 throw e
             } catch (e: Exception) {
                 val errorMessage = "Transcription failed: ${e.message}"
@@ -290,10 +317,51 @@ class InlineTranscriptionCoordinatorImpl
                         rawText = rawTextForPersistence,
                         processedText = null,
                         errorMessage = errorMessage,
+                        reason = InlineCapturePersistReason.RESCUE,
                     )
                     _phase.value = InlineTranscriptionPhase.Error(errorMessage)
                 }
                 onRecordingError(errorMessage)
+            }
+        }
+
+        /**
+         * Classifies a pipeline cancellation before rethrowing it. Only an explicit user
+         * action marks the request via [markUserCancelled]; that persist respects the
+         * save preference. Every other cancellation — IME service destruction, scope
+         * death, system kill, task swipe mid-transcription — must rescue the capture
+         * regardless of the preference so the user's speech is never silently dropped.
+         * A request whose capture already reached a terminal persist or discard is left
+         * alone so the rescue cannot duplicate an already-committed capture.
+         */
+        private suspend fun persistCancelledRequest(
+            request: InlineTranscriptionRequest,
+            persistence: InlineCapturePersistence?,
+            rawText: String?,
+            captureResolved: Boolean,
+            cause: CancellationException,
+        ) {
+            // Always consume the mark so it cannot leak into a later request.
+            val userCancelled = userCancelRequested.getAndSet(false)
+            if (captureResolved) {
+                Log.w(tag, "Transcription cancelled after its capture was already persisted or discarded", cause)
+                return
+            }
+            val (errorMessage, reason) =
+                if (userCancelled) {
+                    "Dictation cancelled" to InlineCapturePersistReason.USER_CANCELLED
+                } else {
+                    CANCELLATION_RESCUE_MESSAGE to InlineCapturePersistReason.RESCUE
+                }
+            Log.w(tag, "Transcription cancelled (userInitiated=$userCancelled)", cause)
+            withContext(NonCancellable + Dispatchers.Main) {
+                persistence?.persistAudioSource(
+                    audioSource = request.audioSource,
+                    rawText = rawText,
+                    processedText = null,
+                    errorMessage = errorMessage,
+                    reason = reason,
+                )
             }
         }
 
@@ -311,11 +379,17 @@ class InlineTranscriptionCoordinatorImpl
             val textToCommit = delivery.processedText ?: delivery.rawText
             val committed = commitText("$textToCommit ")
             if (committed) {
+                // The transcript reached its target; mark the capture resolved BEFORE the
+                // (cancellable) persist below so a cancellation surfacing at this
+                // dispatcher boundary cannot re-persist the same capture in the
+                // CancellationException handler.
+                delivery.captureResolved.set(true)
                 delivery.persistence?.persistAudioSource(
                     audioSource = delivery.request.audioSource,
                     rawText = delivery.rawText,
                     processedText = delivery.processedText,
                     errorMessage = null,
+                    reason = InlineCapturePersistReason.COMPLETED,
                 )
                 onRecordingCompleted()
                 _phase.value = delivery.phaseOnCommit
@@ -335,7 +409,9 @@ class InlineTranscriptionCoordinatorImpl
                     rawText = delivery.rawText,
                     processedText = delivery.processedText,
                     errorMessage = COMMIT_REFUSED_MESSAGE,
+                    reason = InlineCapturePersistReason.RESCUE,
                 )
+                delivery.captureResolved.set(true)
             }
             onRecordingError(COMMIT_REFUSED_MESSAGE)
             _phase.value = InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE)
@@ -396,6 +472,9 @@ class InlineTranscriptionCoordinatorImpl
 internal const val COMMIT_REFUSED_MESSAGE =
     "Couldn't insert dictated text into the field; transcript saved to recordings"
 
+internal const val CANCELLATION_RESCUE_MESSAGE =
+    "Dictation was interrupted before it finished; the capture was saved to recordings"
+
 private data class TranscriptDelivery(
     val request: InlineTranscriptionRequest,
     val persistence: InlineCapturePersistence?,
@@ -403,6 +482,7 @@ private data class TranscriptDelivery(
     val processedText: String?,
     val phaseOnCommit: InlineTranscriptionPhase,
     val correlationId: String,
+    val captureResolved: AtomicBoolean,
 )
 
 private class InlineTranscriptionFailureException(

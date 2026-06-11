@@ -50,7 +50,13 @@ interface TranscriptionRecovery {
         cause: Throwable?,
     )
 
-    suspend fun retry(recordingId: UUID)
+    /**
+     * Retry a FAILED recording. Returns the actual outcome so callers never report
+     * success when the recording is no longer FAILED or the claim was refused; a
+     * COMPLETED row is reported as [ManualRecoveryResult.NOT_RECOVERABLE_STATE]
+     * (use [retranscribe] to deliberately re-run a finished recording).
+     */
+    suspend fun retry(recordingId: UUID): ManualRecoveryResult
 
     /**
      * Explicit user-requested re-transcription. Unlike [enqueue], this may also claim a

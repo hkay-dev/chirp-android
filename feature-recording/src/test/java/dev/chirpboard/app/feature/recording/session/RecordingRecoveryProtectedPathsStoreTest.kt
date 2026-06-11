@@ -26,36 +26,46 @@ class RecordingRecoveryProtectedPathsStoreTest {
             store.protect(listOf("/tmp/kept.m4a"))
 
             assertEquals(setOf("/tmp/kept.m4a"), store.activeProtectedPaths())
-            assertEquals(emptySet<String>(), store.consumeExpiredPaths())
+            assertEquals(emptySet<String>(), store.partitionProtectedPaths().expired)
             assertEquals(setOf("/tmp/kept.m4a"), store.activeProtectedPaths())
         }
 
     @Test
-    fun consumeExpiredPaths_removesExpiredAndKeepsActiveEntries() =
+    fun partitionProtectedPaths_reportsExpiredWithoutRemovingMarkers() =
         runTest {
             store.protect(listOf("/tmp/expired.m4a"), ttlMs = -1L)
             store.protect(listOf("/tmp/active.m4a"))
 
-            val expired = store.consumeExpiredPaths()
+            val partition = store.partitionProtectedPaths()
 
-            assertEquals(setOf("/tmp/expired.m4a"), expired)
-            assertEquals(setOf("/tmp/active.m4a"), store.activeProtectedPaths())
-            // A second pass must not report (or remove) anything else.
-            assertEquals(emptySet<String>(), store.consumeExpiredPaths())
-            assertEquals(setOf("/tmp/active.m4a"), store.activeProtectedPaths())
+            assertEquals(setOf("/tmp/expired.m4a"), partition.expired)
+            assertEquals(setOf("/tmp/active.m4a"), partition.active)
+            // Listing must not consume the marker: a crash before the file is durably
+            // quarantined would otherwise downgrade the next run to hard deletion.
+            assertEquals(setOf("/tmp/expired.m4a"), store.partitionProtectedPaths().expired)
         }
 
     @Test
-    fun consumeExpiredPaths_retainsProtectionAppliedAfterPartition() =
+    fun clearPaths_removesOnlyTheHandledMarkers() =
         runTest {
-            // The partition happens inside the DataStore edit transform, so an entry
-            // written by protect() can never be clobbered by a stale outside-the-edit
-            // snapshot: whatever protect() committed before the consume edit runs is
-            // re-read inside the transform.
             store.protect(listOf("/tmp/expired.m4a"), ttlMs = -1L)
             store.protect(listOf("/tmp/fresh-keep.m4a"))
 
-            assertEquals(setOf("/tmp/expired.m4a"), store.consumeExpiredPaths())
+            store.clearPaths(listOf("/tmp/expired.m4a"))
+
+            val partition = store.partitionProtectedPaths()
+            assertEquals(emptySet<String>(), partition.expired)
+            assertEquals(setOf("/tmp/fresh-keep.m4a"), partition.active)
+        }
+
+    @Test
+    fun clearPaths_ignoresUnknownPaths() =
+        runTest {
+            store.protect(listOf("/tmp/fresh-keep.m4a"))
+
+            store.clearPaths(listOf("/tmp/never-protected.m4a"))
+            store.clearPaths(emptyList())
+
             assertEquals(setOf("/tmp/fresh-keep.m4a"), store.activeProtectedPaths())
         }
 }

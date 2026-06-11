@@ -75,6 +75,7 @@ class RecordingSessionRecovery
         private val sessionReconciler: RecordingSessionReconciler,
         private val recordingStateManager: RecordingStateManager,
         private val protectedPathsStore: RecordingRecoveryProtectedPathsStore,
+        private val ownershipLock: RecordingFinalizeOwnershipLock,
     ) {
         suspend fun scanForRecoverableSessions(): List<RecoverableRecordingSession> =
             withContext(Dispatchers.IO) {
@@ -83,9 +84,12 @@ class RecordingSessionRecovery
                     if (isLiveSession(entry)) {
                         return@mapNotNull null
                     }
-                    if (hasUnfinishedFinalizeWork(entry)) {
-                        // The finalize worker still owns this session; offering it in the
-                        // recovery UI would race the worker and double-finalize.
+                    if (hasUnfinishedFinalizeWork(entry) != false) {
+                        // The finalize worker still owns this session (or the work query
+                        // failed, leaving ownership unknown); offering it in the recovery
+                        // UI would race the worker and double-finalize. A failed query
+                        // only hides the session for this scan pass: the journal entry
+                        // and its files persist, and the next refresh re-lists it.
                         return@mapNotNull null
                     }
                     val resolved = resolveRecoveryFile(entry)
@@ -134,14 +138,23 @@ class RecordingSessionRecovery
         }
 
         suspend fun recoverSession(sessionId: UUID): SessionRecoveryResult =
+            // Hold the ownership lock across check-and-act so the startup reconciler
+            // cannot enqueue finalize work for this session between the check below
+            // and the file/database mutations that follow.
+            ownershipLock.withLock { recoverSessionLocked(sessionId) }
+
+        private suspend fun recoverSessionLocked(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
                     ?: return@withContext SessionRecoveryResult.Failed("Session not found")
 
-                if (hasUnfinishedFinalizeWork(entry)) {
+                when (hasUnfinishedFinalizeWork(entry)) {
                     // The finalize worker still owns this session (e.g. a stale recovery
                     // card raced the worker); recovering here would double-finalize it.
-                    return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                    true -> return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                    // Unknown ownership: fail closed instead of racing a possible worker.
+                    null -> return@withContext SessionRecoveryResult.Failed(FINALIZE_STATE_UNKNOWN_MESSAGE)
+                    false -> Unit
                 }
 
                 val assessment = SessionRecoveryAssessor.assess(entry)
@@ -258,12 +271,21 @@ class RecordingSessionRecovery
             }
 
         suspend fun discardSession(sessionId: UUID): SessionRecoveryResult =
+            ownershipLock.withLock { discardSessionLocked(sessionId) }
+
+        private suspend fun discardSessionLocked(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
-                if (entry != null && hasUnfinishedFinalizeWork(entry)) {
-                    // The finalize worker still owns this session; deleting its artifacts
-                    // now would race the worker's move/validate of the same files.
-                    return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                if (entry != null) {
+                    when (hasUnfinishedFinalizeWork(entry)) {
+                        // The finalize worker still owns this session; deleting its artifacts
+                        // now would race the worker's move/validate of the same files.
+                        true -> return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                        // Unknown ownership must fail closed on this destructive path:
+                        // deleting files a live worker may be moving loses audio.
+                        null -> return@withContext SessionRecoveryResult.Failed(FINALIZE_STATE_UNKNOWN_MESSAGE)
+                        false -> Unit
+                    }
                 }
                 entry?.recordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
                 entry?.let { deleteSessionArtifacts(it) }
@@ -272,13 +294,18 @@ class RecordingSessionRecovery
             }
 
         suspend fun keepSession(sessionId: UUID): SessionRecoveryResult =
+            ownershipLock.withLock { keepSessionLocked(sessionId) }
+
+        private suspend fun keepSessionLocked(sessionId: UUID): SessionRecoveryResult =
             withContext(Dispatchers.IO) {
                 val entry = sessionJournal.findBySessionId(sessionId)
                 if (entry != null) {
-                    if (hasUnfinishedFinalizeWork(entry)) {
+                    when (hasUnfinishedFinalizeWork(entry)) {
                         // Same race as recover/discard: the finalize worker still owns the
                         // recording row and journal entry for this session.
-                        return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                        true -> return@withContext SessionRecoveryResult.Failed(FINALIZE_IN_PROGRESS_MESSAGE)
+                        null -> return@withContext SessionRecoveryResult.Failed(FINALIZE_STATE_UNKNOWN_MESSAGE)
+                        false -> Unit
                     }
                     protectedPathsStore.protect(sessionJournal.referencedPathsFor(entry))
                     entry.recordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
@@ -287,15 +314,21 @@ class RecordingSessionRecovery
                 SessionRecoveryResult.Kept
             }
 
-        private suspend fun hasUnfinishedFinalizeWork(entry: RecordingSessionEntry): Boolean {
+        /**
+         * Whether the finalize worker still owns this session. Returns null when the
+         * WorkManager query fails: callers must fail closed (skip the entry for this
+         * scan pass, or refuse the action) instead of assuming no work exists and
+         * racing a possibly live worker.
+         */
+        private suspend fun hasUnfinishedFinalizeWork(entry: RecordingSessionEntry): Boolean? {
             val recordingId = entry.recordingId ?: return false
             return try {
                 RecordingFinalizeWorkRequest.hasUnfinishedWork(context, recordingId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Could not query finalize work for ${entry.sessionId}; assuming none", e)
-                false
+                Log.w(TAG, "Could not query finalize work for ${entry.sessionId}", e)
+                null
             }
         }
 
@@ -317,6 +350,12 @@ class RecordingSessionRecovery
                 val segments = entry.orderedSegmentFiles()
                 if (segments.isNotEmpty()) {
                     return segments.maxByOrNull { it.length() }
+                }
+                if (export.exists() && fileValidator.validateForRecovery(export).isRecoverableStub) {
+                    // Pre-fix app versions could delete segments while leaving an export
+                    // with a stale/zeroed header; with no segments left, that export's
+                    // payload is the only remaining audio and recovery can repair it.
+                    return export
                 }
             }
 
@@ -355,5 +394,7 @@ class RecordingSessionRecovery
             private const val TAG = "RecordingSessionRecovery"
             internal const val FINALIZE_IN_PROGRESS_MESSAGE =
                 "Recording is still being finalized. Try again in a moment."
+            internal const val FINALIZE_STATE_UNKNOWN_MESSAGE =
+                "Couldn't confirm this recording finished saving. Try again in a moment."
         }
     }

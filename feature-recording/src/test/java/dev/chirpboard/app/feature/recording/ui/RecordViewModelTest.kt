@@ -9,6 +9,7 @@ import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
+import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -166,6 +167,95 @@ class RecordViewModelTest {
         every { recordingStateManager.state } returns MutableStateFlow(RecordingState.Starting(RecordingOrigin.APP))
 
         assertEquals(false, viewModel.canHandoffToStudio())
+    }
+
+    @Test
+    fun `discardInterruptedSession surfaces refusal message`() = runTest(testDispatcher) {
+        val sessionId = UUID.randomUUID()
+        coEvery { recoveryStore.discardSession(sessionId) } returns
+            SessionRecoveryResult.Failed("Recording is still being finalized. Try again in a moment.")
+
+        viewModel.discardInterruptedSession(sessionId)
+        advanceUntilIdle()
+
+        assertEquals(
+            "Recording is still being finalized. Try again in a moment.",
+            viewModel.entryMessage.value,
+        )
+    }
+
+    @Test
+    fun `keepInterruptedSession surfaces refusal message and stays silent on success`() = runTest(testDispatcher) {
+        val sessionId = UUID.randomUUID()
+        coEvery { recoveryStore.keepSession(sessionId) } returns SessionRecoveryResult.Kept
+
+        viewModel.keepInterruptedSession(sessionId)
+        advanceUntilIdle()
+
+        assertNull(viewModel.entryMessage.value)
+
+        coEvery { recoveryStore.keepSession(sessionId) } returns
+            SessionRecoveryResult.Failed("Recording is still being finalized. Try again in a moment.")
+
+        viewModel.keepInterruptedSession(sessionId)
+        advanceUntilIdle()
+
+        assertEquals(
+            "Recording is still being finalized. Try again in a moment.",
+            viewModel.entryMessage.value,
+        )
+    }
+
+    @Test
+    fun `restartRecording while stopping is refused with in-screen message`() = runTest(testDispatcher) {
+        every { recordingStateManager.state } returns
+            MutableStateFlow(RecordingState.Stopping(RecordingOrigin.APP, UUID.randomUUID()))
+
+        val stoppingViewModel =
+            RecordViewModel(
+                recordingManager = recordingManager,
+                recordingStateManager = recordingStateManager,
+                profileRepository = profileRepository,
+                tagRepository = tagRepository,
+                recoveryStore = recoveryStore,
+                savedStateHandle = SavedStateHandle(),
+            )
+
+        stoppingViewModel.restartRecording()
+        advanceUntilIdle()
+
+        verify(exactly = 0) { recordingManager.restartRecording(any(), any()) }
+        assertEquals(
+            "Recording is already being saved. Start over isn't available right now.",
+            stoppingViewModel.entryMessage.value,
+        )
+    }
+
+    @Test
+    fun `restartRecording while recording dispatches restart without message`() = runTest(testDispatcher) {
+        every { recordingStateManager.state } returns
+            MutableStateFlow(
+                RecordingState.Recording(
+                    origin = RecordingOrigin.APP,
+                    recordingId = UUID.randomUUID(),
+                ),
+            )
+
+        val recordingViewModel =
+            RecordViewModel(
+                recordingManager = recordingManager,
+                recordingStateManager = recordingStateManager,
+                profileRepository = profileRepository,
+                tagRepository = tagRepository,
+                recoveryStore = recoveryStore,
+                savedStateHandle = SavedStateHandle(),
+            )
+
+        recordingViewModel.restartRecording()
+        advanceUntilIdle()
+
+        verify { recordingManager.restartRecording(RecordingOrigin.APP, null) }
+        assertNull(recordingViewModel.entryMessage.value)
     }
 
     @Test

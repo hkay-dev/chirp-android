@@ -62,6 +62,7 @@ class WavFileWriter(
         private const val MIN_PLAUSIBLE_SAMPLE_RATE = 8_000
         private const val MAX_PLAUSIBLE_SAMPLE_RATE = 192_000
         private const val UINT_MASK = 0xFFFFFFFFL
+        private val PRINTABLE_ASCII_RANGE = 0x20..0x7E
 
         fun floatToPcm16(samples: FloatArray): ByteArray {
             val buffer = ByteBuffer.allocate(samples.size * BYTES_PER_SAMPLE).order(ByteOrder.LITTLE_ENDIAN)
@@ -129,6 +130,12 @@ class WavFileWriter(
 
         private fun repairChunkSizes(raf: RandomAccessFile): Boolean {
             val dataChunk = findDataChunk(raf) ?: return false
+            if (hasConsistentTrailingChunks(raf, dataChunk)) {
+                // Foreign WAVs may carry chunks (e.g. LIST/INFO) after 'data'; stamping
+                // length-derived sizes would over-declare the payload. App-written files
+                // always end with the data chunk, so fail closed on such layouts.
+                return false
+            }
             raf.seek(RIFF_SIZE_OFFSET)
             raf.writeIntLE((raf.length() - RIFF_PREFIX_BYTES).toInt())
             raf.seek(dataChunk.sizeFieldOffset)
@@ -136,13 +143,52 @@ class WavFileWriter(
             return true
         }
 
+        /**
+         * True when the declared data size is followed by a chunk sequence that parses
+         * cleanly to end-of-file, meaning the header is consistent with a trailing-chunk
+         * WAV layout this app never writes (and must not "repair").
+         */
+        private fun hasConsistentTrailingChunks(
+            raf: RandomAccessFile,
+            dataChunk: DataChunkLocation,
+        ): Boolean {
+            var offset = dataChunk.payloadOffset + dataChunk.declaredSize + (dataChunk.declaredSize and 1L)
+            if (offset + CHUNK_HEADER_BYTES > raf.length()) return false
+            val chunkId = ByteArray(CHUNK_TAG_BYTES.toInt())
+            while (offset + CHUNK_HEADER_BYTES <= raf.length()) {
+                raf.seek(offset)
+                raf.readFully(chunkId)
+                if (chunkId.any { it.toInt() !in PRINTABLE_ASCII_RANGE }) return false
+                val declaredSize = raf.readIntLE().toLong() and UINT_MASK
+                offset += CHUNK_HEADER_BYTES + declaredSize + (declaredSize and 1L)
+            }
+            return offset == raf.length()
+        }
+
         private fun rebuildZeroedHeader(
             raf: RandomAccessFile,
             fallbackSampleRate: Int,
         ): Boolean {
+            if (!hasZeroedHeaderPrefix(raf)) {
+                // Not RIFF/WAVE and not a zeroed placeholder header: this is a foreign
+                // file that must not be overwritten with a canonical header.
+                return false
+            }
             val sampleRate = readPlausibleSampleRate(raf) ?: fallbackSampleRate
             writeCanonicalHeader(raf, sampleRate, raf.length() - WAV_HEADER_BYTES)
             return true
+        }
+
+        /**
+         * True when the RIFF/size/WAVE region is fully zeroed, the signature a crashed
+         * legacy recording leaves behind. Every real container format has a non-zero
+         * magic in these bytes, so anything else is treated as a foreign file.
+         */
+        private fun hasZeroedHeaderPrefix(raf: RandomAccessFile): Boolean {
+            raf.seek(0)
+            val prefix = ByteArray(FIRST_CHUNK_OFFSET.toInt())
+            raf.readFully(prefix)
+            return prefix.all { it == 0.toByte() }
         }
 
         private fun readPlausibleSampleRate(raf: RandomAccessFile): Int? =

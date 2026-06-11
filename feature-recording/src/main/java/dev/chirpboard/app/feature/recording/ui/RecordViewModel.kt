@@ -188,6 +188,14 @@ class RecordViewModel
         }
 
         internal fun restartRecording(profileId: UUID?) {
+            if (recordingState.value is RecordingState.Stopping) {
+                // An in-flight stop owns the shared stop gate, so the service would
+                // refuse this restart with only a silent low-importance notification.
+                // Surface the refusal in-screen instead of dispatching a doomed command.
+                _entryMessage.value =
+                    "Recording is already being saved. Start over isn't available right now."
+                return
+            }
             recordingManager.restartRecording(
                 origin = RecordingOrigin.APP,
                 profileId = profileId,
@@ -239,13 +247,21 @@ class RecordViewModel
 
         fun discardInterruptedSession(sessionId: UUID) {
             viewModelScope.launch {
-                recoveryStore.discardSession(sessionId)
+                val result = recoveryStore.discardSession(sessionId)
+                if (result is SessionRecoveryResult.Failed) {
+                    // Surface the refusal (e.g. the finalize worker still owns the
+                    // session) instead of letting the card silently disappear.
+                    _entryMessage.value = result.message
+                }
             }
         }
 
         fun keepInterruptedSession(sessionId: UUID) {
             viewModelScope.launch {
-                recoveryStore.keepSession(sessionId)
+                val result = recoveryStore.keepSession(sessionId)
+                if (result is SessionRecoveryResult.Failed) {
+                    _entryMessage.value = result.message
+                }
             }
         }
 

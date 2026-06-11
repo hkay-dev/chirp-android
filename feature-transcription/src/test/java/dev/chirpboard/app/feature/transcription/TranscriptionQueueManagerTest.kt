@@ -98,9 +98,27 @@ class TranscriptionQueueManagerTest {
         coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns false
         coEvery { recordingRepository.claimTranscriptionExecution(id, any(), any(), any()) } returns false
 
-        manager.retry(id)
+        val result = manager.retry(id)
 
+        assertEquals(ManualRecoveryResult.NOT_RECOVERABLE_STATE, result)
         assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `retry reports not recoverable when recording is no longer failed`() = runTest {
+        val id = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.status } returns RecordingStatus.COMPLETED
+        coEvery { recordingRepository.getRecording(id) } returns recording
+
+        val result = manager.retry(id)
+
+        assertEquals(ManualRecoveryResult.NOT_RECOVERABLE_STATE, result)
+        coVerify(exactly = 0) {
+            recordingRepository.claimTranscriptionExecution(any(), any(), any(), any())
+        }
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
+        assertEquals(emptyList<String>(), workScheduler.enhancements.map { it.workName })
     }
 
     @Test
@@ -111,8 +129,9 @@ class TranscriptionQueueManagerTest {
         coEvery { recordingRepository.getRecording(id) } returns recording
         coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns false
 
-        manager.retry(id)
+        val result = manager.retry(id)
 
+        assertEquals(ManualRecoveryResult.ENQUEUED, result)
         coVerify {
             recordingRepository.claimTranscriptionExecution(id, any(), RecordingStatus.PENDING_TRANSCRIPTION, null)
         }
@@ -128,8 +147,9 @@ class TranscriptionQueueManagerTest {
         coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns true
         coEvery { recordingRepository.claimEnhancementExecution(id, any(), any(), any()) } returns true
 
-        manager.retry(id)
+        val result = manager.retry(id)
 
+        assertEquals(ManualRecoveryResult.ENQUEUED, result)
         coVerify(exactly = 1) {
             recordingRepository.claimEnhancementExecution(id, any(), RecordingStatus.PENDING_ENHANCEMENT, null)
         }

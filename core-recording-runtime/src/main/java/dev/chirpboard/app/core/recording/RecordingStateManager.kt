@@ -365,6 +365,18 @@ class RecordingStateManager @Inject constructor() {
                         )
                         return@update current
                     }
+                    if (recordingId == null && currentRecordingId != null) {
+                        // Defense-in-depth: a null handoff is legitimate only for sessions
+                        // that never created a recording row. When the active state carries
+                        // a recordingId, an id-less handoff is inconsistent and must not
+                        // force Idle (and release the global lock) under a live session;
+                        // the stopping timeout recovers the state machine if needed.
+                        Log.w(
+                            TAG,
+                            "Ignoring null capture handoff while active recording is $currentRecordingId",
+                        )
+                        return@update current
+                    }
                     handoffAccepted = true
                     Log.d(TAG, "State: ${current::class.simpleName} -> Idle (capture handoff)")
                     RecordingState.Idle

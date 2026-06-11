@@ -385,11 +385,15 @@ fun RecordScreen(
             Spacer(modifier = Modifier.height(32.dp))
 
             val canHandoffToStudio = activeRecordingId != null && isActive
+            val isStopping = recordingState is RecordingState.Stopping
 
             RecordingActionRow(
                 isRecording = isRecording,
                 isPaused = isPaused,
                 isStopEnabled = canHandoffToStudio,
+                // An in-flight stop owns the stop gate, so a restart would be refused;
+                // disable Start-over instead of letting the tap fail silently.
+                isRestartEnabled = isActive && !isStopping,
                 onTogglePausePlay = {
                     if (isPaused || !isActive) {
                         if (isActive) {

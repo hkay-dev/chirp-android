@@ -31,7 +31,17 @@ object RecordingActiveStopCommands {
                 }
                 onKeyboardStopQueued?.invoke()
             }
-            else -> RecordingServiceCommands.stopRecording(context)
+            else -> {
+                val dispatched = RecordingServiceCommands.stopRecording(context)
+                if (!dispatched) {
+                    // Mirror the start path: a stop the system refuses to deliver must not
+                    // die silently. With a genuinely live capture the app holds a foreground
+                    // service so dispatch cannot be refused; a refusal therefore means stale
+                    // active state, and surfacing the error both informs the caller's UI and
+                    // unsticks that state.
+                    recordingStateManager.onRecordingError("Could not stop the recording service")
+                }
+            }
         }
     }
 }

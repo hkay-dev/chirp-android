@@ -16,7 +16,8 @@ import kotlinx.coroutines.sync.withLock
  * started the recorder (and then stops it cleanly) or failed (and then the stop is a
  * stale no-op, because the failed start already emitted its terminal error).
  *
- * Every error path releases the capture gate and leaves the recorder stopped.
+ * Every error path — including cancellation of an in-flight start — releases the
+ * capture gate and leaves the recorder stopped.
  */
 internal class VoiceRecognitionSessionCoordinator(
     private val scope: CoroutineScope,
@@ -68,6 +69,13 @@ internal class VoiceRecognitionSessionCoordinator(
     private var rmsJob: Job? = null
 
     /**
+     * Generations whose own client issued a cancel. Mutated and read only on the
+     * service main thread (like [issueGeneration]); generations never repeat, so a
+     * mark that is never consumed can't misclassify a later session.
+     */
+    private val cancelRequestedGenerations = mutableSetOf<Int>()
+
+    /**
      * Issue the generation token for a new start request.
      * Must be called on the same thread that issues [currentGeneration] (the service main thread).
      */
@@ -75,6 +83,21 @@ internal class VoiceRecognitionSessionCoordinator(
 
     /** Generation token of the most recently issued start; capture it when a stop/cancel arrives. */
     fun currentGeneration(): Int = issuedGeneration
+
+    /**
+     * Records that [generation]'s own client requested cancellation. Call synchronously
+     * when the cancel arrives (service main thread), before any queued start coroutine
+     * for that generation can resolve as superseded.
+     */
+    fun markCancelRequested(generation: Int) {
+        cancelRequestedGenerations.add(generation)
+    }
+
+    /**
+     * True when [generation]'s own client cancelled it; consumes the mark.
+     * Must be called on the service main thread.
+     */
+    fun consumeCancelRequest(generation: Int): Boolean = cancelRequestedGenerations.remove(generation)
 
     suspend fun start(
         generation: Int,
@@ -150,6 +173,12 @@ internal class VoiceRecognitionSessionCoordinator(
             activeGeneration = generation
             StartResult.Started
         } catch (e: kotlinx.coroutines.CancellationException) {
+            // A cancelled start must leave nothing held. Service teardown already
+            // cleans up via shutdown(), but a caller that cancels its start job
+            // through any other route must not leak the gate or a hot microphone.
+            cancelSessionJobs()
+            recorder.cancel()
+            captureGate.releaseCompleted()
             throw e
         } catch (e: Exception) {
             cancelSessionJobs()

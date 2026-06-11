@@ -16,9 +16,12 @@ data class GaplessCaptureError(
  * - Invoked at most once per [GaplessSegmentCaptureEngine.start]/[GaplessSegmentCaptureEngine.resume]
  *   cycle, and only when no stop/pause/release had already been requested.
  * - Invoked with no engine locks held, after the engine has already finalized the current
- *   segment file and released its audio resources; calling
- *   [GaplessSegmentCaptureEngine.stopAndFinalize] from the callback is safe and returns the
- *   finalized partial segment.
+ *   segment file and released its audio resources. Calling
+ *   [GaplessSegmentCaptureEngine.stopAndFinalize] from the callback never deadlocks and
+ *   returns the finalized partial segment, but if it races a concurrent stop/pause that is
+ *   already joining the capture thread it can block both threads for up to the engine's
+ *   capture-join timeout; prefer hopping off the capture thread (for example by launching
+ *   a coroutine) before issuing control calls.
  */
 fun interface GaplessCaptureErrorListener {
     fun onCaptureError(error: GaplessCaptureError)
@@ -51,10 +54,11 @@ interface GaplessSegmentCaptureEngine {
     fun setCaptureErrorListener(listener: GaplessCaptureErrorListener?) {}
 
     /**
-     * Best-effort, non-destructive resource release after a bounded stop timed out:
-     * releases audio hardware and closes encoders/writers but never deletes segment files.
-     * Safe to call from any thread; may block if the engine is wedged, so callers should
-     * invoke it from a disposable background thread. Default is a no-op.
+     * Best-effort, non-destructive resource release after a bounded stop timed out, threw,
+     * or was interrupted: releases audio hardware and closes encoders/writers but never
+     * deletes segment files. Safe to call from any thread; may block if the engine is
+     * wedged, so callers should invoke it from a disposable background thread. Default is
+     * a no-op.
      */
     fun releaseAfterStopTimeout() {}
 

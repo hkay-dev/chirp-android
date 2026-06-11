@@ -12,6 +12,7 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
 
 class KeyboardSessionCoordinator(
     private val tag: String,
@@ -62,10 +64,12 @@ class KeyboardSessionCoordinator(
     /**
      * Identifies the stop pipeline currently allowed to drive the recording state machine.
      * A pipeline detached by the stopping-timeout rescue keeps transcribing in the
-     * background but must no longer touch the (already recovered) state machine.
+     * background but must no longer touch the (already recovered) state machine or the
+     * pending-stop store. Held in an [AtomicReference] so the pipeline callbacks (which
+     * run on Default) and the rescue/cancel paths (Main) claim it with a single atomic
+     * compare-and-set instead of a racy check-then-act.
      */
-    @Volatile
-    private var activeStopToken: Any? = null
+    private val activeStopToken = AtomicReference<Any?>(null)
 
     /**
      * Supplies a commit callback bound to the live input session. Set by the IME service so
@@ -151,6 +155,9 @@ class KeyboardSessionCoordinator(
                     capture.abandonAudioFocus()
                     recordingStateManager.onRecordingError(error.userMessage)
                     transcription.setError(error.userMessage)
+                    // The session ended here; drop any stop queued against it so it
+                    // cannot fire on the next healthy recording.
+                    clearPendingStop()
                 }
             }
         }
@@ -184,7 +191,10 @@ class KeyboardSessionCoordinator(
      */
     private suspend fun rescueStoppingTimeout() {
         withContext(Dispatchers.Main) {
-            activeStopToken = null
+            // Claim the token atomically: a pipeline callback racing on another thread
+            // either wins the claim (and drives the state machine itself) or loses it,
+            // never both, so the rescue cannot double-drive an already recovered machine.
+            val claimedToken = activeStopToken.getAndSet(null)
             if (transcriptionJob?.isActive == true) {
                 Log.w(tag, "Stopping timed out with transcription in flight; continuing in background")
                 // Fully detach the in-flight pipeline: it persists or discards its own
@@ -193,16 +203,24 @@ class KeyboardSessionCoordinator(
                 // prepareAudioSource -> discardSamples on the still-staged source.
                 transcriptionJob = null
                 persistence.releasePendingAudioSource()
-                recordingStateManager.onRecordingCompleted()
+                if (claimedToken != null) {
+                    recordingStateManager.onRecordingCompleted()
+                }
                 transcription.setError(STOP_TIMEOUT_IN_PROGRESS_MESSAGE)
             } else {
                 withContext(NonCancellable) {
-                    persistence.persistAudioSource(
-                        audioSource = null,
-                        rawText = null,
-                        processedText = null,
-                        errorMessage = STOP_TIMEOUT_RESCUE_MESSAGE,
-                    )
+                    // The rescue runs inside RecordingStateManager's handler-less scope:
+                    // a persistence failure must never escape, or the state machine stays
+                    // stuck in Stopping and the unhandled exception kills the IME process.
+                    runCatching {
+                        persistence.persistAudioSource(
+                            audioSource = null,
+                            rawText = null,
+                            processedText = null,
+                            errorMessage = STOP_TIMEOUT_RESCUE_MESSAGE,
+                            reason = InlineCapturePersistReason.RESCUE,
+                        )
+                    }.onFailure { Log.e(tag, "Failed to persist stop-timeout rescue entry", it) }
                 }
                 recordingStateManager.onRecordingCompleted()
                 transcription.setError(STOP_TIMEOUT_RESCUE_MESSAGE)
@@ -282,6 +300,9 @@ class KeyboardSessionCoordinator(
                                 capture.cancelCapture()
                                 recordingStateManager.onRecordingCompleted()
                                 transcription.resetPhase()
+                                // This session is over; a stop enqueued during the
+                                // Starting window must not fire on a later session.
+                                clearPendingStop()
                                 return@launch
                             }
                             HapticFeedback.onRecordStart(context)
@@ -345,7 +366,7 @@ class KeyboardSessionCoordinator(
 
         transcriptionJob?.cancel()
         val stopToken = Any()
-        activeStopToken = stopToken
+        activeStopToken.set(stopToken)
         var newJob: Job? = null
         newJob =
             scope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
@@ -375,22 +396,23 @@ class KeyboardSessionCoordinator(
     }
 
     private fun onStopPipelineCompleted(stopToken: Any) {
-        if (activeStopToken === stopToken) {
-            activeStopToken = null
+        if (activeStopToken.compareAndSet(stopToken, null)) {
             recordingStateManager.onRecordingCompleted()
+            // Token-gated like the state-machine call: a pipeline detached by the
+            // stopping-timeout rescue finishing late must not wipe a pending stop
+            // that was enqueued for a newer session.
+            clearPendingStop()
         }
-        clearPendingStop()
     }
 
     private fun onStopPipelineError(
         stopToken: Any,
         message: String,
     ) {
-        if (activeStopToken === stopToken) {
-            activeStopToken = null
+        if (activeStopToken.compareAndSet(stopToken, null)) {
             recordingStateManager.onRecordingError(message)
+            clearPendingStop()
         }
-        clearPendingStop()
     }
 
     private fun clearPendingStop() {
@@ -407,6 +429,17 @@ class KeyboardSessionCoordinator(
         }
 
     fun cancelRecording() {
+        cancelRecording(userInitiated = true)
+    }
+
+    /**
+     * [userInitiated] distinguishes an explicit user cancel (cancel tap, restart) from
+     * lifecycle teardown (IME service destruction). Only a user cancel marks the
+     * in-flight transcription as user-cancelled — letting the persistence layer respect
+     * the save preference — while teardown cancellation leaves the mark unset so the
+     * pipeline rescues the captured speech instead of dropping it.
+     */
+    fun cancelRecording(userInitiated: Boolean) {
         val wasRecording = isRecording.value
         val wasStarting = startJob?.isActive == true
         if (!wasRecording && transcriptionJob?.isActive != true) {
@@ -417,10 +450,16 @@ class KeyboardSessionCoordinator(
                 capture.cancelCapture()
                 recordingStateManager.onRecordingCompleted()
                 transcription.resetPhase()
+                clearPendingStop()
             }
             return
         }
-        activeStopToken = null
+        activeStopToken.set(null)
+        if (userInitiated && transcriptionJob?.isActive == true) {
+            // Mark before cancelling so the pipeline classifies the cancellation as a
+            // user discard instead of force-rescuing the capture.
+            transcription.markUserCancelled()
+        }
         transcriptionJob?.cancel()
         transcriptionJob = null
         if (!wasRecording) {
@@ -461,12 +500,17 @@ class KeyboardSessionCoordinator(
         scope.launch {
             try {
                 withContext(NonCancellable) {
-                    persistence.persistAudioSource(
-                        audioSource = audioSource,
-                        rawText = null,
-                        processedText = null,
-                        errorMessage = errorMessage,
-                    )
+                    // Swallow persistence failures: rethrowing out of scope.launch would
+                    // crash the IME process after the finally block recovers the state.
+                    runCatching {
+                        persistence.persistAudioSource(
+                            audioSource = audioSource,
+                            rawText = null,
+                            processedText = null,
+                            errorMessage = errorMessage,
+                            reason = InlineCapturePersistReason.RESCUE,
+                        )
+                    }.onFailure { Log.e(tag, "Failed to persist finalized keyboard recording", it) }
                 }
             } finally {
                 recordingStateManager.onRecordingCompleted()

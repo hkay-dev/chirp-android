@@ -20,6 +20,7 @@ import dev.chirpboard.app.core.llm.LlmRuntimeSnapshot
 import dev.chirpboard.app.core.llm.ResolvedProcessingModeSnapshot
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -277,12 +278,14 @@ class AppKeyboardInlineCapturePersistence
             rawText: String?,
             processedText: String?,
             errorMessage: String?,
+            reason: InlineCapturePersistReason,
         ) {
             persistAudioSource(
                 audioSource = samples?.let(InlineAudioSource::InMemory),
                 rawText = rawText,
                 processedText = processedText,
                 errorMessage = errorMessage,
+                reason = reason,
             )
         }
 
@@ -291,6 +294,7 @@ class AppKeyboardInlineCapturePersistence
             rawText: String?,
             processedText: String?,
             errorMessage: String?,
+            reason: InlineCapturePersistReason,
         ) {
             val source = audioSource ?: pendingAudioSource ?: return
             if (audioSource == null || pendingAudioSource == source) {
@@ -300,10 +304,11 @@ class AppKeyboardInlineCapturePersistence
             withContext(NonCancellable + Dispatchers.IO) {
                 var sourceHandled = false
                 try {
-                    // Rescue entries (errorMessage != null) are error artifacts, not normal
-                    // keyboard recordings: persist them even when saveKeyboardRecordings is
-                    // off so the user can retrieve undelivered transcripts from the app.
-                    val isRescueEntry = !errorMessage.isNullOrBlank()
+                    // Rescue entries are error artifacts, not normal keyboard recordings:
+                    // persist them even when saveKeyboardRecordings is off so the user can
+                    // retrieve undelivered transcripts from the app. An explicit user cancel
+                    // is NOT a rescue and must respect the preference.
+                    val isRescueEntry = reason == InlineCapturePersistReason.RESCUE
                     if (!isRescueEntry && !shouldPersistCaptures(keyboardPreferences)) {
                         source.discardTemporaryFile()
                         sourceHandled = true

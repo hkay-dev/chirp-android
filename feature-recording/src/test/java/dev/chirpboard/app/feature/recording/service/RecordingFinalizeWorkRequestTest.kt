@@ -7,6 +7,7 @@ import androidx.work.WorkContinuation
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.SettableFuture
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import io.mockk.every
 import io.mockk.mockk
@@ -22,6 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.util.UUID
+import java.util.concurrent.TimeoutException
 
 class RecordingFinalizeWorkRequestTest {
     private lateinit var context: Context
@@ -114,5 +116,29 @@ class RecordingFinalizeWorkRequestTest {
             } returns Futures.immediateFuture(listOf(workInfo))
 
             assertFalse(RecordingFinalizeWorkRequest.hasUnfinishedWork(context, recordingId))
+        }
+
+    @Test
+    fun `hasUnfinishedWork times out instead of blocking forever on a hung query`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            RecordingFinalizeWorkRequest.workQueryTimeoutMsOverrideForTest = 50L
+            try {
+                // A hung binder call never completes the future; the bounded get() must
+                // surface a failure instead of stalling callers that hold the finalize
+                // ownership lock.
+                every {
+                    workManager.getWorkInfosByTag(RecordingFinalizeWorkRequest.workTag(recordingId))
+                } returns SettableFuture.create()
+
+                val thrown =
+                    runCatching {
+                        RecordingFinalizeWorkRequest.hasUnfinishedWork(context, recordingId)
+                    }.exceptionOrNull()
+
+                assertTrue(thrown is TimeoutException)
+            } finally {
+                RecordingFinalizeWorkRequest.workQueryTimeoutMsOverrideForTest = null
+            }
         }
 }

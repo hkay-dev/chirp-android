@@ -12,6 +12,7 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
@@ -91,6 +92,7 @@ class KeyboardSessionCoordinatorTest {
                 every { phase } returns phaseFlow
                 every { resetPhase() } just runs
                 every { setError(any()) } just runs
+                every { markUserCancelled() } just runs
             }
         persistence = RecordingPersistence()
         transcriberProvider = mockk(relaxed = true)
@@ -288,9 +290,240 @@ class KeyboardSessionCoordinatorTest {
 
             assertEquals(1, persistence.persistCalls)
             assertEquals(KeyboardSessionCoordinator.STOP_TIMEOUT_RESCUE_MESSAGE, persistence.lastErrorMessage)
+            assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
             verify { recordingStateManager.onRecordingCompleted(any()) }
             verify { transcription.setError(KeyboardSessionCoordinator.STOP_TIMEOUT_RESCUE_MESSAGE) }
             coVerify { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun stoppingTimeoutRescue_persistFailureStillRecoversStateMachine() =
+        runTest {
+            persistence.persistError = IllegalStateException("datastore down")
+            buildCoordinator()
+
+            // A persistence failure must not escape into RecordingStateManager's
+            // handler-less scope: the state machine still has to leave Stopping.
+            stoppingTimeoutHandler.captured.invoke(stoppingState())
+
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            verify { transcription.setError(KeyboardSessionCoordinator.STOP_TIMEOUT_RESCUE_MESSAGE) }
+            coVerify { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun stopPipelineCompleted_clearsPendingStopAtSuccessTerminus() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val pipelineFinished = CountDownLatch(1)
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                arg<() -> Unit>(3).invoke()
+                pipelineFinished.countDown()
+            }
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+
+            assertTrue(pipelineFinished.await(5, TimeUnit.SECONDS))
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun stopPipelineError_clearsPendingStopAtErrorTerminus() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val pipelineFinished = CountDownLatch(1)
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                arg<(String) -> Unit>(4).invoke("pipeline failed")
+                pipelineFinished.countDown()
+            }
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+
+            assertTrue(pipelineFinished.await(5, TimeUnit.SECONDS))
+            verify { recordingStateManager.onRecordingError("pipeline failed") }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun detachedPipelineLateCompletion_doesNotClearPendingStop() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val transcribeStarted = CompletableDeferred<Unit>()
+            val transcribeGate = CompletableDeferred<Unit>()
+            val jobFinished = CountDownLatch(1)
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                transcribeStarted.complete(Unit)
+                transcribeGate.await()
+                arg<() -> Unit>(3).invoke()
+                jobFinished.countDown()
+            }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            transcribeStarted.await()
+
+            stoppingTimeoutHandler.captured.invoke(stoppingState())
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+
+            // The detached pipeline finishing late must not wipe a pending stop that
+            // may already belong to a newer session.
+            transcribeGate.complete(Unit)
+            assertTrue(jobFinished.await(5, TimeUnit.SECONDS))
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun stopAndTranscribe_withoutAudioSourceClearsPendingStop() =
+        runTest {
+            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } returns null
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            verify { transcription.resetPhase() }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun cancelRecording_whileRecordingClearsPendingStop() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+
+            coordinator.cancelRecording()
+
+            verify { capture.cancelCapture() }
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun cancelRecording_whileStartingClearsPendingStop() =
+        runTest {
+            val startGate = CompletableDeferred<QuickCaptureStartResult>()
+            coEvery { capture.start() } coAnswers { startGate.await() }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+
+            coordinator.cancelRecording()
+
+            verify { capture.cancelCapture() }
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun cancelRecording_userInitiatedMarksUserCancelBeforeCancellingPipeline() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val transcribeStarted = CompletableDeferred<Unit>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                transcribeStarted.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            transcribeStarted.await()
+
+            coordinator.cancelRecording()
+
+            // The mark tells the pipeline this cancellation is a user discard, so the
+            // persist respects the save preference instead of force-rescuing.
+            verify(exactly = 1) { transcription.markUserCancelled() }
+        }
+
+    @Test
+    fun cancelRecording_teardownDoesNotMarkUserCancelSoPipelineRescues() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val transcribeStarted = CompletableDeferred<Unit>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                transcribeStarted.complete(Unit)
+                kotlinx.coroutines.awaitCancellation()
+            }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            transcribeStarted.await()
+
+            // IME service destruction: the in-flight pipeline is cancelled, but it must
+            // stay unmarked so its CancellationException handler rescues the capture.
+            coordinator.cancelRecording(userInitiated = false)
+
+            verify(exactly = 0) { transcription.markUserCancelled() }
+        }
+
+    @Test
+    fun startRecording_abortedByStopDuringStartClearsPendingStop() =
+        runTest {
+            val startGate = CompletableDeferred<QuickCaptureStartResult>()
+            coEvery { capture.start() } coAnswers { startGate.await() }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+
+            // A stop landing inside the Starting window aborts the session once the
+            // capture start resolves; the queued stop must die with that session.
+            assertTrue(coordinator.stopAndTranscribe { true })
+            startGate.complete(QuickCaptureStartResult.Success)
+
+            assertFalse(coordinator.isRecordingActive())
+            verify { capture.cancelCapture() }
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun finalizeActiveRecording_persistsRescueEntryAndClearsPendingStop() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            var completed = false
+
+            coordinator.finalizeActiveRecording("keyboard closed") { completed = true }
+
+            assertTrue(completed)
+            assertEquals(1, persistence.persistCalls)
+            assertEquals("keyboard closed", persistence.lastErrorMessage)
+            assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun finalizeActiveRecording_persistFailureStillCompletesAndClears() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            persistence.persistError = IllegalStateException("datastore down")
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            var completed = false
+
+            coordinator.finalizeActiveRecording("keyboard closed") { completed = true }
+
+            assertTrue(completed)
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
         }
 
     @Test
@@ -326,6 +559,8 @@ class KeyboardSessionCoordinatorTest {
             assertFalse(coordinator.isRecordingActive())
             verify { recordingStateManager.onRecordingError("Microphone disconnected") }
             verify { transcription.setError("Microphone disconnected") }
+            // The capture error ends the session, so any queued stop is stale now.
+            coVerify(exactly = 1) { pendingStopStore.clear() }
         }
 
     @Test
@@ -374,7 +609,9 @@ class KeyboardSessionCoordinatorTest {
     private class RecordingPersistence : InlineCapturePersistence {
         var persistCalls = 0
         var lastErrorMessage: String? = null
+        var lastReason: InlineCapturePersistReason? = null
         var releasePendingCalls = 0
+        var persistError: Throwable? = null
 
         override fun releasePendingAudioSource() {
             releasePendingCalls++
@@ -385,9 +622,12 @@ class KeyboardSessionCoordinatorTest {
             rawText: String?,
             processedText: String?,
             errorMessage: String?,
+            reason: InlineCapturePersistReason,
         ) {
             persistCalls++
             lastErrorMessage = errorMessage
+            lastReason = reason
+            persistError?.let { throw it }
         }
 
         override fun discardSamples() = Unit

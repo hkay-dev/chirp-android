@@ -3,8 +3,6 @@ package dev.chirpboard.app.feature.recording.service
 import android.media.AudioRecord
 import android.os.Process
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
-import dev.chirpboard.app.core.audio.WavFileWriter
-import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.just
@@ -29,8 +27,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
+/**
+ * Behavioral coverage for the MP3 engine's stop/error/final-buffer paths, mirroring
+ * [GaplessWavSegmentCaptureTest]. The native LAME binding cannot load on the JVM, so the
+ * tests inject a deterministic [Mp3FrameEncoder] through the engine's internal constructor.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
-class GaplessWavSegmentCaptureTest {
+class GaplessMp3SegmentCaptureTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 
@@ -53,9 +56,7 @@ class GaplessWavSegmentCaptureTest {
             audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
         } answers {
             val buffer = firstArg<ByteArray>()
-            for (index in buffer.indices) {
-                buffer[index] = 0x01
-            }
+            buffer.fill(0x01)
             buffer.size
         }
 
@@ -77,35 +78,22 @@ class GaplessWavSegmentCaptureTest {
         unmockkStatic(Process::class)
     }
 
+    private fun newCapture(): GaplessMp3SegmentCapture =
+        GaplessMp3SegmentCapture(
+            inputDeviceSelector = inputDeviceSelector,
+            sampleRate = 16_000,
+            encoderFactory = { FakeMp3FrameEncoder() },
+        )
+
     @Test
     fun rotateSegment_whenNotRunning_returnsFailed() {
-        val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
-        val nextSegment = File(temporaryFolder.root, "next.wav")
+        val capture = newCapture()
+        val nextSegment = File(temporaryFolder.root, "next.mp3")
 
         val result = capture.rotateSegment(nextSegment)
 
         assertTrue(result is SegmentRotationResult.Failed)
     }
-
-    @Test
-    fun rotateSegment_thenStopAndFinalize_writesRecoverableSegments() =
-        runTest {
-            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
-            val segmentDir = temporaryFolder.newFolder("segments")
-            val firstSegment = File(segmentDir, "segment-001.wav")
-            val secondSegment = File(segmentDir, "segment-002.wav")
-
-            capture.start(firstSegment)
-            Thread.sleep(300)
-
-            val rotation = capture.rotateSegment(secondSegment)
-            assertEquals(SegmentRotationResult.Success, rotation)
-            assertTrue(firstSegment.length() >= RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES)
-
-            val finalized = capture.stopAndFinalize()
-            assertEquals(secondSegment, finalized)
-            assertTrue(secondSegment.exists())
-        }
 
     @Test
     fun stopAndFinalize_afterAudioRecordReadError_returnsWithoutHanging() =
@@ -114,8 +102,8 @@ class GaplessWavSegmentCaptureTest {
                 audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
             } returns AudioRecord.ERROR_DEAD_OBJECT
 
-            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
-            val segment = File(temporaryFolder.root, "read-error.wav")
+            val capture = newCapture()
+            val segment = File(temporaryFolder.root, "read-error.mp3")
 
             capture.start(segment)
             Thread.sleep(100)
@@ -154,10 +142,10 @@ class GaplessWavSegmentCaptureTest {
                 }
             }
 
-            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val capture = newCapture()
             val errors = CopyOnWriteArrayList<GaplessCaptureError>()
             capture.setCaptureErrorListener { errors += it }
-            val segment = File(temporaryFolder.root, "blocked-read.wav")
+            val segment = File(temporaryFolder.root, "blocked-read.mp3")
 
             capture.start(segment)
             Thread.sleep(150)
@@ -168,75 +156,30 @@ class GaplessWavSegmentCaptureTest {
 
             assertEquals(segment, finalized)
             assertTrue("stop took ${elapsedMs}ms", elapsedMs < QUICK_STOP_THRESHOLD_MS)
-            // Two full 4096-byte buffers must be in the file: the pre-stop buffer and
-            // the final partial buffer handed off after stop was signaled.
-            assertTrue("file length ${segment.length()}", segment.length() >= 2 * EXPECTED_READ_BUFFER_BYTES)
+            // Two encoded chunks must be in the file (the pre-stop buffer and the final
+            // buffer handed off after stop was signaled), plus the encoder's final flush.
+            assertTrue(
+                "file length ${segment.length()}",
+                segment.length() >= 2 * ENCODED_CHUNK_BYTES + FLUSHED_BYTES,
+            )
             assertTrue(errors.isEmpty())
         }
 
     @Test
-    fun pauseAndFinalizeSegment_racingCaptureReadError_returnsAccurateFinalizedHeader() =
-        runTest {
-            // The first read delivers a full buffer; the second read fails with a dead
-            // source at the same moment the test issues a pause, so pause and failCapture
-            // race for the engine. Whichever order they interleave in, pause must never
-            // return while the WAV header still carries placeholder sizes.
-            val firstReadDone = AtomicBoolean(false)
-            val pauseRequested = CountDownLatch(1)
-            every {
-                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
-            } answers {
-                val buffer = firstArg<ByteArray>()
-                if (!firstReadDone.getAndSet(true)) {
-                    buffer.fill(0x01)
-                    buffer.size
-                } else {
-                    pauseRequested.await(6, TimeUnit.SECONDS)
-                    AudioRecord.ERROR_DEAD_OBJECT
-                }
-            }
-
-            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
-            val errors = CopyOnWriteArrayList<GaplessCaptureError>()
-            capture.setCaptureErrorListener { errors += it }
-            val segment = File(temporaryFolder.root, "pause-race.wav")
-
-            capture.start(segment)
-            Thread.sleep(150)
-
-            pauseRequested.countDown()
-            val startedAtNanos = System.nanoTime()
-            val finalized = capture.pauseAndFinalizeSegment()
-            val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos)
-
-            assertEquals(segment, finalized)
-            assertTrue("pause took ${elapsedMs}ms", elapsedMs < QUICK_STOP_THRESHOLD_MS)
-            assertTrue(
-                "header sizes were not finalized before pause returned",
-                WavFileWriter.hasAccurateHeader(segment),
-            )
-            assertTrue(
-                "file length ${segment.length()}",
-                segment.length() >= WavFileWriter.WAV_HEADER_BYTES + EXPECTED_READ_BUFFER_BYTES,
-            )
-            assertTrue("listener notified ${errors.size} times", errors.size <= 1)
-        }
-
-    @Test
-    fun captureReadError_notifiesErrorListenerAndReleasesAudio() =
+    fun captureReadError_notifiesErrorListenerOnceAndReleasesAudio() =
         runTest {
             every {
                 audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
             } returns AudioRecord.ERROR_DEAD_OBJECT
 
-            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val capture = newCapture()
             val errors = CopyOnWriteArrayList<GaplessCaptureError>()
             val notified = CountDownLatch(1)
             capture.setCaptureErrorListener { error ->
                 errors += error
                 notified.countDown()
             }
-            val segment = File(temporaryFolder.root, "dead-source.wav")
+            val segment = File(temporaryFolder.root, "dead-source.mp3")
 
             capture.start(segment)
 
@@ -244,6 +187,9 @@ class GaplessWavSegmentCaptureTest {
             assertEquals(1, errors.size)
             assertEquals(AudioRecord.ERROR_DEAD_OBJECT, errors.single().audioRecordErrorCode)
             verify { audioRecord.release() }
+            // failCapture flushes the encoder before closing, so the partial segment keeps
+            // whatever the encoder still buffered.
+            assertTrue("file length ${segment.length()}", segment.length() >= FLUSHED_BYTES)
 
             val finalized = capture.stopAndFinalize()
             assertEquals(segment, finalized)
@@ -252,6 +198,31 @@ class GaplessWavSegmentCaptureTest {
 
     private companion object {
         const val QUICK_STOP_THRESHOLD_MS = 3_000L
-        const val EXPECTED_READ_BUFFER_BYTES = 4_096L
+        const val ENCODED_CHUNK_BYTES = 512L
+        const val FLUSHED_BYTES = 256L
+    }
+}
+
+/** Writes a fixed number of marker bytes per encode/flush so file sizes are predictable. */
+private class FakeMp3FrameEncoder : Mp3FrameEncoder {
+    override fun encode(
+        leftChannel: ShortArray,
+        rightChannel: ShortArray,
+        sampleCount: Int,
+        mp3Buffer: ByteArray,
+    ): Int {
+        if (sampleCount <= 0) return 0
+        mp3Buffer.fill(0x33, 0, ENCODED_CHUNK_BYTES)
+        return ENCODED_CHUNK_BYTES
+    }
+
+    override fun flush(mp3Buffer: ByteArray): Int {
+        mp3Buffer.fill(0x44, 0, FLUSHED_BYTES)
+        return FLUSHED_BYTES
+    }
+
+    private companion object {
+        const val ENCODED_CHUNK_BYTES = 512
+        const val FLUSHED_BYTES = 256
     }
 }

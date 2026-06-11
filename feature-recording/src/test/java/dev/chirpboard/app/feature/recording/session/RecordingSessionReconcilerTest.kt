@@ -105,6 +105,44 @@ class RecordingSessionReconcilerTest {
         }
 
     @Test
+    fun reconcileCompletedSessions_keepsCaptureArtifactsReferencedByFinalizedRow() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val captureDir = capturePaths.captureDir(sessionId)
+            val fallbackSegment = File(captureDir, "seg-000.m4a").apply { writeText("audio") }
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = fallbackSegment.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-fallback",
+            )
+            journal.markStopping(sessionId)
+
+            // The concat fallback finalized the row onto a segment inside the capture
+            // dir, but the process died before the journal entry was finalized.
+            coEvery { recordingRepository.getRecording(recordingId) } returns
+                Recording(
+                    id = recordingId,
+                    title = "Saved (fallback)",
+                    audioPath = fallbackSegment.absolutePath,
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    createdAt = Date(),
+                )
+
+            reconciler.reconcileCompletedSessions()
+
+            assertTrue(journal.loadActiveSessions().isEmpty())
+            // The row's only audio lives in the capture dir; it must survive.
+            assertTrue(fallbackSegment.exists())
+            assertTrue(captureDir.exists())
+        }
+
+    @Test
     fun reconcileCompletedSessions_keepsActiveJournalWhileRecordingStillInProgress() =
         runTest {
             val sessionId = UUID.randomUUID()

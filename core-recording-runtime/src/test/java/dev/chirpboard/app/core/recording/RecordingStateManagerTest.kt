@@ -155,6 +155,35 @@ class RecordingStateManagerTest {
         assertEquals(null, manager.lastCompletedRecordingId.value)
     }
     @Test
+    fun onCaptureStopHandoff_rejectsNullRecordingIdWhenActiveStateCarriesOne() {
+        val activeRecordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+
+        // An id-less handoff against a session that DID create a recording row is
+        // inconsistent; it must not force Idle and release the global recording lock.
+        manager.onCaptureStopHandoff(null)
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Recording)
+        assertEquals(activeRecordingId, state.activeRecordingId)
+        assertFalse(manager.canStartRecording())
+        assertEquals(null, manager.lastCompletedRecordingId.value)
+    }
+
+    @Test
+    fun onCaptureStopHandoff_acceptsNullRecordingIdWhenSessionNeverCreatedRow() {
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path")
+
+        // Sessions that never created a recording row legitimately hand off null.
+        manager.onCaptureStopHandoff(null)
+
+        assertTrue(manager.state.value is RecordingState.Idle)
+        assertTrue(manager.canStartRecording())
+    }
+
+    @Test
     fun onCaptureStopHandoff_staleRecordingIdDoesNotCancelStoppingTimeout() {
         manager.stoppingTimeoutMsOverrideForTest = 10L
         val staleRecordingId = UUID.randomUUID()

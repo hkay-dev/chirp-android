@@ -12,6 +12,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -43,6 +44,10 @@ class RecordingSessionRecoveryKeepSessionTest {
             mockk(relaxed = true) {
                 coEvery { protect(any()) } returns Unit
             }
+        // Ownership checks fail closed on query errors, so tests must answer the
+        // finalize-work query explicitly instead of relying on a swallowed throw.
+        mockkObject(RecordingFinalizeWorkRequest)
+        coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), any()) } returns false
         sessionRecovery =
             RecordingSessionRecovery(
                 context = context,
@@ -60,7 +65,13 @@ class RecordingSessionRecoveryKeepSessionTest {
                     ),
                 recordingStateManager = mockk(relaxed = true),
                 protectedPathsStore = protectedPathsStore,
+                ownershipLock = RecordingFinalizeOwnershipLock(),
             )
+    }
+
+    @After
+    fun tearDown() {
+        unmockkObject(RecordingFinalizeWorkRequest)
     }
 
     @Test

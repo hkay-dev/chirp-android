@@ -124,20 +124,35 @@ internal class TranscriptionQueueReconciler(
 
             when {
                 shouldRequeuePending(ownership) -> {
+                    val correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile")
                     try {
-                        enqueueWorkForRecording(
-                            recording = recording,
-                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
-                        )
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.QUEUE_ENQUEUE,
-                            outcome = ReliabilityOutcome.RECOVERED,
-                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
-                            recordingId = recording.id,
-                            reasonCode = "reconciled_pending"
-                        )
-                        if (recording.hasRecoverablePendingError()) {
-                            clearPendingError(recording)
+                        val scheduledWorkId =
+                            enqueueWorkForRecording(
+                                recording = recording,
+                                correlationId = correlationId,
+                            )
+                        if (scheduledWorkId == null) {
+                            // Claim was rejected: the row moved on (e.g. a worker began it)
+                            // between our read and the claim. Nothing was requeued, so do
+                            // not log RECOVERED and do not touch the recovery marker.
+                            ReliabilityEventLogger.log(
+                                stage = ReliabilityStage.QUEUE_ENQUEUE,
+                                outcome = ReliabilityOutcome.SKIPPED,
+                                correlationId = correlationId,
+                                recordingId = recording.id,
+                                reasonCode = "reconcile_claim_rejected"
+                            )
+                        } else {
+                            ReliabilityEventLogger.log(
+                                stage = ReliabilityStage.QUEUE_ENQUEUE,
+                                outcome = ReliabilityOutcome.RECOVERED,
+                                correlationId = correlationId,
+                                recordingId = recording.id,
+                                reasonCode = "reconciled_pending"
+                            )
+                            if (recording.hasRecoverablePendingError()) {
+                                clearPendingError(recording)
+                            }
                         }
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
@@ -145,7 +160,7 @@ internal class TranscriptionQueueReconciler(
                         ReliabilityEventLogger.log(
                             stage = ReliabilityStage.QUEUE_ENQUEUE,
                             outcome = ReliabilityOutcome.FAILURE,
-                            correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile"),
+                            correlationId = correlationId,
                             recordingId = recording.id,
                             reasonCode = "reconcile_enqueue_failed",
                             message = e.message
@@ -213,23 +228,35 @@ internal class TranscriptionQueueReconciler(
         return if (hasActiveWork) QueueOwnership.ACTIVE else QueueOwnership.MISSING_OR_TERMINAL
     }
 
+    /**
+     * Clears a recoverable error marker without changing status. The update is pinned to the
+     * pending status the row was loaded with, so a row a worker has already promoted to
+     * TRANSCRIBING/ENHANCING since our read can never be knocked back to pending here.
+     */
     private suspend fun clearPendingError(recording: Recording) {
-        recordingRepository.updateStatusWithError(
+        recordingRepository.transitionRecordingStatus(
             id = recording.id,
-            status = recording.status,
-            errorMessage = null
+            destinationStatus = recording.status,
+            allowedSourceStatuses = listOf(recording.status),
+            errorMessage = null,
         )
     }
 
+    /**
+     * Claims execution ownership and schedules work for a pending recording.
+     *
+     * @return the scheduled work id, or null when the claim was rejected (the row is no
+     *   longer in a claimable state) and nothing was enqueued.
+     */
     private suspend fun enqueueWorkForRecording(
         recording: Recording,
         correlationId: String,
-    ): String {
+    ): String? {
         val executionToken = UUID.randomUUID().toString()
         return when (recording.status) {
             RecordingStatus.PENDING_ENHANCEMENT -> {
                 if (!recordingRepository.claimEnhancementExecution(recording.id, executionToken, recording.status, recording.errorMessage)) {
-                    return ""
+                    return null
                 }
                 workScheduler.enqueueEnhancement(
                     recordingId = recording.id,
@@ -247,7 +274,7 @@ internal class TranscriptionQueueReconciler(
                         errorMessage = recording.errorMessage,
                     )
                 if (!claimed) {
-                    return ""
+                    return null
                 }
                 workScheduler.enqueueTranscription(
                     recordingId = recording.id,

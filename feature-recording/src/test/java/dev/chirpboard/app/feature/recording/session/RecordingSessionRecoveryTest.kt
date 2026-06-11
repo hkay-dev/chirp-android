@@ -73,6 +73,11 @@ class RecordingSessionRecoveryTest {
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "corr-recover"
         every { ReliabilityEventLogger.log(any(), any(), any(), any(), any(), any()) } just runs
 
+        // Ownership checks fail closed on query errors, so tests must answer the
+        // finalize-work query explicitly instead of relying on a swallowed throw.
+        mockkObject(RecordingFinalizeWorkRequest)
+        coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), any()) } returns false
+
         sessionRecovery =
             RecordingSessionRecovery(
                 context = context,
@@ -90,12 +95,14 @@ class RecordingSessionRecoveryTest {
                     ),
                 recordingStateManager = recordingStateManager,
                 protectedPathsStore = mockk(relaxed = true),
+                ownershipLock = RecordingFinalizeOwnershipLock(),
             )
     }
 
     @After
     fun tearDown() {
         unmockkObject(ReliabilityEventLogger)
+        unmockkObject(RecordingFinalizeWorkRequest)
     }
 
     @Test
@@ -243,6 +250,123 @@ class RecordingSessionRecoveryTest {
             } finally {
                 unmockkObject(RecordingFinalizeWorkRequest)
             }
+        }
+
+    @Test
+    fun scanForRecoverableSessions_excludesSessionWhenFinalizeWorkQueryFails() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val finalFile = createRecoverableAudioFile("query-failed-final.m4a")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = finalFile.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-10",
+            )
+            journal.markStopping(sessionId)
+
+            coEvery { recordingRepository.getRecording(recordingId) } returns
+                Recording(
+                    id = recordingId,
+                    title = "In progress",
+                    audioPath = finalFile.absolutePath,
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.RECORDING,
+                    createdAt = Date(),
+                )
+
+            mockkObject(RecordingFinalizeWorkRequest)
+            try {
+                coEvery {
+                    RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId)
+                } throws RuntimeException("WorkManager unavailable")
+
+                // Unknown ownership hides the session for this scan pass only.
+                assertTrue(sessionRecovery.scanForRecoverableSessions().isEmpty())
+
+                coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId) } returns false
+
+                // The journal entry persisted, so the next refresh re-lists it.
+                assertEquals(
+                    listOf(sessionId),
+                    sessionRecovery.scanForRecoverableSessions().map { it.sessionId },
+                )
+            } finally {
+                unmockkObject(RecordingFinalizeWorkRequest)
+            }
+        }
+
+    @Test
+    fun discardSession_failsClosedWhenFinalizeWorkQueryFails() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val recordingId = UUID.randomUUID()
+            val audioFile = createRecoverableAudioFile("query-failed-discard.m4a")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = audioFile.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                correlationId = "corr-11",
+            )
+
+            mockkObject(RecordingFinalizeWorkRequest)
+            try {
+                coEvery {
+                    RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), recordingId)
+                } throws RuntimeException("WorkManager unavailable")
+
+                val result = sessionRecovery.discardSession(sessionId)
+
+                assertTrue(result.toString(), result is SessionRecoveryResult.Failed)
+                assertEquals(
+                    RecordingSessionRecovery.FINALIZE_STATE_UNKNOWN_MESSAGE,
+                    (result as SessionRecoveryResult.Failed).message,
+                )
+            } finally {
+                unmockkObject(RecordingFinalizeWorkRequest)
+            }
+
+            // A live worker may own these files: nothing may be deleted on uncertainty.
+            assertTrue(audioFile.exists())
+            assertTrue(journal.findBySessionId(sessionId) != null)
+            coVerify(exactly = 0) { recordingRepository.deleteAbandonedInProgressRecording(any()) }
+        }
+
+    @Test
+    fun scanForRecoverableSessions_surfacesStaleHeaderExportWithoutSegments() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            val missingSegment = File(context.filesDir, "recordings/.capture/$sessionId/seg-000.wav")
+            val staleExport = createRecoverableAudioFile("stale-header-export.wav")
+
+            journal.createSession(
+                sessionId = sessionId,
+                audioPath = missingSegment.absolutePath,
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = null,
+                correlationId = "corr-12",
+                finalAudioPath = staleExport.absolutePath,
+            )
+
+            // A pre-fix version deleted the segments but left the export with a stale
+            // header: not playable for stop, but its PCM payload is repairable.
+            every { fileValidator.validateForStop(any()) } returns
+                RecordingFileValidation(RecordingValidationLevel.INVALID, "stale header")
+            every { fileValidator.validateForRecovery(any()) } returns
+                RecordingFileValidation(RecordingValidationLevel.RECOVERABLE_STUB)
+
+            val sessions = sessionRecovery.scanForRecoverableSessions()
+
+            assertEquals(listOf(sessionId), sessions.map { it.sessionId })
+            assertEquals(staleExport.absolutePath, sessions.single().audioPath)
         }
 
     @Test

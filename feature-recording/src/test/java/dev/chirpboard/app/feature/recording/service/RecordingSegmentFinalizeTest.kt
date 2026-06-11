@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.service
 
+import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
 import dev.chirpboard.app.feature.recording.session.RecordingSessionEntry
@@ -11,6 +12,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.UUID
@@ -118,6 +120,42 @@ class RecordingSegmentFinalizeTest {
 
         assertEquals(exportFile, result)
         verify(exactly = 1) { capturePaths.deleteCaptureArtifacts(sessionId) }
+    }
+
+    @Test
+    fun `materializeExportFile repairs stale-header WAV export when no segments remain`() {
+        val sessionId = UUID.randomUUID()
+        val workDir = createTempDir("finalize-legacy-export")
+        val exportFile = File(workDir, "recording.wav")
+        WavFileWriter(exportFile, sampleRate = 16_000).use { writer ->
+            writer.appendPcm16(ByteArray(2048) { 1 }, 2048)
+        }
+        // Regress the data size to the crash-time placeholder a pre-fix version left.
+        java.io.RandomAccessFile(exportFile, "rw").use { raf ->
+            raf.seek(40)
+            raf.write(byteArrayOf(0, 0, 0, 0))
+        }
+        val missingSegment = File(workDir, "missing-seg-000.wav")
+        val sessionJournal = mockk<RecordingSessionJournal>()
+        val segmentConcatenator = mockk<RecordingSegmentConcatenator>(relaxed = true)
+        val capturePaths = mockk<RecordingCapturePaths>(relaxed = true)
+        val classUnderTest =
+            RecordingSegmentFinalize(
+                sessionJournal = sessionJournal,
+                segmentConcatenator = segmentConcatenator,
+                capturePaths = capturePaths,
+                fileValidator = RecordingFileValidator(),
+            )
+        every { sessionJournal.findBySessionId(sessionId) } returns
+            segmentEntry(sessionId, missingSegment, exportFile).copy(
+                segmentPaths = listOf(missingSegment.absolutePath),
+            )
+
+        val result = classUnderTest.materializeExportFile(sessionId, missingSegment.absolutePath)
+
+        assertEquals(exportFile, result)
+        assertTrue(WavFileWriter.hasAccurateHeader(exportFile))
+        verify(exactly = 0) { segmentConcatenator.concatToExport(any(), any()) }
     }
 
     private fun segmentEntry(

@@ -152,4 +152,48 @@ class KeyboardInputSessionGuardTest {
         assertFalse(guard.isSensitiveInput)
         assertNotNull(guard.captureCommitSession())
     }
+
+    @Test
+    fun `commit text provider captures session at stop time not at registration`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = mockk<InputConnection>()
+        every { connection.commitText("hello", 1) } returns true
+        // Registered before any input session exists, exactly like the service wires
+        // it in onCreate. A provider that captured the session here would be stuck
+        // with no (or a stale) session for every later limit stop.
+        val provider =
+            guard.commitTextProvider { session, text ->
+                guard.commitIfCurrent(session, connection, text)
+            }
+
+        assertNull(provider())
+
+        guard.startInput(EditorInfo())
+        val commit = requireNotNull(provider())
+        assertTrue(commit("hello"))
+        verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `commit text provider binds each stop to the live session`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = mockk<InputConnection>()
+        every { connection.commitText(any(), 1) } returns true
+        val provider =
+            guard.commitTextProvider { session, text ->
+                guard.commitIfCurrent(session, connection, text)
+            }
+        guard.startInput(EditorInfo())
+        val staleCommit = requireNotNull(provider())
+
+        guard.startInput(EditorInfo())
+
+        // A commit captured before the field changed refuses its late text...
+        assertFalse(staleCommit("late"))
+        verify(exactly = 0) { connection.commitText("late", 1) }
+        // ...while invoking the provider again binds to the new live session.
+        val liveCommit = requireNotNull(provider())
+        assertTrue(liveCommit("hello"))
+        verify { connection.commitText("hello", 1) }
+    }
 }

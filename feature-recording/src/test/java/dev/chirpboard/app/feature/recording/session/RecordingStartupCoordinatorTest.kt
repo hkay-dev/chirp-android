@@ -99,6 +99,7 @@ class RecordingStartupCoordinatorTest {
                 sessionRecovery.recoverDurableStoppedSessions(emptySet())
                 recoveryStore.refresh()
                 sessionJournal.pruneAbandonedEntries()
+                sessionJournal.pruneCorruptEntries()
                 orphanedAudioCleaner.cleanOrphanedFiles()
             }
         }
@@ -116,6 +117,7 @@ class RecordingStartupCoordinatorTest {
                 sessionRecovery.recoverDurableStoppedSessions(setOf(finalizingSessionId))
                 recoveryStore.refresh()
                 sessionJournal.pruneAbandonedEntries()
+                sessionJournal.pruneCorruptEntries()
                 orphanedAudioCleaner.cleanOrphanedFiles()
             }
         }

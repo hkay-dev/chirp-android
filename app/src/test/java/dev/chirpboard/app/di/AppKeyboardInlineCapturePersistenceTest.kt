@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.core.export.TranscriptExportPort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -76,6 +77,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 rawText = "hello",
                 processedText = "Hello",
                 errorMessage = null,
+                reason = InlineCapturePersistReason.COMPLETED,
             )
 
             val recording = savedRecording.await()
@@ -118,6 +120,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 rawText = "hello",
                 processedText = null,
                 errorMessage = null,
+                reason = InlineCapturePersistReason.COMPLETED,
             )
 
             assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
@@ -127,9 +130,9 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
-    fun persist_withErrorMessage_savesRescueEntryEvenWhenSaveDisabled() =
+    fun persist_rescueReasonSavesEvenWhenSaveDisabled() =
         runTest {
-            val root = createTempDir("keyboard-persist-rescue")
+            val root = createTempDir("keyboard-persist-rescue-reason")
             val audioEncoder = audioEncoderWritingFile()
             val recordingRepository = mockk<RecordingRepository>()
             val savedRecording = CompletableDeferred<Recording>()
@@ -154,6 +157,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 rawText = "rescued dictation",
                 processedText = null,
                 errorMessage = "Couldn't insert dictated text into the field",
+                reason = InlineCapturePersistReason.RESCUE,
             )
 
             val recording = savedRecording.await()
@@ -167,6 +171,162 @@ class AppKeyboardInlineCapturePersistenceTest {
                     emptyList(),
                 )
             }
+        }
+
+    @Test
+    fun persist_userCancelledRespectsSaveDisabledAndRetainsNothing() =
+        runTest {
+            val root = createTempDir("keyboard-persist-user-cancelled")
+            val audioEncoder = mockk<AudioEncoder>(relaxed = true)
+            val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val sourceFile = File(root, "cancelled.f32pcm").apply { writeText("cancelled") }
+
+            // An explicit user cancel carries an error message but is NOT a rescue:
+            // with saving off, neither audio nor partial text may be retained.
+            persistence.persistAudioSource(
+                audioSource =
+                    InlineAudioSource.PcmFloatFile(
+                        path = sourceFile.absolutePath,
+                        sampleCount = 1,
+                    ),
+                rawText = "partial dictation",
+                processedText = null,
+                errorMessage = "Dictation cancelled",
+                reason = InlineCapturePersistReason.USER_CANCELLED,
+            )
+
+            assertFalse(sourceFile.exists())
+            assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
+            coVerify(exactly = 0) { recordingRepository.createRecordingWithTranscript(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.insert(any()) }
+        }
+
+    @Test
+    fun persist_whenEncodingFailsStillSavesTranscriptWithoutAudio() =
+        runTest {
+            val root = createTempDir("keyboard-persist-encode-fails")
+            val audioEncoder =
+                mockk<AudioEncoder> {
+                    every { encode(any(), any(), any(), any(), any()) } returns false
+                }
+            val recordingRepository = mockk<RecordingRepository>()
+            val savedRecording = CompletableDeferred<Recording>()
+            coEvery {
+                recordingRepository.createRecordingWithTranscript(any(), any(), any())
+            } answers {
+                firstArg<Recording>().also { savedRecording.complete(it) }
+            }
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+
+            // The transcript is already in hand; an encoder failure (disk full, codec
+            // error) must not drop it. A text-only entry is saved instead.
+            persistence.persist(
+                samples = floatArrayOf(0.1f, 0.2f),
+                rawText = "rescued dictation",
+                processedText = null,
+                errorMessage = "Couldn't insert dictated text into the field",
+                reason = InlineCapturePersistReason.RESCUE,
+            )
+
+            val recording = savedRecording.await()
+            assertEquals("", recording.audioPath)
+            assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
+            coVerify {
+                recordingRepository.createRecordingWithTranscript(
+                    match { it.audioPath.isEmpty() },
+                    match<Transcript> { it.rawText == "rescued dictation" },
+                    emptyList(),
+                )
+            }
+        }
+
+    @Test
+    fun persist_whenEncoderThrowsStillSavesTranscriptWithoutAudio() =
+        runTest {
+            val root = createTempDir("keyboard-persist-encode-throws")
+            val audioEncoder =
+                mockk<AudioEncoder> {
+                    every { encode(any(), any(), any(), any(), any()) } throws IllegalStateException("codec crashed")
+                }
+            val recordingRepository = mockk<RecordingRepository>()
+            val savedRecording = CompletableDeferred<Recording>()
+            coEvery {
+                recordingRepository.createRecordingWithTranscript(any(), any(), any())
+            } answers {
+                firstArg<Recording>().also { savedRecording.complete(it) }
+            }
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+
+            persistence.persist(
+                samples = floatArrayOf(0.1f, 0.2f),
+                rawText = "rescued dictation",
+                processedText = null,
+                errorMessage = "Couldn't insert dictated text into the field",
+                reason = InlineCapturePersistReason.RESCUE,
+            )
+
+            val recording = savedRecording.await()
+            assertEquals("", recording.audioPath)
+            coVerify {
+                recordingRepository.createRecordingWithTranscript(
+                    match { it.audioPath.isEmpty() },
+                    match<Transcript> { it.rawText == "rescued dictation" },
+                    emptyList(),
+                )
+            }
+        }
+
+    @Test
+    fun persist_whenEncodingFailsWithoutTranscriptSavesNothing() =
+        runTest {
+            val root = createTempDir("keyboard-persist-encode-fails-no-text")
+            val audioEncoder =
+                mockk<AudioEncoder> {
+                    every { encode(any(), any(), any(), any(), any()) } returns false
+                }
+            val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+
+            persistence.persist(
+                samples = floatArrayOf(0.1f, 0.2f),
+                rawText = null,
+                processedText = null,
+                errorMessage = "Dictation stop timed out",
+                reason = InlineCapturePersistReason.RESCUE,
+            )
+
+            assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
+            coVerify(exactly = 0) { recordingRepository.createRecordingWithTranscript(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.insert(any()) }
         }
 
     @Test
@@ -207,6 +367,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                         rawText = "hello",
                         processedText = null,
                         errorMessage = null,
+                        reason = InlineCapturePersistReason.COMPLETED,
                     )
                 }
             encodeStarted.await()
@@ -249,6 +410,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 rawText = null,
                 processedText = null,
                 errorMessage = "cancelled",
+                reason = InlineCapturePersistReason.USER_CANCELLED,
             )
             persistence.discardSamples()
 
@@ -380,6 +542,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                     rawText = null,
                     processedText = null,
                     errorMessage = null,
+                    reason = InlineCapturePersistReason.COMPLETED,
                 )
             } catch (e: IllegalStateException) {
                 failed = true

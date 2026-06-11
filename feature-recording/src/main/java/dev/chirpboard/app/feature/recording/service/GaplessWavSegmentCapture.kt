@@ -127,7 +127,12 @@ class GaplessWavSegmentCapture(
         synchronized(controlLock) {
             synchronized(lock) {
                 cancelPendingRotationLocked()
-                if (!running.get()) return currentSegmentFile
+                // Mirror stopAndFinalize: a cleared running flag alone is not proof the
+                // segment is finalized — a racing failCapture clears it before closing the
+                // writer. While the audio hardware is still held, fall through to join the
+                // capture thread and (idempotently) finalize, so callers never commit a
+                // segment whose header still carries placeholder sizes.
+                if (!running.get() && audioRecord == null) return currentSegmentFile
                 paused.set(true)
             }
             signalStopAndJoinCaptureThread()

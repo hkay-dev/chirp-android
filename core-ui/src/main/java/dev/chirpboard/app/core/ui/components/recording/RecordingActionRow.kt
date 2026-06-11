@@ -38,9 +38,11 @@ fun RecordingActionRow(
     onRestartRecording: () -> Unit,
     modifier: Modifier = Modifier,
     isStopEnabled: Boolean? = null,
+    isRestartEnabled: Boolean? = null,
 ) {
     val isActive = isRecording || isPaused
     val stopEnabled = isStopEnabled ?: isActive
+    val restartEnabled = isRestartEnabled ?: isActive
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -77,7 +79,7 @@ fun RecordingActionRow(
 
         FilledTonalIconButton(
             onClick = onRestartRecording,
-            enabled = isActive,
+            enabled = restartEnabled,
             modifier = Modifier.size(64.dp),
             colors = IconButtonDefaults.filledTonalIconButtonColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer,

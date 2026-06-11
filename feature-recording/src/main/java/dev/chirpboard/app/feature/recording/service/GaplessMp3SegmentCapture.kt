@@ -19,11 +19,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
-class GaplessMp3SegmentCapture(
+class GaplessMp3SegmentCapture internal constructor(
     private val inputDeviceSelector: AudioInputDeviceSelector,
     private val sampleRate: Int,
-    private val bitRate: Int,
+    private val encoderFactory: () -> Mp3FrameEncoder,
 ) : GaplessSegmentCaptureEngine {
+    constructor(
+        inputDeviceSelector: AudioInputDeviceSelector,
+        sampleRate: Int,
+        bitRate: Int,
+    ) : this(
+        inputDeviceSelector = inputDeviceSelector,
+        sampleRate = sampleRate,
+        encoderFactory = { LameMp3FrameEncoder(sampleRate, bitRate) },
+    )
+
     /** Serializes start/pause/stop/release control flows against each other. */
     private val controlLock = Any()
 
@@ -47,7 +57,7 @@ class GaplessMp3SegmentCapture(
 
     private var pcmReadBufferSize = DEFAULT_BUFFER_BYTES
     private var audioRecord: AudioRecord? = null
-    private var encoder: AndroidLame? = null
+    private var encoder: Mp3FrameEncoder? = null
     private var outputStream: BufferedOutputStream? = null
     private var captureThread: Thread? = null
     private var currentSegmentFile: File? = null
@@ -134,7 +144,12 @@ class GaplessMp3SegmentCapture(
         synchronized(controlLock) {
             synchronized(lock) {
                 cancelPendingRotationLocked()
-                if (!running.get()) return currentSegmentFile
+                // Mirror stopAndFinalize: a cleared running flag alone is not proof the
+                // segment is finalized — a racing failCapture clears it before flushing the
+                // encoder. While the audio hardware is still held, fall through to join the
+                // capture thread and (idempotently) finalize, so callers never commit a
+                // segment that is missing its final encoder flush.
+                if (!running.get() && audioRecord == null) return currentSegmentFile
                 paused.set(true)
             }
             signalStopAndJoinCaptureThread()
@@ -211,13 +226,7 @@ class GaplessMp3SegmentCapture(
 
     private fun openEncoderLocked(segmentFile: File) {
         closeEncoderLocked()
-        encoder =
-            LameBuilder()
-                .setInSampleRate(sampleRate)
-                .setOutChannels(1)
-                .setOutBitrate(bitRate / 1000)
-                .setOutSampleRate(sampleRate)
-                .build()
+        encoder = encoderFactory()
         outputStream = BufferedOutputStream(FileOutputStream(segmentFile))
     }
 
@@ -378,4 +387,44 @@ class GaplessMp3SegmentCapture(
         private const val FINAL_DRAIN_READS = 8
         private const val MIN_SEGMENT_BYTES = RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES
     }
+}
+
+/**
+ * Minimal seam over the LAME MP3 encoder. The real [AndroidLame] binding loads a native
+ * library in its static initializer, so JVM unit tests inject a fake through the internal
+ * constructor instead of touching the binding.
+ */
+internal interface Mp3FrameEncoder {
+    /** Encodes [sampleCount] PCM16 samples into [mp3Buffer]; returns the encoded byte count. */
+    fun encode(
+        leftChannel: ShortArray,
+        rightChannel: ShortArray,
+        sampleCount: Int,
+        mp3Buffer: ByteArray,
+    ): Int
+
+    /** Flushes the encoder's internal buffers into [mp3Buffer]; returns the flushed byte count. */
+    fun flush(mp3Buffer: ByteArray): Int
+}
+
+private class LameMp3FrameEncoder(
+    sampleRate: Int,
+    bitRate: Int,
+) : Mp3FrameEncoder {
+    private val lame: AndroidLame =
+        LameBuilder()
+            .setInSampleRate(sampleRate)
+            .setOutChannels(1)
+            .setOutBitrate(bitRate / 1000)
+            .setOutSampleRate(sampleRate)
+            .build()
+
+    override fun encode(
+        leftChannel: ShortArray,
+        rightChannel: ShortArray,
+        sampleCount: Int,
+        mp3Buffer: ByteArray,
+    ): Int = lame.encode(leftChannel, rightChannel, sampleCount, mp3Buffer)
+
+    override fun flush(mp3Buffer: ByteArray): Int = lame.flush(mp3Buffer)
 }

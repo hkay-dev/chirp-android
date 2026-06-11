@@ -258,45 +258,52 @@ class TranscriptionQueueManager
          * battery is low or storage is insufficient.
          *
          * @param recordingId The UUID of the recording to retry
+         * @return the actual outcome; [ManualRecoveryResult.NOT_RECOVERABLE_STATE] when the
+         *   recording is missing, no longer FAILED, or its execution claim was refused, so
+         *   callers never report a re-queue that did not happen.
          */
-        override suspend fun retry(recordingId: UUID) {
+        override suspend fun retry(recordingId: UUID): ManualRecoveryResult {
             val recording = recordingRepository.getRecording(recordingId)
 
-            if (recording?.status == RecordingStatus.FAILED) {
-                // Check constraints and warn user
-                val status = constraintChecker.checkConstraints()
-                _constraintWarning.value = constraintChecker.getConstraintMessage(status)
+            if (recording?.status != RecordingStatus.FAILED) {
+                return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+            }
 
-                val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retry")
-                if (recordingRepository.hasUnresolvedEnhancementSnapshot(recordingId)) {
-                    val executionToken = UUID.randomUUID().toString()
-                    if (recordingRepository.claimEnhancementExecution(recordingId, executionToken)) {
-                        workScheduler.enqueueEnhancement(
-                            recordingId = recordingId,
-                            executionToken = executionToken,
-                            correlationId = correlationId,
-                        )
-                    }
-                    return
-                }
+            // Check constraints and warn user
+            val status = constraintChecker.checkConstraints()
+            _constraintWarning.value = constraintChecker.getConstraintMessage(status)
 
-                warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
-
+            val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retry")
+            if (recordingRepository.hasUnresolvedEnhancementSnapshot(recordingId)) {
                 val executionToken = UUID.randomUUID().toString()
-                val claimed =
-                    recordingRepository.claimTranscriptionExecution(
-                        recordingId = recordingId,
-                        executionToken = executionToken,
-                    )
-                if (!claimed) {
-                    return
+                if (!recordingRepository.claimEnhancementExecution(recordingId, executionToken)) {
+                    return ManualRecoveryResult.NOT_RECOVERABLE_STATE
                 }
-                workScheduler.enqueueTranscription(
+                workScheduler.enqueueEnhancement(
                     recordingId = recordingId,
                     executionToken = executionToken,
                     correlationId = correlationId,
                 )
+                return ManualRecoveryResult.ENQUEUED
             }
+
+            warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+
+            val executionToken = UUID.randomUUID().toString()
+            val claimed =
+                recordingRepository.claimTranscriptionExecution(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
+                )
+            if (!claimed) {
+                return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+            }
+            workScheduler.enqueueTranscription(
+                recordingId = recordingId,
+                executionToken = executionToken,
+                correlationId = correlationId,
+            )
+            return ManualRecoveryResult.ENQUEUED
         }
 
         /**

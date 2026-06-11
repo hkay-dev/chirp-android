@@ -2,6 +2,8 @@ package dev.chirpboard.app.feature.recording.session
 
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +30,30 @@ class RecordingSessionReconciler
                     val recording = recordingRepository.getRecording(recordingId)
                     if (recording == null || recording.status != RecordingStatus.RECORDING) {
                         sessionJournal.markFinalized(entry.sessionId)
+                        if (recording != null && rowReferencesCaptureArtifacts(recording.audioPath, entry.sessionId)) {
+                            // The concat fallback can finalize the row onto a segment file
+                            // inside the capture dir (and the journal can still be STOPPING
+                            // between the row commit and markFinalized); deleting the
+                            // artifacts here would orphan the row's only audio.
+                            return@forEach
+                        }
                         capturePaths.deleteCaptureArtifacts(entry.sessionId)
                     }
                 }
             }
+
+        private fun rowReferencesCaptureArtifacts(
+            audioPath: String,
+            sessionId: UUID,
+        ): Boolean {
+            if (audioPath.isBlank()) {
+                return false
+            }
+            val captureDir = capturePaths.captureDir(sessionId)
+            val canonicalDir =
+                runCatching { captureDir.canonicalPath }.getOrDefault(captureDir.absolutePath)
+            val canonicalAudio =
+                runCatching { File(audioPath).canonicalPath }.getOrDefault(File(audioPath).absolutePath)
+            return canonicalAudio.startsWith(canonicalDir + File.separator)
+        }
     }

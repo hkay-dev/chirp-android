@@ -4,10 +4,12 @@ import android.content.Context
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.recording.session.ProtectedPathsPartition
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryProtectedPathsStore
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -41,8 +43,8 @@ class OrphanedAudioCleanerTest {
         repository = mockk(relaxed = true)
         journal = RecordingSessionJournal(context)
         protectedPathsStore = mockk(relaxed = true)
-        coEvery { protectedPathsStore.activeProtectedPaths() } returns emptySet()
-        coEvery { protectedPathsStore.consumeExpiredPaths() } returns emptySet()
+        coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+            ProtectedPathsPartition(active = emptySet(), expired = emptySet())
         cleaner = OrphanedAudioCleaner(context, repository, journal, protectedPathsStore)
     }
 
@@ -105,7 +107,8 @@ class OrphanedAudioCleanerTest {
         runTest {
             val file = orphanMp3()
             coEvery { repository.getAllAudioPaths() } returns emptyList()
-            coEvery { protectedPathsStore.activeProtectedPaths() } returns setOf(file.absolutePath)
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = setOf(file.absolutePath), expired = emptySet())
 
             cleaner.cleanOrphanedFiles()
 
@@ -122,7 +125,8 @@ class OrphanedAudioCleanerTest {
                     setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
                 }
             coEvery { repository.getAllAudioPaths() } returns emptyList()
-            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(file.absolutePath)
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(file.absolutePath))
 
             cleaner.cleanOrphanedFiles()
 
@@ -141,7 +145,8 @@ class OrphanedAudioCleanerTest {
                     setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
                 }
             coEvery { repository.getAllAudioPaths() } returns emptyList()
-            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(file.absolutePath)
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(file.absolutePath))
 
             cleaner.cleanOrphanedFiles()
 
@@ -183,7 +188,8 @@ class OrphanedAudioCleanerTest {
                 }
             captureDir.setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
             coEvery { repository.getAllAudioPaths() } returns emptyList()
-            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(segment.absolutePath)
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(segment.absolutePath))
 
             cleaner.cleanOrphanedFiles()
 
@@ -206,7 +212,8 @@ class OrphanedAudioCleanerTest {
                 }
             captureDir.setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
             coEvery { repository.getAllAudioPaths() } returns emptyList()
-            coEvery { protectedPathsStore.consumeExpiredPaths() } returns setOf(segment.absolutePath)
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(segment.absolutePath))
 
             cleaner.cleanOrphanedFiles()
 
@@ -314,5 +321,63 @@ class OrphanedAudioCleanerTest {
 
             assertTrue(segment.exists())
             assertTrue(captureDir.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_clearsExpiredMarkerOnlyAfterFileIsQuarantined() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val file =
+                File(recordingsDir, "kept_recording.m4a").apply {
+                    writeText("x".repeat(1024))
+                    setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+                }
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(file.absolutePath))
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(file.exists())
+            coVerify { protectedPathsStore.clearPaths(listOf(file.absolutePath)) }
+        }
+
+    @Test
+    fun cleanOrphanedFiles_retainsExpiredMarkerWhenQuarantineRenameFails() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            // A plain file at the quarantine dir path makes mkdirs() and the rename fail.
+            File(recordingsDir, OrphanedAudioCleaner.QUARANTINE_DIR_NAME).writeText("blocker")
+            val file =
+                File(recordingsDir, "kept_recording.m4a").apply {
+                    writeText("x".repeat(1024))
+                    setLastModified(System.currentTimeMillis() - 25 * 60 * 60 * 1000)
+                }
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(file.absolutePath))
+
+            cleaner.cleanOrphanedFiles()
+
+            // The kept audio survives the failed quarantine, and its marker is retained
+            // so the next run retries quarantine instead of hard-deleting it.
+            assertTrue(file.exists())
+            coVerify(exactly = 0) {
+                protectedPathsStore.clearPaths(match { file.absolutePath in it })
+            }
+        }
+
+    @Test
+    fun cleanOrphanedFiles_clearsExpiredMarkerForAlreadyMissingFile() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val missingPath = File(recordingsDir, "long_gone.m4a").absolutePath
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+            coEvery { protectedPathsStore.partitionProtectedPaths() } returns
+                ProtectedPathsPartition(active = emptySet(), expired = setOf(missingPath))
+
+            cleaner.cleanOrphanedFiles()
+
+            coVerify { protectedPathsStore.clearPaths(listOf(missingPath)) }
         }
 }

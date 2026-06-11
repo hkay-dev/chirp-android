@@ -144,8 +144,21 @@ class ChirpRecognitionService : RecognitionService() {
             when (result) {
                 VoiceRecognitionSessionCoordinator.StartResult.Started -> Unit
 
-                VoiceRecognitionSessionCoordinator.StartResult.Superseded ->
+                VoiceRecognitionSessionCoordinator.StartResult.Superseded -> {
                     Log.w(TAG, "Start superseded before running (generation=$generation)")
+                    if (sessionCoordinator.consumeCancelRequest(generation)) {
+                        // This session's own client already cancelled it, so the cancel was
+                        // its terminal event. On API <= 32 the framework treats any
+                        // listener.error() as terminal for the ACTIVE session; a stale BUSY
+                        // delivered here could reset the newer session's bookkeeping.
+                        Log.w(TAG, "Dropping BUSY for cancelled superseded session (generation=$generation)")
+                    } else {
+                        // The framework normally abandons the superseded session via cancel
+                        // before issuing a new start, but a client that fires back-to-back
+                        // starts must still get a terminal callback instead of hanging.
+                        runCatching { listener.error(SpeechRecognizer.ERROR_RECOGNIZER_BUSY) }
+                    }
+                }
 
                 is VoiceRecognitionSessionCoordinator.StartResult.Busy -> {
                     Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
@@ -250,6 +263,10 @@ class ChirpRecognitionService : RecognitionService() {
     override fun onCancel(listener: Callback) {
         Log.d(TAG, "onCancel")
         val generation = sessionCoordinator.currentGeneration()
+        // Record the cancel synchronously, before any queued start coroutine for this
+        // generation resolves as Superseded: a session its own client cancelled must
+        // not receive a stale terminal BUSY afterwards.
+        sessionCoordinator.markCancelRequested(generation)
         scope.launch {
             if (!sessionCoordinator.cancel(generation)) {
                 Log.w(TAG, "Ignoring cancel for inactive session (generation=$generation)")

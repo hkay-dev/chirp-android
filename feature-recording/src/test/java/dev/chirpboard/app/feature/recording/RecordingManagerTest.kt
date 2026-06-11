@@ -17,6 +17,7 @@ import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -62,6 +63,28 @@ class RecordingManagerTest {
         manager.startRecording()
 
         verify { stateManager.onRecordingError("Could not start the recording service") }
+    }
+
+    @Test
+    fun `restartRecording reports error when service dispatch is rejected`() {
+        mockkObject(RecordingServiceCommands)
+        every { RecordingServiceCommands.restartRecording(any(), any(), any()) } returns false
+
+        val dispatched = manager.restartRecording()
+
+        assertFalse(dispatched)
+        verify { stateManager.onRecordingError("Could not restart the recording service") }
+    }
+
+    @Test
+    fun `restartRecording does not report error when dispatch succeeds`() {
+        mockkObject(RecordingServiceCommands)
+        every { RecordingServiceCommands.restartRecording(any(), any(), any()) } returns true
+
+        val dispatched = manager.restartRecording()
+
+        assertTrue(dispatched)
+        verify(exactly = 0) { stateManager.onRecordingError(any(), any()) }
     }
 
     @Test

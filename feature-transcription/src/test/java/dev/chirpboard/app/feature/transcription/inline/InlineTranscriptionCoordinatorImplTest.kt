@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
@@ -21,14 +22,18 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.runs
 import io.mockk.unmockkObject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -144,6 +149,7 @@ class InlineTranscriptionCoordinatorImplTest {
 
         assertEquals("hello world", persistence.lastRawText)
         assertEquals(COMMIT_REFUSED_MESSAGE, persistence.lastErrorMessage)
+        assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
         assertEquals(COMMIT_REFUSED_MESSAGE, reportedError)
         assertEquals(InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE), coordinator.phase.value)
     }
@@ -175,8 +181,166 @@ class InlineTranscriptionCoordinatorImplTest {
         assertEquals(true, completed)
         assertEquals("hello world", persistence.lastRawText)
         assertEquals(null, persistence.lastErrorMessage)
+        assertEquals(InlineCapturePersistReason.COMPLETED, persistence.lastReason)
         assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
     }
+
+    @Test
+    fun `no speech discards exactly the request audio source and never the staged one`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.NoSpeech
+        val persistence = CapturingPersistence()
+        val source = InlineAudioSource.InMemory(floatArrayOf(0.1f, 0.2f))
+        var completed = false
+
+        coordinator.transcribeWithCommitResult(
+            request =
+                InlineTranscriptionRequest(
+                    samples = floatArrayOf(0.1f, 0.2f),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                    audioSource = source,
+                ),
+            persistence = persistence,
+            commitText = { true },
+            onRecordingCompleted = { completed = true },
+        )
+
+        assertEquals(true, completed)
+        // Identity-targeted discard: a detached pipeline resolving NoSpeech must never
+        // fall back to discardSamples(), which could delete a newer dictation's staged
+        // source instead of this request's own audio.
+        assertSame(source, persistence.lastDiscardedSource)
+        assertEquals(0, persistence.discardSamplesCalls)
+        assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
+    }
+
+    @Test
+    fun `marked user cancel persists capture as user cancelled`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        val transcribeStarted = CompletableDeferred<Unit>()
+        coEvery { transcriberProvider.transcribe(any(), any()) } coAnswers {
+            transcribeStarted.complete(Unit)
+            awaitCancellation()
+        }
+        val persistence = CapturingPersistence()
+
+        val job =
+            launch {
+                coordinator.transcribeWithCommitResult(
+                    request = inMemoryRequest(),
+                    persistence = persistence,
+                    commitText = { true },
+                )
+            }
+        transcribeStarted.await()
+        coordinator.markUserCancelled()
+        job.cancel()
+        job.join()
+
+        // An explicit cancel is not a rescue: the persistence layer must be told so it
+        // can respect the saveKeyboardRecordings preference instead of retaining audio.
+        assertEquals("Dictation cancelled", persistence.lastErrorMessage)
+        assertEquals(InlineCapturePersistReason.USER_CANCELLED, persistence.lastReason)
+    }
+
+    @Test
+    fun `unmarked cancellation rescues capture instead of dropping it`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        val transcribeStarted = CompletableDeferred<Unit>()
+        coEvery { transcriberProvider.transcribe(any(), any()) } coAnswers {
+            transcribeStarted.complete(Unit)
+            awaitCancellation()
+        }
+        val persistence = CapturingPersistence()
+
+        val job =
+            launch {
+                coordinator.transcribeWithCommitResult(
+                    request = inMemoryRequest(),
+                    persistence = persistence,
+                    commitText = { true },
+                )
+            }
+        transcribeStarted.await()
+        // No markUserCancelled(): IME destruction, scope death or a system kill cancels
+        // the pipeline without any user intent, so the capture must be force-rescued
+        // (persisted even with saveKeyboardRecordings off) instead of discarded.
+        job.cancel()
+        job.join()
+
+        assertEquals(CANCELLATION_RESCUE_MESSAGE, persistence.lastErrorMessage)
+        assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+    }
+
+    @Test
+    fun `stale user-cancel mark from a previous session does not misclassify a new request`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        val transcribeStarted = CompletableDeferred<Unit>()
+        coEvery { transcriberProvider.transcribe(any(), any()) } coAnswers {
+            transcribeStarted.complete(Unit)
+            awaitCancellation()
+        }
+        val persistence = CapturingPersistence()
+
+        // A cancel tap that never reached an in-flight pipeline leaves a mark behind.
+        coordinator.markUserCancelled()
+
+        val job =
+            launch {
+                coordinator.transcribeWithCommitResult(
+                    request = inMemoryRequest(),
+                    persistence = persistence,
+                    commitText = { true },
+                )
+            }
+        transcribeStarted.await()
+        job.cancel()
+        job.join()
+
+        // The new request cleared the stale mark, so this interruption still rescues.
+        assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+    }
+
+    @Test
+    fun `cancellation after committed persist does not re-persist the capture`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello world")
+        val persistStarted = CompletableDeferred<Unit>()
+        val persistGate = CompletableDeferred<Unit>()
+        val persistence =
+            CapturingPersistence(
+                onPersist = {
+                    persistStarted.complete(Unit)
+                    persistGate.await()
+                },
+            )
+
+        val job =
+            launch {
+                coordinator.transcribeWithCommitResult(
+                    request = inMemoryRequest(),
+                    persistence = persistence,
+                    commitText = { true },
+                )
+            }
+        persistStarted.await()
+        // Cancel while the committed-path persist is parked at a suspension point: the
+        // CancellationException surfacing out of deliverTranscript must not write a
+        // second entry for a capture whose transcript already reached the field.
+        job.cancel()
+        job.join()
+
+        assertEquals(1, persistence.persistCalls)
+        assertEquals(InlineCapturePersistReason.COMPLETED, persistence.lastReason)
+    }
+
+    private fun inMemoryRequest(): InlineTranscriptionRequest =
+        InlineTranscriptionRequest(
+            samples = floatArrayOf(0.1f, 0.2f),
+            llmEnabled = false,
+            processingModeId = "proofread",
+        )
 
     private fun writeFloatPcm(
         file: java.io.File,
@@ -197,22 +361,38 @@ class InlineTranscriptionCoordinatorImplTest {
         }
     }
 
-    private class CapturingPersistence : InlineCapturePersistence {
+    private class CapturingPersistence(
+        private val onPersist: suspend () -> Unit = {},
+    ) : InlineCapturePersistence {
         var lastRawText: String? = null
         var lastProcessedText: String? = null
         var lastErrorMessage: String? = null
+        var lastReason: InlineCapturePersistReason? = null
+        var lastDiscardedSource: InlineAudioSource? = null
+        var discardSamplesCalls = 0
+        var persistCalls = 0
 
         override suspend fun persist(
             samples: FloatArray?,
             rawText: String?,
             processedText: String?,
             errorMessage: String?,
+            reason: InlineCapturePersistReason,
         ) {
+            persistCalls++
             lastRawText = rawText
             lastProcessedText = processedText
             lastErrorMessage = errorMessage
+            lastReason = reason
+            onPersist()
         }
 
-        override fun discardSamples() = Unit
+        override fun discardSamples() {
+            discardSamplesCalls++
+        }
+
+        override fun discardAudioSource(audioSource: InlineAudioSource) {
+            lastDiscardedSource = audioSource
+        }
     }
 }

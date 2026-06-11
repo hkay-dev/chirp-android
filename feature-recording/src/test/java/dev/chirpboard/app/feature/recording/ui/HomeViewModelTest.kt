@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
@@ -19,6 +21,7 @@ import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
+import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -250,24 +253,43 @@ class HomeViewModelTest {
     fun `retryTranscription queues recording for transcription`() =
         runTest {
             val recordingId = UUID.randomUUID()
-            val recording =
-                mockk<Recording>(relaxed = true) {
-                    every { id } returns recordingId
-                    every { status } returns RecordingStatus.FAILED
-                }
+            coEvery { transcriptionQueueManager.retry(recordingId) } returns ManualRecoveryResult.ENQUEUED
 
-            val displayItem =
-                mockk<dev.chirpboard.app.feature.recording.ui.RecordingDisplayItem>(relaxed = true) {
-                    every { this@mockk.id } returns recordingId
-                    every { this@mockk.status } returns RecordingStatus.FAILED
-                    every { this@mockk.recording } returns recording
-                }
-
-            viewModel.retryTranscription(displayItem)
+            viewModel.retryTranscription(failedDisplayItem(recordingId))
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify { transcriptionQueueManager.retry(recordingId) }
+            assertEquals("Re-queued for transcription", viewModel.errorMessage.value)
         }
+
+    @Test
+    fun `retryTranscription surfaces refused outcome instead of false success`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            coEvery { transcriptionQueueManager.retry(recordingId) } returns
+                ManualRecoveryResult.BLOCKED_ACTIVE_WORK
+
+            viewModel.retryTranscription(failedDisplayItem(recordingId))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                ManualRecoveryResult.BLOCKED_ACTIVE_WORK.toUserMessage("Re-queued for transcription"),
+                viewModel.errorMessage.value,
+            )
+        }
+
+    private fun failedDisplayItem(recordingId: UUID): RecordingDisplayItem {
+        val recording =
+            mockk<Recording>(relaxed = true) {
+                every { id } returns recordingId
+                every { status } returns RecordingStatus.FAILED
+            }
+        return mockk<RecordingDisplayItem>(relaxed = true) {
+            every { this@mockk.id } returns recordingId
+            every { this@mockk.status } returns RecordingStatus.FAILED
+            every { this@mockk.recording } returns recording
+        }
+    }
 
     @Test
     fun `recoverStuckItem resets status to pending and enqueues`() =
@@ -626,6 +648,51 @@ class HomeViewModelTest {
             ),
         )
     }
+
+    @Test
+    fun `discardInterruptedSession surfaces refusal message`() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            coEvery { sessionRecovery.discardSession(sessionId) } returns
+                SessionRecoveryResult.Failed("Recording is still being finalized. Try again in a moment.")
+
+            viewModel.discardInterruptedSession(sessionId)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                "Recording is still being finalized. Try again in a moment.",
+                viewModel.errorMessage.value,
+            )
+            coVerify { sessionRecovery.refresh() }
+        }
+
+    @Test
+    fun `keepInterruptedSession surfaces refusal message`() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            coEvery { sessionRecovery.keepSession(sessionId) } returns
+                SessionRecoveryResult.Failed("Recording is still being finalized. Try again in a moment.")
+
+            viewModel.keepInterruptedSession(sessionId)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                "Recording is still being finalized. Try again in a moment.",
+                viewModel.errorMessage.value,
+            )
+        }
+
+    @Test
+    fun `discardInterruptedSession stays silent on success`() =
+        runTest {
+            val sessionId = UUID.randomUUID()
+            coEvery { sessionRecovery.discardSession(sessionId) } returns SessionRecoveryResult.Discarded
+
+            viewModel.discardInterruptedSession(sessionId)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.errorMessage.value)
+        }
 
     @Test
     fun `importAudio navigates to studio after successful import`() =

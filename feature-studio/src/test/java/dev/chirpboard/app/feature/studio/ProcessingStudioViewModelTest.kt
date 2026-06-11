@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
@@ -166,6 +167,51 @@ class ProcessingStudioViewModelTest {
             advanceUntilIdle()
 
             coVerify { transcriptionRecovery.recoverPendingEnhancement(recordingId) }
+        }
+
+    @Test
+    fun `retry transcription reports requeue when retry is enqueued`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val recording = sampleRecording(recordingId).copy(status = RecordingStatus.FAILED)
+            every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(recording))
+            stubSupportingFlows(recordingId)
+            coEvery { transcriptionRecovery.retry(recordingId) } returns ManualRecoveryResult.ENQUEUED
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.retryTranscription()
+            advanceUntilIdle()
+
+            coVerify { transcriptionRecovery.retry(recordingId) }
+            assertEquals("Re-queued for transcription", viewModel.message.value)
+        }
+
+    @Test
+    fun `retry transcription surfaces honest message when recording is no longer failed`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val recording = sampleRecording(recordingId)
+            every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(recording))
+            stubSupportingFlows(recordingId)
+            coEvery { transcriptionRecovery.retry(recordingId) } returns ManualRecoveryResult.NOT_RECOVERABLE_STATE
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.retryTranscription()
+            advanceUntilIdle()
+
+            coVerify { transcriptionRecovery.retry(recordingId) }
+            assertEquals(
+                ManualRecoveryResult.NOT_RECOVERABLE_STATE.toUserMessage("Re-queued for transcription"),
+                viewModel.message.value,
+            )
         }
 
     @Test

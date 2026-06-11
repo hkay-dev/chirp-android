@@ -40,7 +40,7 @@ class RecordingSegmentFinalize
 
             val segmentFiles = entry.orderedSegmentFiles(activeSegmentPath)
             if (segmentFiles.isEmpty()) {
-                return null
+                return repairedLegacyExport(exportFile)
             }
 
             return when (segmentConcatenator.concatToExport(segmentFiles, exportFile)) {
@@ -58,5 +58,20 @@ class RecordingSegmentFinalize
                 }
                 is SegmentConcatResult.Failed -> null
             }
+        }
+
+        /**
+         * Pre-fix app versions could delete segments while leaving an export with a
+         * stale/zeroed WAV header. With no segments left, that export's payload is the
+         * only remaining audio, so repair its header before giving up on the session.
+         */
+        private fun repairedLegacyExport(exportFile: File): File? {
+            if (!exportFile.exists()) {
+                return null
+            }
+            if (RecordingOutputFormat.fromFile(exportFile) == RecordingOutputFormat.WAV) {
+                WavFileWriter.repairHeaderIfNeeded(exportFile)
+            }
+            return exportFile.takeIf { fileValidator.validateForStop(it).isPlayable }
         }
     }

@@ -22,6 +22,7 @@ class RecordingServiceLifecycleCleanupTest {
                     recordingId = UUID.randomUUID(),
                 ),
                 stopInProgress = false,
+                serviceOwnsCapture = true,
                 cancelPeriodicJobs = { events += "cancel-jobs" },
                 detachCallbacks = { events += "detach-callbacks" },
             )
@@ -41,6 +42,7 @@ class RecordingServiceLifecycleCleanupTest {
                     accumulatedMs = 1_000L,
                 ),
                 stopInProgress = false,
+                serviceOwnsCapture = true,
             ),
         )
         assertFalse(
@@ -51,6 +53,7 @@ class RecordingServiceLifecycleCleanupTest {
                     audioFilePath = "/tmp/active.m4a",
                 ),
                 stopInProgress = false,
+                serviceOwnsCapture = true,
             ),
         )
         assertFalse(
@@ -61,6 +64,25 @@ class RecordingServiceLifecycleCleanupTest {
                     audioFilePath = "/tmp/active.m4a",
                 ),
                 stopInProgress = true,
+                serviceOwnsCapture = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldScheduleEmergencyStop_neverForACaptureThisServiceDoesNotOwn() {
+        // The shared state can be active because of an in-process keyboard capture; a cold
+        // service instance must not emergency-finalize it (the null-recording-id handoff
+        // would force the live capture's state to Idle).
+        assertFalse(
+            RecordingServiceLifecycleCleanup.shouldScheduleEmergencyStop(
+                state = RecordingState.Recording(
+                    origin = RecordingOrigin.KEYBOARD,
+                    profileId = null,
+                    audioFilePath = "/tmp/keyboard.m4a",
+                ),
+                stopInProgress = false,
+                serviceOwnsCapture = false,
             ),
         )
     }

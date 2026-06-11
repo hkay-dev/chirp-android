@@ -9,6 +9,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.first
 
+data class ProtectedPathsPartition(
+    val active: Set<String>,
+    val expired: Set<String>,
+)
+
 @Singleton
 class RecordingRecoveryProtectedPathsStore
     @Inject
@@ -33,31 +38,39 @@ class RecordingRecoveryProtectedPathsStore
             }
         }
 
-        suspend fun activeProtectedPaths(): Set<String> {
+        suspend fun activeProtectedPaths(): Set<String> = partitionProtectedPaths().active
+
+        /**
+         * Single-snapshot partition of protected paths into still-active and TTL-expired
+         * sets, so a TTL lapsing between two separate reads can never put a path in both
+         * (or neither) set. Nothing is removed here: callers must [clearPaths] only after
+         * the underlying audio has been durably quarantined or deleted, so a crash or a
+         * failed rename keeps the marker and the next run retries quarantine instead of
+         * hard-deleting kept audio.
+         */
+        suspend fun partitionProtectedPaths(): ProtectedPathsPartition {
             val now = System.currentTimeMillis()
-            val (active, _) = partition(now, decode(dataStore.data.first()[PROTECTED_PATHS_KEY].orEmpty()))
-            return active.keys
+            val (active, expired) = partition(now, decode(dataStore.data.first()[PROTECTED_PATHS_KEY].orEmpty()))
+            return ProtectedPathsPartition(active = active.keys, expired = expired.keys)
         }
 
         /**
-         * Returns paths whose protection TTL has lapsed and removes them from the store.
-         * Callers decide what happens to the underlying audio (quarantine over deletion
-         * when it still looks recoverable).
+         * Removes protection markers for paths whose audio has been durably handled.
+         * The removal runs inside an edit transform, so DataStore serializes it against
+         * concurrent [protect] calls and neither write can clobber the other.
          */
-        suspend fun consumeExpiredPaths(): Set<String> {
-            val now = System.currentTimeMillis()
-            // Partition inside the edit transform: DataStore serializes edits, so a
-            // concurrent protect() can never be overwritten by a stale snapshot read
-            // outside the transform.
-            var expiredPaths: Set<String> = emptySet()
+        suspend fun clearPaths(paths: Collection<String>) {
+            if (paths.isEmpty()) {
+                return
+            }
+            val cleared = paths.toSet()
             dataStore.edit { preferences ->
-                val (active, expired) = partition(now, decode(preferences[PROTECTED_PATHS_KEY].orEmpty()))
-                expiredPaths = expired.keys
-                if (expired.isNotEmpty()) {
-                    preferences[PROTECTED_PATHS_KEY] = encode(active)
+                val current = decode(preferences[PROTECTED_PATHS_KEY].orEmpty())
+                val updated = current - cleared
+                if (updated.size != current.size) {
+                    preferences[PROTECTED_PATHS_KEY] = encode(updated)
                 }
             }
-            return expiredPaths
         }
 
         private fun encode(entries: Map<String, Long>): String =

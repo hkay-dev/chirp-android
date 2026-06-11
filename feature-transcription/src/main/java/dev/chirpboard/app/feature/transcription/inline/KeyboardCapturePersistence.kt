@@ -68,38 +68,52 @@ suspend fun saveCaptureRecording(
             val outputPath = File(recordingsDir, filename).absolutePath
 
             val success =
-                when (audioSource) {
-                    is InlineAudioSource.InMemory ->
-                        audioEncoder.encode(
-                            samples = audioSource.samples,
-                            sampleRate = audioSource.sampleRate,
-                            outputPath = outputPath,
-                            format = outputFormat,
-                            config = recordingQualityPreset.keyboardRecordingConfig,
-                        )
+                runCatching {
+                    when (audioSource) {
+                        is InlineAudioSource.InMemory ->
+                            audioEncoder.encode(
+                                samples = audioSource.samples,
+                                sampleRate = audioSource.sampleRate,
+                                outputPath = outputPath,
+                                format = outputFormat,
+                                config = recordingQualityPreset.keyboardRecordingConfig,
+                            )
 
-                    is InlineAudioSource.PcmFloatFile ->
-                        audioEncoder.encodePcmFloatFile(
-                            inputPath = audioSource.path,
-                            sampleCount = audioSource.sampleCount,
-                            sampleRate = audioSource.sampleRate,
-                            outputPath = outputPath,
-                            format = outputFormat,
-                            config = recordingQualityPreset.keyboardRecordingConfig,
-                        )
+                        is InlineAudioSource.PcmFloatFile ->
+                            audioEncoder.encodePcmFloatFile(
+                                inputPath = audioSource.path,
+                                sampleCount = audioSource.sampleCount,
+                                sampleRate = audioSource.sampleRate,
+                                outputPath = outputPath,
+                                format = outputFormat,
+                                config = recordingQualityPreset.keyboardRecordingConfig,
+                            )
+                    }
+                }.onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    Log.e(TAG, "Keyboard recording encoder threw", error)
+                }.getOrDefault(false)
+            val audioPath =
+                if (success) {
+                    outputPath
+                } else {
+                    Log.e(TAG, "Failed to encode keyboard recording")
+                    runCatching { File(outputPath).delete() }
+                    if (plan.rawText == null) {
+                        return@withContext null
+                    }
+                    // The transcript is already in hand and needs no audio: never drop
+                    // it just because encoding failed. Save a text-only entry instead.
+                    Log.w(TAG, "Saving keyboard transcript without audio after encode failure")
+                    ""
                 }
-            if (!success) {
-                Log.e(TAG, "Failed to encode keyboard recording")
-                runCatching { File(outputPath).delete() }
-                return@withContext null
-            }
 
             val durationMs = (audioSource.totalSamples() * 1000L) / audioSource.sampleRate
             val recording =
                 Recording(
                     id = UUID.randomUUID(),
                     title = plan.title,
-                    audioPath = outputPath,
+                    audioPath = audioPath,
                     status = plan.status,
                     source = RecordingSource.KEYBOARD,
                     profileId = null,

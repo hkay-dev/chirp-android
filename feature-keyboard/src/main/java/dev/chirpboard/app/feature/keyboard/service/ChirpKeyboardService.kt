@@ -143,11 +143,7 @@ class ChirpKeyboardService :
                 pendingStopStore = pendingStopStore,
             )
 
-        coordinator.commitTextProvider = {
-            inputSessionGuard.captureCommitSession()?.let { session ->
-                { text: String -> commitToInputSession(session, text) }
-            }
-        }
+        coordinator.commitTextProvider = inputSessionGuard.commitTextProvider(::commitToInputSession)
 
         audioFocusManager.onFocusLost = { lossKind ->
             // Transient loss or ducking (notification ding, assistant chirp) must not end
@@ -331,7 +327,9 @@ class ChirpKeyboardService :
     override fun onDestroy() {
         stopBridgeRegistration?.let(keyboardStopBridge::clearStopHandler)
         stopBridgeRegistration = null
-        coordinator.cancelRecording()
+        // Service destruction is not a user cancel: an in-flight transcription cancelled
+        // here must rescue its capture instead of discarding it per the save preference.
+        coordinator.cancelRecording(userInitiated = false)
         coordinator.destroy()
         phoneCallHandler?.unregister()
         phoneCallHandler = null

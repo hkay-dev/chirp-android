@@ -30,6 +30,27 @@ class BoundedCaptureStopTest {
     }
 
     @Test
+    fun stop_whenStopThrows_releasesEngineResources() {
+        val released = CountDownLatch(1)
+        val engine =
+            object : FakeGaplessCapture(
+                onStop = { throw IllegalStateException("disk full mid-flush") },
+            ) {
+                override fun releaseAfterStopTimeout() {
+                    released.countDown()
+                }
+            }
+
+        val result = engine.stopAndFinalizeBounded(timeoutMs = 1_000)
+
+        assertTrue(result is CaptureStopResult.Failed)
+        assertTrue(
+            "releaseAfterStopTimeout was not invoked after a failed stop",
+            released.await(2, TimeUnit.SECONDS),
+        )
+    }
+
+    @Test
     fun stop_onTimeout_releasesEngineResources() {
         val released = CountDownLatch(1)
         val engine =

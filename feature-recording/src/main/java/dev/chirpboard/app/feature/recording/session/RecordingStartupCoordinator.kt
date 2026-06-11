@@ -30,6 +30,7 @@ class RecordingStartupCoordinator
             recoveryStore.refresh()
             withContext(Dispatchers.IO) {
                 sessionJournal.pruneAbandonedEntries()
+                sessionJournal.pruneCorruptEntries()
             }
             orphanedAudioCleaner.cleanOrphanedFiles()
         }

@@ -21,6 +21,8 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
@@ -169,12 +171,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
             returnError(SpeechRecognizer.ERROR_AUDIO)
             return
         }
+        // Mark the session as starting before any suspension so a rapid second tap
+        // during AudioRecord init is ignored instead of tripping the non-reentrant
+        // capture gate against this activity's own in-flight start.
+        _recordingState.value = RecordingState.Starting(RecordingOrigin.KEYBOARD)
         lifecycleScope.launch {
             try {
                 when (val result = captureGate.tryAcquire()) {
                     VoiceRecognitionCaptureGateResult.Acquired -> Unit
                     is VoiceRecognitionCaptureGateResult.Busy -> {
                         Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
+                        _recordingState.value = RecordingState.Idle
                         returnError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
                         return@launch
                     }
@@ -185,6 +192,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 if (!recorder.start()) {
                     Log.e(TAG, "Failed to start recording")
                     captureGate.releaseError("Failed to start voice recognition")
+                    _recordingState.value = RecordingState.Idle
                     returnError(SpeechRecognizer.ERROR_AUDIO)
                     return@launch
                 }
@@ -200,6 +208,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Error starting recording", e)
                 captureGate.releaseError("Failed to start voice recognition", e)
+                _recordingState.value = RecordingState.Idle
                 returnError(SpeechRecognizer.ERROR_AUDIO)
             }
         }
@@ -209,8 +218,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
         llmEnabled: Boolean,
         processingMode: ProcessingMode,
     ) {
-        if (_recordingState.value is RecordingState.Stopping || _recordingState.value is RecordingState.Idle) {
-            Log.w(TAG, "Not recording or already stopping, ignoring stop request")
+        if (_recordingState.value !is RecordingState.Recording) {
+            Log.w(TAG, "Not actively recording, ignoring stop request")
             return
         }
         lifecycleScope.launch {
@@ -227,6 +236,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     return@launch
                 }
 
+                // Guard the pipeline's persistence so a cancellation racing the final
+                // persist cannot write a duplicate entry for the same capture.
+                val persistenceGuard = DictationCapturePersistenceGuard(capturePersistence)
                 var resultText = ""
                 inlineTranscription.transcribe(
                     request =
@@ -236,7 +248,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             processingModeId = processingMode.id,
                             correlationPrefix = "voice",
                         ),
-                    persistence = capturePersistence,
+                    persistence = persistenceGuard,
                     commitText = { text ->
                         resultText = text
                         _partialTranscript.value = text.trim()
@@ -284,6 +296,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     private fun cancelRecording() {
+        if (_recordingState.value is RecordingState.Stopping) {
+            // The inline pipeline is mid-transcription; finishing this activity cancels
+            // it via lifecycleScope. Mark the cancellation as user-initiated so the
+            // pipeline discards per the save preference instead of force-rescuing. An
+            // unmarked cancellation (system kill, task swipe) still rescues the capture.
+            inlineTranscription.markUserCancelled()
+        }
         recordingJob?.cancel()
         recorder.stop()
         captureGate.releaseCompleted()
@@ -295,7 +314,12 @@ class VoiceRecognitionActivity : ComponentActivity() {
         if (captureGate.isHeld()) {
             val samples = recorder.stop()
             captureGate.releaseCompleted()
-            rescueInterruptedCapture(samples)
+            // Once stopRecording hands samples to the inline pipeline the state is
+            // Stopping and the pipeline owns persistence (it rescues on cancellation
+            // itself); rescuing here too would duplicate the same capture.
+            if (_recordingState.value !is RecordingState.Stopping) {
+                rescueInterruptedCapture(samples)
+            }
         }
         recorder.close()
         super.onDestroy()
@@ -318,6 +342,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     rawText = null,
                     processedText = null,
                     errorMessage = "Voice recognition interrupted",
+                    // Not user-initiated: a user cancel releases the gate before destroy,
+                    // so a held gate here means the system interrupted the capture.
+                    reason = InlineCapturePersistReason.RESCUE,
                 )
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -346,5 +373,81 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "VoiceRecognitionActivity"
+    }
+}
+
+/**
+ * Wraps the shared capture persistence for a single dictation hand-off to the inline
+ * pipeline. The pipeline's cancellation rescue can fire after a terminal persist has
+ * already completed (the persist finishes, then the cancellation surfaces on leaving
+ * the dispatcher boundary and persists the same audio again as "Dictation cancelled"),
+ * which would duplicate the entry.
+ *
+ * A follow-up persist is suppressed only when it is provably redundant:
+ *  - after a rescue persist has completed — rescue persists always write an entry,
+ *    so a second persist of the same capture would be a pure duplicate;
+ *  - a user-cancel persist after a completed success persist — with saving enabled
+ *    the capture is already stored, and with saving disabled the user-cancel persist
+ *    would be dropped by the preference anyway.
+ *
+ * Anything else (notably a rescue after a success persist) is forwarded: a success
+ * persist may have been skipped per user preference, so a forced rescue can be the
+ * only surviving copy of an interrupted dictation. Suppressing on that uncertainty
+ * would trade a duplicate entry for data loss, and discards must fail closed.
+ */
+internal class DictationCapturePersistenceGuard(
+    private val delegate: InlineCapturePersistence,
+) : InlineCapturePersistence {
+    @Volatile
+    private var rescuePersisted = false
+
+    @Volatile
+    private var successPersisted = false
+
+    override fun prepareAudioSource(audioSource: InlineAudioSource) = delegate.prepareAudioSource(audioSource)
+
+    override fun releasePendingAudioSource() = delegate.releasePendingAudioSource()
+
+    override suspend fun persist(
+        samples: FloatArray?,
+        rawText: String?,
+        processedText: String?,
+        errorMessage: String?,
+        reason: InlineCapturePersistReason,
+    ) {
+        if (isRedundant(reason)) {
+            return
+        }
+        delegate.persist(samples, rawText, processedText, errorMessage, reason)
+        recordCompletedPersist(reason)
+    }
+
+    override suspend fun persistAudioSource(
+        audioSource: InlineAudioSource?,
+        rawText: String?,
+        processedText: String?,
+        errorMessage: String?,
+        reason: InlineCapturePersistReason,
+    ) {
+        if (isRedundant(reason)) {
+            return
+        }
+        delegate.persistAudioSource(audioSource, rawText, processedText, errorMessage, reason)
+        recordCompletedPersist(reason)
+    }
+
+    override fun discardSamples() = delegate.discardSamples()
+
+    override fun discardAudioSource(audioSource: InlineAudioSource) = delegate.discardAudioSource(audioSource)
+
+    private fun isRedundant(reason: InlineCapturePersistReason): Boolean =
+        rescuePersisted || (successPersisted && reason == InlineCapturePersistReason.USER_CANCELLED)
+
+    private fun recordCompletedPersist(reason: InlineCapturePersistReason) {
+        when (reason) {
+            InlineCapturePersistReason.RESCUE -> rescuePersisted = true
+            InlineCapturePersistReason.COMPLETED -> successPersisted = true
+            InlineCapturePersistReason.USER_CANCELLED -> Unit
+        }
     }
 }

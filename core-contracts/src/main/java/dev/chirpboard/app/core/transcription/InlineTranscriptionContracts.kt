@@ -1,5 +1,7 @@
 package dev.chirpboard.app.core.transcription
 
+import java.io.File
+
 /**
  * Phases emitted while inline dictation transcription runs.
  */
@@ -40,6 +42,30 @@ sealed interface InlineAudioSource {
     ) : InlineAudioSource
 }
 
+/**
+ * Why a capture is being persisted. Drives retention: [RESCUE] entries are failure
+ * artifacts the user cannot otherwise recover, so implementations persist them even
+ * when the save-keyboard-recordings preference is off, while [COMPLETED] and
+ * [USER_CANCELLED] captures always respect that preference.
+ */
+enum class InlineCapturePersistReason {
+    /** Dictation finished normally and its transcript reached the target. */
+    COMPLETED,
+
+    /**
+     * The user explicitly discarded the dictation (cancel tap, restart). Must respect
+     * the save preference: with saving off, neither audio nor text may be retained.
+     */
+    USER_CANCELLED,
+
+    /**
+     * Non-user-initiated failure (commit refused, pipeline error, stop-timeout
+     * rescue). Persisted regardless of the save preference so the captured speech
+     * can be recovered from the recordings list.
+     */
+    RESCUE,
+}
+
 interface InlineCapturePersistence {
     fun prepareAudioSource(audioSource: InlineAudioSource) = Unit
 
@@ -51,11 +77,17 @@ interface InlineCapturePersistence {
      */
     fun releasePendingAudioSource() = Unit
 
+    /**
+     * [reason] declares the caller's intent explicitly and drives retention: see
+     * [InlineCapturePersistReason]. Every caller must state why the capture is being
+     * persisted so implementations never have to infer rescue intent from error text.
+     */
     suspend fun persist(
         samples: FloatArray?,
         rawText: String?,
         processedText: String?,
         errorMessage: String? = null,
+        reason: InlineCapturePersistReason,
     )
 
     suspend fun persistAudioSource(
@@ -63,12 +95,14 @@ interface InlineCapturePersistence {
         rawText: String?,
         processedText: String?,
         errorMessage: String? = null,
+        reason: InlineCapturePersistReason,
     ) {
         persist(
             samples = (audioSource as? InlineAudioSource.InMemory)?.samples,
             rawText = rawText,
             processedText = processedText,
             errorMessage = errorMessage,
+            reason = reason,
         )
     }
 
@@ -77,10 +111,14 @@ interface InlineCapturePersistence {
     /**
      * Discards exactly [audioSource] and clears any staged reference only when it still
      * points at the same source. Unlike [discardSamples] this can never delete audio
-     * staged by a newer dictation, so detached pipelines can call it safely.
+     * staged by a newer dictation, so detached pipelines can call it safely. The default
+     * deliberately fails closed: it drops only [audioSource]'s own backing storage and
+     * never falls back to the identity-blind [discardSamples].
      */
     fun discardAudioSource(audioSource: InlineAudioSource) {
-        discardSamples()
+        if (audioSource is InlineAudioSource.PcmFloatFile) {
+            runCatching { File(audioSource.path).delete() }
+        }
     }
 }
 
@@ -93,6 +131,17 @@ interface InlineTranscriptionPort {
     fun resetPhase()
 
     fun setError(message: String)
+
+    /**
+     * Marks the in-flight transcription as cancelled by an explicit user action (cancel
+     * tap, restart, dialog dismissal). Owners of user-initiated cancellation must call
+     * this immediately before cancelling the pipeline's job so the pipeline persists the
+     * capture as [InlineCapturePersistReason.USER_CANCELLED] (respecting the save
+     * preference). A cancellation that arrives without this mark — IME service
+     * destruction, scope death, system kill mid-transcription — is treated as a non-user
+     * interruption and the capture is rescued regardless of the preference.
+     */
+    fun markUserCancelled() = Unit
 
     suspend fun transcribe(
         request: InlineTranscriptionRequest,

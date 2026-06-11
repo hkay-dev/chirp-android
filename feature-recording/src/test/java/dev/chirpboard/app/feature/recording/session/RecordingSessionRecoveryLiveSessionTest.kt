@@ -12,12 +12,16 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -53,6 +57,10 @@ class RecordingSessionRecoveryLiveSessionTest {
             RecordingFileValidation(RecordingValidationLevel.PLAYABLE)
         every { fileValidator.validateForRecovery(any()) } returns
             RecordingFileValidation(RecordingValidationLevel.PLAYABLE)
+        // Ownership checks fail closed on query errors, so tests must answer the
+        // finalize-work query explicitly instead of relying on a swallowed throw.
+        mockkObject(RecordingFinalizeWorkRequest)
+        coEvery { RecordingFinalizeWorkRequest.hasUnfinishedWork(any(), any()) } returns false
         sessionRecovery =
             RecordingSessionRecovery(
                 context = context,
@@ -70,7 +78,13 @@ class RecordingSessionRecoveryLiveSessionTest {
                     ),
                 recordingStateManager = recordingStateManager,
                 protectedPathsStore = mockk(relaxed = true),
+                ownershipLock = RecordingFinalizeOwnershipLock(),
             )
+    }
+
+    @After
+    fun tearDown() {
+        unmockkObject(RecordingFinalizeWorkRequest)
     }
 
     @Test

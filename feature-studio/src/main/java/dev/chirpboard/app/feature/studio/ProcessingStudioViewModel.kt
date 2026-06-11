@@ -703,12 +703,9 @@ class ProcessingStudioViewModel
         fun retryTranscription() {
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
-                val status = _uiState.value.status
-                if (status == RecordingStatus.FAILED || status == RecordingStatus.COMPLETED) {
-                    transcriptionRecovery.retry(recordingId)
-                    _message.value = "Re-queued for transcription"
-                    refreshRecoveryForCurrentRecording()
-                }
+                val result = transcriptionRecovery.retry(recordingId)
+                _message.value = result.toUserMessage("Re-queued for transcription")
+                refreshRecoveryForCurrentRecording()
             }
         }
 

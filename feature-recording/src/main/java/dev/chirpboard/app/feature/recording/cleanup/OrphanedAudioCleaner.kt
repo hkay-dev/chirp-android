@@ -48,8 +48,10 @@ class OrphanedAudioCleaner
                     val validPaths = recordingRepository.getAllAudioPaths().toSet()
                     val journalReferencedPaths = sessionJournal.getAllReferencedAudioPaths()
                     val safelistedPaths = sessionJournal.getSafelistedAudioPaths()
-                    val protectedPaths = protectedPathsStore.activeProtectedPaths()
-                    val expiredProtectedPaths = protectedPathsStore.consumeExpiredPaths()
+                    // Active and expired sets come from a single store snapshot so a TTL
+                    // lapsing mid-scan can never land a path in both sets; markers are
+                    // cleared only after the audio is durably quarantined or deleted.
+                    val (protectedPaths, expiredProtectedPaths) = protectedPathsStore.partitionProtectedPaths()
                     val startedAtByPath = sessionJournal.startedAtByAudioPath()
                     val now = System.currentTimeMillis()
 
@@ -111,6 +113,14 @@ class OrphanedAudioCleaner
                             now = now,
                         )
                     deletedCount += purgeStaleQuarantine(recordingsDir, now)
+
+                    // Fail closed: markers are consumed only once their file no longer
+                    // exists at its original path (quarantined, deleted, or long gone).
+                    // A failed rename or a crash leaves the marker in place, so the next
+                    // run retries the quarantine instead of hard-deleting the kept audio.
+                    protectedPathsStore.clearPaths(
+                        expiredProtectedPaths.filterNot { path -> File(path).exists() },
+                    )
 
                     if (deletedCount > 0) {
                         Log.i(TAG, "Cleaned up $deletedCount orphaned audio file(s)")

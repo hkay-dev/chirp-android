@@ -334,14 +334,22 @@ class HomeViewModel
 
         fun discardInterruptedSession(sessionId: UUID) {
             viewModelScope.launch {
-                sessionRecovery.discardSession(sessionId)
+                val result = sessionRecovery.discardSession(sessionId)
+                if (result is SessionRecoveryResult.Failed) {
+                    // Surface the refusal (e.g. the finalize worker still owns the
+                    // session) instead of letting the card silently disappear.
+                    _errorMessage.value = result.message
+                }
                 refreshRecoverableSessions()
             }
         }
 
         fun keepInterruptedSession(sessionId: UUID) {
             viewModelScope.launch {
-                sessionRecovery.keepSession(sessionId)
+                val result = sessionRecovery.keepSession(sessionId)
+                if (result is SessionRecoveryResult.Failed) {
+                    _errorMessage.value = result.message
+                }
                 refreshRecoverableSessions()
             }
         }
@@ -517,13 +525,15 @@ class HomeViewModel
         }
 
         /**
-         * Retry transcription for a failed recording.
+         * Retry transcription for a failed recording. Surfaces the actual outcome:
+         * the retry may be refused (no longer FAILED, active work, ownership timeout)
+         * and reporting an unconditional success would mislead the user.
          */
         fun retryTranscription(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 if (recording.status == RecordingStatus.FAILED) {
-                    transcriptionRecovery.retry(recording.id)
-                    _errorMessage.value = "Re-queued for transcription"
+                    val result = transcriptionRecovery.retry(recording.id)
+                    _errorMessage.value = result.toUserMessage("Re-queued for transcription")
                 }
             }
         }

@@ -128,6 +128,28 @@ class RecordingNotificationFactory
             service.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
         }
 
+        /**
+         * Transient, auto-expiring feedback for a restart refused while a stop is saving
+         * the previous recording. Posted on its own id so it never clobbers the ongoing
+         * recording notification, and never as a foreground notification.
+         */
+        fun notifyRestartRefused(service: Service) {
+            val notification =
+                NotificationCompat
+                    .Builder(service, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notif_mic)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .setContentIntent(launchPendingIntent(service))
+                    .setContentTitle("Couldn't start over")
+                    .setContentText("Still saving the previous recording — try again in a moment")
+                    .setTimeoutAfter(RESTART_REFUSED_TIMEOUT_MS)
+                    .build()
+            service
+                .getSystemService(NotificationManager::class.java)
+                .notify(RESTART_REFUSED_NOTIFICATION_ID, notification)
+        }
+
         private fun launchPendingIntent(service: Service): PendingIntent? {
             val launchIntent =
                 service.packageManager.getLaunchIntentForPackage(service.packageName)?.apply {
@@ -146,5 +168,7 @@ class RecordingNotificationFactory
         companion object {
             const val CHANNEL_ID = "recording_channel_v2"
             const val NOTIFICATION_ID = 1001
+            const val RESTART_REFUSED_NOTIFICATION_ID = 1002
+            private const val RESTART_REFUSED_TIMEOUT_MS = 8_000L
         }
     }

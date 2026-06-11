@@ -9,6 +9,7 @@ import io.mockk.unmockkStatic
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -129,6 +130,79 @@ class VoiceRecognitionSessionCoordinatorTest {
             assertEquals(VoiceRecognitionSessionCoordinator.StartResult.Superseded, result)
             assertFalse(recorder.startRequested)
             assertFalse(gate.isHeld())
+        }
+
+    @Test
+    fun `cancel request mark is consumed exactly once and only for its own generation`() =
+        runTest {
+            val manager = RecordingStateManager()
+            val gate = VoiceRecognitionCaptureGate(manager)
+            val recorder = FakeRecorderControl()
+            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+
+            val cancelled = coordinator.issueGeneration()
+            coordinator.markCancelRequested(cancelled)
+            val newer = coordinator.issueGeneration()
+
+            // Only the generation whose own client cancelled is suppressed; the active
+            // (newer) generation and repeat lookups keep their terminal callbacks.
+            assertFalse(coordinator.consumeCancelRequest(newer))
+            assertTrue(coordinator.consumeCancelRequest(cancelled))
+            assertFalse(coordinator.consumeCancelRequest(cancelled))
+        }
+
+    @Test
+    fun `superseded start whose client cancelled is reported and its mark consumed`() =
+        runTest {
+            val manager = RecordingStateManager()
+            val gate = VoiceRecognitionCaptureGate(manager)
+            val recorder = FakeRecorderControl()
+            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+
+            val first = coordinator.issueGeneration()
+            // The client cancels the pending start, then a newer start supersedes it.
+            coordinator.markCancelRequested(first)
+            coordinator.issueGeneration()
+
+            val result = coordinator.start(first, {}, {}, {})
+
+            assertEquals(VoiceRecognitionSessionCoordinator.StartResult.Superseded, result)
+            // The service consults the mark to drop the stale terminal BUSY for this
+            // session (its cancel was already terminal from the client's perspective).
+            assertTrue(coordinator.consumeCancelRequest(first))
+            assertFalse(recorder.startRequested)
+            assertFalse(gate.isHeld())
+        }
+
+    @Test
+    fun `cancelling an in-flight start releases the gate and leaves the recorder stopped`() =
+        runTest {
+            val manager = RecordingStateManager()
+            val gate = VoiceRecognitionCaptureGate(manager)
+            val recorder = FakeRecorderControl()
+            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+
+            val generation = coordinator.issueGeneration()
+            val startJob = launch { coordinator.start(generation, {}, {}, {}) }
+            runCurrent()
+            assertTrue(recorder.startRequested)
+            assertTrue(gate.isHeld())
+
+            startJob.cancel()
+            runCurrent()
+
+            assertTrue(recorder.cancelCalled)
+            assertFalse(gate.isHeld())
+            assertEquals(RecordingState.Idle, manager.state.value)
+
+            // The next session must be able to acquire the gate again.
+            recorder.completeStart()
+            val nextGeneration = coordinator.issueGeneration()
+            assertEquals(
+                VoiceRecognitionSessionCoordinator.StartResult.Started,
+                coordinator.start(nextGeneration, {}, {}, {}),
+            )
+            assertTrue(coordinator.cancel(nextGeneration))
         }
 
     @Test
