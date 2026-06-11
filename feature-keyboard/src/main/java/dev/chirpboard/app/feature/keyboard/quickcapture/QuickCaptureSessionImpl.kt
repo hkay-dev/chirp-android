@@ -118,6 +118,7 @@ class QuickCaptureSessionImpl(
     }
 
     override fun close() {
+        audioFocusManager.abandonFocus()
         recorder.close()
     }
 

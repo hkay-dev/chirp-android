@@ -154,6 +154,24 @@ class RecordingStateManagerTest {
         assertFalse(manager.canStartRecording())
         assertEquals(null, manager.lastCompletedRecordingId.value)
     }
+    @Test
+    fun onCaptureStopHandoff_staleRecordingIdDoesNotCancelStoppingTimeout() {
+        manager.stoppingTimeoutMsOverrideForTest = 10L
+        val staleRecordingId = UUID.randomUUID()
+        val activeRecordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+        manager.transitionToStopping()
+        manager.startStoppingTimeout(fileSizeBytes = 0L)
+
+        manager.onCaptureStopHandoff(staleRecordingId)
+        Thread.sleep(100)
+
+        assertTrue(manager.state.value is RecordingState.Error)
+        manager.clearError()
+        assertTrue(manager.canStartRecording())
+    }
+
 
     @Test
     fun onRecordingCompleted_returnsToIdle() {
@@ -165,6 +183,22 @@ class RecordingStateManagerTest {
         manager.clearError()
         assertTrue(manager.state.value is RecordingState.Idle)
     }
+    @Test
+    fun onRecordingCompleted_ignoresStaleRecordingIdWhileNewerRecordingIsActive() {
+        val staleRecordingId = UUID.randomUUID()
+        val activeRecordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+
+        manager.onRecordingCompleted(staleRecordingId)
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Recording)
+        assertEquals(activeRecordingId, state.activeRecordingId)
+        assertFalse(manager.canStartRecording())
+        assertEquals(null, manager.lastCompletedRecordingId.value)
+    }
+
 
     @Test
     fun onRecordingError_transitionsToErrorAndReleasesLock() {

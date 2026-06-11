@@ -335,7 +335,6 @@ class RecordingStateManager @Inject constructor() {
      * Releases the recording lock immediately while the DB row remains in-progress until finalize completes.
      */
     fun onCaptureStopHandoff(recordingId: UUID?) {
-        timeoutJob?.cancel()
         var handoffAccepted = false
         _state.update { current ->
             when (current) {
@@ -363,6 +362,7 @@ class RecordingStateManager @Inject constructor() {
             }
         }
         if (handoffAccepted) {
+            timeoutJob?.cancel()
             _lastCompletedRecordingId.value = recordingId
             recordingLock.set(false)
             clearAmplitude()
@@ -376,9 +376,17 @@ class RecordingStateManager @Inject constructor() {
      * @param recordingId The ID of the saved recording, if available
      */
     fun onRecordingCompleted(recordingId: UUID? = null) {
-        timeoutJob?.cancel()
-        _lastCompletedRecordingId.value = recordingId
+        var completionAccepted = false
         _state.update { current ->
+            val currentRecordingId = current.activeRecordingId
+            if (recordingId != null && currentRecordingId != null && currentRecordingId != recordingId) {
+                Log.w(
+                    TAG,
+                    "Ignoring stale recording completion for $recordingId while active recording is $currentRecordingId",
+                )
+                return@update current
+            }
+            completionAccepted = true
             when (current) {
                 is RecordingState.Stopping -> {
                     Log.d(TAG, "State: Stopping -> Idle")
@@ -391,8 +399,12 @@ class RecordingStateManager @Inject constructor() {
                 }
             }
         }
-        recordingLock.set(false)
-        clearAmplitude()
+        if (completionAccepted) {
+            timeoutJob?.cancel()
+            _lastCompletedRecordingId.value = recordingId
+            recordingLock.set(false)
+            clearAmplitude()
+        }
     }
     
     /**

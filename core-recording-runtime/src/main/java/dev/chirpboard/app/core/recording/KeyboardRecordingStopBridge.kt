@@ -12,19 +12,25 @@ import javax.inject.Singleton
 class KeyboardRecordingStopBridge
     @Inject
     constructor() {
-        private val stopHandler = AtomicReference<(() -> Boolean)?>(null)
+        class Registration internal constructor(
+            internal val handler: () -> Boolean,
+        )
 
-        fun registerStopHandler(handler: () -> Boolean) {
-            stopHandler.set(handler)
+        private val stopHandler = AtomicReference<Registration?>(null)
+
+        fun registerStopHandler(handler: () -> Boolean): Registration {
+            val registration = Registration(handler)
+            stopHandler.set(registration)
+            return registration
         }
 
-        fun clearStopHandler() {
-            stopHandler.set(null)
+        fun clearStopHandler(registration: Registration) {
+            stopHandler.compareAndSet(registration, null)
         }
 
         /** Returns true when a keyboard handler accepted the stop request. */
         fun requestStop(): Boolean {
-            val handler = stopHandler.get() ?: return false
-            return handler.invoke()
+            val registration = stopHandler.get() ?: return false
+            return registration.handler.invoke()
         }
     }

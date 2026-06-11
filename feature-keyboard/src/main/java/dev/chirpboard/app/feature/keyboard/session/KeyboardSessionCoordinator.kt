@@ -17,8 +17,10 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +50,7 @@ class KeyboardSessionCoordinator(
     private val availableModes = MutableStateFlow<List<ProcessingModeListItem>>(emptyList())
 
     private var recordingJob: Job? = null
+    private var stopRequestedDuringStart = false
     private var startJob: Job? = null
     private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
@@ -179,6 +182,7 @@ class KeyboardSessionCoordinator(
         val panel = uiState.value.voicePanel
         when {
             isRecording.value -> stopAndTranscribe(commitText)
+            startJob?.isActive == true -> requestStopDuringStart()
             panel == VoicePanelPhase.Error -> {
                 transcription.resetPhase()
                 initializeModel()
@@ -192,11 +196,19 @@ class KeyboardSessionCoordinator(
         if (isRecording.value || startJob?.isActive == true) {
             return
         }
+        stopRequestedDuringStart = false
         startJob =
             scope.launch {
                 try {
                     when (val result = capture.start()) {
                         is QuickCaptureStartResult.Success -> {
+                            if (stopRequestedDuringStart) {
+                                capture.abandonAudioFocus()
+                                capture.cancelCapture()
+                                recordingStateManager.onRecordingCompleted()
+                                transcription.resetPhase()
+                                return@launch
+                            }
                             HapticFeedback.onRecordStart(context)
                             isRecording.value = true
                             recordingJob = scope.launch { capture.collectSamples() }
@@ -217,14 +229,23 @@ class KeyboardSessionCoordinator(
                         is QuickCaptureStartResult.AlreadyRecording -> Unit
                     }
                 } finally {
+                    stopRequestedDuringStart = false
                     startJob = null
                 }
             }
     }
 
+    private fun requestStopDuringStart(): Boolean {
+        if (startJob?.isActive != true) {
+            return false
+        }
+        stopRequestedDuringStart = true
+        return true
+    }
+
     fun stopAndTranscribe(commitText: (String) -> Unit): Boolean {
         if (!isRecording.value) {
-            return false
+            return requestStopDuringStart()
         }
         isRecording.value = false
 
@@ -247,8 +268,9 @@ class KeyboardSessionCoordinator(
         recordingStateManager.startStoppingTimeout(fileSizeBytes = 0L)
 
         transcriptionJob?.cancel()
-        transcriptionJob =
-            scope.launch(Dispatchers.Default) {
+        var newJob: Job? = null
+        newJob =
+            scope.launch(Dispatchers.Default, start = CoroutineStart.LAZY) {
                 try {
                     transcription.transcribe(
                         request =
@@ -264,15 +286,28 @@ class KeyboardSessionCoordinator(
                         onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
                     )
                 } finally {
-                    transcriptionJob = null
+                    if (transcriptionJob === newJob) {
+                        transcriptionJob = null
+                    }
                 }
             }
+        transcriptionJob = newJob
+        checkNotNull(newJob).start()
         return true
     }
 
     fun cancelRecording() {
         val wasRecording = isRecording.value
+        val wasStarting = startJob?.isActive == true
         if (!wasRecording && transcriptionJob?.isActive != true) {
+            if (wasStarting) {
+                stopRequestedDuringStart = true
+                startJob?.cancel()
+                capture.abandonAudioFocus()
+                capture.cancelCapture()
+                recordingStateManager.onRecordingCompleted()
+                transcription.resetPhase()
+            }
             return
         }
         transcriptionJob?.cancel()
@@ -311,14 +346,19 @@ class KeyboardSessionCoordinator(
         isRecording.value = false
         transcription.resetPhase()
         scope.launch {
-            persistence.persistAudioSource(
-                audioSource = audioSource,
-                rawText = null,
-                processedText = null,
-                errorMessage = errorMessage,
-            )
-            recordingStateManager.onRecordingCompleted()
-            onComplete()
+            try {
+                withContext(NonCancellable) {
+                    persistence.persistAudioSource(
+                        audioSource = audioSource,
+                        rawText = null,
+                        processedText = null,
+                        errorMessage = errorMessage,
+                    )
+                }
+            } finally {
+                recordingStateManager.onRecordingCompleted()
+                onComplete()
+            }
         }
     }
 

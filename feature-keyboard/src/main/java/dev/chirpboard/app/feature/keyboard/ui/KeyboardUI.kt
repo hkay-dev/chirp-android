@@ -1,5 +1,7 @@
 package dev.chirpboard.app.feature.keyboard.ui
 
+import android.os.SystemClock
+
 import androidx.annotation.StringRes
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.EaseInOutQuad
@@ -77,6 +79,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -97,6 +102,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 private val KeyboardPanelShape = RoundedCornerShape(20.dp)
 private val RecordingActionsHeight = 64.dp
@@ -107,7 +113,17 @@ internal fun shouldStartSpaceCursorDrag(
     dx: Float,
     dy: Float,
     thresholdPx: Float,
-): Boolean = (dx * dx + dy * dy) > thresholdPx * thresholdPx
+): Boolean = abs(dx) > thresholdPx && abs(dx) > abs(dy)
+
+internal fun isPointerInsideKey(
+    position: Offset,
+    width: Int,
+    height: Int,
+): Boolean =
+    position.x >= 0f &&
+        position.y >= 0f &&
+        position.x <= width.toFloat() &&
+        position.y <= height.toFloat()
 
 private enum class ProcessingPhase {
     Transcribing,
@@ -347,6 +363,12 @@ private fun KeyboardAiSettingsMenu(
 ) {
     var expanded by remember { mutableStateOf(false) }
     val modes = availableModes.ifEmpty { defaultKeyboardModeOptions() }
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            expanded = false
+        }
+    }
+
 
     Box {
         FilledTonalIconButton(
@@ -391,9 +413,12 @@ private fun KeyboardAiSettingsMenu(
                     )
                 },
                 onClick = {
-                    onToggleLlm()
-                    expanded = false
+                    if (enabled) {
+                        onToggleLlm()
+                        expanded = false
+                    }
                 },
+                enabled = enabled,
                 leadingIcon = {
                     Icon(Icons.Filled.AutoAwesome, contentDescription = null)
                 },
@@ -409,10 +434,12 @@ private fun KeyboardAiSettingsMenu(
             modes.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option.name) },
-                    enabled = llmEnabled,
+                    enabled = enabled && llmEnabled,
                     onClick = {
-                        onModeChange(option.id)
-                        expanded = false
+                        if (enabled && llmEnabled) {
+                            onModeChange(option.id)
+                            expanded = false
+                        }
                     },
                     leadingIcon =
                         if (currentMode.id == option.id) {
@@ -741,19 +768,26 @@ private fun BackspaceKey(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val deleteLabel = stringResource(R.string.keyboard_desc_delete)
 
     Box(
         modifier =
             modifier
                 .clip(ChirpShapes.Small)
                 .minimumInteractiveComponentSize()
-                .pointerInput(onDeleteCharacter, onDeleteWord) {
+                .semantics {
+                    role = Role.Button
+                    onClick(label = deleteLabel) {
+                        onDeleteCharacter()
+                        true
+                    }
+                }.pointerInput(onDeleteCharacter, onDeleteWord) {
                     coroutineScope {
                         while (true) {
                             awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
+                                val down = awaitFirstDown(requireUnconsumed = false)
                                 var isPressed = true
-                                val pressStart = System.currentTimeMillis()
+                                val pressStart = SystemClock.uptimeMillis()
                                 var wordMode = false
                                 var repeatCount = 0
 
@@ -764,7 +798,7 @@ private fun BackspaceKey(
                                     this@coroutineScope.launch {
                                         delay(BackspaceInitialRepeatDelayMs)
                                         while (isPressed) {
-                                            val holdDuration = System.currentTimeMillis() - pressStart
+                                            val holdDuration = SystemClock.uptimeMillis() - pressStart
                                             if (!wordMode && shouldEnterBackspaceWordMode(holdDuration)) {
                                                 wordMode = true
                                                 HapticFeedback.onBackspaceWordMode(context)
@@ -784,11 +818,20 @@ private fun BackspaceKey(
                                             delay(backspaceRepeatIntervalMs(holdDuration, wordMode))
                                         }
                                     }
-
                                 try {
-                                    do {
+                                    while (true) {
                                         val event = awaitPointerEvent()
-                                    } while (event.changes.first().pressed)
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        if (!change.pressed ||
+                                            !isPointerInsideKey(
+                                                position = change.position,
+                                                width = size.width,
+                                                height = size.height,
+                                            )
+                                        ) {
+                                            break
+                                        }
+                                    }
                                 } finally {
                                     isPressed = false
                                     repeatJob.cancel()
@@ -801,7 +844,7 @@ private fun BackspaceKey(
     ) {
         Icon(
             Icons.AutoMirrored.Filled.Backspace,
-            contentDescription = stringResource(R.string.keyboard_desc_delete),
+            contentDescription = deleteLabel,
             tint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
     }
@@ -817,13 +860,20 @@ private fun SpaceBarKey(
     val density = LocalDensity.current
     val cursorStepPx = with(density) { SpaceCursorDragStep.toPx() }
     val cursorDragStartThresholdPx = LocalViewConfiguration.current.touchSlop
+    val spaceLabel = stringResource(R.string.keyboard_desc_space)
 
     Box(
         modifier =
             modifier
                 .clip(ChirpShapes.Small)
                 .background(MaterialTheme.colorScheme.secondaryContainer)
-                .pointerInput(onSpace, onMoveCursor, cursorStepPx, cursorDragStartThresholdPx) {
+                .semantics {
+                    role = Role.Button
+                    onClick(label = spaceLabel) {
+                        onSpace()
+                        true
+                    }
+                }.pointerInput(onSpace, onMoveCursor, cursorStepPx, cursorDragStartThresholdPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         var cursorMode = false
@@ -831,7 +881,7 @@ private fun SpaceBarKey(
 
                         while (true) {
                             val event = awaitPointerEvent()
-                            val change = event.changes.first()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) {
                                 if (!cursorMode) {
                                     onSpace()
@@ -872,13 +922,13 @@ private fun SpaceBarKey(
         ) {
             Icon(
                 Icons.Filled.SpaceBar,
-                contentDescription = stringResource(R.string.keyboard_desc_space),
+                contentDescription = spaceLabel,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                stringResource(R.string.keyboard_desc_space),
+                spaceLabel,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
