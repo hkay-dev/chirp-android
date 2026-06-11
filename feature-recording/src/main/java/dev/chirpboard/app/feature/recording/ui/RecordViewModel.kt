@@ -152,8 +152,14 @@ class RecordViewModel
 
         /** Stop the current recording and return the in-progress ID for immediate studio handoff. */
         fun stopRecordingWithHandoff(): UUID? {
-            val recordingId = recordingState.value.activeRecordingId ?: return null
-            recordingManager.stopRecording()
+            val current = recordingState.value
+            if (current.activeOrigin != RecordingOrigin.APP) {
+                return null
+            }
+            val recordingId = current.activeRecordingId ?: return null
+            viewModelScope.launch {
+                recordingManager.stopRecording()
+            }
             return recordingId
         }
 
@@ -161,7 +167,9 @@ class RecordViewModel
 
         /** Stop the current recording and save it. */
         fun stopRecording() {
-            recordingManager.stopRecording()
+            viewModelScope.launch {
+                recordingManager.stopRecording()
+            }
         }
 
         /** Clear the last completed recording ID after navigation has been handled. */

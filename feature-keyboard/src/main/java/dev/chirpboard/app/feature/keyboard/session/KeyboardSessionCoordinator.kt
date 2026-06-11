@@ -281,7 +281,7 @@ class KeyboardSessionCoordinator(
                                 audioSource = audioSource,
                             ),
                         persistence = persistence,
-                        commitText = { text -> scope.launch(Dispatchers.Main) { commitText(text) } },
+                        commitText = commitText,
                         onRecordingCompleted = { recordingStateManager.onRecordingCompleted() },
                         onRecordingError = { message -> recordingStateManager.onRecordingError(message) },
                     )

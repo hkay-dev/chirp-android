@@ -10,6 +10,7 @@ import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -127,9 +128,10 @@ class RecordViewModelTest {
             )
 
         val handoffId = handoffViewModel.stopRecordingWithHandoff()
+        advanceUntilIdle()
 
         assertEquals(recordingId, handoffId)
-        verify { recordingManager.stopRecording() }
+        coVerify { recordingManager.stopRecording() }
     }
 
     @Test
@@ -139,7 +141,24 @@ class RecordViewModelTest {
         val handoffId = viewModel.stopRecordingWithHandoff()
 
         assertNull(handoffId)
-        verify(exactly = 0) { recordingManager.stopRecording() }
+        coVerify(exactly = 0) { recordingManager.stopRecording() }
+    }
+
+    @Test
+    fun `stopRecordingWithHandoff returns null for keyboard recording`() = runTest(testDispatcher) {
+        every { recordingStateManager.state } returns
+            MutableStateFlow(
+                RecordingState.Recording(
+                    origin = RecordingOrigin.KEYBOARD,
+                    recordingId = UUID.randomUUID(),
+                ),
+            )
+
+        val handoffId = viewModel.stopRecordingWithHandoff()
+        advanceUntilIdle()
+
+        assertNull(handoffId)
+        coVerify(exactly = 0) { recordingManager.stopRecording() }
     }
 
     @Test

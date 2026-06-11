@@ -28,6 +28,7 @@ class RecordingStartupCoordinatorTest {
     private lateinit var pendingStopStore: KeyboardPendingStopStore
     private lateinit var recordingStateManager: RecordingStateManager
     private lateinit var sessionRecovery: RecordingSessionRecovery
+    private lateinit var finalizeStartupReconciler: RecordingFinalizeStartupReconciler
     private lateinit var coordinator: RecordingStartupCoordinator
 
     @Before
@@ -43,10 +44,10 @@ class RecordingStartupCoordinatorTest {
         sessionJournal = mockk(relaxed = true)
         recordingStateManager = mockk(relaxed = true)
         sessionRecovery = mockk(relaxed = true)
-        val finalizeStartupReconciler = mockk<RecordingFinalizeStartupReconciler>(relaxed = true)
+        finalizeStartupReconciler = mockk(relaxed = true)
         coEvery { recoveryStore.refresh() } returns Unit
-        coEvery { finalizeStartupReconciler.reconcilePendingFinalizations() } returns Unit
-        coEvery { sessionRecovery.recoverDurableStoppedSessions() } returns Unit
+        coEvery { finalizeStartupReconciler.reconcilePendingFinalizations() } returns emptySet()
+        coEvery { sessionRecovery.recoverDurableStoppedSessions(any()) } returns Unit
         coordinator =
             RecordingStartupCoordinator(
                 recoveryStore = recoveryStore,
@@ -95,7 +96,24 @@ class RecordingStartupCoordinatorTest {
             coordinator.onAppStart()
 
             coVerifyOrder {
-                sessionRecovery.recoverDurableStoppedSessions()
+                sessionRecovery.recoverDurableStoppedSessions(emptySet())
+                recoveryStore.refresh()
+                sessionJournal.pruneAbandonedEntries()
+                orphanedAudioCleaner.cleanOrphanedFiles()
+            }
+        }
+
+    @Test
+    fun onAppStart_skipsDurableRecoveryForSessionsAlreadyEnqueuedForFinalize() =
+        runTest {
+            val finalizingSessionId = UUID.randomUUID()
+            every { recordingStateManager.state } returns MutableStateFlow(RecordingState.Idle)
+            coEvery { finalizeStartupReconciler.reconcilePendingFinalizations() } returns setOf(finalizingSessionId)
+
+            coordinator.onAppStart()
+
+            coVerifyOrder {
+                sessionRecovery.recoverDurableStoppedSessions(setOf(finalizingSessionId))
                 recoveryStore.refresh()
                 sessionJournal.pruneAbandonedEntries()
                 orphanedAudioCleaner.cleanOrphanedFiles()

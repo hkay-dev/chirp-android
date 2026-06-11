@@ -7,6 +7,7 @@ import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.audio.recorder.AudioEncoder
 import dev.chirpboard.app.core.export.TranscriptExportPort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -21,10 +22,12 @@ import io.mockk.verify
 import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -172,6 +175,86 @@ class AppKeyboardInlineCapturePersistenceTest {
             coVerify { recordingRepository.createRecordingWithTranscript(any(), any(), any()) }
         }
 
+
+    @Test
+    fun persistAudioSource_withExplicitSourceDoesNotClearNewerPendingSource() =
+        runTest {
+            val root = createTempDir("keyboard-persist-explicit-source")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val explicitFile = File(root, "explicit.f32pcm").apply { writeText("explicit") }
+            val pendingFile = File(root, "pending.f32pcm").apply { writeText("pending") }
+            persistence.prepareAudioSource(
+                InlineAudioSource.PcmFloatFile(
+                    path = pendingFile.absolutePath,
+                    sampleCount = 1,
+                ),
+            )
+
+            persistence.persistAudioSource(
+                audioSource =
+                    InlineAudioSource.PcmFloatFile(
+                        path = explicitFile.absolutePath,
+                        sampleCount = 1,
+                    ),
+                rawText = null,
+                processedText = null,
+                errorMessage = "cancelled",
+            )
+            persistence.discardSamples()
+
+            assertFalse(explicitFile.exists())
+            assertFalse(pendingFile.exists())
+        }
+
+    @Test
+    fun persistAudioSource_discardsFileBackedSourceWhenPreferenceReadFails() =
+        runTest {
+            val root = createTempDir("keyboard-persist-throwing-preference")
+            val sourceFile = File(root, "source.f32pcm").apply { writeText("source") }
+            val keyboardPreferences =
+                mockk<KeyboardPreferences> {
+                    every { saveKeyboardRecordings } returns flow { throw IllegalStateException("boom") }
+                    every { recordingQualityPreset } returns flowOf(RecordingQualityPreset.High)
+                    every { outputFormat } returns flowOf(RecordingOutputFormat.WAV)
+                }
+            val persistence =
+                AppKeyboardInlineCapturePersistence(
+                    context =
+                        mockk {
+                            every { filesDir } returns root
+                        },
+                    recordingRepository = mockk(relaxed = true),
+                    keyboardPreferences = keyboardPreferences,
+                    transcriptExportPort = transcriptExportPort(),
+                    audioEncoder = mockk(relaxed = true),
+                )
+
+            var failed = false
+            try {
+                persistence.persistAudioSource(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = sourceFile.absolutePath,
+                            sampleCount = 1,
+                        ),
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = null,
+                )
+            } catch (e: IllegalStateException) {
+                failed = true
+            }
+
+            assertTrue(failed)
+            assertFalse(sourceFile.exists())
+        }
     private fun audioEncoderWritingFile(): AudioEncoder =
         mockk {
             every { encode(any(), any(), any(), any(), any()) } answers {

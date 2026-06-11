@@ -21,11 +21,12 @@ class RecordingStartupCoordinator
         private val sessionRecovery: RecordingSessionRecovery,
     ) {
         suspend fun onAppStart() {
-            withContext(Dispatchers.IO) {
-                pendingStopStore.reconcileStale(recordingStateManager.state.value)
-                finalizeStartupReconciler.reconcilePendingFinalizations()
-            }
-            sessionRecovery.recoverDurableStoppedSessions()
+            val finalizingSessionIds =
+                withContext(Dispatchers.IO) {
+                    pendingStopStore.reconcileStale(recordingStateManager.state.value)
+                    finalizeStartupReconciler.reconcilePendingFinalizations()
+                }
+            sessionRecovery.recoverDurableStoppedSessions(excludingSessionIds = finalizingSessionIds)
             recoveryStore.refresh()
             withContext(Dispatchers.IO) {
                 sessionJournal.pruneAbandonedEntries()

@@ -97,11 +97,12 @@ class RecordingSessionRecovery
                 }
             }
 
-        suspend fun recoverDurableStoppedSessions() {
+        suspend fun recoverDurableStoppedSessions(excludingSessionIds: Set<UUID> = emptySet()) {
             val sessions =
                 withContext(Dispatchers.IO) {
                     sessionJournal.loadRecoverableSessions().filter { entry ->
-                        !isLiveSession(entry) &&
+                        entry.sessionId !in excludingSessionIds &&
+                            !isLiveSession(entry) &&
                             (entry.finalAudioPath
                                 ?.let(::File)
                                 ?.let { file -> file.exists() && file.length() >= RecordingSessionJournal.MIN_RECOVERABLE_FILE_BYTES }

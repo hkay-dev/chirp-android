@@ -20,6 +20,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -99,7 +100,9 @@ class RecordingFinalizeStartupReconcilerTest {
                 workManager.getWorkInfosByTag(RecordingFinalizeWorkRequest.workTag(recordingId))
             } returns Futures.immediateFuture(listOf(activeWork))
 
-            reconciler.reconcilePendingFinalizations()
+            val enqueuedSessionIds = reconciler.reconcilePendingFinalizations()
+
+            assertEquals(emptySet<UUID>(), enqueuedSessionIds)
 
             verify(exactly = 0) {
                 workManager.beginUniqueWork(
@@ -148,7 +151,9 @@ class RecordingFinalizeStartupReconcilerTest {
                 workManager.getWorkInfosByTag(RecordingFinalizeWorkRequest.workTag(recordingId))
             } returns Futures.immediateFuture(emptyList())
 
-            reconciler.reconcilePendingFinalizations()
+            val enqueuedSessionIds = reconciler.reconcilePendingFinalizations()
+
+            assertEquals(setOf(sessionId), enqueuedSessionIds)
 
             verify {
                 workManager.beginUniqueWork(

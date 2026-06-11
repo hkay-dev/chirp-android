@@ -2,6 +2,9 @@ package dev.chirpboard.app.feature.recording
 
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
+import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
+import dev.chirpboard.app.core.recording.RecordingActiveStopCommands
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingStartResult
@@ -23,6 +26,8 @@ class RecordingManager
     constructor(
         @ApplicationContext private val context: Context,
         private val stateManager: RecordingStateManager,
+        private val keyboardStopBridge: KeyboardRecordingStopBridge,
+        private val pendingStopStore: KeyboardPendingStopStore,
     ) {
         /** Current recording state */
         val state: StateFlow<RecordingState> = stateManager.state
@@ -72,8 +77,15 @@ class RecordingManager
         /**
          * Stop the current recording.
          */
-        fun stopRecording() {
-            RecordingServiceCommands.stopRecording(context)
+        suspend fun stopRecording(onKeyboardStopQueued: (() -> Unit)? = null) {
+            RecordingActiveStopCommands.stopActiveRecording(
+                context = context,
+                recordingStateManager = stateManager,
+                keyboardStopBridge = keyboardStopBridge,
+                pendingStopStore = pendingStopStore,
+                requesterOrigin = RecordingOrigin.APP,
+                onKeyboardStopQueued = onKeyboardStopQueued,
+            )
         }
 
         fun pauseRecording() {
@@ -102,12 +114,13 @@ class RecordingManager
          * @param profileId Optional profile to use if starting
          * @return Result if starting or stopped
          */
-        fun toggleRecording(
+        suspend fun toggleRecording(
             origin: RecordingOrigin = RecordingOrigin.APP,
             profileId: UUID? = null,
+            onKeyboardStopQueued: (() -> Unit)? = null,
         ): ToggleResult =
             if (state.value.isActive) {
-                stopRecording()
+                stopRecording(onKeyboardStopQueued)
                 ToggleResult.Stopped
             } else {
                 ToggleResult.Started(startRecording(origin, profileId))
