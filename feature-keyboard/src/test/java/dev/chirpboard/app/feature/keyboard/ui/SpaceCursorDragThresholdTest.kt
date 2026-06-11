@@ -11,7 +11,12 @@ class SpaceCursorDragThresholdTest {
     }
 
     @Test
-    fun `movement beyond threshold starts cursor drag`() {
-        assertTrue(shouldStartSpaceCursorDrag(dx = 6f, dy = 8f, thresholdPx = 6f))
+    fun `horizontal movement beyond threshold starts cursor drag`() {
+        assertTrue(shouldStartSpaceCursorDrag(dx = 8f, dy = 2f, thresholdPx = 6f))
+    }
+
+    @Test
+    fun `vertical movement beyond threshold remains a space tap`() {
+        assertFalse(shouldStartSpaceCursorDrag(dx = 2f, dy = 8f, thresholdPx = 6f))
     }
 }

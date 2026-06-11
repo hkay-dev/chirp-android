@@ -41,9 +41,20 @@ class KeyboardRecordingStopBridgeTest {
     @Test
     fun clearStopHandler_removesHandler() {
         val bridge = KeyboardRecordingStopBridge()
-        bridge.registerStopHandler { true }
-        bridge.clearStopHandler()
+        val registration = bridge.registerStopHandler { true }
+        bridge.clearStopHandler(registration)
 
         assertFalse(bridge.requestStop())
     }
+    @Test
+    fun staleClear_doesNotRemoveNewerHandler() {
+        val bridge = KeyboardRecordingStopBridge()
+        val staleRegistration = bridge.registerStopHandler { false }
+        bridge.registerStopHandler { true }
+
+        bridge.clearStopHandler(staleRegistration)
+
+        assertTrue(bridge.requestStop())
+    }
+
 }

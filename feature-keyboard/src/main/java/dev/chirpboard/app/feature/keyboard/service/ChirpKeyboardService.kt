@@ -99,6 +99,7 @@ class ChirpKeyboardService :
     private lateinit var coordinator: KeyboardSessionCoordinator
     private val inputSessionGuard = KeyboardInputSessionGuard()
     private var phoneCallHandler: PhoneCallHandler? = null
+    private var stopBridgeRegistration: KeyboardRecordingStopBridge.Registration? = null
     private var composeView: ComposeView? = null
     private var configChangeGraceUntilUptimeMs = 0L
     private var lastKnownOrientation = Configuration.ORIENTATION_UNDEFINED
@@ -177,9 +178,10 @@ class ChirpKeyboardService :
 
         coordinator.refreshModelStatus()
 
-        keyboardStopBridge.registerStopHandler {
-            stopAndTranscribeForCurrentInput()
-        }
+        stopBridgeRegistration =
+            keyboardStopBridge.registerStopHandler {
+                stopAndTranscribeForCurrentInput()
+            }
         drainPendingKeyboardStopIfNeeded()
     }
 
@@ -316,7 +318,9 @@ class ChirpKeyboardService :
     }
 
     override fun onDestroy() {
-        keyboardStopBridge.clearStopHandler()
+        stopBridgeRegistration?.let(keyboardStopBridge::clearStopHandler)
+        stopBridgeRegistration = null
+        coordinator.cancelRecording()
         phoneCallHandler?.unregister()
         phoneCallHandler = null
         coordinator.capture.close()
