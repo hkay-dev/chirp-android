@@ -7,6 +7,8 @@ import dev.chirpboard.app.core.ui.theme.ChirpTheme
 @Composable
 fun KeyboardTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    // Brand lavender palette is the default for cohesion (DECISIONS Color/brand); a later wave can
+    // pass the user's "Use system colors" preference through to opt into Material You.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) = ChirpTheme(darkTheme = darkTheme, dynamicColor = dynamicColor, content = content)

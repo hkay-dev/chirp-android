@@ -1,74 +1,29 @@
 package dev.chirpboard.app.feature.keyboard.haptic
 
 import android.content.Context
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
+import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
 
 /**
- * Provides haptic feedback for recording actions.
+ * Keyboard haptic feedback.
+ *
+ * Thin facade over the shared [ChirpHaptics] (core-ui) so the keyboard and the rest of the app
+ * share one tactile language (PRM-1). The keyboard's specific call sites and effects are preserved
+ * exactly; only the implementation now lives in core-ui.
  */
 object HapticFeedback {
 
-    /**
-     * Short click/tick feedback when recording starts.
-     */
-    fun onRecordStart(context: Context) {
-        val vibrator = getVibrator(context) ?: return
-        
-        // Short click - 50ms at default amplitude
-        val effect = VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE)
-        vibrator.vibrate(effect)
-    }
+    /** Short click/tick feedback when recording starts. */
+    fun onRecordStart(context: Context) = ChirpHaptics.recordStart(context)
 
-    /**
-     * Double tick pattern when recording stops - distinct from start feedback.
-     */
-    fun onRecordStop(context: Context) {
-        val vibrator = getVibrator(context) ?: return
-        
-        // Two quick pulses: vibrate 40ms, pause 60ms, vibrate 40ms
-        // Pattern: [delay, vibrate, pause, vibrate]
-        val timings = longArrayOf(0, 40, 60, 40)
-        val amplitudes = intArrayOf(0, VibrationEffect.DEFAULT_AMPLITUDE, 0, VibrationEffect.DEFAULT_AMPLITUDE)
-        
-        val effect = VibrationEffect.createWaveform(timings, amplitudes, -1)
-        vibrator.vibrate(effect)
-    }
+    /** Double tick pattern when recording stops - distinct from start feedback. */
+    fun onRecordStop(context: Context) = ChirpHaptics.recordStop(context)
 
-    /**
-     * Distinct pulse when backspace switches to word-delete mode.
-     */
-    fun onBackspaceWordMode(context: Context) {
-        val vibrator = getVibrator(context) ?: return
-        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK))
-    }
+    /** Distinct pulse when backspace switches to word-delete mode. */
+    fun onBackspaceWordMode(context: Context) = ChirpHaptics.escalate(context)
 
-    /**
-     * Light tick when backspace is pressed.
-     */
-    fun onBackspace(context: Context) {
-        val vibrator = getVibrator(context) ?: return
-        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK))
-    }
+    /** Light tick when backspace is pressed. */
+    fun onBackspace(context: Context) = ChirpHaptics.tap(context)
 
-    /**
-     * Very subtle tick while sliding the spacebar to move the cursor.
-     */
-    fun onCursorStep(context: Context) {
-        val vibrator = getVibrator(context) ?: return
-        vibrator.vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
-    }
-
-    private fun getVibrator(context: Context): Vibrator? {
-        val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-        val vibrator = vibratorManager?.defaultVibrator
-        
-        // Check if vibrator is available and has vibration capability
-        if (vibrator == null || !vibrator.hasVibrator()) {
-            return null
-        }
-        
-        return vibrator
-    }
+    /** Very subtle tick while sliding the spacebar to move the cursor. */
+    fun onCursorStep(context: Context) = ChirpHaptics.cursorStep(context)
 }

@@ -44,7 +44,6 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Stop
@@ -55,11 +54,9 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -97,6 +94,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.ui.components.ChirpLlmToggle
+import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
@@ -112,7 +111,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-private val KeyboardPanelShape = RoundedCornerShape(20.dp)
+private val KeyboardPanelShape = ChirpShapes.KeyboardPanel
 private val RecordingActionsHeight = 64.dp
 private val ModelBannerMinHeight = 44.dp
 private const val VoiceTransitionMs = 280
@@ -454,32 +453,14 @@ private fun KeyboardAiSettingsMenu(
 
 
     Box {
-        FilledTonalIconButton(
+        ChirpLlmToggle(
+            enabled = llmEnabled,
             onClick = { if (enabled) expanded = true },
-            enabled = enabled,
-            modifier = Modifier.size(40.dp),
-            colors =
-                IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor =
-                        if (llmEnabled) {
-                            MaterialTheme.colorScheme.tertiaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
-                        },
-                    contentColor =
-                        if (llmEnabled) {
-                            MaterialTheme.colorScheme.onTertiaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                ),
-        ) {
-            Icon(
-                Icons.Filled.AutoAwesome,
-                contentDescription = stringResource(R.string.keyboard_ai_settings),
-                modifier = Modifier.size(20.dp),
-            )
-        }
+            contentDescription = stringResource(R.string.keyboard_ai_settings),
+            interactionEnabled = enabled,
+            onStateDescription = stringResource(R.string.keyboard_ai_state_on),
+            offStateDescription = stringResource(R.string.keyboard_ai_state_off),
+        )
 
         DropdownMenu(
             expanded = expanded,
@@ -694,19 +675,10 @@ private fun UnifiedVoicePanel(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    FloatingActionButton(
+                    ChirpVoiceTriggerButton(
                         onClick = onStart,
-                        modifier = Modifier.size(56.dp),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Mic,
-                            stringResource(R.string.keyboard_desc_start_recording),
-                            Modifier.size(28.dp),
-                        )
-                    }
+                        contentDescription = stringResource(R.string.keyboard_desc_start_recording),
+                    )
                     Text(
                         stringResource(R.string.keyboard_tap_to_speak),
                         style = MaterialTheme.typography.bodyMedium,
@@ -1048,7 +1020,8 @@ private fun KeyboardRecordingGlow(
 
     Canvas(modifier = modifier) {
         val glowAlpha = pulseAlpha.value * strength
-        val cornerRadius = CornerRadius(20.dp.toPx(), 20.dp.toPx())
+        val cornerPx = ChirpShapes.KeyboardPanelCornerRadius.toPx()
+        val cornerRadius = CornerRadius(cornerPx, cornerPx)
         drawRoundRect(
             brush =
                 Brush.radialGradient(

@@ -11,6 +11,8 @@
     <string name="keyboard_ai_settings">AI enhancement settings</string>
     <string name="keyboard_ai_enable">Enable AI enhancement</string>
     <string name="keyboard_ai_disable">Disable AI enhancement</string>
+    <string name="keyboard_ai_state_on">On</string>
+    <string name="keyboard_ai_state_off">Off</string>
     <string name="keyboard_status_recording">Recording</string>
     <string name="keyboard_llm_enable">Enhance with AI</string>
     <string name="keyboard_llm_mode">AI: %1$s</string>
