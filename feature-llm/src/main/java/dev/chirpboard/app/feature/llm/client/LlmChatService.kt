@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.llm.client
 
 import android.util.Log
+import androidx.annotation.Keep
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.annotations.SerializedName
@@ -373,29 +374,40 @@ class LlmChatService
             message: String,
         ) : Exception(message)
 
+        // REL-02/REL-05: every class below is (de)serialized by Gson REFLECTION. Without @Keep,
+        // R8 full mode strips/merges them (mapping.txt proved AnthropicResponse and friends were
+        // class-merged into icon caches with zero fields), making fromJson return all-null
+        // shells SILENTLY. Keep @Keep on each one, matching GeminiModels.kt.
+
+        @Keep
         private data class OpenAiChatRequest(
             @SerializedName("model") val model: String,
             @SerializedName("messages") val messages: List<OpenAiChatMessage>,
         )
 
+        @Keep
         private data class OpenAiChatMessage(
             @SerializedName("role") val role: String,
             @SerializedName("content") val content: String,
         )
 
+        @Keep
         private data class OpenAiChatResponse(
             @SerializedName("choices") val choices: List<OpenAiChoice>? = null,
             @SerializedName("error") val error: OpenAiError? = null,
         )
 
+        @Keep
         private data class OpenAiChoice(
             @SerializedName("message") val message: OpenAiChatMessage? = null,
         )
 
+        @Keep
         private data class OpenAiError(
             @SerializedName("message") val message: String? = null,
         )
 
+        @Keep
         private data class AnthropicRequest(
             @SerializedName("model") val model: String,
             @SerializedName("max_tokens") val maxTokens: Int,
@@ -403,20 +415,24 @@ class LlmChatService
             @SerializedName("messages") val messages: List<AnthropicMessage>,
         )
 
+        @Keep
         private data class AnthropicMessage(
             @SerializedName("role") val role: String,
             @SerializedName("content") val content: String,
         )
 
+        @Keep
         private data class AnthropicResponse(
             @SerializedName("content") val content: List<AnthropicContentBlock>? = null,
             @SerializedName("error") val error: AnthropicError? = null,
         )
 
+        @Keep
         private data class AnthropicContentBlock(
             @SerializedName("text") val text: String? = null,
         )
 
+        @Keep
         private data class AnthropicError(
             @SerializedName("message") val message: String? = null,
         )

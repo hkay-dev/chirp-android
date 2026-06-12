@@ -7,6 +7,12 @@ guava = "33.3.1-android"
 # ForegroundServiceStartNotAllowedException when resuming playback from the media
 # notification while the app is backgrounded on Android 14+.
 media3 = "1.4.1"
+# PLT-03: 2.9.0 -> 2.10.5 (latest 2.10.x). 2.10.0+ implements Service.onTimeout for the
+# Android 15/16 dataSync 6h budget (stops the worker with STOP_REASON_TIMEOUT) and catches
+# budget-exhausted startForeground refusals — 2.9.0 crashed the shared IME process with
+# ForegroundServiceDidNotStopInTimeException when the budget ran out mid-transcription.
+# Single source of truth for :app, :feature-recording, :feature-transcription (REL-12 partial).
+work = "2.10.5"
 
 [libraries]
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
@@ -16,3 +22,4 @@ androidx-test-runner = { module = "androidx.test:runner", version.ref = "android
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }

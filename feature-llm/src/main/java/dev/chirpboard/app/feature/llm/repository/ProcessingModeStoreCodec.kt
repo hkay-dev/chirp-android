@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.llm.repository
 
+import androidx.annotation.Keep
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -106,21 +107,28 @@ internal object ProcessingModeStoreCodec {
 
     // endregion
 
+    // REL-02/REL-05: the three mirrors below are Gson reflection targets — @Keep or R8 strips
+    // their fields and decode silently returns empty (user prompts/presets would "vanish").
+    // The TypeToken generic signatures are protected by the Gson section of proguard-rules.pro.
+
     /**
      * Nullable mirror of the persisted envelope: Gson can null any field. (JSON object keys
      * can never be null, so only the values need the nullable treatment.)
      */
+    @Keep
     private data class OverridesEnvelope(
         val v: Int?,
         val overrides: Map<String, String?>?,
     )
 
+    @Keep
     private data class PresetsEnvelope(
         val v: Int?,
         val presets: List<RawStoredPreset?>?,
     )
 
     /** Fully nullable mirror of [StoredCustomPreset]; validated before use. */
+    @Keep
     private data class RawStoredPreset(
         val id: String?,
         val name: String?,

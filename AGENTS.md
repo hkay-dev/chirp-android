@@ -31,7 +31,8 @@ The app uses a **single database** located in the `data` module:
 
 - Migrations are defined in `data/src/main/java/dev/chirpboard/app/data/db/Migrations.kt`
 - Each schema change requires a new `Migration` class (e.g., `MIGRATION_1_2`)
-- All migrations must be registered in `DataModule.kt`
+- All migrations must be registered by appending them to `Migrations.ALL` (in
+  `Migrations.kt`); `DataModule.kt` spreads that array into the Room builder unchanged
 - Migration tests live in `data/src/androidTest/java/dev/chirpboard/app/data/db/MigrationTest.kt`
 
 **Never use:**
@@ -42,6 +43,7 @@ The app uses a **single database** located in the `data` module:
 When modifying the database schema:
 1. Increment `version` in `@Database` annotation
 2. Create a new `Migration` object in `Migrations.kt`
-3. Add the migration to the builder in `DataModule.kt`
+3. Append the migration to `Migrations.ALL` in `Migrations.kt` (`DataModule.kt` passes
+   `*Migrations.ALL` to the builder — do not edit `DataModule.kt`)
 4. Write a migration test to verify the upgrade path
 5. Document the schema change in the `AppDatabase.kt` class comment

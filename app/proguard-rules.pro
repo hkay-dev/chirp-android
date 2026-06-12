@@ -1,15 +1,19 @@
 # Chirpboard R8 / ProGuard keep rules.
 #
-# NOTE: R8 is NOT yet enabled (isMinifyEnabled = false in build.gradle.kts). These rules are
-# staged so a release build can be turned on once it has been verified end-to-end on device.
-# See START-5: enabling R8 requires a verified assembleRelease run (signing config + a smoke
-# test that recognition, recording, Hilt graph, Room, and the IME all work shrunk). Until then
-# these rules document the conservative keep set R8 will need.
+# R8 IS ENABLED for release (isMinifyEnabled + isShrinkResources in build.gradle.kts,
+# REL-02/04/05). The keep set below covers every reflection surface in the app:
+# sherpa-onnx JNI, Hilt, Room, WorkManager, and ALL Gson-(de)serialized models.
+# Verified via mapping.txt inspection after :app:assembleRelease — if you add a new
+# Gson model class anywhere, annotate it with @androidx.annotation.Keep (see
+# GeminiModels.kt / LlmChatService.kt for the pattern).
 
 # ---------------------------------------------------------------------------
 # sherpa-onnx JNI bridge. The native library accesses these Kotlin classes,
 # their fields, and constructors reflectively from C++; shrinking/renaming any
 # of them breaks recognizer construction at runtime with no compile-time signal.
+# REL-07: the sherpa-onnx AAR's own proguard.txt is EMPTY (verified 1.12.19) —
+# these app-side rules are the ONLY protection for the JNI bridge. Do not
+# "clean them up" on the assumption the AAR protects itself.
 # ---------------------------------------------------------------------------
 -keep class com.k2fsa.sherpa.onnx.** { *; }
 -keepclassmembers class com.k2fsa.sherpa.onnx.** { *; }
@@ -74,3 +78,31 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
+
+# ---------------------------------------------------------------------------
+# Gson (REL-02/REL-05). Gson 2.10.1 ships NO embedded R8 rules (those arrived
+# in 2.11.0), and R8 full mode otherwise (a) strips/merges model classes whose
+# fields are only touched reflectively, and (b) erases the generic Signature
+# attribute that anonymous `object : TypeToken<...>` subclasses depend on,
+# crashing fromJson with "TypeToken must be created with a type argument".
+#
+# Every Gson model class in this app additionally carries @androidx.annotation.Keep
+# (GeminiModels, LlmChatService request/response models, StructuredOutcome-
+# ExtractionResponse, ProcessingModeStoreCodec envelopes, LlmSettingsSnapshot);
+# the rules below are the library-level backstop.
+# ---------------------------------------------------------------------------
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes EnclosingMethod
+-keepattributes InnerClasses
+
+# TypeToken subclasses (incl. anonymous ones) need their generic signature alive.
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep,allowobfuscation class * extends com.google.gson.reflect.TypeToken
+
+# Defense in depth: never strip fields annotated for Gson, wherever they live.
+-keepclassmembers,allowobfuscation class * {
+  @com.google.gson.annotations.SerializedName <fields>;
+}
+
+-dontwarn sun.misc.Unsafe

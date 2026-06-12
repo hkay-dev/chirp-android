@@ -210,11 +210,18 @@ fun TranscriptionSettingsScreen(
     }
 
     if (uiState.showStorageChoice) {
+        // ERR-22 follow-up: openSettings reports whether ANY settings surface opened; on the
+        // rare build where every fallback fails, show manual instructions on the error card
+        // instead of silently doing nothing.
+        val storageSettingsUnavailable =
+            stringResource(R.string.transcription_storage_settings_unavailable)
         StorageChoiceDialog(
             modelSizeMb = uiState.modelSizeMb,
             onAllowAccess = {
                 viewModel.onAllFilesAccessRequested()
-                AllFilesAccessRequester.openSettings(context)
+                if (!AllFilesAccessRequester.openSettings(context)) {
+                    viewModel.onStorageSettingsOpenFailed(storageSettingsUnavailable)
+                }
             },
             onUseAppStorage = { viewModel.downloadModel(preferInternalStorage = true) },
             onDismiss = viewModel::dismissStorageChoice,

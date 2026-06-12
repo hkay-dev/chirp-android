@@ -1004,7 +1004,8 @@ class RecordingRepository
 
         /**
          * Delete multiple recordings in a transaction.
-         * Processes in batches of 100 to respect SQLite variable limits.
+         * Processes in batches of [SQLITE_BIND_LIMIT] (900) to respect SQLite's 999
+         * bind-variable limit.
          *
          * Note: Associated transcripts are automatically deleted via CASCADE.
          */

@@ -162,6 +162,17 @@ class TranscriptionSettingsViewModel
             }
         }
 
+        /**
+         * ERR-22 follow-up (W2 leftover): every AllFilesAccessRequester.openSettings fallback
+         * failed — no settings surface exists on this build. Surface manual instructions on
+         * the screen's standard error card instead of no-oping, and stop waiting for a grant
+         * that can never be given this way.
+         */
+        fun onStorageSettingsOpenFailed(message: String) {
+            savedStateHandle[KEY_AWAITING_ALL_FILES_GRANT] = false
+            _uiState.update { it.copy(errorMessage = message) }
+        }
+
         fun downloadModel(preferInternalStorage: Boolean = false) {
             val state = _uiState.value
             if (state.isLoading || state.isDownloaded) return

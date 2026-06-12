@@ -14,21 +14,54 @@ android {
         applicationId = "dev.chirpboard.app"
         minSdk = 36
         targetSdk = 36
-        versionCode = 30
-        versionName = "3.0"
+        versionCode = 31
+        versionName = "3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // =====================================================================================
+        // REL-01: SINGLE-DEVICE ABI FILTER — arm64-v8a ONLY.
+        // This app is sideloaded onto exactly one personal device (Galaxy S25 Ultra, arm64).
+        // The sherpa-onnx/onnxruntime/lame native payload is ~100.8 MB across 4 ABIs but only
+        // ~25.5 MB for arm64-v8a; the other three ABIs are dead weight (minSdk 36 means no
+        // 32-bit devices exist at all). REMOVE this filter (or add "x86_64") if the app ever
+        // needs to run on an emulator or be distributed to other devices.
+        // =====================================================================================
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    // =========================================================================================
+    // REL-08: Release signing uses the LOCAL DEBUG KEYSTORE on purpose.
+    // This is a personal, sideloaded, single-device app. Signing release with the debug key
+    // means the release APK can UPDATE the currently-installed debug build in place (same
+    // signature + same applicationId), preserving Room chirp.db, DataStore prefs, and the
+    // encrypted LLM API keys. If this is ever switched to a real release keystore, the first
+    // install of the re-keyed APK REQUIRES a full uninstall/reinstall, which DESTROYS all
+    // app-private data (recordings metadata, transcripts, API keys) — only the model under
+    // Documents/.chirpboard survives. Back up ~/.android/debug.keystore; it IS the app key.
+    // =========================================================================================
+    signingConfigs {
+        create("release") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
         release {
-            // START-5: R8 is staged but NOT yet enabled. Conservative keep rules for the
-            // sherpa-onnx JNI bridge, Hilt, Room, and WorkManager live in proguard-rules.pro.
-            // Flip isMinifyEnabled (and shrinkResources) to true ONLY after a verified
-            // assembleRelease + on-device smoke test (recognition, recording, IME, Room) — see
-            // the START-5 follow-up note. Until then the shrinker stays off so the release
-            // build keeps working with no signing config in this environment.
-            isMinifyEnabled = false
+            // START-5/REL-02/REL-04/REL-05: R8 + resource shrinking are ON. The keep set in
+            // proguard-rules.pro covers the sherpa-onnx JNI bridge, Hilt, Room, WorkManager,
+            // and every Gson-reflection model (LLM clients, presets codec, key backup) — all
+            // verified via mapping.txt after assembleRelease. The remaining gate is the
+            // on-device smoke test (see ONDEVICE notes): dictation, record+transcribe,
+            // OpenAI/Anthropic/Gemini chat, custom presets, key backup restore.
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -55,6 +88,14 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+        jniLibs {
+            // REL-06: the sherpa-onnx AAR bundles three native libs but the Kotlin bridge only
+            // ever calls System.loadLibrary("sherpa-onnx-jni") (OfflineRecognizer companion in
+            // the AAR), and libsherpa-onnx-jni.so does NOT link against the C/C++ API libs
+            // (verified with llvm-readelf: NEEDED = onnxruntime/log/android/c/m/dl only).
+            // Excluding them saves ~4.7 MB of uncompressed (stored) arm64 payload.
+            excludes += listOf("**/libsherpa-onnx-c-api.so", "**/libsherpa-onnx-cxx-api.so")
         }
     }
 }
@@ -109,12 +150,8 @@ dependencies {
     implementation("androidx.hilt:hilt-work:1.2.0")
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
-    // WorkManager
-    // PLT-03: 2.9.0 -> 2.10.5 (latest 2.10.x). 2.10.0+ implements Service.onTimeout for the
-    // Android 15/16 dataSync 6h budget (stops the worker with STOP_REASON_TIMEOUT) and catches
-    // budget-exhausted startForeground refusals — 2.9.0 crashed the shared IME process with
-    // ForegroundServiceDidNotStopInTimeException when the budget ran out mid-transcription.
-    implementation("androidx.work:work-runtime-ktx:2.10.5")
+    // WorkManager (version + PLT-03 rationale live in gradle/libs.versions.toml).
+    implementation(libs.androidx.work.runtime.ktx)
 
     // Startup (needed to disable default WorkManager initialization for Hilt)
     implementation("androidx.startup:startup-runtime:1.1.1")

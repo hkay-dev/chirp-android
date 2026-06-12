@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.llm.client
 
+import androidx.annotation.Keep
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.google.gson.annotations.SerializedName
@@ -33,6 +34,8 @@ internal fun parseStructuredOutcomeExtractionResponse(
     }
 }
 
+// REL-02/REL-05: Gson reflection target — @Keep or R8 strips the fields (verified in mapping.txt).
+@Keep
 private data class StructuredOutcomeExtractionResponse(
     @SerializedName("tasks")
     val tasks: List<String>? = null,

@@ -79,7 +79,7 @@ It can also work as a triggered speech recognition service from compatible keybo
 
 Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 
-- Sherpa-ONNX with a local Parakeet TDT speech model for on-device transcription.
+- Sherpa-ONNX with a local Parakeet TDT 0.6B v2 (int8) speech model for on-device transcription.
 - Jetpack Compose and Material 3 for the UI.
 - Room for local storage.
 - Hilt for dependency injection.
@@ -93,6 +93,12 @@ Local transcription is the heart of the project. AI processing sits on top.
 
 This is not a polished product from a team. It is a working personal app and a learning project.
 
+- Builds target **arm64-v8a only** (`ndk.abiFilters` in `app/build.gradle.kts`) because the app
+  is sideloaded onto a single physical device. Remove that filter (or add `x86_64`) before
+  building for an emulator or any other device.
+- Release builds are R8-minified and signed with the local debug keystore on purpose, so a
+  release APK updates the installed build in place. Switching to a real release key would require
+  uninstalling first, which wipes app data (the comment in `app/build.gradle.kts` has details).
 - All of my hands-on device testing is on a Samsung Galaxy S25 Ultra.
 - I'm still learning Android development as I go.
 - This project is 100% co-developed with various LLMs as I learn architecture, UI, Kotlin, testing, debugging, and cleanup.

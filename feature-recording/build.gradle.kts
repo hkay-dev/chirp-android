@@ -63,12 +63,8 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
 
-    // WorkManager
-    // PLT-03: 2.9.0 -> 2.10.5 (latest 2.10.x). 2.10.0+ implements Service.onTimeout for the
-    // Android 15/16 dataSync 6h budget (stops the worker with STOP_REASON_TIMEOUT) and catches
-    // budget-exhausted startForeground refusals — 2.9.0 crashed the shared IME process with
-    // ForegroundServiceDidNotStopInTimeException when the budget ran out mid-transcription.
-    implementation("androidx.work:work-runtime-ktx:2.10.5")
+    // WorkManager (version + PLT-03 rationale live in gradle/libs.versions.toml).
+    implementation(libs.androidx.work.runtime.ktx)
     implementation("androidx.hilt:hilt-work:1.2.0")
     implementation(libs.guava)
     ksp("androidx.hilt:hilt-compiler:1.2.0")
