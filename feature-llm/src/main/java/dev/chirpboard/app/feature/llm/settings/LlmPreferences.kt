@@ -57,6 +57,12 @@ interface LlmSettingsStore {
 
     fun isSecureStorageAvailable(): Boolean
 
+    /**
+     * One-shot SEC-2 notice: true when the secure store was wiped and recreated because its
+     * keyset became undecryptable — the UI should ask the user to re-enter their API keys.
+     */
+    fun consumeSecureStorageResetNotice(): Boolean
+
     fun setApiKeyFor(
         provider: LlmProvider,
         apiKey: String,
@@ -92,6 +98,7 @@ class LlmPreferences
             private const val LEGACY_GEMINI_CREDENTIAL_PREF = "gemini_api_key"
             private const val LEGACY_GEMINI_MODEL_PREF = "gemini_model"
             private const val KEY_ACTIVE_PROVIDER = "llm_active_provider"
+            private const val KEY_SECURE_STORE_RESET_PENDING = "secure_store_reset_pending"
 
             private fun apiKeyPrefKey(provider: LlmProvider): String = "llm_api_key_${provider.id}"
 
@@ -356,24 +363,72 @@ class LlmPreferences
             }
         }
 
-        private fun createSecurePrefs(): SharedPreferences? =
-            try {
-                val masterKey =
-                    MasterKey
-                        .Builder(context)
-                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                        .build()
+        /**
+         * SEC-2: opens the secure store, self-healing the well-known EncryptedSharedPreferences
+         * "undecryptable keyset" trap. If the AndroidKeyStore master key was invalidated while
+         * secure_prefs.xml stayed on disk, create() throws on EVERY call forever — which used to
+         * leave [securePrefs] permanently null, so API keys could never be read OR saved again
+         * without Clear Data. Now the poisoned file is deleted and the store recreated once:
+         * the stored keys are lost (they were already undecryptable), the user re-enters them,
+         * and a one-time notice is queued via [consumeSecureStorageResetNotice].
+         */
+        private fun createSecurePrefs(): SharedPreferences? {
+            val firstAttempt =
+                runCatching { openSecurePrefs() }
+                    .onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        Log.e(TAG, "Failed to create EncryptedSharedPreferences; resetting store", error)
+                    }
+            firstAttempt.getOrNull()?.let { return it }
 
-                EncryptedSharedPreferences.create(
-                    context,
-                    SECURE_PREFS_NAME,
-                    masterKey,
-                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-                )
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Failed to create EncryptedSharedPreferences", e)
-                null
+            // Wipe the undecryptable store and retry once. deleteSharedPreferences removes the
+            // backing XML (the Tink keyset + ciphertext that no longer match the Keystore key).
+            return runCatching {
+                if (!context.deleteSharedPreferences(SECURE_PREFS_NAME)) {
+                    Log.w(TAG, "deleteSharedPreferences($SECURE_PREFS_NAME) reported failure")
+                }
+                val recreated = openSecurePrefs()
+                markSecureStorageResetPending()
+                Log.w(TAG, "Secure storage was reset after an undecryptable keyset; keys must be re-entered")
+                recreated
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                Log.e(TAG, "Secure storage unavailable even after reset", error)
+            }.getOrNull()
+        }
+
+        private fun openSecurePrefs(): SharedPreferences {
+            val masterKey =
+                MasterKey
+                    .Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+
+            return EncryptedSharedPreferences.create(
+                context,
+                SECURE_PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+        }
+
+        private fun markSecureStorageResetPending() {
+            // Plain (non-secure) prefs on purpose: the marker carries no secret and must be
+            // readable even if the secure store breaks again.
+            appPrefs.edit().putBoolean(KEY_SECURE_STORE_RESET_PENDING, true).apply()
+        }
+
+        /**
+         * One-shot: true when the secure store had to be wiped and recreated (SEC-2), so the
+         * settings UI can tell the user to re-enter their API keys. Clears the flag on read.
+         */
+        override fun consumeSecureStorageResetNotice(): Boolean {
+            ensureInitialized()
+            val pending = appPrefs.getBoolean(KEY_SECURE_STORE_RESET_PENDING, false)
+            if (pending) {
+                appPrefs.edit().remove(KEY_SECURE_STORE_RESET_PENDING).apply()
             }
+            return pending
+        }
     }

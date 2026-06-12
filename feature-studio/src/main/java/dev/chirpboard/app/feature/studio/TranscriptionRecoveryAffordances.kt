@@ -25,6 +25,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
+import dev.chirpboard.app.core.ui.R as CoreR
+import dev.chirpboard.app.data.model.isWaitingForSpeechModel
 
 @Composable
 fun TranscriptionRecoverySection(
@@ -73,7 +75,7 @@ fun TranscriptionRecoverySection(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.rec_retry_transcription_cap))
+                Text(stringResource(CoreR.string.rec_retry_transcription))
             }
         }
     }
@@ -98,7 +100,7 @@ fun EnhancingRecoveryActions(
             modifier = Modifier.size(16.dp),
         )
         Spacer(modifier = Modifier.width(4.dp))
-        Text(stringResource(R.string.rec_recover), style = MaterialTheme.typography.labelMedium)
+        Text(stringResource(CoreR.string.rec_recover), style = MaterialTheme.typography.labelMedium)
     }
     if (showRetranscribe) {
         TextButton(
@@ -206,19 +208,28 @@ private fun RecoveryDiagnosticsSection(
     }
 }
 
-/** I18N-12: map machine reason codes to short human copy; unknown codes are humanized. */
+/**
+ * I18N-12: map machine reason codes to short human copy. Only snake_case machine codes are
+ * humanized; anything else (raw exception text persisted by legacy rows) falls back to the
+ * generic failure line so developer diagnostics never reach the screen (I18N-05).
+ */
 @Composable
 private fun recoveryReasonDisplayText(reason: String?): String =
     when {
         reason == null -> stringResource(R.string.rec_recovery_no_reason)
+        isWaitingForSpeechModel(reason) ->
+            stringResource(R.string.rec_recovery_reason_model_missing)
         reason.startsWith("worker_exception") ->
             stringResource(R.string.rec_recovery_reason_failed_unexpectedly)
         reason.contains("stale") ->
             stringResource(R.string.rec_recovery_reason_stalled)
         reason.contains("queue_handoff") || reason.contains("interrupted") ->
             stringResource(R.string.rec_recovery_reason_interrupted)
-        else -> reason.replace('_', ' ').replaceFirstChar { it.uppercase() }
+        MACHINE_REASON_CODE.matches(reason) -> reason.replace('_', ' ').replaceFirstChar { it.uppercase() }
+        else -> stringResource(R.string.rec_recovery_reason_failed_unexpectedly)
     }
+
+private val MACHINE_REASON_CODE = Regex("[a-z0-9_]+")
 
 @Composable
 private fun recoveryOwnershipDisplayText(ownership: RecoveryOwnershipState): String =

@@ -141,6 +141,7 @@ fun LlmSettingsScreen(
                             onTestConnection = viewModel::testConnection,
                             onClear = viewModel::clearApiKey,
                             onDismissTestResult = viewModel::dismissTestResult,
+                            onDismissSecureStorageResetNotice = viewModel::dismissSecureStorageResetNotice,
                         )
 
                         LlmSettingsBackupSection(

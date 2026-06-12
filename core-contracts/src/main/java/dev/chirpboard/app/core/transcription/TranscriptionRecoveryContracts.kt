@@ -89,15 +89,20 @@ interface TranscriptionRecovery {
     suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics
 }
 
-fun ManualRecoveryResult.toUserMessage(success: String): String =
+// I18N-08: refusal copy lives in core-contracts string resources; callers supply their own
+// success message (typically a feature-module resource).
+fun ManualRecoveryResult.toUserMessage(
+    context: android.content.Context,
+    success: String,
+): String =
     when (this) {
         ManualRecoveryResult.ENQUEUED -> success
         ManualRecoveryResult.BLOCKED_ACTIVE_WORK ->
-            "Already processing. Recovery disabled while active work runs"
+            context.getString(dev.chirpboard.app.core.contracts.R.string.recovery_blocked_active_work)
         ManualRecoveryResult.BLOCKED_OWNERSHIP_TIMEOUT ->
-            "Could not verify processing ownership. Try again shortly"
+            context.getString(dev.chirpboard.app.core.contracts.R.string.recovery_blocked_ownership_timeout)
         ManualRecoveryResult.NOT_RECOVERABLE_STATE ->
-            "Recovery is unavailable for this state"
+            context.getString(dev.chirpboard.app.core.contracts.R.string.recovery_not_recoverable_state)
     }
 
 fun deriveProcessingRecoveryActions(

@@ -1,11 +1,14 @@
 package dev.chirpboard.app.feature.recording.ui.profile
 
+import android.content.Context
 import androidx.compose.runtime.Stable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +21,8 @@ import javax.inject.Inject
 class ProfileEditorViewModel
     @Inject
     constructor(
+        // I18N-08: editor error copy comes from resources.
+        @ApplicationContext private val appContext: Context,
         private val profileRepository: ProfileRepository,
         private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
@@ -92,7 +97,9 @@ class ProfileEditorViewModel
                         )
                     }
                 } else {
-                    _uiState.update { it.copy(isLoading = false, error = "Profile not found") }
+                    _uiState.update {
+                        it.copy(isLoading = false, error = appContext.getString(R.string.rec_msg_profile_not_found))
+                    }
                 }
             }
         }
@@ -141,7 +148,7 @@ class ProfileEditorViewModel
             val state = _uiState.value
 
             if (state.name.isBlank()) {
-                _uiState.update { it.copy(error = "Name is required") }
+                _uiState.update { it.copy(error = appContext.getString(R.string.rec_msg_profile_name_required)) }
                 return
             }
 
@@ -185,7 +192,9 @@ class ProfileEditorViewModel
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     // I18N-05: exception messages are developer diagnostics; keep them in logs.
                     android.util.Log.e("ProfileEditorVM", "Failed to save profile", e)
-                    _uiState.update { it.copy(isLoading = false, error = "Couldn't save the profile. Try again.") }
+                    _uiState.update {
+                        it.copy(isLoading = false, error = appContext.getString(R.string.rec_msg_profile_save_failed))
+                    }
                 }
             }
         }

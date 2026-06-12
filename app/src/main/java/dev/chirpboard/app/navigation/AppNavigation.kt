@@ -76,6 +76,8 @@ private val sharedAudioOverlayFadeOut = fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS
 internal fun AppNavHost(
     navController: NavHostController = androidx.navigation.compose.rememberNavController(),
     incomingSharedAudioRequest: SharedAudioRequest? = null,
+    pendingDeepLinkRoute: String? = null,
+    onDeepLinkConsumed: () -> Unit = {},
     onStartupPromptGateChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -108,6 +110,17 @@ internal fun AppNavHost(
 
     LaunchedEffect(incomingSharedAudioRequest?.token) {
         sharedAudioHandoffViewModel.onIncomingRequest(incomingSharedAudioRequest)
+    }
+
+    // One-shot deep links from MainActivity (keyboard-settings gear alias / launcher
+    // shortcut). Consumed immediately so recompositions and rotations never re-navigate.
+    LaunchedEffect(pendingDeepLinkRoute) {
+        val route = pendingDeepLinkRoute ?: return@LaunchedEffect
+        navController.navigate(route) {
+            launchSingleTop = true
+            popUpTo(Screen.Home.route) { inclusive = false }
+        }
+        onDeepLinkConsumed()
     }
 
     LaunchedEffect(sharedAudioNavigationTarget) {

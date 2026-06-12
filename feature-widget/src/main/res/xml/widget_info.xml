@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- resizeMode was "none", which blocked One UI's widget resize/stack affordances; the
+     centered LinearLayout scales fine, so allow both axes with the 2x2 size as the floor. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
     android:minHeight="110dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="110dp"
     android:targetCellWidth="2"
     android:targetCellHeight="2"
     android:updatePeriodMillis="0"
     android:initialLayout="@layout/widget_layout"
-    android:resizeMode="none"
+    android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:previewLayout="@layout/widget_layout"
     android:description="@string/widget_description" />

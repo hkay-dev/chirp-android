@@ -68,11 +68,18 @@ internal fun LlmSettingsApiKeySection(
     onTestConnection: () -> Unit,
     onClear: () -> Unit,
     onDismissTestResult: () -> Unit,
+    onDismissSecureStorageResetNotice: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        // SEC-2: the secure store had to be wiped (undecryptable keyset) — tell the user once
+        // that their saved keys are gone and need re-entering.
+        if (uiState.secureStorageWasReset) {
+            SecureStorageResetNoticeCard(onDismiss = onDismissSecureStorageResetNotice)
+        }
+
         SettingsSectionHeader(title = stringResource(R.string.llm_provider_section_title))
 
         Text(
@@ -500,6 +507,46 @@ private fun ConnectionTestBanner(
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor.copy(alpha = 0.8f),
             )
+        }
+    }
+}
+
+/**
+ * SEC-2 one-time notice: the encrypted key store became undecryptable (Keystore invalidation)
+ * and was wiped + recreated so keys can be saved again; the user must re-enter them.
+ */
+@Composable
+private fun SecureStorageResetNoticeCard(onDismiss: () -> Unit) {
+    Card(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+            ),
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = stringResource(R.string.llm_secure_storage_reset_notice),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Text(stringResource(R.string.llm_connection_dismiss))
+            }
         }
     }
 }

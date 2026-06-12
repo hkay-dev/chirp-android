@@ -97,10 +97,13 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                     }
 
                     is HomeRecordEntryEvent.ShowError -> {
+                        // I18N-05: event.message carries developer diagnostics; log it and show
+                        // the actionable resource copy instead of interpolating raw text.
+                        android.util.Log.w("AppRecordingNavigation", "Model readiness check failed: ${event.message}")
                         dialogContent =
                             RecordEntryDialogContent(
                                 title = context.getString(R.string.record_entry_model_check_error_title),
-                                message = context.getString(R.string.record_entry_model_check_error_message, event.message),
+                                message = context.getString(R.string.record_entry_model_check_error_message),
                                 confirmLabelRes = R.string.dismiss,
                                 navigateToTranscriptionDownload = false,
                             )

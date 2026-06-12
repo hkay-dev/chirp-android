@@ -559,7 +559,7 @@ class RecordingService : Service() {
                     stage = ReliabilityStage.RECORDING_START,
                     correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                 ).failure("recorder_start_failed", e)
-            recordingStateManager.onRecordingError("Failed to start recording: ${e.message}", e)
+            recordingStateManager.onRecordingError("Couldn't start the recording", e)
             // Delete the audio file if it was created during setup
             currentRecordingFile?.let { file ->
                 if (file.exists()) file.delete()
@@ -618,7 +618,7 @@ class RecordingService : Service() {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to pause recording", e)
-                recordingStateManager.onRecordingError("Failed to pause recording: ${e.message}", e)
+                recordingStateManager.onRecordingError("Couldn't pause the recording", e)
             }
         }
     }
@@ -659,7 +659,7 @@ class RecordingService : Service() {
                 refreshRecordingNotification()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                recordingStateManager.onRecordingError("Failed to resume recording: ${e.message}", e)
+                recordingStateManager.onRecordingError("Couldn't resume the recording", e)
             }
         }
     }
@@ -942,7 +942,7 @@ class RecordingService : Service() {
                         }
                     }
                     if (generation == stopGeneration.get()) {
-                        recordingStateManager.onRecordingError("Failed to stop recording: ${e.message}", e)
+                        recordingStateManager.onRecordingError("Couldn't stop the recording", e)
                     }
                 } finally {
                     finishStopLifecycle(generation)

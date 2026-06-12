@@ -75,6 +75,7 @@ class KeyboardSessionCoordinatorTest {
 
     private lateinit var captureErrorHandler: CapturingSlot<(QuickCaptureError) -> Unit>
     private lateinit var limitReachedHandler: CapturingSlot<() -> Unit>
+    private lateinit var silenceHandler: CapturingSlot<(Boolean) -> Unit>
     private lateinit var stoppingTimeoutHandler: CapturingSlot<suspend (RecordingState.Stopping) -> Unit>
     private val phaseFlow = MutableStateFlow<InlineTranscriptionPhase>(InlineTranscriptionPhase.Idle)
 
@@ -89,9 +90,11 @@ class KeyboardSessionCoordinatorTest {
             }
         captureErrorHandler = slot()
         limitReachedHandler = slot()
+        silenceHandler = slot()
         capture = mockk(relaxed = true)
         every { capture.onRecordingError = capture(captureErrorHandler) } just runs
         every { capture.onLimitReached = capture(limitReachedHandler) } just runs
+        every { capture.onSilenceStateChanged = capture(silenceHandler) } just runs
 
         transcription =
             mockk {
@@ -202,6 +205,36 @@ class KeyboardSessionCoordinatorTest {
             // No live input session: the commit must report failure so the transcript
             // takes the rescue persistence path instead of being silently dropped.
             assertFalse(commitOutcome.await())
+        }
+
+    // AUD-02 keyboard half: the recorder's silence transitions drive the "no audio detected"
+    // hint while dictating, and a session that ends mid-silence never leaks the hint into the
+    // next session (per-session reset).
+    @Test
+    fun silenceTransitions_driveTheNoAudioHintAndResetPerSession() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            assertTrue(coordinator.isRecordingActive())
+            assertFalse(coordinator.uiState.value.silenceHint)
+
+            silenceHandler.captured.invoke(true)
+            assertTrue(coordinator.uiState.value.silenceHint)
+
+            silenceHandler.captured.invoke(false)
+            assertFalse(coordinator.uiState.value.silenceHint)
+
+            // End the session while silenced: the recorder reports no further transitions.
+            silenceHandler.captured.invoke(true)
+            coordinator.cancelRecording()
+            assertFalse(coordinator.uiState.value.silenceHint)
+
+            // The next session must start without the stale hint.
+            coordinator.startRecording()
+            assertTrue(coordinator.isRecordingActive())
+            assertFalse(coordinator.uiState.value.silenceHint)
         }
 
     @Test

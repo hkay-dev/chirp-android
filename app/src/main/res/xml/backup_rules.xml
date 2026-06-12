@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Legacy full-backup-content rules (pre-Android-12 transports). minSdk is 36 so
+  data_extraction_rules.xml is what Android actually reads on-device; this file is kept
+  attribute-aligned with it for tooling and any backup agent that still consults it.
+  See data_extraction_rules.xml for the full policy rationale (PLT-01/02/09, SEC-5/11).
+-->
 <full-backup-content>
-    <include domain="database" path="chirp.db" />
-    <include domain="database" path="chirp.db-wal" />
-    <include domain="database" path="chirp.db-shm" />
-    <include domain="file" path="recordings/" />
-    <include domain="sharedpref" path="chirp.xml" />
+    <include domain="file" path="datastore/" />
+    <exclude domain="file" path="datastore/keyboard_pending_stop.preferences_pb" />
+    <exclude domain="file" path="datastore/recording_recovery.preferences_pb" />
 </full-backup-content>

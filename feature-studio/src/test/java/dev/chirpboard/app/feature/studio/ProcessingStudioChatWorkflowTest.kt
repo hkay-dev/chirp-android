@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.studio
 
 import dev.chirpboard.app.feature.llm.model.ChatMessage
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.test.runTest
@@ -10,6 +11,15 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ProcessingStudioChatWorkflowTest {
+    // I18N-08: the failure copy moved to string resources; tests stub the lookups.
+    private val context =
+        mockk<android.content.Context> {
+            every { getString(R.string.rec_ai_failure_network) } returns
+                "Couldn't reach the AI service. Check your internet connection and try again."
+            every { getString(R.string.rec_ai_failure_generic) } returns
+                "The AI request failed. Try again, or check your AI Processing settings."
+        }
+
     @Test
     fun `createStudioChatMessage sets user flag`() {
         val message = createStudioChatMessage("Hello", isFromUser = true)
@@ -28,6 +38,7 @@ class ProcessingStudioChatWorkflowTest {
 
         val result =
             completeStudioChatExchange(
+                context = context,
                 llmClient = llmClient,
                 transcriptText = "transcript",
                 messagesWithUser = persistentListOf(userMessage),
@@ -52,6 +63,7 @@ class ProcessingStudioChatWorkflowTest {
 
         val result =
             completeStudioChatExchange(
+                context = context,
                 llmClient = llmClient,
                 transcriptText = "transcript",
                 messagesWithUser = persistentListOf(userMessage),
@@ -68,15 +80,15 @@ class ProcessingStudioChatWorkflowTest {
     fun `aiFailureDisplayMessage classifies network vs other failures`() {
         assertEquals(
             "Couldn't reach the AI service. Check your internet connection and try again.",
-            aiFailureDisplayMessage(java.io.IOException("timeout")),
+            aiFailureDisplayMessage(context, java.io.IOException("timeout")),
         )
         assertEquals(
             "The AI request failed. Try again, or check your AI Processing settings.",
-            aiFailureDisplayMessage(IllegalStateException("HTTP 429")),
+            aiFailureDisplayMessage(context, IllegalStateException("HTTP 429")),
         )
         assertEquals(
             "The AI request failed. Try again, or check your AI Processing settings.",
-            aiFailureDisplayMessage(null),
+            aiFailureDisplayMessage(context, null),
         )
     }
 }

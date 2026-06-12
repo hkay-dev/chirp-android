@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Static launcher shortcuts (platform audit: long-press on the launcher icon previously
+  offered nothing). "Start recording" launches MainActivity with a dedicated action; the
+  activity routes it to the Record screen with autoStart, which is FGS-microphone eligible
+  because the shortcut tap is a direct user interaction.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="start_recording"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_record"
+        android:shortcutShortLabel="@string/shortcut_record_short"
+        android:shortcutLongLabel="@string/shortcut_record_long"
+        android:shortcutDisabledMessage="@string/shortcut_record_disabled">
+        <intent
+            android:action="dev.chirpboard.app.action.START_RECORDING"
+            android:targetPackage="dev.chirpboard.app"
+            android:targetClass="dev.chirpboard.app.MainActivity" />
+    </shortcut>
+</shortcuts>

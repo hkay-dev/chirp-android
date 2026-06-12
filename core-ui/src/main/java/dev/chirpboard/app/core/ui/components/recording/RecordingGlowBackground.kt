@@ -12,12 +12,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import dev.chirpboard.app.core.ui.components.reducedMotionEnabled
 import dev.chirpboard.app.core.ui.theme.chirpAccents
 
 private const val GLOW_TWEEN_MS = 1200
 private const val GLOW_MID_ALPHA = 0.15f
 private const val GLOW_PEAK_ALPHA = 0.35f
 private const val GLOW_FLOOR_ALPHA = 0.04f
+
+/** Fixed breathing-phase used when reduced motion is on: a steady mid-intensity glow. */
+private const val STATIC_GLOW_PROGRESS = 0.6f
 
 /**
  * Breathe a glow-band alpha between a near-transparent [floorAlpha] (at rest) and [peakAlpha] as
@@ -41,25 +45,31 @@ fun RecordingGlowBackground(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "glowTransition")
-    // Animate a single Float and read it inside the draw lambda so the infinite transition
-    // invalidates only the draw phase, never composition (no per-vsync recompose).
+    // Reduced-motion: hold a steady mid-intensity glow — the "recording live" signal stays
+    // visible without the breathing pulse (matches shimmer/brandedPulse fallbacks).
+    val reduceMotion = reducedMotionEnabled()
     val glowProgress =
-        infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(GLOW_TWEEN_MS, easing = EaseInOut),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "glowProgress",
-        )
+        if (reduceMotion) {
+            null
+        } else {
+            // Animate a single Float and read it inside the draw lambda so the infinite transition
+            // invalidates only the draw phase, never composition (no per-vsync recompose).
+            rememberInfiniteTransition(label = "glowTransition").animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(GLOW_TWEEN_MS, easing = EaseInOut),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                label = "glowProgress",
+            )
+        }
 
     Canvas(modifier = modifier) {
         // Breathe the alpha (not the hue) of the single recording accent: a near-transparent floor
         // at rest up to the peak, mirroring the prior errorContainer->error fade without a second hue.
-        val progress = glowProgress.value
+        val progress = glowProgress?.value ?: STATIC_GLOW_PROGRESS
         val midAlpha = glowAlpha(progress, GLOW_FLOOR_ALPHA, GLOW_MID_ALPHA)
         val peakAlpha = glowAlpha(progress, GLOW_FLOOR_ALPHA, GLOW_PEAK_ALPHA)
         drawRect(

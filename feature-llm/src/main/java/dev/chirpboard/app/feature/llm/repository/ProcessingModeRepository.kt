@@ -9,8 +9,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.model.ProcessingModeDefaults
@@ -54,8 +52,6 @@ class ProcessingModeRepository
     constructor(
         @ApplicationContext private val context: Context,
     ) {
-        private val gson = Gson()
-
         val currentMode: Flow<ProcessingMode> =
             context.dataStore.data.map { preferences ->
                 buildMode(
@@ -122,7 +118,7 @@ class ProcessingModeRepository
                 preferences[KEY_MODE_ID] = "custom"
                 val overrides = readOverrides(preferences).toMutableMap()
                 overrides["custom"] = prompt
-                preferences[KEY_PROMPT_OVERRIDES] = gson.toJson(overrides)
+                preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
             }
         }
 
@@ -146,12 +142,12 @@ class ProcessingModeRepository
                         customPresets.map { preset ->
                             if (preset.id == presetId) preset.copy(prompt = trimmed) else preset
                         }
-                    preferences[KEY_CUSTOM_PRESETS] = gson.toJson(updated)
+                    preferences[KEY_CUSTOM_PRESETS] = ProcessingModeStoreCodec.encodePresets(updated)
                 } else {
                     require(ProcessingModeDefaults.isEditable(presetId)) { "Preset is not editable" }
                     val overrides = readOverrides(preferences).toMutableMap()
                     overrides[presetId] = trimmed
-                    preferences[KEY_PROMPT_OVERRIDES] = gson.toJson(overrides)
+                    preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
                 }
             }
         }
@@ -169,10 +165,10 @@ class ProcessingModeRepository
                                 preset
                             }
                         }
-                    preferences[KEY_CUSTOM_PRESETS] = gson.toJson(updated)
+                    preferences[KEY_CUSTOM_PRESETS] = ProcessingModeStoreCodec.encodePresets(updated)
                     val overrides = readOverrides(preferences).toMutableMap()
                     overrides.remove(presetId)
-                    preferences[KEY_PROMPT_OVERRIDES] = gson.toJson(overrides)
+                    preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
                     return@edit
                 }
 
@@ -182,7 +178,7 @@ class ProcessingModeRepository
 
                 val overrides = readOverrides(preferences).toMutableMap()
                 overrides.remove(presetId)
-                preferences[KEY_PROMPT_OVERRIDES] = gson.toJson(overrides)
+                preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
             }
         }
 
@@ -207,7 +203,7 @@ class ProcessingModeRepository
             context.dataStore.edit { preferences ->
                 val customPresets = readCustomPresets(preferences).toMutableList()
                 customPresets.add(stored)
-                preferences[KEY_CUSTOM_PRESETS] = gson.toJson(customPresets)
+                preferences[KEY_CUSTOM_PRESETS] = ProcessingModeStoreCodec.encodePresets(customPresets)
             }
 
             return presetId
@@ -227,18 +223,18 @@ class ProcessingModeRepository
                     customPresets.map { preset ->
                         if (preset.id == presetId) preset.copy(name = trimmedName) else preset
                     }
-                preferences[KEY_CUSTOM_PRESETS] = gson.toJson(updated)
+                preferences[KEY_CUSTOM_PRESETS] = ProcessingModeStoreCodec.encodePresets(updated)
             }
         }
 
         suspend fun deleteCustomPreset(presetId: String) {
             context.dataStore.edit { preferences ->
                 val customPresets = readCustomPresets(preferences).filterNot { it.id == presetId }
-                preferences[KEY_CUSTOM_PRESETS] = gson.toJson(customPresets)
+                preferences[KEY_CUSTOM_PRESETS] = ProcessingModeStoreCodec.encodePresets(customPresets)
 
                 val overrides = readOverrides(preferences).toMutableMap()
                 overrides.remove(presetId)
-                preferences[KEY_PROMPT_OVERRIDES] = gson.toJson(overrides)
+                preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
 
                 val currentModeId = preferences[KEY_MODE_ID] ?: ProcessingModeDefaults.DEFAULT_MODE_ID
                 if (currentModeId == presetId) {
@@ -360,20 +356,16 @@ class ProcessingModeRepository
             return readOverrides(preferences)[modeId] ?: defaultPrompt
         }
 
+        // DAT-013: reads go through the versioned, null-validating codec. Both functions accept
+        // the legacy unversioned blob shape; the next write persists the versioned envelope.
         private fun readOverrides(preferences: Preferences): Map<String, String> {
             val json = preferences[KEY_PROMPT_OVERRIDES] ?: return emptyMap()
-            return runCatching {
-                val type = object : TypeToken<Map<String, String>>() {}.type
-                gson.fromJson<Map<String, String>>(json, type) ?: emptyMap()
-            }.getOrDefault(emptyMap())
+            return ProcessingModeStoreCodec.decodeOverrides(json)
         }
 
         private fun readCustomPresets(preferences: Preferences): List<StoredCustomPreset> {
             val json = preferences[KEY_CUSTOM_PRESETS] ?: return emptyList()
-            return runCatching {
-                val type = object : TypeToken<List<StoredCustomPreset>>() {}.type
-                gson.fromJson<List<StoredCustomPreset>>(json, type) ?: emptyList()
-            }.getOrDefault(emptyList())
+            return ProcessingModeStoreCodec.decodePresets(json)
         }
 
         companion object {

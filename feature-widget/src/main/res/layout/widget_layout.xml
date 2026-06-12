@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Theming (platform audit): the layout used hardcoded white-on-dark hex colors, ignoring
+  dynamic color and light/dark. Theme.DeviceDefault.DayNight + ?android:attr colors is the
+  documented Android 12+ widget dynamic-color pattern, so the widget now follows the
+  system palette (Material You / One UI color theming) and flips with dark mode.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
     android:padding="8dp"
+    android:theme="@android:style/Theme.DeviceDefault.DayNight"
     android:background="@drawable/widget_background">
 
     <!-- App name -->
@@ -14,7 +21,7 @@
         android:layout_height="wrap_content"
         android:text="@string/widget_title"
         android:textSize="12sp"
-        android:textColor="#FFFFFF"
+        android:textColor="?android:attr/textColorPrimary"
         android:textStyle="bold"
         android:layout_marginBottom="8dp" />
 
@@ -24,7 +31,7 @@
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:src="@drawable/ic_widget_record"
-        android:contentDescription="@string/widget_desc_toggle_recording"
+        android:contentDescription="@string/widget_desc_start_recording"
         android:scaleType="fitCenter"
         android:background="@drawable/widget_button_background" />
 
@@ -35,7 +42,7 @@
         android:layout_height="wrap_content"
         android:text="@string/widget_status_idle"
         android:textSize="10sp"
-        android:textColor="#B3FFFFFF"
+        android:textColor="?android:attr/textColorSecondary"
         android:layout_marginTop="4dp" />
 
 </LinearLayout>

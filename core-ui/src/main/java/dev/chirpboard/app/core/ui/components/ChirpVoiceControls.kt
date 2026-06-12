@@ -60,9 +60,6 @@ fun ChirpVoiceTriggerButton(
     }
 }
 
-/** Default size of the [ChirpLlmToggle] sparkle button. */
-private val LlmToggleSize = 40.dp
-
 /** Default size of the sparkle glyph inside [ChirpLlmToggle]. */
 private val LlmToggleIconSize = 20.dp
 
@@ -96,12 +93,13 @@ fun ChirpLlmToggle(
     offStateDescription: String? = null,
 ) {
     val stateLabel = if (enabled) onStateDescription else offStateDescription
+    // No fixed 40dp size: the M3 default keeps the 40dp visual container while restoring
+    // the 48dp minimum interactive bounds (a11y touch-target audit, A11Y-6).
     FilledTonalIconButton(
         onClick = onClick,
         enabled = interactionEnabled,
         modifier =
             modifier
-                .size(LlmToggleSize)
                 .semantics {
                     this.contentDescription = contentDescription
                     stateLabel?.let { this.stateDescription = it }

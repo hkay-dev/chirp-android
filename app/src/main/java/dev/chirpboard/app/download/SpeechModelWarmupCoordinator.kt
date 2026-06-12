@@ -4,6 +4,7 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.model.isWaitingForSpeechModel
 import dev.chirpboard.app.data.repository.RecordingRepository
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -48,16 +49,8 @@ enum class SpeechModelWarmupCandidate {
     Recovery,
 }
 
-// I18N-06 WARNING: this classification is keyed off display-string prefixes persisted into
-// Recording.errorMessage by TranscriptionWorker/TranscriptionWorkerSupport ("Speech model
-// unavailable: …" etc.). Do NOT reword those producer strings without updating this matcher
-// in the same change; the durable fix is a typed waiting-for-model reason code on the
-// recording row (data module + worker, owned by the pipeline group) — until then this
-// coupling is load-bearing for model-download recovery.
-internal fun Recording.isWaitingForSpeechModelRecovery(): Boolean =
-    errorMessage?.let { message ->
-        message.startsWith("Model not downloaded") ||
-            message.startsWith("Failed to initialize") ||
-            message.startsWith("Speech model unavailable") ||
-            message.startsWith("Recognizer not ready")
-    } ?: false
+// I18N-06: classification now goes through the single typed classifier in the data module
+// (classifyRecordingProcessingNote). The persisted markers are a frozen machine contract,
+// decoupled from user-facing copy — rewording UI strings can no longer change recovery
+// behavior.
+internal fun Recording.isWaitingForSpeechModelRecovery(): Boolean = isWaitingForSpeechModel(errorMessage)

@@ -4,12 +4,15 @@ import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.model.RecordingProcessingNoteCodes
 import java.util.UUID
 
-internal const val MANUAL_RECOVERY_PREFIX = "manual_recovery:"
-internal const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = "recoverable_queue_handoff:"
-internal const val RECOVERABLE_STALE_TRANSCRIBING_PREFIX = "recoverable_stale_transcribing:"
-internal const val RECOVERABLE_STALE_ENHANCING_PREFIX = "recoverable_stale_enhancing:"
+// I18N-06: the persisted marker strings are owned by the data module's typed classifier so
+// producers and consumers can never drift; these aliases keep this module's call sites terse.
+internal const val MANUAL_RECOVERY_PREFIX = RecordingProcessingNoteCodes.MANUAL_RECOVERY_PREFIX
+internal const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = RecordingProcessingNoteCodes.RECOVERABLE_QUEUE_HANDOFF_PREFIX
+internal const val RECOVERABLE_STALE_TRANSCRIBING_PREFIX = RecordingProcessingNoteCodes.RECOVERABLE_STALE_TRANSCRIBING_PREFIX
+internal const val RECOVERABLE_STALE_ENHANCING_PREFIX = RecordingProcessingNoteCodes.RECOVERABLE_STALE_ENHANCING_PREFIX
 
 internal data class ParsedRecoveryMetadata(
     val reason: String?,

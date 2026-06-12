@@ -10,6 +10,7 @@ import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.TagRepository
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.service.RecordingAutoStopReason
 import dev.chirpboard.app.feature.recording.service.RecordingServiceEvents
@@ -23,6 +24,7 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -37,6 +39,19 @@ import org.junit.Test
 import java.util.UUID
 
 class RecordViewModelTest {
+    // I18N-08: snackbar/banner copy moved to resources; the mock resolves the asserted ids.
+    private val appContext =
+        mockk<android.content.Context>(relaxed = true) {
+            every { getString(R.string.rec_msg_stop_in_progress) } returns
+                "Recording is already being saved. Start over isn't available right now."
+            every { getString(R.string.rec_msg_tag_update_failed) } returns
+                "Couldn't update tags. The recording may no longer exist."
+            every { getString(R.string.rec_msg_tag_add_failed) } returns
+                "Couldn't add the tag. The recording may no longer exist."
+            every { getString(R.string.rec_msg_profile_missing) } returns
+                "Profile no longer exists. Using default recording settings."
+        }
+
     @get:Rule
     val androidLog = MockAndroidLogRule()
 
@@ -71,6 +86,7 @@ class RecordViewModelTest {
 
         viewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -94,6 +110,7 @@ class RecordViewModelTest {
 
         val recordViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -132,6 +149,7 @@ class RecordViewModelTest {
 
         val handoffViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -226,6 +244,7 @@ class RecordViewModelTest {
 
         val stoppingViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -257,6 +276,7 @@ class RecordViewModelTest {
 
         val recordingViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -288,6 +308,7 @@ class RecordViewModelTest {
 
         val taggingViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -326,6 +347,7 @@ class RecordViewModelTest {
 
             val taggingViewModel =
                 RecordViewModel(
+                    appContext = appContext,
                     recordingManager = recordingManager,
                     recordingStateManager = recordingStateManager,
                     profileRepository = profileRepository,
@@ -353,6 +375,7 @@ class RecordViewModelTest {
 
         val recordViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -383,6 +406,7 @@ class RecordViewModelTest {
         val savedStateHandle = SavedStateHandle()
         val firstViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -399,6 +423,7 @@ class RecordViewModelTest {
         // A restored ViewModel (same saved state) sees the latched flag.
         val restoredViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -418,6 +443,7 @@ class RecordViewModelTest {
         coEvery { recoveryStore.refresh() } coAnswers { refreshGate.await() }
         val gatedViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -443,6 +469,7 @@ class RecordViewModelTest {
 
         val failingViewModel =
             RecordViewModel(
+                appContext = appContext,
                 recordingManager = recordingManager,
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
@@ -469,5 +496,35 @@ class RecordViewModelTest {
 
         viewModel.consumeAutoStopEvent()
         assertNull(viewModel.autoStopEvent.value)
+    }
+
+    // AUD-02/AUD-05/ERR-14: the live-session advisory follows the service event flags with
+    // notification-status priority, and clears when the service resets the session state.
+    @Test
+    fun `session advisory tracks service flags and clears on session reset`() = runTest(testDispatcher) {
+        val collector = launch { viewModel.sessionAdvisory.collect {} }
+        advanceUntilIdle()
+        assertNull(viewModel.sessionAdvisory.value)
+
+        serviceEvents.setStorageLow(true)
+        advanceUntilIdle()
+        assertEquals(RecordingSessionAdvisory.STORAGE_LOW, viewModel.sessionAdvisory.value)
+
+        // Silence outranks low storage, mirroring the notification status line.
+        serviceEvents.setSilenceDetected(true)
+        advanceUntilIdle()
+        assertEquals(RecordingSessionAdvisory.SILENCED, viewModel.sessionAdvisory.value)
+
+        serviceEvents.setAutoPauseReason(
+            dev.chirpboard.app.feature.recording.service.RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT,
+        )
+        advanceUntilIdle()
+        assertEquals(RecordingSessionAdvisory.PAUSED_BY_FOCUS_LOSS, viewModel.sessionAdvisory.value)
+
+        serviceEvents.resetSessionState()
+        advanceUntilIdle()
+        assertNull(viewModel.sessionAdvisory.value)
+
+        collector.cancel()
     }
 }

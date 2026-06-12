@@ -51,4 +51,50 @@ class LlmApiKeyBackupCodecTest {
 
         assertTrue(result.isFailure)
     }
+
+    @Test
+    fun `v1 backups still decrypt after the SEC-10 iteration bump`() {
+        val payload = """{"version":1,"activeProvider":"gemini","models":{},"apiKeys":{"gemini":"abc"}}"""
+        val passphrase = "legacy-passphrase".toCharArray()
+
+        val v1Encrypted =
+            LlmApiKeyBackupCodec.encryptWithVersion(
+                payloadJson = payload,
+                passphrase = passphrase,
+                version = 1,
+            )
+
+        val decrypted = LlmApiKeyBackupCodec.decrypt(v1Encrypted, "legacy-passphrase".toCharArray())
+        assertEquals(payload, decrypted)
+    }
+
+    @Test
+    fun `new backups are written as version 2`() {
+        val encrypted =
+            LlmApiKeyBackupCodec.encrypt(
+                payloadJson = """{"apiKeys":{}}""",
+                passphrase = "some-passphrase".toCharArray(),
+            )
+
+        // Version byte sits right after the 9-byte magic header.
+        assertEquals(2, encrypted["CHIRPKEY1".length].toInt())
+    }
+
+    @Test
+    fun `decrypt fails for unknown future version`() {
+        val encrypted =
+            LlmApiKeyBackupCodec.encrypt(
+                payloadJson = """{"apiKeys":{}}""",
+                passphrase = "some-passphrase".toCharArray(),
+            )
+        encrypted["CHIRPKEY1".length] = 9
+
+        val result =
+            runCatching {
+                LlmApiKeyBackupCodec.decrypt(encrypted, "some-passphrase".toCharArray())
+            }
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("Unsupported backup version") == true)
+    }
 }

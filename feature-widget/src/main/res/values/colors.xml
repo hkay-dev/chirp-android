@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget palette (platform audit: widget previously hardcoded #FFFFFF/#B3FFFFFF text and
+  0xFFE53935 tints, ignoring both the brand palette and dynamic color). Text/background now
+  come from theme attrs in widget_layout.xml; these resources cover the glyph tints, with
+  values-night variants matching the app's chirpAccents.recordingLive light/dark pair.
+-->
+<resources>
+    <!-- Live-recording semantic accent (chirpAccents.recordingLive, light) -->
+    <color name="widget_tint_live">#C4314B</color>
+    <!-- Neutral tint while a recording is finalizing -->
+    <color name="widget_tint_saving">#8E8E93</color>
+    <!-- Soft container behind the record/stop button (dynamic system neutral) -->
+    <color name="widget_button_container">@android:color/system_neutral2_100</color>
+</resources>

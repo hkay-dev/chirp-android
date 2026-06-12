@@ -1,6 +1,8 @@
 package dev.chirpboard.app.feature.llm.settings
 
 import androidx.lifecycle.SavedStateHandle
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import io.mockk.coEvery
@@ -23,6 +25,21 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LlmSettingsViewModelTest {
+    @get:org.junit.Rule
+    val androidLog = MockAndroidLogRule()
+
+    // I18N-08: settings copy moved to resources; the mock resolves the ids the tests assert.
+    private val appContext =
+        mockk<android.content.Context> {
+            every { getString(R.string.llm_error_key_not_configured) } returns "API key not configured"
+            every { getString(R.string.llm_error_key_save_failed) } returns "Failed to save API key"
+            every { getString(R.string.llm_error_secure_storage_unavailable) } returns
+                "Secure storage unavailable on this device"
+            every { getString(R.string.llm_error_connection_network) } returns
+                "Couldn't reach the provider. Check your internet connection."
+            every { getString(R.string.llm_error_connection_rejected) } returns
+                "The provider rejected the request. Check your API key and model."
+        }
     private lateinit var preferences: LlmSettingsStore
     private lateinit var backupManager: LlmApiKeyBackupManager
     private lateinit var llmClient: LlmClient
@@ -39,12 +56,13 @@ class LlmSettingsViewModelTest {
         every { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns "initial-key"
         every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
         every { preferences.isSecureStorageAvailable() } returns true
+        every { preferences.consumeSecureStorageResetNotice() } returns false
         every { preferences.countConfiguredApiKeys() } returns 1
         coEvery { preferences.getAutoTitle() } returns false
         coEvery { preferences.getAutoSummary() } returns true
         backupManager = mockk(relaxed = true)
         llmClient = mockk()
-        viewModel = LlmSettingsViewModel(preferences, backupManager, llmClient, SavedStateHandle())
+        viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, SavedStateHandle())
     }
 
     @After
@@ -84,10 +102,24 @@ class LlmSettingsViewModelTest {
         runTest {
             val savedStateHandle = SavedStateHandle()
             savedStateHandle["apiKeyInput_gemini"] = "typed-before-init"
-            viewModel = LlmSettingsViewModel(preferences, backupManager, llmClient, savedStateHandle)
+            viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, savedStateHandle)
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("typed-before-init", viewModel.uiState.value.apiKey)
+        }
+
+    @Test
+    fun `secure storage reset notice surfaces once and is dismissible`() =
+        runTest {
+            // SEC-2: self-heal wiped the store -> one-shot notice for the user.
+            every { preferences.consumeSecureStorageResetNotice() } returns true
+            viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, SavedStateHandle())
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.secureStorageWasReset)
+
+            viewModel.dismissSecureStorageResetNotice()
+            assertFalse(viewModel.uiState.value.secureStorageWasReset)
         }
 
     @Test
@@ -145,14 +177,19 @@ class LlmSettingsViewModelTest {
     fun `testConnection failure`() =
         runTest {
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.failure(Exception("Network Error"))
+            // I18N-05: raw client errors are no longer surfaced; the copy is classified.
+            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
+                Result.failure(java.io.IOException("Unable to resolve host"))
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
             val result = viewModel.uiState.value.connectionTestResult
             assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Error)
-            assertEquals("Network Error", (result as LlmSettingsViewModel.ConnectionTestResult.Error).message)
+            assertEquals(
+                "Couldn't reach the provider. Check your internet connection.",
+                (result as LlmSettingsViewModel.ConnectionTestResult.Error).message,
+            )
         }
 
     @Test

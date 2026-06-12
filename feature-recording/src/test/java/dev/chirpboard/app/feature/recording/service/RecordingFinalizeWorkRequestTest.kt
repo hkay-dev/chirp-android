@@ -11,7 +11,7 @@ import com.google.common.util.concurrent.SettableFuture
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.mockkStatic
+import io.mockk.mockkObject
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -36,7 +36,9 @@ class RecordingFinalizeWorkRequestTest {
         workManager = mockk(relaxed = true)
         continuation = mockk(relaxed = true)
 
-        mockkStatic(WorkManager::class)
+        // WorkManager 2.10 is Kotlin: Kotlin call sites resolve to Companion.getInstance, so the
+        // companion must be mocked (the old static-bridge mock no longer intercepts).
+        mockkObject(WorkManager.Companion)
         every { WorkManager.getInstance(context) } returns workManager
     }
 

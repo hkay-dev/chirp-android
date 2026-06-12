@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PLT-05: adaptive-icon foreground — the Chirpboard parakeet mark (from ic_chirp_parakeet)
+  in white, centered inside the 66/108dp adaptive-icon safe zone (the bird spans ~52dp of
+  the 108dp canvas). No theme-attr tint: launchers rasterize this outside the app theme.
+  The same drawable doubles as the monochrome layer for Android 13+ themed icons.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.2"
+        android:scaleY="2.2"
+        android:translateX="27.6"
+        android:translateY="27.6">
+        <!-- Body + head silhouette -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M15.6,2.2c-2.9,0 -5.3,2.2 -5.6,5l-0.6,0c-2.4,0 -4.4,2 -4.4,4.4c0,1.9 1.2,3.5 2.9,4.1l-1.7,4.6c-0.2,0.5 0.2,1 0.7,1h1.8c0.4,0 0.7,-0.2 0.8,-0.6l1,-2.7c0.4,0.1 0.9,0.1 1.3,0.1c0.5,0 0.9,0 1.3,-0.1l1,2.7c0.1,0.4 0.5,0.6 0.8,0.6h1.8c0.5,0 0.9,-0.5 0.7,-1l-1.4,-3.8c2.2,-1.4 3.7,-3.9 3.7,-6.7l0,-2.3C20.8,4.5 18.5,2.2 15.6,2.2zM16.1,7.4c-0.7,0 -1.2,-0.5 -1.2,-1.2c0,-0.7 0.5,-1.2 1.2,-1.2c0.7,0 1.2,0.5 1.2,1.2C17.3,6.9 16.7,7.4 16.1,7.4z" />
+        <!-- Beak accent -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillAlpha="0.55"
+            android:pathData="M9.4,9.6L6.2,10.5c-0.4,0.1 -0.6,0.5 -0.5,0.9c0.1,0.4 0.5,0.6 0.9,0.5l3.2,-0.9z" />
+    </group>
+</vector>

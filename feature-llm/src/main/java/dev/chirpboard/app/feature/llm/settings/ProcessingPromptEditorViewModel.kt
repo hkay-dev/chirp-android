@@ -1,9 +1,13 @@
 package dev.chirpboard.app.feature.llm.settings
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.model.ProcessingPromptPreset
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import javax.inject.Inject
@@ -18,6 +22,8 @@ import kotlinx.coroutines.launch
 class ProcessingPromptEditorViewModel
     @Inject
     constructor(
+        // I18N-08: editor status copy comes from resources.
+        @ApplicationContext private val appContext: Context,
         savedStateHandle: SavedStateHandle,
         private val modeRepository: ProcessingModeRepository,
     ) : ViewModel() {
@@ -100,8 +106,10 @@ class ProcessingPromptEditorViewModel
                 }.onSuccess {
                     onSaved()
                 }.onFailure { error ->
+                    // I18N-05: raw exception text stays in logs, not the status line.
+                    Log.e("PromptEditorVM", "Failed to save preset", error)
                     _uiState.update {
-                        it.copy(statusMessage = error.message ?: "Unable to save preset")
+                        it.copy(statusMessage = appContext.getString(R.string.llm_prompt_save_failed))
                     }
                 }
             }
@@ -138,7 +146,7 @@ class ProcessingPromptEditorViewModel
                         _uiState.value =
                             UiState(
                                 presetId = id,
-                                statusMessage = "Preset not found",
+                                statusMessage = appContext.getString(R.string.llm_prompt_not_found),
                             )
                         return
                     }

@@ -16,6 +16,7 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ProfileEditorViewModelTest {
+    private val appContext = mockk<android.content.Context>(relaxed = true)
     private lateinit var profileRepository: ProfileRepository
     private val testDispatcher = StandardTestDispatcher()
 
@@ -32,7 +33,7 @@ class ProfileEditorViewModelTest {
 
     @Test
     fun `save includes quick start pin selection`() = runTest {
-        val viewModel = ProfileEditorViewModel(profileRepository, SavedStateHandle())
+        val viewModel = ProfileEditorViewModel(appContext, profileRepository, SavedStateHandle())
 
         viewModel.updateName("Pinned")
         viewModel.updateQuickStartPinned(true)

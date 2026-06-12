@@ -112,6 +112,7 @@ fun HomeScreen(
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val autoStopEvent by viewModel.autoStopEvent.collectAsStateWithLifecycle()
+    val sessionAdvisory by viewModel.sessionAdvisory.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
@@ -231,8 +232,14 @@ fun HomeScreen(
     // death) save through the normal stop path, so they never arrive as RecordingState.Error;
     // they surface through the service's dedicated event channel instead. Acknowledge only
     // after the snackbar ran so a navigation mid-display re-surfaces it on the next screen.
+    // Stale events (older than ~5 minutes — e.g. the app was backgrounded before the snackbar
+    // could run) are consumed silently so they can never greet a much later app open.
     LaunchedEffect(autoStopEvent) {
         val event = autoStopEvent ?: return@LaunchedEffect
+        if (event.isStale()) {
+            viewModel.consumeAutoStopEvent()
+            return@LaunchedEffect
+        }
         snackbarHostState.showSnackbar(
             message = event.reason.autoStopSnackbarMessage(context),
             duration = SnackbarDuration.Short,
@@ -752,6 +759,7 @@ fun HomeScreen(
                                 item = item,
                                 playbackState = playbackRowState,
                                 recordingState = recordingState,
+                                liveCaptureAdvisory = sessionAdvisory,
                                 onClick = { onRecordingClick(item) },
                                 onPlayClick = { viewModel.playRecording(item) },
                                 onLongClick = { selectedItemId = item.id.toString() },

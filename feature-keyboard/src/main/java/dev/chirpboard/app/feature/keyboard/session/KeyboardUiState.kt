@@ -98,14 +98,21 @@ data class KeyboardUiState(
     val settingsEnabled: Boolean = true,
     /** Password/blocked field: the center panel shows a neutral "dictation off" notice (IME-4). */
     val sensitiveInputNotice: Boolean = false,
+    /**
+     * AUD-02 (keyboard half): the live dictation is receiving pure digital silence — the mic
+     * is held by another app or the privacy toggle is off. Swaps the "Recording" status label
+     * for the "no audio detected" hint; only ever true while [voicePanel] is Recording.
+     */
+    val silenceHint: Boolean = false,
 ) {
     @StringRes
     fun statusLabelRes(): Int? =
-        when (voicePanel) {
-            VoicePanelPhase.Recording -> R.string.keyboard_status_recording
-            VoicePanelPhase.LoadingModel -> R.string.keyboard_loading_speech_model
-            VoicePanelPhase.Transcribing -> R.string.keyboard_transcribing
-            VoicePanelPhase.Polishing -> R.string.keyboard_polishing
+        when {
+            voicePanel == VoicePanelPhase.Recording && silenceHint -> R.string.keyboard_status_no_audio
+            voicePanel == VoicePanelPhase.Recording -> R.string.keyboard_status_recording
+            voicePanel == VoicePanelPhase.LoadingModel -> R.string.keyboard_loading_speech_model
+            voicePanel == VoicePanelPhase.Transcribing -> R.string.keyboard_transcribing
+            voicePanel == VoicePanelPhase.Polishing -> R.string.keyboard_polishing
             else -> null
         }
 }
@@ -120,6 +127,7 @@ fun mapKeyboardUiState(
     availableModes: List<ProcessingModeListItem>,
     overlayError: KeyboardOverlayError?,
     sensitiveInput: Boolean = false,
+    silenceDetected: Boolean = false,
 ): KeyboardUiState {
     val voicePanel =
         when {
@@ -162,5 +170,8 @@ fun mapKeyboardUiState(
         // unavailable (error overlay or a sensitive field).
         settingsEnabled = overlayError == null && !sensitiveInput,
         sensitiveInputNotice = sensitiveInput,
+        // AUD-02: gate on the LIVE recording phase so a stale silence flag (or one arriving
+        // while an error overlay replaced the panel) can never show the hint out of context.
+        silenceHint = voicePanel == VoicePanelPhase.Recording && silenceDetected,
     )
 }

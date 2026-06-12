@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- settingsActivity points at the KeyboardSettingsLauncherActivity alias so the gear in
+     system keyboard settings deep-links to Chirp's keyboard preferences, not Home (LIF-15). -->
 <input-method xmlns:android="http://schemas.android.com/apk/res/android"
-    android:settingsActivity="dev.chirpboard.app.MainActivity">
+    android:settingsActivity="dev.chirpboard.app.KeyboardSettingsLauncherActivity">
     <subtype
         android:imeSubtypeMode="keyboard"
         android:isAuxiliary="false"

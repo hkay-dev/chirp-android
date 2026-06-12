@@ -114,12 +114,14 @@ fun ProfileEditorScreen(
                         .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Name field
+                // Name field. I18N-18: "Required" is supporting text instead of a "*" baked
+                // into the label, so TalkBack no longer reads "Name star".
                 OutlinedTextField(
                     value = uiState.name,
                     onValueChange = { viewModel.updateName(it) },
                     label = { Text(stringResource(R.string.rec_profile_name)) },
                     placeholder = { Text(stringResource(R.string.rec_profile_name_placeholder)) },
+                    supportingText = { Text(stringResource(R.string.rec_profile_name_required)) },
                     singleLine = true,
                     keyboardOptions =
                         KeyboardOptions(

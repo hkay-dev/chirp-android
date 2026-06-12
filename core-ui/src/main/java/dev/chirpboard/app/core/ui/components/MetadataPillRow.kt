@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.contracts.R as ContractsR
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.recording.RecordingSource
 import dev.chirpboard.app.core.util.formatAsDuration
@@ -41,8 +42,11 @@ fun MetadataPillRow(
         // A11Y-10: name each pill's role so TalkBack hears "Duration, 03:42" instead of a bare
         // value, matching the descriptions StatsPillRow already passes.
         createdAtMs?.let { createdAt ->
+            // I18N-08: "Today"/"Yesterday" come from resources at the display site.
+            val today = stringResource(ContractsR.string.date_today)
+            val yesterday = stringResource(ContractsR.string.date_yesterday)
             ChirpPill(
-                label = remember(createdAt) { Date(createdAt).formatRelative() },
+                label = remember(createdAt, today, yesterday) { Date(createdAt).formatRelative(today, yesterday) },
                 icon = Icons.Filled.Schedule,
                 contentDescription = stringResource(R.string.rec_pill_recorded),
             )

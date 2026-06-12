@@ -49,6 +49,16 @@ import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
+    // I18N-08: snackbar copy moved to resources; the mock resolves the ids these tests assert.
+    private val appContext =
+        mockk<android.content.Context>(relaxed = true) {
+            every { getString(dev.chirpboard.app.core.ui.R.string.rec_msg_requeued_transcription) } returns
+                "Re-queued for transcription"
+            every { getString(dev.chirpboard.app.core.ui.R.string.rec_msg_transcription_cancelled) } returns
+                "Transcription cancelled"
+            every { getString(dev.chirpboard.app.feature.recording.R.string.rec_msg_queued_for_transcription) } returns
+                "Queued for transcription"
+        }
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var recordingManager: RecordingManager
     private lateinit var tagRepository: TagRepository
@@ -100,6 +110,7 @@ class HomeViewModelTest {
 
         viewModel =
             HomeViewModel(
+                appContext,
                 recordingRepository,
                 recordingManager,
                 tagRepository,
@@ -413,7 +424,7 @@ class HomeViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                ManualRecoveryResult.BLOCKED_ACTIVE_WORK.toUserMessage("Re-queued for transcription"),
+                ManualRecoveryResult.BLOCKED_ACTIVE_WORK.toUserMessage(appContext, "Re-queued for transcription"),
                 viewModel.errorMessage.value,
             )
         }
@@ -491,26 +502,35 @@ class HomeViewModelTest {
         }
 
     @Test
-    fun `enrichmentFailureHint classifies network failures`() {
+    fun `enrichmentFailureHintRes classifies network failures`() {
         assertEquals(
-            "Check your internet connection and try again.",
-            enrichmentFailureHint(java.io.IOException("Unable to resolve host")),
+            dev.chirpboard.app.feature.recording.R.string.rec_msg_enrichment_hint_network,
+            enrichmentFailureHintRes(java.io.IOException("Unable to resolve host")),
         )
         assertEquals(
-            "Try again, or check your AI Processing settings.",
-            enrichmentFailureHint(IllegalStateException("HTTP 500")),
+            dev.chirpboard.app.feature.recording.R.string.rec_msg_enrichment_hint_generic,
+            enrichmentFailureHintRes(IllegalStateException("HTTP 500")),
         )
     }
 
     @Test
-    fun `asHomeProcessingNote strips machine prefixes and attempt suffix`() {
+    fun `homeProcessingNoteRes maps machine codes to friendly copy and hides raw text`() {
+        // I18N-05/I18N-06: typed kinds map to resources; raw/legacy text falls back to the
+        // generic stuck-state line (null), never the persisted message itself.
         assertEquals(
-            "Transcription was interrupted",
-            "recoverable_queue_handoff:Transcription was interrupted|attemptAt=123".asHomeProcessingNote(),
+            dev.chirpboard.app.feature.recording.R.string.rec_note_queue_handoff,
+            homeProcessingNoteRes("recoverable_queue_handoff:Transcription was interrupted|attemptAt=123"),
         )
-        assertEquals("Plain message", "Plain message".asHomeProcessingNote())
-        assertNull("recoverable_stale_transcribing:|attemptAt=9".asHomeProcessingNote())
-        assertNull((null as String?).asHomeProcessingNote())
+        assertEquals(
+            dev.chirpboard.app.feature.recording.R.string.rec_note_stale_recovered,
+            homeProcessingNoteRes("recoverable_stale_transcribing:Recovered stale transcribing state"),
+        )
+        assertEquals(
+            dev.chirpboard.app.feature.recording.R.string.rec_note_manual_recovery,
+            homeProcessingNoteRes("manual_recovery:user_retry|attemptAt=9"),
+        )
+        assertNull(homeProcessingNoteRes("java.io.IOException: ENOSPC raw text"))
+        assertNull(homeProcessingNoteRes(null))
     }
 
     private fun failedDisplayItem(recordingId: UUID): RecordingDisplayItem {
@@ -649,6 +669,7 @@ class HomeViewModelTest {
 
             val localViewModel =
                 HomeViewModel(
+                    appContext,
                     recordingRepository,
                     localRecordingManager,
                     tagRepository,
@@ -753,6 +774,7 @@ class HomeViewModelTest {
 
             val localViewModel =
                 HomeViewModel(
+                    appContext,
                     recordingRepository,
                     recordingManager,
                     tagRepository,
@@ -807,6 +829,7 @@ class HomeViewModelTest {
 
             val localViewModel =
                 HomeViewModel(
+                    appContext,
                     recordingRepository,
                     recordingManager,
                     tagRepository,
@@ -974,6 +997,7 @@ class HomeViewModelTest {
         recordingManagerOverride: RecordingManager = recordingManager,
     ): HomeViewModel =
         HomeViewModel(
+            appContext,
             recordingRepository,
             recordingManagerOverride,
             tagRepository,

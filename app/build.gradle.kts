@@ -45,6 +45,13 @@ android {
         compose = true
     }
 
+    androidResources {
+        // I18N-17 (PLAN: en-only accepted). Strip the ~85 androidx/Material locale tables so
+        // framework-owned UI (pickers, copy/paste menus) matches the app's English-only copy
+        // instead of shipping a mixed-language experience, and drop the dead APK weight.
+        localeFilters += listOf("en")
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -103,7 +110,11 @@ dependencies {
     ksp("androidx.hilt:hilt-compiler:1.2.0")
 
     // WorkManager
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    // PLT-03: 2.9.0 -> 2.10.5 (latest 2.10.x). 2.10.0+ implements Service.onTimeout for the
+    // Android 15/16 dataSync 6h budget (stops the worker with STOP_REASON_TIMEOUT) and catches
+    // budget-exhausted startForeground refusals — 2.9.0 crashed the shared IME process with
+    // ForegroundServiceDidNotStopInTimeException when the budget ran out mid-transcription.
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
 
     // Startup (needed to disable default WorkManager initialization for Hilt)
     implementation("androidx.startup:startup-runtime:1.1.1")

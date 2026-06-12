@@ -560,7 +560,7 @@ fun ProcessingStudioScreen(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text(stringResource(R.string.rec_cancel_transcription))
+                        Text(stringResource(CoreR.string.rec_cancel_transcription))
                     }
                 }
             }
@@ -613,7 +613,7 @@ fun ProcessingStudioScreen(
                                     modifier = Modifier.size(18.dp),
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text(stringResource(R.string.rec_retry_transcription_cap))
+                                Text(stringResource(CoreR.string.rec_retry_transcription))
                             }
                         }
                     }

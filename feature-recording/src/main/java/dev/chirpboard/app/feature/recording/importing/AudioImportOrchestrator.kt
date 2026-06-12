@@ -6,6 +6,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.util.probeDurationMs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +59,7 @@ class AudioImportOrchestrator
                 val recording =
                     try {
                         recordingRepository.createRecording(
-                            title = "Imported Audio",
+                            title = context.getString(R.string.rec_import_default_title),
                             audioPath = outputFile.absolutePath,
                             source = RecordingSource.IMPORTED,
                             durationMs = durationMs,
@@ -67,7 +68,7 @@ class AudioImportOrchestrator
                         if (e is CancellationException) throw e
                         deleteQuietly(outputFile)
                         return@withContext AudioImportResult.FailedBeforePersistence(
-                            message = "Couldn't save the imported audio.",
+                            message = context.getString(R.string.rec_import_save_failed),
                             cause = e,
                         )
                     }
@@ -78,7 +79,7 @@ class AudioImportOrchestrator
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
 
-                    val reason = "Import finished, but queue handoff failed. Recovery is ready on startup."
+                    val reason = context.getString(R.string.rec_import_queue_recovery)
                     runCatching {
                         transcriptionRecovery.markPendingForQueueRecovery(recording.id, reason, e)
                     }
@@ -99,7 +100,7 @@ class AudioImportOrchestrator
                 val inputStream =
                     context.contentResolver.openInputStream(uri)
                         ?: return AudioImportResult.FailedBeforePersistence(
-                            message = "Couldn't open the shared audio file.",
+                            message = context.getString(R.string.rec_import_open_failed),
                         )
 
                 inputStream.use { input ->
@@ -113,7 +114,7 @@ class AudioImportOrchestrator
                 if (e is CancellationException) throw e
                 deleteQuietly(outputFile)
                 AudioImportResult.FailedBeforePersistence(
-                    message = "Couldn't copy the shared audio file.",
+                    message = context.getString(R.string.rec_import_copy_failed),
                     cause = e,
                 )
             }

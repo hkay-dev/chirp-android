@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.pm.ApplicationInfo
@@ -17,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -48,16 +50,26 @@ class ChirpApplication : Application(), Configuration.Provider {
     @Inject
     lateinit var widgetStateObserver: WidgetStateObserver
 
+    @Inject
+    lateinit var recognizerIdleReleasePolicy: RecognizerIdleReleasePolicy
+
     private val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
     )
-    
+
     override fun onCreate() {
         super.onCreate()
+
+        // ERR-21: local-only crash breadcrumbs (rotating stack-trace files; never uploaded).
+        // Installed first so a crash anywhere in the startup path below is still recorded.
+        CrashLogWriter(File(filesDir, CrashLogWriter.LOG_DIR_NAME)).install()
 
         DebugStrictMode.enableIfDebug(
             (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
+
+        // PRF-2: arm the usage-bound idle-release policy for the resident recognizer.
+        recognizerIdleReleasePolicy.start()
 
         widgetStateObserver.startObserving()
 
@@ -113,32 +125,59 @@ class ChirpApplication : Application(), Configuration.Provider {
             .build()
 
     /**
-     * LOAD-1 / KBD-1: the ~660MB Parakeet recognizer is kept warm while the keyboard is enabled
-     * (it is never released on a single surface's start/teardown anymore). The ONLY production
-     * path that frees it is genuine OS memory pressure: when the system asks the process to trim
-     * at a level that signals real pressure ([shouldReleaseRecognizerOnTrim]), release the shared
-     * singleton so this RAM-heavy process is a less attractive low-memory-killer target. The model
-     * reloads lazily / eagerly on the next IME bind, so dictation correctness is preserved.
+     * LOAD-1 / KBD-1 / PRF-1 / REL-09: the ~660MB Parakeet recognizer is kept warm while the
+     * keyboard is enabled (it is never released on a single surface's start/teardown). It is
+     * freed only by genuine memory pressure or by the ~30-minute idle timeout
+     * ([RecognizerIdleReleasePolicy]); both paths refuse to release while any capture or
+     * transcription surface could need the model synchronously.
+     *
+     * Pressure signalling, Android 16 reality: the legacy `RUNNING_LOW`/`RUNNING_CRITICAL`/
+     * `COMPLETE` levels (and `onLowMemory`) are no longer delivered since API 34 — the system
+     * only sends `TRIM_MEMORY_UI_HIDDEN` and `TRIM_MEMORY_BACKGROUND`, which fire on routine
+     * keyboard hides / backgrounding and are NOT by themselves a pressure signal (releasing on
+     * them unconditionally would reintroduce the LOAD-1 cold-reload regression). So on those
+     * delivered levels we poll `ActivityManager.getMemoryInfo()` and release only when the
+     * system reports it is genuinely low on memory. The model reloads lazily / eagerly on the
+     * next IME bind, so dictation correctness is preserved.
      */
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        if (shouldReleaseRecognizerOnTrim(level)) {
-            releaseRecognizerForMemoryPressure(reason = "onTrimMemory(level=$level)")
+        when (trimMemoryAction(level)) {
+            TrimMemoryAction.RELEASE_IF_UNUSED ->
+                releaseRecognizerForMemoryPressure(reason = "onTrimMemory(level=$level)")
+
+            TrimMemoryAction.RELEASE_IF_SYSTEM_LOW ->
+                releaseRecognizerForMemoryPressure(
+                    reason = "onTrimMemory(level=$level)+lowMemory",
+                    requireSystemLowMemory = true,
+                )
+
+            TrimMemoryAction.KEEP -> Unit
         }
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
+        // Equivalent to TRIM_MEMORY_COMPLETE and equally undelivered since API 34; kept wired
+        // as a free best-effort valve in case an OEM build still emits it.
         releaseRecognizerForMemoryPressure(reason = "onLowMemory")
     }
 
-    private fun releaseRecognizerForMemoryPressure(reason: String) {
+    private fun releaseRecognizerForMemoryPressure(
+        reason: String,
+        requireSystemLowMemory: Boolean = false,
+    ) {
+        // Trim callbacks are only delivered after onCreate, but stay defensive about the
+        // lateinit policy in case an OEM delivers one mid-injection.
+        if (!::recognizerIdleReleasePolicy.isInitialized) return
+        // Fast path: nothing resident, nothing to do (avoids the getMemoryInfo binder call on
+        // every routine keyboard hide while the model is cold).
+        if (!RecognizerManager.isResident()) return
         applicationScope.launch {
             try {
-                if (RecognizerManager.isResident()) {
-                    Log.i(TAG, "Releasing speech recognizer under memory pressure: $reason")
-                    RecognizerManager.releaseRecognizer()
-                }
+                if (requireSystemLowMemory && !isSystemLowOnMemory()) return@launch
+                Log.i(TAG, "Releasing speech recognizer under memory pressure: $reason")
+                recognizerIdleReleasePolicy.releaseNowIfUnused(reason)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to release recognizer under memory pressure", e)
@@ -146,30 +185,58 @@ class ChirpApplication : Application(), Configuration.Provider {
         }
     }
 
+    /** PRF-1: real pressure check for the delivered-but-routine trim levels. */
+    private fun isSystemLowOnMemory(): Boolean {
+        val activityManager = getSystemService(ActivityManager::class.java) ?: return false
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+        return memoryInfo.lowMemory
+    }
+
+    /** How [onTrimMemory] treats a given trim level with respect to the resident recognizer. */
+    internal enum class TrimMemoryAction {
+        /** Genuine-pressure legacy levels: release immediately (if not in use). */
+        RELEASE_IF_UNUSED,
+
+        /** Routine delivered levels: release only if `getMemoryInfo()` reports low memory. */
+        RELEASE_IF_SYSTEM_LOW,
+
+        /** Keep the model warm. */
+        KEEP,
+    }
+
     companion object {
         private const val TAG = "ChirpApplication"
 
         /**
-         * Whether an [onTrimMemory] level signals enough memory pressure to free the resident
-         * speech recognizer.
+         * Maps an [onTrimMemory] level to the recognizer residency action.
          *
          * The `TRIM_MEMORY_*` constants are NOT a single ordered scale, so this is an explicit
-         * allowlist, not a `>=` threshold. We release only on genuine pressure:
-         *  - the foreground `TRIM_MEMORY_RUNNING_LOW`/`_CRITICAL` levels (the app is still running
-         *    but the system is actively tight); and
-         *  - `TRIM_MEMORY_COMPLETE` (the process is backgrounded and about to be killed — freeing
-         *    660MB makes it a far less attractive low-memory-killer target).
-         *
-         * Deliberately EXCLUDED are the routine background-LRU levels `TRIM_MEMORY_UI_HIDDEN`,
-         * `TRIM_MEMORY_BACKGROUND`, `TRIM_MEMORY_MODERATE` and the gentle `TRIM_MEMORY_RUNNING_MODERATE`:
-         * the keyboard goes UI-hidden between dictations and apps are routinely background-LRU'd, so
-         * trimming there would reintroduce the cold model reload the user complained about (LOAD-1).
+         * mapping, not a `>=` threshold:
+         *  - `RUNNING_LOW`/`RUNNING_CRITICAL`/`COMPLETE` mean genuine pressure. They are
+         *    deprecated and undelivered since API 34 (this app is Android 16-only), but they are
+         *    kept as a zero-cost best-effort valve and release immediately when seen.
+         *  - `UI_HIDDEN`/`BACKGROUND` are the ONLY levels Android 14+ actually delivers. They
+         *    fire constantly (the keyboard goes UI-hidden between dictations), so they release
+         *    only when an explicit [ActivityManager.getMemoryInfo] poll confirms the system is
+         *    genuinely low — never unconditionally (that would reintroduce LOAD-1).
+         *  - Everything else (`RUNNING_MODERATE`, `MODERATE`) keeps the model warm.
          * Extracted as a pure function so the policy is unit-testable without an Application.
          */
-        internal fun shouldReleaseRecognizerOnTrim(level: Int): Boolean =
-            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
-                level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
-                level == ComponentCallbacks2.TRIM_MEMORY_COMPLETE
+        @Suppress("DEPRECATION") // Legacy levels retained as a documented best-effort valve.
+        internal fun trimMemoryAction(level: Int): TrimMemoryAction =
+            when (level) {
+                ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW,
+                ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+                ComponentCallbacks2.TRIM_MEMORY_COMPLETE,
+                -> TrimMemoryAction.RELEASE_IF_UNUSED
+
+                ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
+                ComponentCallbacks2.TRIM_MEMORY_BACKGROUND,
+                -> TrimMemoryAction.RELEASE_IF_SYSTEM_LOW
+
+                else -> TrimMemoryAction.KEEP
+            }
 
         /**
          * Delay before kicking off the deferrable startup recovery/janitorial work, to keep it

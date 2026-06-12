@@ -20,6 +20,7 @@ import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
 import java.io.IOException
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.R as CoreUiR
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -498,6 +499,7 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val result =
                     completeStudioChatExchange(
+                        context = context,
                         llmClient = llmClient,
                         transcriptText = _uiState.value.effectiveTranscriptText,
                         messagesWithUser = _uiState.value.chatMessages,
@@ -547,7 +549,7 @@ class ProcessingStudioViewModel
                         repository.saveStructuredOutcomeFailure(
                             recordingId = recordingId,
                             sourceTranscriptRevision = transcriptRevision,
-                            failureMessage = aiFailureDisplayMessage(result.exceptionOrNull()),
+                            failureMessage = aiFailureDisplayMessage(context, result.exceptionOrNull()),
                         )
                     }
                 } catch (error: Exception) {
@@ -556,7 +558,7 @@ class ProcessingStudioViewModel
                     repository.saveStructuredOutcomeFailure(
                         recordingId = recordingId,
                         sourceTranscriptRevision = transcriptRevision,
-                        failureMessage = aiFailureDisplayMessage(error),
+                        failureMessage = aiFailureDisplayMessage(context, error),
                     )
                 } finally {
                     structuredOutcomeGenerationInFlight.value = false
@@ -594,11 +596,11 @@ class ProcessingStudioViewModel
             val state = _uiState.value
             if (state.effectiveTranscriptText.isBlank()) return
             if (state.isSelectingTranscript) {
-                _message.value = "Exit transcript selection mode first"
+                _message.value = context.getString(R.string.rec_msg_exit_selection_first)
                 return
             }
             if (isTranscriptBusy(state.status)) {
-                _message.value = "Transcript can't be edited while processing"
+                _message.value = context.getString(R.string.rec_msg_transcript_busy)
                 return
             }
 
@@ -620,7 +622,7 @@ class ProcessingStudioViewModel
         fun enterTranscriptSelectionMode() {
             val state = _uiState.value
             if (state.isEditingTranscript) {
-                _message.value = "Save or cancel your transcript edit first"
+                _message.value = context.getString(R.string.rec_msg_finish_edit_first)
                 return
             }
             if (!state.canEnterTranscriptSelectionMode()) return
@@ -671,7 +673,7 @@ class ProcessingStudioViewModel
                 if (result.isFailure) {
                     // I18N-05: friendly classified copy; raw detail stays in logs.
                     Log.e("ProcessingStudioVM", "Transcript passage action failed", result.exceptionOrNull())
-                    _message.value = aiFailureDisplayMessage(result.exceptionOrNull())
+                    _message.value = aiFailureDisplayMessage(context, result.exceptionOrNull())
                 }
             }
         }
@@ -682,7 +684,7 @@ class ProcessingStudioViewModel
                 val transcript = currentTranscript ?: return@launch
                 val correctedText = _uiState.value.transcriptDraft.trim()
                 if (correctedText.isBlank()) {
-                    _message.value = "Transcript can't be empty"
+                    _message.value = context.getString(R.string.rec_msg_transcript_empty)
                     return@launch
                 }
 
@@ -697,14 +699,14 @@ class ProcessingStudioViewModel
                 try {
                     if (correctedText == transcript.pipelineText) {
                         repository.clearManualCorrection(recordingId)
-                        _message.value = "Manual transcript correction cleared"
+                        _message.value = context.getString(R.string.rec_msg_correction_cleared)
                     } else {
                         repository.saveManualCorrection(
                             recordingId = recordingId,
                             correctedText = correctedText,
                             sourceText = sourceText,
                         )
-                        _message.value = "Transcript correction saved"
+                        _message.value = context.getString(R.string.rec_msg_correction_saved)
                         // PLH-7: a single-word/phrase correction can be promoted to a global
                         // Word Replacement; offer it via an actionable snackbar. Large contiguous
                         // rewrites also produce a "diff", but they are not word replacements, so
@@ -723,7 +725,7 @@ class ProcessingStudioViewModel
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("ProcessingStudioVM", "Failed to save transcript correction", e)
-                    _message.value = "Couldn't save the correction. Your device storage may be full."
+                    _message.value = context.getString(R.string.rec_msg_correction_save_failed)
                     return@launch
                 }
 
@@ -744,13 +746,13 @@ class ProcessingStudioViewModel
                 val sourceText = transcript?.manualCorrectionSourceText
                 val correctedText = transcript?.manualCorrectionText
                 if (sourceText.isNullOrBlank() || correctedText.isNullOrBlank()) {
-                    _message.value = "This correction can't be promoted"
+                    _message.value = context.getString(R.string.rec_msg_promotion_unavailable)
                     return@launch
                 }
 
                 val promotion = analyzeTranscriptCorrectionPromotion(sourceText, correctedText)
                 if (promotion == null) {
-                    _message.value = "This correction can't be promoted"
+                    _message.value = context.getString(R.string.rec_msg_promotion_unavailable)
                     return@launch
                 }
 
@@ -762,7 +764,7 @@ class ProcessingStudioViewModel
                             replacement = promotion.replacement,
                         )
                     if (existing != null) {
-                        _message.value = "Matching word replacement already exists"
+                        _message.value = context.getString(R.string.rec_msg_replacement_exists)
                         return@launch
                     }
 
@@ -770,11 +772,11 @@ class ProcessingStudioViewModel
                         original = promotion.original,
                         replacement = promotion.replacement,
                     )
-                    _message.value = "Word replacement added"
+                    _message.value = context.getString(R.string.rec_msg_replacement_added)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("ProcessingStudioVM", "Failed to promote transcript correction", e)
-                    _message.value = "Couldn't add the word replacement. Your device storage may be full."
+                    _message.value = context.getString(R.string.rec_msg_replacement_add_failed)
                 }
             }
         }
@@ -788,11 +790,11 @@ class ProcessingStudioViewModel
                 val recordingId = currentRecordingId ?: return@launch
                 try {
                     transcriptionRecovery.cancelProcessing(recordingId)
-                    _message.value = "Transcription cancelled"
+                    _message.value = context.getString(CoreUiR.string.rec_msg_transcription_cancelled)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("ProcessingStudioVM", "Failed to cancel processing for $recordingId", e)
-                    _message.value = "Couldn't cancel transcription. Try again."
+                    _message.value = context.getString(CoreUiR.string.rec_msg_cancel_transcription_failed)
                 }
                 refreshRecoveryForCurrentRecording()
             }
@@ -800,7 +802,7 @@ class ProcessingStudioViewModel
 
         fun retranscribe() {
             if (_uiState.value.isEditingTranscript) {
-                _message.value = "Save or cancel your transcript edit first"
+                _message.value = context.getString(R.string.rec_msg_finish_edit_first)
                 return
             }
 
@@ -808,7 +810,7 @@ class ProcessingStudioViewModel
                 val recordingId = currentRecordingId ?: return@launch
                 val result = transcriptionRecovery.retranscribe(recordingId)
                 refreshRecoveryForCurrentRecording()
-                _message.value = result.toUserMessage("Re-queued for transcription")
+                _message.value = result.toUserMessage(context, context.getString(CoreUiR.string.rec_msg_requeued_transcription))
             }
         }
 
@@ -816,7 +818,7 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
                 val result = transcriptionRecovery.recoverPendingTranscription(recordingId)
-                _message.value = result.toUserMessage("Pending transcription recovered")
+                _message.value = result.toUserMessage(context, context.getString(R.string.rec_msg_pending_recovered))
                 refreshRecoveryForCurrentRecording()
             }
         }
@@ -830,7 +832,7 @@ class ProcessingStudioViewModel
                     } else {
                         transcriptionRecovery.recoverEnhancing(recordingId)
                     }
-                _message.value = result.toUserMessage("Enhancement recovery queued")
+                _message.value = result.toUserMessage(context, context.getString(R.string.rec_msg_enhancement_recovery_queued))
                 refreshRecoveryForCurrentRecording()
             }
         }
@@ -839,7 +841,7 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
                 val result = transcriptionRecovery.retranscribeFromEnhancing(recordingId)
-                _message.value = result.toUserMessage("Full retranscription queued")
+                _message.value = result.toUserMessage(context, context.getString(R.string.rec_msg_retranscription_queued))
                 refreshRecoveryForCurrentRecording()
             }
         }
@@ -848,7 +850,7 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val recordingId = currentRecordingId ?: return@launch
                 val result = transcriptionRecovery.retry(recordingId)
-                _message.value = result.toUserMessage("Re-queued for transcription")
+                _message.value = result.toUserMessage(context, context.getString(CoreUiR.string.rec_msg_requeued_transcription))
                 refreshRecoveryForCurrentRecording()
             }
         }
@@ -915,7 +917,7 @@ class ProcessingStudioViewModel
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.e("ProcessingStudioVM", "Failed to save title", e)
-                        _message.value = "Couldn't save the title. Your device storage may be full."
+                        _message.value = context.getString(R.string.rec_msg_title_save_failed)
                         return@launch
                     }
                     _uiState.value = _uiState.value.copy(title = trimmedTitle)
@@ -949,7 +951,7 @@ class ProcessingStudioViewModel
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("ProcessingStudioVM", "Failed to delete recording: $id", e)
-                    _message.value = "Failed to delete recording"
+                    _message.value = context.getString(CoreUiR.string.rec_msg_delete_failed)
                 }
             }
         }
@@ -962,19 +964,21 @@ class ProcessingStudioViewModel
                 val file = File(path)
                 val exists = withContext(Dispatchers.IO) { file.exists() }
                 if (!exists) {
-                    _message.value = "Audio file not found"
+                    _message.value = context.getString(CoreUiR.string.rec_msg_audio_missing)
                     return@launch
                 }
                 try {
                     context.startActivity(
                         ProcessingStudioShare.chooserIntent(
                             ProcessingStudioShare.audioShareIntent(context, file, state.title),
-                            "Share audio",
+                            context.getString(CoreUiR.string.rec_share_audio),
                         ),
                     )
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    _message.value = "Failed to share: ${e.message}"
+                    // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                    Log.e("ProcessingStudioVM", "Share failed", e)
+                    _message.value = context.getString(CoreUiR.string.rec_msg_share_failed)
                 }
             }
         }
@@ -991,12 +995,14 @@ class ProcessingStudioViewModel
                 context.startActivity(
                     ProcessingStudioShare.chooserIntent(
                         ProcessingStudioShare.transcriptShareIntent(state.title, text),
-                        "Share transcript",
+                        context.getString(CoreUiR.string.rec_share_transcript),
                     ),
                 )
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _message.value = "Failed to share: ${e.message}"
+                // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                Log.e("ProcessingStudioVM", "Share failed", e)
+                _message.value = context.getString(CoreUiR.string.rec_msg_share_failed)
             }
         }
 
@@ -1008,7 +1014,7 @@ class ProcessingStudioViewModel
             val text =
                 ProcessingStudioShare.buildStructuredOutcomeShareText(
                     title = state.title,
-                    groupLabel = item.group.displayLabel(),
+                    groupLabel = item.group.displayLabel(context),
                     itemText = item.text,
                 )
             try {
@@ -1016,15 +1022,17 @@ class ProcessingStudioViewModel
                     ProcessingStudioShare.chooserIntent(
                         ProcessingStudioShare.structuredOutcomeShareIntent(
                             title = state.title,
-                            groupLabel = item.group.displayLabel(),
+                            groupLabel = item.group.displayLabel(context),
                             text = text,
                         ),
-                        "Share item",
+                        context.getString(R.string.rec_share_item_chooser),
                     ),
                 )
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                _message.value = "Failed to share: ${e.message}"
+                // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                Log.e("ProcessingStudioVM", "Share failed", e)
+                _message.value = context.getString(CoreUiR.string.rec_msg_share_failed)
             }
         }
 
@@ -1036,7 +1044,7 @@ class ProcessingStudioViewModel
                 val file = File(path)
                 val exists = withContext(Dispatchers.IO) { file.exists() }
                 if (!exists) {
-                    _message.value = "Audio file not found"
+                    _message.value = context.getString(CoreUiR.string.rec_msg_audio_missing)
                     return@launch
                 }
                 try {
@@ -1054,12 +1062,14 @@ class ProcessingStudioViewModel
                                 title = state.title,
                                 text = text,
                             ),
-                            "Share recording",
+                            context.getString(CoreUiR.string.rec_share_recording_chooser),
                         ),
                     )
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    _message.value = "Failed to share: ${e.message}"
+                    // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                    Log.e("ProcessingStudioVM", "Share failed", e)
+                    _message.value = context.getString(CoreUiR.string.rec_msg_share_failed)
                 }
             }
         }
@@ -1196,16 +1206,19 @@ internal fun isPromotableAsWordReplacement(promotion: TranscriptCorrectionPromot
  * I18N-05: classify an AI-path failure into short actionable copy. Raw exception messages are
  * developer diagnostics and stay in logs.
  */
-internal fun aiFailureDisplayMessage(error: Throwable?): String =
+internal fun aiFailureDisplayMessage(
+    context: Context,
+    error: Throwable?,
+): String =
     if (error is IOException) {
-        "Couldn't reach the AI service. Check your internet connection and try again."
+        context.getString(R.string.rec_ai_failure_network)
     } else {
-        "The AI request failed. Try again, or check your AI Processing settings."
+        context.getString(R.string.rec_ai_failure_generic)
     }
 
-private fun StructuredOutcomeGroup.displayLabel(): String =
+private fun StructuredOutcomeGroup.displayLabel(context: Context): String =
     when (this) {
-        StructuredOutcomeGroup.TASKS -> "Tasks"
-        StructuredOutcomeGroup.DECISIONS -> "Decisions"
-        StructuredOutcomeGroup.FOLLOW_UPS -> "Follow-ups"
+        StructuredOutcomeGroup.TASKS -> context.getString(R.string.rec_structured_group_tasks)
+        StructuredOutcomeGroup.DECISIONS -> context.getString(R.string.rec_structured_group_decisions)
+        StructuredOutcomeGroup.FOLLOW_UPS -> context.getString(R.string.rec_structured_group_follow_ups)
     }

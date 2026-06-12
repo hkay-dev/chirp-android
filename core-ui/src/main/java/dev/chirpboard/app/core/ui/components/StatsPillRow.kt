@@ -17,6 +17,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.util.formatAsDuration
@@ -85,8 +88,10 @@ fun StatsPillRow(
             val isProcessing = processingCount > 0
             // Keep the animation as State and read .value inside graphicsLayer so the pulse
             // invalidates only the draw/layer phase, not this pill's composition each vsync.
+            // Reduced-motion: the pulse is decorative (the count + tint carry the meaning),
+            // so skip it entirely when animations are disabled system-wide.
             val pulseAlpha =
-                if (isProcessing) {
+                if (isProcessing && !reducedMotionEnabled()) {
                     val infiniteTransition = rememberInfiniteTransition(label = "processing_pulse")
                     infiniteTransition.animateFloat(
                         initialValue = 0.6f,
@@ -102,6 +107,14 @@ fun StatsPillRow(
                     null
                 }
             val showActiveFilter = processingPillHighlighted(processingCount, processingFilterActive)
+            // A11Y: the pill is a filter toggle whose active state was only a color change;
+            // expose selected + a state description so TalkBack announces on/off.
+            val filterStateDescription =
+                if (processingFilterActive) {
+                    stringResource(R.string.desc_processing_filter_on)
+                } else {
+                    stringResource(R.string.desc_processing_filter_off)
+                }
             ChirpPill(
                 label = processingCount.toString(),
                 icon = Icons.Filled.Sync,
@@ -120,10 +133,15 @@ fun StatsPillRow(
                     },
                 contentDescription = stringResource(R.string.desc_processing),
                 modifier =
-                    if (pulseAlpha != null) {
-                        Modifier.graphicsLayer { alpha = pulseAlpha.value }
-                    } else {
-                        Modifier
+                    (
+                        if (pulseAlpha != null) {
+                            Modifier.graphicsLayer { alpha = pulseAlpha.value }
+                        } else {
+                            Modifier
+                        }
+                    ).semantics {
+                        selected = processingFilterActive
+                        stateDescription = filterStateDescription
                     },
             )
         }

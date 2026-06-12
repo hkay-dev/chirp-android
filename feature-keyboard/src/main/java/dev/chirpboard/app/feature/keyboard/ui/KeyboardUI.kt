@@ -536,7 +536,14 @@ private fun KeyboardTopBar(
                     Text(
                         text = stringResource(labelRes),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // AUD-02: the "no audio detected" hint is a warning, not a phase —
+                        // tint it with the error role so it stands out from the calm labels.
+                        color =
+                            if (labelRes == R.string.keyboard_status_no_audio) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         // A11Y-1: the status label is the keyboard's only textual phase feedback
                         // (Recording/Transcribing/Polishing) — announce its changes politely so
                         // TalkBack users hear dictation state transitions.

@@ -5,8 +5,9 @@
     <string name="desc_processing">Processing</string>
     <string name="desc_navigate_back">Navigate back</string>
     <string name="desc_selected">Selected</string>
-    <string name="settings_badge_new">NEW</string>
-    <string name="settings_badge_connected">CONNECTED</string>
+    <!-- All-caps is the badge's visual style (en-only app; I18N-17 documents the policy). -->
+    <string name="settings_badge_new" translatable="false">NEW</string>
+    <string name="settings_badge_connected" translatable="false">CONNECTED</string>
     <string name="rec_done">Done</string>
     <string name="playback_play">Play</string>
     <string name="playback_pause">Pause</string>
@@ -26,4 +27,19 @@
     <string name="rec_pill_recorded">Recorded</string>
     <string name="rec_pill_duration">Duration</string>
     <string name="rec_pill_source">Source</string>
+    <!-- Recording timer (A11Y: merged TalkBack announcement + caption moved out of code) -->
+    <string name="rec_duration_caption">Duration</string>
+    <string name="rec_timer_duration_desc">Duration: %1$s</string>
+    <string name="rec_timer_minutes_seconds">%1$s %2$s</string>
+    <plurals name="rec_duration_minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <plurals name="rec_duration_seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+    <!-- Home processing pill filter state (A11Y: announced toggle state) -->
+    <string name="desc_processing_filter_on">Filter on</string>
+    <string name="desc_processing_filter_off">Filter off</string>
 </resources>

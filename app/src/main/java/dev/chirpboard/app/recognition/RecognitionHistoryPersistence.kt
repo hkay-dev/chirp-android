@@ -8,9 +8,10 @@ import java.util.UUID
 
 internal suspend fun persistRecognitionHistoryAtomically(
     rawText: String,
+    fallbackTitle: String = DEFAULT_RECOGNITION_HISTORY_TITLE,
     persistAtomic: suspend (Recording, Transcript) -> Unit
 ): Result<UUID> {
-    val payload = buildRecognitionHistoryPayload(rawText)
+    val payload = buildRecognitionHistoryPayload(rawText, fallbackTitle)
 
     return try {
         persistAtomic(payload.recording, payload.transcript)
@@ -21,9 +22,15 @@ internal suspend fun persistRecognitionHistoryAtomically(
     }
 }
 
-internal fun buildRecognitionHistoryPayload(rawText: String): RecognitionHistoryPayload {
+// I18N-08: UI callers pass the resource-backed fallback title; the default keeps this pure.
+internal const val DEFAULT_RECOGNITION_HISTORY_TITLE = "Voice transcription"
+
+internal fun buildRecognitionHistoryPayload(
+    rawText: String,
+    fallbackTitle: String = DEFAULT_RECOGNITION_HISTORY_TITLE,
+): RecognitionHistoryPayload {
     val recording = Recording(
-        title = rawText.take(50).ifBlank { "Voice transcription" },
+        title = rawText.take(50).ifBlank { fallbackTitle },
         audioPath = "",
         source = RecordingSource.KEYBOARD,
         status = RecordingStatus.COMPLETED

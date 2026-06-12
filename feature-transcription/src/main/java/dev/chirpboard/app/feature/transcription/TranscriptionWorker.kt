@@ -139,6 +139,9 @@ class TranscriptionWorker
             transcriptionLog.started("worker_started")
 
             // Verify audio file exists
+            // NOTE (I18N-06): the failTranscriptionExecution strings below are persisted machine
+            // codes (classified by classifyRecordingProcessingNote) — do not reword them. User
+            // copy comes from string resources at display time.
             val audioFile = File(ownedRecording.audioPath)
             if (!audioFile.exists()) {
                 recordingRepository.failTranscriptionExecution(
@@ -148,7 +151,10 @@ class TranscriptionWorker
                     "Audio file not found: ${ownedRecording.audioPath}",
                 )
                 transcriptionLog.failure("audio_missing")
-                showTranscriptionErrorNotification(recordingId, "Audio file not found")
+                showTranscriptionErrorNotification(
+                    recordingId,
+                    applicationContext.getString(R.string.transcription_error_audio_missing),
+                )
                 return buildTranscriptionFailureResult("Audio file not found")
             }
 
@@ -163,7 +169,7 @@ class TranscriptionWorker
                 transcriptionLog.failure("model_not_downloaded")
                 showTranscriptionErrorNotification(
                     recordingId,
-                    "Model not downloaded. Please download the speech recognition model in Settings.",
+                    applicationContext.getString(R.string.transcription_error_model_missing),
                 )
                 return buildTranscriptionFailureResult("Model not downloaded")
             }
@@ -185,7 +191,10 @@ class TranscriptionWorker
                         RecordingStatus.FAILED,
                         "Failed to initialize speech recognition model",
                     )
-                    showTranscriptionErrorNotification(recordingId, "Failed to initialize speech recognition model")
+                    showTranscriptionErrorNotification(
+                        recordingId,
+                        applicationContext.getString(R.string.transcription_error_model_init),
+                    )
                     return buildTranscriptionFailureResult("Failed to initialize model")
                 }
             }
@@ -238,7 +247,10 @@ class TranscriptionWorker
                     RecordingStatus.FAILED,
                     "Out of memory during transcription. Recording may be too long.",
                 )
-                showTranscriptionErrorNotification(recordingId, "Out of memory during transcription")
+                showTranscriptionErrorNotification(
+                    recordingId,
+                    applicationContext.getString(R.string.transcription_error_out_of_memory),
+                )
                 return buildTranscriptionFailureResult("Out of memory during transcription")
             } catch (e: java.io.IOException) {
                 Log.e(TAG, "I/O error during decode/transcription (may be retried)", e)
@@ -472,7 +484,12 @@ class TranscriptionWorker
             return if (disposition.retry) {
                 Result.retry()
             } else {
-                showTranscriptionErrorNotification(recordingId, errorMessage)
+                // I18N-05: the notification shows classified, actionable copy; the raw
+                // exception message stays in the reliability log and the persisted row.
+                showTranscriptionErrorNotification(
+                    recordingId,
+                    transcriptionFailureNotificationText(applicationContext, exception),
+                )
                 buildTranscriptionFailureResult(errorMessage)
             }
         }

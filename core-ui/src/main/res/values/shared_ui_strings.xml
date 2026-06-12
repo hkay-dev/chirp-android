@@ -11,9 +11,21 @@
     <string name="rec_delete">Delete</string>
     <string name="rec_save">Save</string>
     <string name="rec_share">Share</string>
-    <string name="rec_share_audio">Share audio</string>
-    <string name="rec_share_both">Share both</string>
-    <string name="rec_share_transcript">Share transcript</string>
+    <string name="rec_share_audio">Share Audio</string>
+    <string name="rec_share_both">Share Both</string>
+    <string name="rec_share_transcript">Share Transcript</string>
+    <!-- I18N-02: shared verbs/actions used by more than one feature module live here once. -->
+    <string name="rec_recover">Recover</string>
+    <string name="rec_retry_transcription">Retry Transcription</string>
+    <string name="rec_cancel_transcription">Cancel Transcription</string>
+    <string name="rec_share_recording_chooser">Share recording</string>
+    <!-- I18N-02/I18N-08: snackbar copy shared by the home and studio screens. -->
+    <string name="rec_msg_audio_missing">Audio file not found</string>
+    <string name="rec_msg_delete_failed">Couldn’t delete the recording. Try again.</string>
+    <string name="rec_msg_requeued_transcription">Re-queued for transcription</string>
+    <string name="rec_msg_transcription_cancelled">Transcription cancelled</string>
+    <string name="rec_msg_cancel_transcription_failed">Couldn’t cancel transcription. Try again.</string>
+    <string name="rec_msg_share_failed">Couldn’t share. Try again.</string>
     <string name="rec_source_app">App</string>
     <string name="rec_source_imported">Imported</string>
     <string name="rec_source_keyboard">Keyboard</string>
@@ -24,8 +36,8 @@
     <string name="rec_transcription_progress_title">Transcribing</string>
     <string name="rec_transcription_progress_subtitle">Your transcript will appear here when processing finishes.</string>
     <string name="rec_enhancement_queued_title">Waiting in line</string>
-    <string name="rec_enhancement_queued_subtitle">Enhancement will start after earlier work finishes.</string>
-    <string name="rec_enhancement_progress_title">Enhancing</string>
+    <string name="rec_enhancement_queued_subtitle">AI processing will start after earlier work finishes.</string>
+    <string name="rec_enhancement_progress_title">AI processing</string>
     <string name="rec_enhancement_progress_subtitle">Title and summary updates run after transcription completes.</string>
     <string name="rec_recording_finalize_title">Stitching your recording together</string>
     <string name="rec_recording_finalize_subtitle">Saving audio and getting transcription ready.</string>

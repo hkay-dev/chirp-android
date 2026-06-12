@@ -8,6 +8,8 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
+import io.mockk.every
+import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -95,20 +97,53 @@ class TranscriptionWorkerSupportTest {
         assertEquals(RecordingStatus.FAILED, result.status)
     }
 
+    // I18N-08: notification titles moved to string resources; the helpers now resolve through
+    // Context, so these tests pin the stable ids and the resource lookup rather than literals.
     @Test
     fun `transcription foreground helpers use stable ids`() {
+        val context = mockk<android.content.Context>()
+        every { context.getString(R.string.transcription_progress_notification_title) } returns "Transcribing recording"
         assertEquals("transcription_progress", TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
         assertEquals(2001, TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID)
-        assertEquals("Transcribing recording", transcriptionProgressNotificationTitle())
+        assertEquals("Transcribing recording", transcriptionProgressNotificationTitle(context))
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, backgroundWorkerForegroundServiceType())
     }
 
     @Test
     fun `enhancement foreground helpers use stable typed ids`() {
+        val context = mockk<android.content.Context>()
+        every { context.getString(R.string.enhancement_progress_notification_title) } returns "Applying AI processing"
         assertEquals("enhancement_progress", ENHANCEMENT_FOREGROUND_CHANNEL_ID)
         assertEquals(2002, ENHANCEMENT_FOREGROUND_NOTIFICATION_ID)
-        assertEquals("Enhancing recording", enhancementProgressNotificationTitle())
+        assertEquals("Applying AI processing", enhancementProgressNotificationTitle(context))
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, backgroundWorkerForegroundServiceType())
+    }
+
+    @Test
+    fun `transcriptionFailureNotificationText maps failure classes to actionable copy`() {
+        val context = mockk<android.content.Context>()
+        every { context.getString(R.string.transcription_error_model_missing) } returns "model-missing"
+        every { context.getString(R.string.transcription_error_storage_full) } returns "storage-full"
+        every { context.getString(R.string.transcription_error_generic) } returns "generic"
+
+        assertEquals(
+            "model-missing",
+            transcriptionFailureNotificationText(
+                context,
+                NonRetryableTranscriptionException("Speech model unavailable: missing files"),
+            ),
+        )
+        assertEquals(
+            "storage-full",
+            transcriptionFailureNotificationText(
+                context,
+                java.io.IOException("write failed: ENOSPC (No space left on device)"),
+            ),
+        )
+        assertEquals(
+            "generic",
+            transcriptionFailureNotificationText(context, IllegalStateException("boom")),
+        )
     }
 
     @Test

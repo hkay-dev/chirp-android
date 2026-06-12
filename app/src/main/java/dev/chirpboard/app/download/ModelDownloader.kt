@@ -310,7 +310,7 @@ class ModelDownloader(
                 emit(
                     DownloadState.Error(
                         "Model files from a previous install were found but this install cannot access them. " +
-                            "Allow \"All files access\" for Chirp in system settings to reuse the existing model, " +
+                            "Allow \"All files access\" for Chirpboard in system settings to reuse the existing model, " +
                             "then try again.",
                         retryable = false,
                     ),
@@ -799,8 +799,9 @@ internal fun classifyDownloadError(error: Exception): ModelDownloader.DownloadSt
             )
 
         else ->
+            // I18N-05: never interpolate raw exception text into user copy; callers log it.
             ModelDownloader.DownloadState.Error(
-                "Download failed: ${error.message}",
+                "The download failed. Try again.",
                 retryable = false,
             )
     }

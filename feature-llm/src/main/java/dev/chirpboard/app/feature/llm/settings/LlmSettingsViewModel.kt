@@ -1,10 +1,14 @@
 package dev.chirpboard.app.feature.llm.settings
 
+import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import kotlinx.coroutines.channels.Channel
@@ -20,6 +24,8 @@ import javax.inject.Inject
 class LlmSettingsViewModel
     @Inject
     constructor(
+        // I18N-08: settings status/error copy comes from resources.
+        @ApplicationContext private val appContext: Context,
         private val preferences: LlmSettingsStore,
         private val backupManager: LlmApiKeyBackupManager,
         private val llmClient: LlmClient,
@@ -34,6 +40,8 @@ class LlmSettingsViewModel
             val isKeyConfigured: Boolean = false,
             val configuredKeyCount: Int = 0,
             val isSecureStorageAvailable: Boolean = true,
+            /** SEC-2: the secure store was wiped after an undecryptable keyset; keys must be re-entered. */
+            val secureStorageWasReset: Boolean = false,
             val isTestingConnection: Boolean = false,
             val connectionTestResult: ConnectionTestResult? = null,
             val backupMessage: StatusMessage? = null,
@@ -84,6 +92,11 @@ class LlmSettingsViewModel
             }
         }
 
+        // LIF-17 (accepted, documented): the API-key DRAFT is mirrored into SavedStateHandle so
+        // typed-but-unsaved input survives process death. That places it (plaintext) in the
+        // activity's saved-instance Bundle held by system_server — strictly less exposure than
+        // disk, cleared when the field is saved/cleared, and judged acceptable for a personal
+        // sideloaded app over silently losing a long pasted key.
         fun setActiveProvider(provider: LlmProvider) {
             if (provider == _uiState.value.activeProvider) return
 
@@ -123,7 +136,7 @@ class LlmSettingsViewModel
             viewModelScope.launch {
                 if (!preferences.isSecureStorageAvailable()) {
                     _uiState.update {
-                        it.copy(connectionTestResult = ConnectionTestResult.Error("Secure storage unavailable on this device"))
+                        it.copy(connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_secure_storage_unavailable)))
                     }
                     return@launch
                 }
@@ -143,7 +156,7 @@ class LlmSettingsViewModel
                             if (saved) {
                                 null
                             } else {
-                                ConnectionTestResult.Error("Failed to save API key")
+                                ConnectionTestResult.Error(appContext.getString(R.string.llm_error_key_save_failed))
                             },
                     )
                 }
@@ -174,7 +187,7 @@ class LlmSettingsViewModel
                     _uiState.update {
                         it.copy(
                             isTestingConnection = false,
-                            connectionTestResult = ConnectionTestResult.Error("Secure storage unavailable on this device"),
+                            connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_secure_storage_unavailable)),
                         )
                     }
                     return@launch
@@ -186,7 +199,7 @@ class LlmSettingsViewModel
                     _uiState.update {
                         it.copy(
                             isTestingConnection = false,
-                            connectionTestResult = ConnectionTestResult.Error("API key not configured"),
+                            connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_key_not_configured)),
                         )
                     }
                     return@launch
@@ -197,7 +210,7 @@ class LlmSettingsViewModel
                     _uiState.update {
                         it.copy(
                             isTestingConnection = false,
-                            connectionTestResult = ConnectionTestResult.Error("Failed to save API key"),
+                            connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_key_save_failed)),
                         )
                     }
                     return@launch
@@ -218,9 +231,11 @@ class LlmSettingsViewModel
                             if (result.isSuccess) {
                                 ConnectionTestResult.Success
                             } else {
-                                ConnectionTestResult.Error(
-                                    result.exceptionOrNull()?.message ?: "Unknown error",
-                                )
+                                // I18N-05: raw client errors are developer diagnostics; show
+                                // classified, actionable copy and keep the details in logs.
+                                val error = result.exceptionOrNull()
+                                Log.w("LlmSettingsVM", "Connection test failed", error)
+                                ConnectionTestResult.Error(connectionTestFailureMessage(appContext, error))
                             },
                     )
                 }
@@ -251,7 +266,10 @@ class LlmSettingsViewModel
             if (passphrase.length < MIN_PASSPHRASE_LENGTH) {
                 _uiState.update {
                     it.copy(
-                        backupMessage = StatusMessage.Error("Passphrase must be at least $MIN_PASSPHRASE_LENGTH characters"),
+                        backupMessage =
+                            StatusMessage.Error(
+                                appContext.getString(R.string.llm_error_passphrase_too_short, MIN_PASSPHRASE_LENGTH),
+                            ),
                         passphraseDialog = null,
                     )
                 }
@@ -293,14 +311,23 @@ class LlmSettingsViewModel
                             it.copy(
                                 backupMessage =
                                     StatusMessage.Success(
-                                        "Backed up $keyCount provider ${if (keyCount == 1) "key" else "keys"}",
+                                        appContext.resources.getQuantityString(
+                                            R.plurals.llm_backup_export_success,
+                                            keyCount,
+                                            keyCount,
+                                        ),
                                     ),
                             )
                         }
                     },
                     onFailure = { error ->
                         _uiState.update {
-                            it.copy(backupMessage = StatusMessage.Error(error.message ?: "Backup failed"))
+                            // I18N-05: never surface raw exception text.
+                            Log.w("LlmSettingsVM", "Key backup failed", error)
+                            it.copy(
+                                backupMessage =
+                                    StatusMessage.Error(appContext.getString(R.string.llm_backup_export_failed)),
+                            )
                         }
                     },
                 )
@@ -322,14 +349,23 @@ class LlmSettingsViewModel
                             it.copy(
                                 backupMessage =
                                     StatusMessage.Success(
-                                        "Restored $keyCount provider ${if (keyCount == 1) "key" else "keys"}",
+                                        appContext.resources.getQuantityString(
+                                            R.plurals.llm_backup_import_success,
+                                            keyCount,
+                                            keyCount,
+                                        ),
                                     ),
                             )
                         }
                     },
                     onFailure = { error ->
                         _uiState.update {
-                            it.copy(backupMessage = StatusMessage.Error(error.message ?: "Restore failed"))
+                            // I18N-05: never surface raw exception text.
+                            Log.w("LlmSettingsVM", "Key restore failed", error)
+                            it.copy(
+                                backupMessage =
+                                    StatusMessage.Error(appContext.getString(R.string.llm_backup_import_failed)),
+                            )
                         }
                     },
                 )
@@ -380,11 +416,33 @@ class LlmSettingsViewModel
                     isKeyConfigured = preferences.hasApiKeyFor(provider),
                     configuredKeyCount = preferences.countConfiguredApiKeys(),
                     isSecureStorageAvailable = preferences.isSecureStorageAvailable(),
+                    // One-shot consume; OR with the current value so a mid-session refresh
+                    // cannot clear a notice the user has not dismissed yet.
+                    secureStorageWasReset =
+                        current.secureStorageWasReset || preferences.consumeSecureStorageResetNotice(),
                     autoTitle = preferences.getAutoTitle(),
                     autoSummary = preferences.getAutoSummary(),
                 )
             }
         }
 
+        fun dismissSecureStorageResetNotice() {
+            _uiState.update { it.copy(secureStorageWasReset = false) }
+        }
+
         private fun apiKeyInputKey(provider: LlmProvider): String = "apiKeyInput_${provider.id}"
+    }
+
+/**
+ * I18N-05: classify a connection-test failure into actionable copy. Network-shaped failures
+ * point at connectivity; everything else points at the key/model configuration.
+ */
+internal fun connectionTestFailureMessage(
+    context: Context,
+    error: Throwable?,
+): String =
+    if (error is java.io.IOException) {
+        context.getString(R.string.llm_error_connection_network)
+    } else {
+        context.getString(R.string.llm_error_connection_rejected)
     }

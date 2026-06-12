@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="transcription_dismiss">Dismiss</string>
-    <string name="transcription_downloading">Downloading...</string>
+    <string name="transcription_downloading">Downloading…</string>
     <string name="transcription_downloading_file">Downloading %1$s</string>
     <string name="transcription_download_model">Download Model</string>
     <string name="transcription_delete_model">Delete Model</string>
@@ -11,24 +11,37 @@
     <string name="transcription_cancel">Cancel</string>
     <string name="transcription_title">Voice Model</string>
     <string name="transcription_section_model">Model Details</string>
-    <string name="transcription_section_actions">Management</string>
     <string name="transcription_model_help">The local speech recognition model. It transcribes English speech and runs entirely on your device — audio never leaves your phone.</string>
     <string name="transcription_retry">Retry</string>
-    <string name="transcription_cancel_download">Cancel download</string>
+    <string name="transcription_cancel_download">Cancel Download</string>
     <string name="transcription_download_waiting">Waiting for connection…</string>
     <string name="transcription_storage_choice_title">Where should the model go?</string>
-    <string name="transcription_storage_choice_message">Chirp can keep the %1$d MB speech model in shared storage (Documents) so it survives reinstalling the app or clearing its data. That needs the \"All files access\" permission. You can also keep it in app storage without any extra permission — it will be removed if the app\'s data is cleared.</string>
-    <string name="transcription_storage_choice_allow">Allow access</string>
-    <string name="transcription_storage_choice_internal">Use app storage</string>
-    <string name="transcription_model_label">Model</string>
-    <string name="transcription_size_label">Size</string>
+    <string name="transcription_storage_choice_message">Chirpboard can keep the %1$d MB voice model in shared storage (Documents) so it survives reinstalling the app or clearing its data. That needs the \"All files access\" permission. You can also keep it in app storage without any extra permission — it will be removed if the app’s data is cleared.</string>
+    <string name="transcription_storage_choice_allow">Allow Access</string>
+    <string name="transcription_storage_choice_internal">Use App Storage</string>
     <string name="transcription_size_value">%1$d MB</string>
-    <string name="transcription_status_label">Status</string>
     <string name="transcription_status_downloading">Downloading</string>
     <string name="transcription_status_ready">Ready</string>
-    <string name="transcription_status_not_downloaded">Not Downloaded</string>
+    <string name="transcription_status_not_downloaded">Not downloaded</string>
     <string name="transcription_status_waiting">Waiting for connection</string>
     <string name="transcription_error_channel_name">Transcription errors</string>
     <string name="transcription_error_notification_title">Transcription failed</string>
     <string name="transcription_error_group_summary">Some recordings could not be transcribed</string>
+
+    <!-- I18N-08: worker foreground notifications + channels (previously Kotlin literals). -->
+    <string name="transcription_progress_channel_name">Transcription</string>
+    <string name="transcription_progress_channel_description">Shows while a recording is being transcribed</string>
+    <string name="transcription_progress_notification_title">Transcribing recording</string>
+    <string name="transcription_progress_notification_body">Processing audio in the background</string>
+    <string name="enhancement_progress_channel_name">AI processing</string>
+    <string name="enhancement_progress_channel_description">Shows while a recording gets AI titles and summaries</string>
+    <string name="enhancement_progress_notification_title">Applying AI processing</string>
+    <string name="enhancement_progress_notification_body">Updating the title and summary in the background</string>
+    <!-- I18N-05: terminal failure copy mapped from failure kinds; raw errors stay in logs. -->
+    <string name="transcription_error_model_missing">Download the voice model in Settings, then retry.</string>
+    <string name="transcription_error_model_init">The voice model couldn’t load. Re-download it in Settings if this keeps happening.</string>
+    <string name="transcription_error_audio_missing">The audio file is missing, so this recording can’t be transcribed.</string>
+    <string name="transcription_error_storage_full">Not enough storage to transcribe. Free up space and retry.</string>
+    <string name="transcription_error_out_of_memory">The recording is too long to transcribe on this device.</string>
+    <string name="transcription_error_generic">Transcription didn’t finish. Open Chirpboard to retry.</string>
 </resources>

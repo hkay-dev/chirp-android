@@ -38,7 +38,9 @@ fun EmptyState(
         verticalArrangement = Arrangement.Center,
     ) {
         val iconModifier =
-            if (animateIcon) {
+            // Reduced-motion: the ambient float is decorative, so freeze it when the user
+            // has disabled animations system-wide (matches shimmer/brandedPulse).
+            if (animateIcon && !reducedMotionEnabled()) {
                 val infiniteTransition = rememberInfiniteTransition(label = "empty_float")
                 val offsetY =
                     infiniteTransition.animateFloat(

@@ -98,8 +98,9 @@ class RecordingStopOrchestrator
                         }
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
+                        // I18N-05: raw exception text stays in the attached cause/logs.
                         return@withContext StopPersistenceResult.PersistenceFailed(
-                            "Failed to save recording: ${e.message}",
+                            "Couldn't save the recording",
                             e,
                         )
                     }

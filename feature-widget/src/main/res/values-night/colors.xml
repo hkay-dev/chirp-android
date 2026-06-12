@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Live-recording semantic accent (chirpAccents.recordingLive, dark) -->
+    <color name="widget_tint_live">#FFB2B8</color>
+    <color name="widget_tint_saving">#AEAEB2</color>
+    <color name="widget_button_container">@android:color/system_neutral2_700</color>
+</resources>

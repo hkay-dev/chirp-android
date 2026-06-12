@@ -9,6 +9,9 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.ui.R as CoreUiR
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.di.DefaultDispatcher
 import dev.chirpboard.app.core.llm.RecordingTextEnrichment
@@ -134,6 +137,9 @@ internal fun RecordingPlaybackState.toHomeRowState(): RecordingPlaybackRowState 
 class HomeViewModel
     @Inject
     constructor(
+        // I18N-08: snackbar/status copy comes from resources; the application context is the
+        // standard Hilt-safe way to resolve them from a ViewModel.
+        @ApplicationContext private val appContext: Context,
         private val recordingRepository: RecordingRepository,
         private val recordingManager: RecordingManager,
         private val tagRepository: TagRepository,
@@ -182,6 +188,25 @@ class HomeViewModel
         fun consumeAutoStopEvent() {
             serviceEvents.clearAutoStopEvent()
         }
+
+        /**
+         * AUD-02/AUD-05/ERR-14: live-session advisory (focus pause, silenced mic, low storage)
+         * for the Home live row's hint line — the same resolution the record screen banner
+         * uses, so the two surfaces always agree. Session-scoped: the service clears the
+         * underlying flags when the session ends.
+         */
+        val sessionAdvisory: StateFlow<RecordingSessionAdvisory?> =
+            combine(
+                serviceEvents.autoPauseReason,
+                serviceEvents.silenceDetected,
+                serviceEvents.storageLow,
+            ) { autoPauseReason, silenceDetected, storageLow ->
+                resolveSessionAdvisory(
+                    autoPauseReason = autoPauseReason,
+                    silenceDetected = silenceDetected,
+                    storageLow = storageLow,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private val _openStudioForRecordingId = MutableStateFlow<UUID?>(null)
         val openStudioForRecordingId: StateFlow<UUID?> = _openStudioForRecordingId.asStateFlow()
@@ -423,9 +448,12 @@ class HomeViewModel
                     is SessionRecoveryResult.Recovered -> {
                         _errorMessage.value =
                             result.estimatedLostMinutes?.let { lostMinutes ->
-                                val unit = if (lostMinutes == 1) "minute" else "minutes"
-                                "Recording recovered. Up to $lostMinutes $unit of recent audio may be missing."
-                            } ?: "Recording recovered."
+                                appContext.resources.getQuantityString(
+                                    R.plurals.rec_msg_recovered_with_loss,
+                                    lostMinutes,
+                                    lostMinutes,
+                                )
+                            } ?: appContext.getString(R.string.rec_msg_recovered)
                         refreshRecoverableSessions()
                     }
                     is SessionRecoveryResult.Failed -> {
@@ -465,7 +493,7 @@ class HomeViewModel
 
         fun playRecording(item: RecordingDisplayItem) {
             if (item.audioPath.isBlank()) {
-                _errorMessage.value = "Audio file not found"
+                _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_audio_missing)
                 return
             }
             playbackController.play(item.id, item.title, item.audioPath)
@@ -510,12 +538,12 @@ class HomeViewModel
                 ) {
                     val originText =
                         when (result.startResult.currentOrigin) {
-                            RecordingOrigin.APP -> "the app"
-                            RecordingOrigin.KEYBOARD -> "the keyboard"
-                            RecordingOrigin.WIDGET -> "the widget"
-                            RecordingOrigin.RECOGNITION -> "voice recognition"
+                            RecordingOrigin.APP -> appContext.getString(R.string.rec_origin_app)
+                            RecordingOrigin.KEYBOARD -> appContext.getString(R.string.rec_origin_keyboard)
+                            RecordingOrigin.WIDGET -> appContext.getString(R.string.rec_origin_widget)
+                            RecordingOrigin.RECOGNITION -> appContext.getString(R.string.rec_origin_recognition)
                         }
-                    _errorMessage.value = "Recording already in progress from $originText"
+                    _errorMessage.value = appContext.getString(R.string.rec_msg_already_recording, originText)
                 }
             }
         }
@@ -555,7 +583,7 @@ class HomeViewModel
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to delete recording: ${recording.id}", e)
-                    _errorMessage.value = "Failed to delete recording"
+                    _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_delete_failed)
                 }
             }
         }
@@ -588,7 +616,7 @@ class HomeViewModel
                 // Check file existence on IO dispatcher
                 val exists = withContext(Dispatchers.IO) { file.exists() }
                 if (!exists) {
-                    _errorMessage.value = "Audio file not found"
+                    _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_audio_missing)
                     return@launch
                 }
 
@@ -630,7 +658,7 @@ class HomeViewModel
                         }
 
                     context.startActivity(
-                        Intent.createChooser(intent, "Share recording").apply {
+                        Intent.createChooser(intent, context.getString(CoreUiR.string.rec_share_recording_chooser)).apply {
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         },
                     )
@@ -638,7 +666,7 @@ class HomeViewModel
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     // I18N-05: exception messages are developer diagnostics; keep them in logs.
                     Log.e(TAG, "Failed to share recording ${recording.id}", e)
-                    _errorMessage.value = "Couldn't share the recording. Try again."
+                    _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_share_failed)
                 }
             }
         }
@@ -652,7 +680,8 @@ class HomeViewModel
             viewModelScope.launch {
                 if (recording.status == RecordingStatus.FAILED) {
                     val result = transcriptionRecovery.retry(recording.id)
-                    _errorMessage.value = result.toUserMessage("Re-queued for transcription")
+                    _errorMessage.value =
+                        result.toUserMessage(appContext, appContext.getString(CoreUiR.string.rec_msg_requeued_transcription))
                 }
             }
         }
@@ -678,7 +707,8 @@ class HomeViewModel
                         }
                     }
 
-                _errorMessage.value = result.toUserMessage("Recovery queued")
+                _errorMessage.value =
+                    result.toUserMessage(appContext, appContext.getString(R.string.rec_msg_recovery_queued))
             }
         }
 
@@ -687,9 +717,13 @@ class HomeViewModel
                 val recoveredCount = transcriptionRecovery.recoverStuckRecordings()
                 _errorMessage.value =
                     if (recoveredCount > 0) {
-                        "Queued recovery for $recoveredCount recording${if (recoveredCount == 1) "" else "s"}"
+                        appContext.resources.getQuantityString(
+                            R.plurals.rec_msg_recover_all_queued,
+                            recoveredCount,
+                            recoveredCount,
+                        )
                     } else {
-                        "No recoverable recordings were queued"
+                        appContext.getString(R.string.rec_msg_recover_all_none)
                     }
             }
         }
@@ -700,10 +734,10 @@ class HomeViewModel
         fun generateTitle(recording: RecordingDisplayItem) {
             enrich(
                 recording = recording,
-                missingTranscriptError = "No transcript available for title generation",
-                inProgressStatus = "Generating title…",
-                successStatus = "Title updated",
-                failurePrefix = "Failed to generate title",
+                missingTranscriptError = appContext.getString(R.string.rec_msg_no_transcript_for_title),
+                inProgressStatus = appContext.getString(R.string.rec_msg_generating_title),
+                successStatus = appContext.getString(R.string.rec_msg_title_updated),
+                failureTemplateRes = R.string.rec_msg_title_generation_failed,
                 generate = { text -> recordingTextEnrichment.generateTitle(text) },
                 persist = { result -> recordingRepository.updateTitle(recording.id, result) },
             )
@@ -715,10 +749,10 @@ class HomeViewModel
         fun generateSummary(recording: RecordingDisplayItem) {
             enrich(
                 recording = recording,
-                missingTranscriptError = "No transcript available for summary generation",
-                inProgressStatus = "Generating summary…",
-                successStatus = "Summary updated",
-                failurePrefix = "Failed to generate summary",
+                missingTranscriptError = appContext.getString(R.string.rec_msg_no_transcript_for_summary),
+                inProgressStatus = appContext.getString(R.string.rec_msg_generating_summary),
+                successStatus = appContext.getString(R.string.rec_msg_summary_updated),
+                failureTemplateRes = R.string.rec_msg_summary_generation_failed,
                 generate = { text -> recordingTextEnrichment.generateSummary(text) },
                 persist = { result -> recordingRepository.updateSummary(recording.id, result) },
             )
@@ -733,7 +767,7 @@ class HomeViewModel
             missingTranscriptError: String,
             inProgressStatus: String,
             successStatus: String,
-            failurePrefix: String,
+            @androidx.annotation.StringRes failureTemplateRes: Int,
             generate: suspend (String) -> Result<String>,
             persist: suspend (String) -> Unit,
         ) {
@@ -757,13 +791,17 @@ class HomeViewModel
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             Log.e(TAG, "Failed to persist enrichment result", e)
-                            _errorMessage.value = "Couldn't save the result. Your device storage may be full."
+                            _errorMessage.value = appContext.getString(R.string.rec_msg_persist_failed_storage)
                         }
                     },
                     onFailure = { error ->
                         // I18N-05: never interpolate raw exception text into UI copy.
-                        Log.e(TAG, "$failurePrefix", error)
-                        _errorMessage.value = "$failurePrefix. ${enrichmentFailureHint(error)}"
+                        Log.e(TAG, "Enrichment failed for ${recording.id}", error)
+                        _errorMessage.value =
+                            appContext.getString(
+                                failureTemplateRes,
+                                appContext.getString(enrichmentFailureHintRes(error)),
+                            )
                     },
                 )
             }
@@ -777,11 +815,11 @@ class HomeViewModel
             viewModelScope.launch {
                 try {
                     transcriptionRecovery.cancelProcessing(recording.id)
-                    _statusMessage.value = "Transcription cancelled"
+                    _statusMessage.value = appContext.getString(CoreUiR.string.rec_msg_transcription_cancelled)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to cancel processing for ${recording.id}", e)
-                    _errorMessage.value = "Couldn't cancel transcription. Try again."
+                    _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_cancel_transcription_failed)
                 }
             }
         }
@@ -793,7 +831,8 @@ class HomeViewModel
         fun startManualTranscription(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 val result = transcriptionRecovery.retranscribe(recording.id)
-                val message = result.toUserMessage("Queued for transcription")
+                val message =
+                    result.toUserMessage(appContext, appContext.getString(R.string.rec_msg_queued_for_transcription))
                 if (result == ManualRecoveryResult.ENQUEUED) {
                     _statusMessage.value = message
                 } else {
@@ -824,7 +863,7 @@ class HomeViewModel
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     // I18N-05: exception messages are developer diagnostics; keep them in logs.
                     Log.e(TAG, "Failed to import audio", e)
-                    _errorMessage.value = "Couldn't import the audio file. It may not be a playable audio file."
+                    _errorMessage.value = appContext.getString(R.string.rec_msg_import_failed)
                 } finally {
                     _isImporting.value = false
                 }
@@ -948,23 +987,25 @@ internal fun shouldShowHomeQuickStartSurface(quickStarts: List<HomeQuickStartEnt
  * I18N-05: actionable hint for an AI title/summary failure instead of the raw exception message
  * (which is logged, not shown).
  */
-internal fun enrichmentFailureHint(error: Throwable): String =
+@androidx.annotation.StringRes
+internal fun enrichmentFailureHintRes(error: Throwable): Int =
     if (error is java.io.IOException) {
-        "Check your internet connection and try again."
+        R.string.rec_msg_enrichment_hint_network
     } else {
-        "Try again, or check your AI Processing settings."
+        R.string.rec_msg_enrichment_hint_generic
     }
 
 /**
- * I18N-05: persisted worker error messages can carry machine-readable recovery prefixes
- * (`recoverable_queue_handoff:` etc.) and an `|attemptAt=` suffix; strip them before any
- * home-card display, mirroring the studio's presentation helper.
+ * I18N-05/I18N-06: persisted worker error messages are machine codes (or raw exception text on
+ * legacy rows). The home card maps the typed kind to friendly resource copy and never displays
+ * the persisted text itself; unknown kinds fall back to the generic stuck-state line.
  */
-internal fun String?.asHomeProcessingNote(): String? =
-    this
-        ?.removePrefix("recoverable_queue_handoff:")
-        ?.removePrefix("recoverable_stale_transcribing:")
-        ?.removePrefix("recoverable_stale_enhancing:")
-        ?.removePrefix("manual_recovery:")
-        ?.substringBefore("|attemptAt=")
-        ?.ifBlank { null }
+@androidx.annotation.StringRes
+internal fun homeProcessingNoteRes(errorMessage: String?): Int? =
+    when (dev.chirpboard.app.data.model.classifyRecordingProcessingNote(errorMessage)) {
+        dev.chirpboard.app.data.model.RecordingProcessingNoteKind.STALE_RECOVERED -> R.string.rec_note_stale_recovered
+        dev.chirpboard.app.data.model.RecordingProcessingNoteKind.QUEUE_HANDOFF -> R.string.rec_note_queue_handoff
+        dev.chirpboard.app.data.model.RecordingProcessingNoteKind.MANUAL_RECOVERY -> R.string.rec_note_manual_recovery
+        dev.chirpboard.app.data.model.RecordingProcessingNoteKind.WAITING_FOR_MODEL -> null
+        dev.chirpboard.app.data.model.RecordingProcessingNoteKind.OTHER -> null
+    }

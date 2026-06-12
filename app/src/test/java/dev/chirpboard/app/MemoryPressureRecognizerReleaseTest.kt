@@ -1,14 +1,19 @@
 package dev.chirpboard.app
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import dev.chirpboard.app.ChirpApplication.TrimMemoryAction
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * LOAD-1 / KBD-1: the shared ~660MB recognizer is kept warm while the keyboard is enabled and is
- * freed ONLY under genuine OS memory pressure. This pins exactly which trim levels release it, so a
- * routine background-LRU or UI-hidden trim (which happens constantly between dictations) can never
- * regress into the cold model reload the user complained about.
+ * LOAD-1 / KBD-1 / PRF-1 / REL-09: the shared ~660MB recognizer is kept warm while the keyboard is
+ * enabled and is freed ONLY under genuine OS memory pressure (or the separate idle timeout). This
+ * pins the trim-level mapping:
+ *  - the legacy genuine-pressure levels (undelivered since API 34, kept best-effort) release
+ *    immediately;
+ *  - the ONLY levels Android 16 actually delivers (UI_HIDDEN / BACKGROUND) fire constantly between
+ *    dictations, so they may release ONLY after a getMemoryInfo() poll confirms real pressure —
+ *    never unconditionally, which would regress into the LOAD-1 cold model reload;
+ *  - the moderate levels never release.
  *
  * Values mirror the documented `android.content.ComponentCallbacks2` constants. They are used as
  * literals here so the policy is verified without relying on the android.jar stub in a JVM test.
@@ -25,19 +30,45 @@ class MemoryPressureRecognizerReleaseTest {
     }
 
     @Test
-    fun `releases under genuine running and complete pressure`() {
-        assertTrue(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_RUNNING_LOW))
-        assertTrue(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_RUNNING_CRITICAL))
-        assertTrue(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_COMPLETE))
+    fun `legacy genuine-pressure levels release immediately if unused`() {
+        assertEquals(
+            TrimMemoryAction.RELEASE_IF_UNUSED,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_RUNNING_LOW),
+        )
+        assertEquals(
+            TrimMemoryAction.RELEASE_IF_UNUSED,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_RUNNING_CRITICAL),
+        )
+        assertEquals(
+            TrimMemoryAction.RELEASE_IF_UNUSED,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_COMPLETE),
+        )
     }
 
     @Test
-    fun `keeps the model warm on routine background and ui-hidden trims`() {
+    fun `delivered routine levels require a confirmed low-memory poll`() {
         // These fire constantly (the keyboard goes UI-hidden between dictations); trimming here
-        // would reload the model on the next dictation — exactly the LOAD-1 bug.
-        assertFalse(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_RUNNING_MODERATE))
-        assertFalse(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_UI_HIDDEN))
-        assertFalse(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_BACKGROUND))
-        assertFalse(ChirpApplication.shouldReleaseRecognizerOnTrim(TRIM_MEMORY_MODERATE))
+        // unconditionally would reload the model on the next dictation — exactly the LOAD-1 bug.
+        // They are still the only levels Android 16 delivers, so they are the polling hook.
+        assertEquals(
+            TrimMemoryAction.RELEASE_IF_SYSTEM_LOW,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_UI_HIDDEN),
+        )
+        assertEquals(
+            TrimMemoryAction.RELEASE_IF_SYSTEM_LOW,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_BACKGROUND),
+        )
+    }
+
+    @Test
+    fun `moderate levels keep the model warm`() {
+        assertEquals(
+            TrimMemoryAction.KEEP,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_RUNNING_MODERATE),
+        )
+        assertEquals(
+            TrimMemoryAction.KEEP,
+            ChirpApplication.trimMemoryAction(TRIM_MEMORY_MODERATE),
+        )
     }
 }

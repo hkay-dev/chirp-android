@@ -23,7 +23,22 @@ enum class RecordingAutoPauseReason {
 data class RecordingAutoStopEvent(
     val reason: RecordingAutoStopReason,
     val atEpochMs: Long = System.currentTimeMillis(),
-)
+) {
+    /**
+     * Display-time staleness gate: an unconsumed event survives process death only in this
+     * singleton's lifetime, but it also survives long backgrounding — without this check a
+     * days-old "stopped and saved" snackbar could greet the next app open. Stale events are
+     * acknowledged silently by the screens instead of being shown; fresh events keep the
+     * deliberate show-then-consume behavior (so an interrupted snackbar re-surfaces).
+     */
+    fun isStale(nowEpochMs: Long = System.currentTimeMillis()): Boolean =
+        nowEpochMs - atEpochMs > MAX_DISPLAY_AGE_MS
+
+    companion object {
+        /** Events older than this are silently consumed at display time, never shown. */
+        const val MAX_DISPLAY_AGE_MS: Long = 5 * 60_000L
+    }
+}
 
 /**
  * User-facing recording service signals that outlive the notification: why a recording

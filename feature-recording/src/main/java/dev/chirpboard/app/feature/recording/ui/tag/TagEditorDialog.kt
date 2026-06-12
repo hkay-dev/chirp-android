@@ -178,7 +178,7 @@ private fun ColorCircle(
             if (isSelected) {
                 Icon(
                     imageVector = Icons.Default.Check,
-                    contentDescription = stringResource(R.string.desc_selected),
+                    contentDescription = stringResource(CoreR.string.desc_selected),
                     tint = checkColor,
                     modifier = Modifier.size(20.dp),
                 )

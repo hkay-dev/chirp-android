@@ -1,12 +1,15 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import android.content.Context
 import android.database.sqlite.SQLiteException
 import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.entity.Tag
@@ -22,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -44,6 +48,8 @@ data class ActiveRecordingProfile(
 class RecordViewModel
     @Inject
     constructor(
+        // I18N-08: snackbar/banner copy comes from resources.
+        @ApplicationContext private val appContext: Context,
         private val recordingManager: RecordingManager,
         private val recordingStateManager: RecordingStateManager,
         private val profileRepository: ProfileRepository,
@@ -94,6 +100,25 @@ class RecordViewModel
         fun consumeAutoStopEvent() {
             serviceEvents.clearAutoStopEvent()
         }
+
+        /**
+         * AUD-02/AUD-05/ERR-14: live-session advisory (focus pause, silenced mic, low storage)
+         * rendered as an inline banner on the record screen — the in-app twin of the
+         * notification's transient status line. Session-scoped: the service clears the
+         * underlying flags when the session ends.
+         */
+        val sessionAdvisory: StateFlow<RecordingSessionAdvisory?> =
+            combine(
+                serviceEvents.autoPauseReason,
+                serviceEvents.silenceDetected,
+                serviceEvents.storageLow,
+            ) { autoPauseReason, silenceDetected, storageLow ->
+                resolveSessionAdvisory(
+                    autoPauseReason = autoPauseReason,
+                    silenceDetected = silenceDetected,
+                    storageLow = storageLow,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         /** Buffer of amplitude samples for waveform display */
         val waveformBuffer = recordingStateManager.waveformBuffer
@@ -163,7 +188,7 @@ class RecordViewModel
                             )
                         }
                     if (profile == null) {
-                        _entryMessage.value = "Profile no longer exists. Using default recording settings."
+                        _entryMessage.value = appContext.getString(R.string.rec_msg_profile_missing)
                     }
                     _isProfileHandoffResolved.value = true
                 }
@@ -249,8 +274,7 @@ class RecordViewModel
                 // An in-flight stop owns the shared stop gate, so the service would
                 // refuse this restart with only a silent low-importance notification.
                 // Surface the refusal in-screen instead of dispatching a doomed command.
-                _entryMessage.value =
-                    "Recording is already being saved. Start over isn't available right now."
+                _entryMessage.value = appContext.getString(R.string.rec_msg_stop_in_progress)
                 return
             }
             recordingManager.restartRecording(
@@ -289,7 +313,7 @@ class RecordViewModel
                     }
                 } catch (e: SQLiteException) {
                     Log.e(TAG, "Tag toggle failed for recording $recordingId", e)
-                    _entryMessage.value = "Couldn't update tags. The recording may no longer exist."
+                    _entryMessage.value = appContext.getString(R.string.rec_msg_tag_update_failed)
                 }
             }
         }
@@ -303,7 +327,7 @@ class RecordViewModel
                     _selectedTagIds.update { it + tag.id }
                 } catch (e: SQLiteException) {
                     Log.e(TAG, "Tag creation failed for recording $recordingId", e)
-                    _entryMessage.value = "Couldn't add the tag. The recording may no longer exist."
+                    _entryMessage.value = appContext.getString(R.string.rec_msg_tag_add_failed)
                 }
             }
         }
@@ -314,9 +338,12 @@ class RecordViewModel
                     is SessionRecoveryResult.Recovered -> {
                         _entryMessage.value =
                             result.estimatedLostMinutes?.let { lostMinutes ->
-                                val unit = if (lostMinutes == 1) "minute" else "minutes"
-                                "Recording recovered. Up to $lostMinutes $unit of recent audio may be missing."
-                            } ?: "Recording recovered."
+                                appContext.resources.getQuantityString(
+                                    R.plurals.rec_msg_recovered_with_loss,
+                                    lostMinutes,
+                                    lostMinutes,
+                                )
+                            } ?: appContext.getString(R.string.rec_msg_recovered)
                     }
                     is SessionRecoveryResult.Failed -> {
                         _entryMessage.value = result.message

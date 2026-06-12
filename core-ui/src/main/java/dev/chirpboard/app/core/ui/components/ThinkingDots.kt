@@ -39,7 +39,10 @@ fun ThinkingDots(
     spacing: Dp = 8.dp,
     color: Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "thinking_dots")
+    // Reduced-motion: render three static dots — the surrounding status text/semantics carry
+    // the "processing" meaning, so the bounce is purely decorative.
+    val reduceMotion = reducedMotionEnabled()
+    val infiniteTransition = if (reduceMotion) null else rememberInfiniteTransition(label = "thinking_dots")
 
     val bounceHeight = 4.dp
     val bounceHeightPx = with(LocalDensity.current) { bounceHeight.toPx() }
@@ -53,7 +56,7 @@ fun ThinkingDots(
             val delay = index * 200
 
             val offsetY =
-                infiniteTransition.animateFloat(
+                infiniteTransition?.animateFloat(
                     initialValue = 0f,
                     targetValue = -bounceHeightPx,
                     animationSpec =
@@ -72,7 +75,7 @@ fun ThinkingDots(
                 modifier =
                     Modifier
                         .size(dotSize)
-                        .offset { IntOffset(0, offsetY.value.roundToInt()) },
+                        .offset { IntOffset(0, offsetY?.value?.roundToInt() ?: 0) },
             ) {
                 drawCircle(color = color)
             }

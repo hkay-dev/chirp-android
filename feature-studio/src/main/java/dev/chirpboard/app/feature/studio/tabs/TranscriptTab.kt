@@ -57,6 +57,7 @@ import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.TranscriptSegment
 import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 
@@ -339,7 +340,7 @@ private fun TranscriptSelectionContent(
                         IconButton(onClick = { onCopyResult(selectionResult.text) }) {
                             Icon(
                                 imageVector = Icons.Rounded.ContentCopy,
-                                contentDescription = stringResource(R.string.rec_copy),
+                                contentDescription = stringResource(CoreR.string.rec_copy),
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -471,7 +472,7 @@ private fun TranscriptCopyActions(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.rec_copy))
+                Text(stringResource(CoreR.string.rec_copy))
             }
         }
     }

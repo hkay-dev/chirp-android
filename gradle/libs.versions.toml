@@ -3,7 +3,10 @@ mockk = "1.13.10"
 androidx-test-ext-junit = "1.2.1"
 androidx-test-runner = "1.6.2"
 guava = "33.3.1-android"
-media3 = "1.2.1"
+# PLT-08: 1.2.1 -> 1.4.1 (latest 1.4.x): fixes the documented MediaSessionService
+# ForegroundServiceStartNotAllowedException when resuming playback from the media
+# notification while the app is backgrounded on Android 14+.
+media3 = "1.4.1"
 
 [libraries]
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }

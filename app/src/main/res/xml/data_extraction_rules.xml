@@ -1,17 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup/transfer policy (PLT-01/PLT-02/PLT-09, SEC-5/SEC-11 — decided 2026-06-12):
+
+  ONLY DataStore preference files are backed up or device-transferred. Everything else
+  stays on-device, deliberately:
+  - recordings/ (raw audio): multi-MB voice content blows the 25 MB Auto Backup transport
+    quota (aborting the WHOLE backup pass) and is privacy-sensitive voice data (SEC-5).
+    This also keeps the in-flight capture/journal artifacts under recordings/.capture and
+    recordings/.sessions out of the payload, so a restore can never resurrect a phantom
+    mid-flight session from another device (PLT-09).
+  - chirp.db (+wal/shm): transcript rows reference absolute audio paths that do not exist
+    on the restore target; restoring the DB without its audio yields a list of dead rows.
+  - chirp.xml (legacy SharedPreferences): historically held a plaintext Gemini API key for
+    pre-secure-storage installs; excluding it guarantees no key residue is ever uploaded
+    (SEC-11). Its remaining contents (active provider + model names) are reconstructable.
+  - secure_prefs.xml (EncryptedSharedPreferences): Keystore-bound ciphertext is
+    undecryptable on any other device; the explicit passphrase-protected key backup file
+    (LlmApiKeyBackupManager) is the supported transfer path.
+  - datastore/keyboard_pending_stop.preferences_pb: transient stop-command journal; it
+    must never be replayed on a fresh device.
+  - datastore/recording_recovery.preferences_pb: rescue/defer/protected-path journal tied
+    to this device's filesystem; restoring another device's copy provides zero value and
+    could only confuse crash-recovery, so it stays out too.
+
+  Restore semantics: after a restore the user gets all app/keyboard/audio/appearance/
+  Obsidian/LLM-mode settings, but NO recordings, transcripts, or API keys. The Obsidian
+  vault SAF grant does not survive restore either — the settings screen re-prompts for
+  vault access. User-facing wording lives in the in-app Privacy Notice.
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <include domain="database" path="chirp.db" />
-        <include domain="database" path="chirp.db-wal" />
-        <include domain="database" path="chirp.db-shm" />
-        <include domain="file" path="recordings/" />
-        <include domain="sharedpref" path="chirp.xml" />
+        <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/keyboard_pending_stop.preferences_pb" />
+        <exclude domain="file" path="datastore/recording_recovery.preferences_pb" />
     </cloud-backup>
     <device-transfer>
-        <include domain="database" path="chirp.db" />
-        <include domain="database" path="chirp.db-wal" />
-        <include domain="database" path="chirp.db-shm" />
-        <include domain="file" path="recordings/" />
-        <include domain="sharedpref" path="chirp.xml" />
+        <include domain="file" path="datastore/" />
+        <exclude domain="file" path="datastore/keyboard_pending_stop.preferences_pb" />
+        <exclude domain="file" path="datastore/recording_recovery.preferences_pb" />
     </device-transfer>
 </data-extraction-rules>

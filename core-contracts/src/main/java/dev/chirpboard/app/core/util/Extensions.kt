@@ -44,14 +44,21 @@ fun Long.formatAsDuration(): String = this.milliseconds.formatDuration()
 
 /**
  * Format date relative to now (Today, Yesterday, or date).
+ *
+ * I18N-08: UI callers pass [today]/[yesterday] from string resources
+ * (core-contracts `date_today`/`date_yesterday`); the defaults exist for
+ * non-UI callers and keep this a pure function.
  */
-fun Date.formatRelative(): String {
+fun Date.formatRelative(
+    today: String = "Today",
+    yesterday: String = "Yesterday",
+): String {
     val now = nowCalendar.get()!!.apply { timeInMillis = System.currentTimeMillis() }
     val then = thenCalendar.get()!!.apply { time = this@formatRelative }
-    
+
     return when {
-        isSameDay(now, then) -> "Today"
-        isYesterday(now, then) -> "Yesterday"
+        isSameDay(now, then) -> today
+        isYesterday(now, then) -> yesterday
         isSameYear(now, then) -> monthDayFormat.get()!!.format(this)
         else -> monthDayYearFormat.get()!!.format(this)
     }

@@ -13,6 +13,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.model.isWaitingForSpeechModel
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
 import kotlinx.coroutines.CoroutineScope
@@ -502,13 +503,8 @@ class TranscriptionQueueManager
                 return
             }
             val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
-            val waitingForModel =
-                failed.filter {
-                    it.errorMessage?.startsWith("Model not downloaded") == true ||
-                        it.errorMessage?.startsWith("Failed to initialize") == true ||
-                        it.errorMessage?.startsWith("Speech model unavailable") == true ||
-                        it.errorMessage?.startsWith("Recognizer not ready") == true
-                }
+            // I18N-06: typed classification of the frozen persisted markers (data module owns it).
+            val waitingForModel = failed.filter { isWaitingForSpeechModel(it.errorMessage) }
             if (waitingForModel.isEmpty()) {
                 return
             }

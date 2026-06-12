@@ -58,6 +58,18 @@ class QuickCaptureSessionImpl(
             recorder.onLimitReached = value
         }
 
+    /**
+     * AUD-02 (keyboard half): sustained digital-silence transitions from the recorder —
+     * pure zeros mean the platform silenced this client (another app holds the mic or the
+     * privacy toggle is off) while reads keep succeeding. Display-only: drives the "no
+     * audio detected" hint in the keyboard panel, never stops or commits the dictation.
+     */
+    var onSilenceStateChanged: ((Boolean) -> Unit)?
+        get() = recorder.onSilenceStateChanged
+        set(value) {
+            recorder.onSilenceStateChanged = value
+        }
+
     override suspend fun start(): QuickCaptureStartResult {
         if (!RecordingPermissionGuard.hasRecordAudioPermission(context)) {
             return QuickCaptureStartResult.PermissionDenied(

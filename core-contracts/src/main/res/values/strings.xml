@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- I18N-08: shared manual-recovery refusal copy (previously Kotlin literals in
+         TranscriptionRecoveryContracts.toUserMessage). -->
+    <string name="recovery_blocked_active_work">Already processing. Recovery is disabled while work is active</string>
+    <string name="recovery_blocked_ownership_timeout">Could not verify processing ownership. Try again shortly</string>
+    <string name="recovery_not_recoverable_state">Recovery is unavailable for this state</string>
+    <!-- I18N-08: relative date labels rendered on every recording card (Extensions.formatRelative). -->
+    <string name="date_today">Today</string>
+    <string name="date_yesterday">Yesterday</string>
+</resources>

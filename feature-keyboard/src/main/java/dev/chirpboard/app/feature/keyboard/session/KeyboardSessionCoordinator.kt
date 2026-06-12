@@ -56,6 +56,15 @@ class KeyboardSessionCoordinator(
     private val teardownDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val isRecording = MutableStateFlow(false)
+
+    /**
+     * AUD-02 (keyboard half): the recorder reports sustained digital silence — the platform
+     * silenced this client (mic held elsewhere / privacy toggle) while reads keep succeeding.
+     * Display-only input to [uiState]'s "no audio detected" hint; gated on [isRecording] at
+     * map time and reset on every session start so a session that ends mid-silence can never
+     * leak the hint into the next one.
+     */
+    private val silenceDetected = MutableStateFlow(false)
     private val overlayError = MutableStateFlow<KeyboardOverlayError?>(null)
     private val sensitiveInput = MutableStateFlow(false)
     private val modelBanner = MutableStateFlow(ModelBannerState.Initializing)
@@ -120,10 +129,17 @@ class KeyboardSessionCoordinator(
         val overlayError: KeyboardOverlayError?,
     )
 
+    private data class CaptureUiInputs(
+        val isRecording: Boolean,
+        val phase: InlineTranscriptionPhase,
+        val modelBanner: ModelBannerState,
+        val silenceDetected: Boolean,
+    )
+
     val uiState: StateFlow<KeyboardUiState> =
         combine(
-            combine(isRecording, transcription.phase, modelBanner) { recording, phase, banner ->
-                Triple(recording, phase, banner)
+            combine(isRecording, transcription.phase, modelBanner, silenceDetected) { recording, phase, banner, silenced ->
+                CaptureUiInputs(recording, phase, banner, silenced)
             },
             combine(
                 modelInitFailedMessage,
@@ -136,12 +152,12 @@ class KeyboardSessionCoordinator(
             },
             combine(availableModes, sensitiveInput) { modes, sensitive -> modes to sensitive },
         ) { captureState, prefsState, modesAndSensitive ->
-            val (recording, phase, banner) = captureState
             val (modes, sensitive) = modesAndSensitive
             mapKeyboardUiState(
-                isRecording = recording,
-                transcriptionPhase = phase,
-                modelBanner = banner,
+                isRecording = captureState.isRecording,
+                transcriptionPhase = captureState.phase,
+                modelBanner = captureState.modelBanner,
+                silenceDetected = captureState.silenceDetected,
                 modelInitFailedMessage = prefsState.modelInitFailedMessage,
                 llmEnabled = prefsState.llmEnabled,
                 // PLH-1: the keyboard-scoped default mode wins over the global mode when set.
@@ -232,6 +248,12 @@ class KeyboardSessionCoordinator(
                     stopAndTranscribe(commitText)
                 }
             }
+        }
+
+        // AUD-02: fires on the recorder's collection coroutine; MutableStateFlow writes are
+        // thread-safe, so no main hop is needed. Display-only — never alters the session.
+        capture.onSilenceStateChanged = { silenced ->
+            silenceDetected.value = silenced
         }
     }
 
@@ -420,6 +442,9 @@ class KeyboardSessionCoordinator(
             return
         }
         stopRequestedDuringStart = false
+        // AUD-02: the recorder only reports silence TRANSITIONS, so a session that ended
+        // mid-silence would otherwise leak a stale hint into the next session's first 4s.
+        silenceDetected.value = false
         startJob =
             scope.launch {
                 try {
@@ -658,6 +683,12 @@ class KeyboardSessionCoordinator(
             clearPendingStop()
             return
         }
+        // Flip the UI flag synchronously like stopAndTranscribe/finalizeActiveRecording do.
+        // Without this the panel stayed in the Recording phase after a cancel (stale
+        // waveform/silence hint) and startRecording's isRecording guard made the very next
+        // start — including restartRecording's — a silent no-op until a mic tap cleared it.
+        // Display/UI state only: the capture teardown and discard below are unchanged.
+        isRecording.value = false
         capture.abandonAudioFocus()
         HapticFeedback.onRecordStop(context)
         recordingJob?.cancel()

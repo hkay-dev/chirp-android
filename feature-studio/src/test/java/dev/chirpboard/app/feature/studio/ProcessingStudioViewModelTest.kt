@@ -64,6 +64,11 @@ class ProcessingStudioViewModelTest {
                 ownership = RecoveryOwnershipState.MISSING_OR_TERMINAL,
             )
         context = mockk(relaxed = true)
+        // I18N-08: snackbar copy moved to resources; resolve the ids these tests assert.
+        every { context.getString(dev.chirpboard.app.core.ui.R.string.rec_msg_requeued_transcription) } returns
+            "Re-queued for transcription"
+        every { context.getString(dev.chirpboard.app.core.ui.R.string.rec_msg_transcription_cancelled) } returns
+            "Transcription cancelled"
     }
 
     @After
@@ -211,7 +216,7 @@ class ProcessingStudioViewModelTest {
 
             coVerify { transcriptionRecovery.retry(recordingId) }
             assertEquals(
-                ManualRecoveryResult.NOT_RECOVERABLE_STATE.toUserMessage("Re-queued for transcription"),
+                ManualRecoveryResult.NOT_RECOVERABLE_STATE.toUserMessage(context, "Re-queued for transcription"),
                 viewModel.message.value,
             )
         }

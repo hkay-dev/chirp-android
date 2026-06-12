@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PLT-05: adaptive launcher icon backdrop — the brand lavender (theme primary #6750A4). -->
+<resources>
+    <color name="ic_launcher_background">#6750A4</color>
+</resources>

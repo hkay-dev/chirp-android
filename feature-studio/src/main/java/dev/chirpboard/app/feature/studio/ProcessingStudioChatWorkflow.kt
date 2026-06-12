@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.studio
 
+import android.content.Context
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.model.ChatMessage
 import kotlinx.collections.immutable.ImmutableList
@@ -23,6 +24,7 @@ internal fun createStudioChatMessage(
     )
 
 internal suspend fun completeStudioChatExchange(
+    context: Context,
     llmClient: LlmClient,
     transcriptText: String,
     messagesWithUser: ImmutableList<ChatMessage>,
@@ -30,7 +32,7 @@ internal suspend fun completeStudioChatExchange(
     val result = llmClient.generateChatResponse(transcriptText, messagesWithUser)
     // ERR-11/I18N-05: classify the failure into actionable copy instead of a one-size-fits-all
     // apology; the raw exception detail is for logs, not the chat bubble.
-    val aiText = result.getOrNull() ?: aiFailureDisplayMessage(result.exceptionOrNull())
+    val aiText = result.getOrNull() ?: aiFailureDisplayMessage(context, result.exceptionOrNull())
     val aiMessage = createStudioChatMessage(aiText, isFromUser = false)
 
     return StudioChatExchangeResult(

@@ -45,6 +45,82 @@ class KeyboardUiStateTest {
     }
 
     @Test
+    fun `silence while recording surfaces the no-audio hint`() {
+        // AUD-02 keyboard half: a silenced mic mid-dictation must be visible in the panel.
+        val state =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+                silenceDetected = true,
+            )
+        assertTrue(state.silenceHint)
+        assertEquals(
+            dev.chirpboard.app.feature.keyboard.R.string.keyboard_status_no_audio,
+            state.statusLabelRes(),
+        )
+    }
+
+    @Test
+    fun `silence flag is ignored outside a live recording`() {
+        // A stale silence flag (session ended mid-silence) must never show the hint while
+        // idle, transcribing, or behind an error overlay.
+        val idle =
+            mapKeyboardUiState(
+                isRecording = false,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+                silenceDetected = true,
+            )
+        assertFalse(idle.silenceHint)
+
+        val overlay =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = KeyboardOverlayError("error"),
+                silenceDetected = true,
+            )
+        assertFalse(overlay.silenceHint)
+    }
+
+    @Test
+    fun `recording without silence keeps the recording status label`() {
+        val state =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+                silenceDetected = false,
+            )
+        assertFalse(state.silenceHint)
+        assertEquals(
+            dev.chirpboard.app.feature.keyboard.R.string.keyboard_status_recording,
+            state.statusLabelRes(),
+        )
+    }
+
+    @Test
     fun `initializing banner stays present across non-idle dictation phases`() {
         // UI-2 mapping half: the banner must not be force-hidden just because the panel left
         // Idle, or it would reflow once per dictation while the model is still warming.

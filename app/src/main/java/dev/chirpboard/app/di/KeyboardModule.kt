@@ -52,23 +52,52 @@ class SherpaRecognizerProvider(
         return success
     }
 
+    /**
+     * Transcribes under a [RecognizerManager] usage lease so the idle/pressure release paths
+     * (PRF-1/PRF-2) treat the recognizer as in-use for the whole decode and refresh its
+     * recency stamp when the work completes.
+     *
+     * Defense in depth for the idle release: if the shared recognizer was freed since this
+     * surface last initialized (e.g. the keyboard sat open past the idle cutoff and no IME
+     * re-bind re-warmed it), re-warm it here instead of failing the dictation — a 10-30s
+     * masked model load is always better than returning ModelUnavailable for speech the user
+     * already produced. Only attempted when the model files are actually present.
+     */
     override suspend fun transcribe(
         samples: FloatArray,
         sampleRate: Int,
     ): TranscriptionOutcome {
         val activeRecognizer =
-            recognizer ?: RecognizerManager.peekReadyRecognizer()?.also { recognizer = it }
-        return activeRecognizer?.transcribeOutcome(samples, sampleRate)
-            ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+            readyRecognizer()
+                ?: rewarmedRecognizer()
+                ?: return TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+        return RecognizerManager.withUsageLease {
+            activeRecognizer.transcribeOutcome(samples, sampleRate)
+        }
+    }
+
+    /**
+     * Prefers an instance that is still loaded: a cached reference whose native recognizer has
+     * been released reports `isReady == false` and must not shadow a freshly re-initialized
+     * shared singleton.
+     */
+    private fun readyRecognizer(): SherpaRecognizer? =
+        recognizer?.takeIf { it.isReady }
+            ?: RecognizerManager.peekReadyRecognizer()?.also { recognizer = it }
+
+    private suspend fun rewarmedRecognizer(): SherpaRecognizer? {
+        if (!downloader.isModelDownloaded()) return null
+        if (!RecognizerManager.initializeRecognizer(context.applicationContext)) return null
+        return RecognizerManager.peekReadyRecognizer()?.also { recognizer = it }
     }
 
     /**
      * Frees the shared recognizer from memory. LOAD-1 / KBD-1: this releases the process-global
      * [RecognizerManager] singleton shared by the keyboard and the recognition Activity, so it must
-     * only be reached from a genuine "free model memory" intent (OS memory pressure via
-     * [ChirpApplication]'s trim hook, or an explicit user free/delete) — never from a single
-     * surface's start/teardown, which would force the next keyboard dictation to cold-reload the
-     * model.
+     * only be reached from an explicit user "free model memory" / delete-model intent — never from
+     * a single surface's start/teardown, which would force the next keyboard dictation to
+     * cold-reload the model. The OS-pressure and idle-timeout paths do NOT come through here; they
+     * use the gated `RecognizerManager.releaseIfUnused` via `RecognizerIdleReleasePolicy`.
      */
     override suspend fun release() {
         recognizer = null

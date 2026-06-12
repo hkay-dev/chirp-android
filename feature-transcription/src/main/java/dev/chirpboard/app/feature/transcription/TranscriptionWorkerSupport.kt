@@ -29,8 +29,13 @@ internal const val TRANSCRIPTION_FOREGROUND_CHANNEL_ID = "transcription_progress
 internal const val ENHANCEMENT_FOREGROUND_NOTIFICATION_ID = 2002
 internal const val ENHANCEMENT_FOREGROUND_CHANNEL_ID = "enhancement_progress"
 
-internal fun transcriptionProgressNotificationTitle(): String = "Transcribing recording"
-internal fun enhancementProgressNotificationTitle(): String = "Enhancing recording"
+// I18N-08: notification titles/bodies/channel names live in strings.xml, not Kotlin literals.
+internal fun transcriptionProgressNotificationTitle(context: Context): String =
+    context.getString(R.string.transcription_progress_notification_title)
+
+internal fun enhancementProgressNotificationTitle(context: Context): String =
+    context.getString(R.string.enhancement_progress_notification_title)
+
 internal fun backgroundWorkerForegroundServiceType(): Int = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
 
 internal fun buildTranscriptionProgressNotification(context: Context): Notification {
@@ -38,8 +43,8 @@ internal fun buildTranscriptionProgressNotification(context: Context): Notificat
     return NotificationCompat
         .Builder(context, TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_download)
-        .setContentTitle(transcriptionProgressNotificationTitle())
-        .setContentText("Processing audio in the background")
+        .setContentTitle(transcriptionProgressNotificationTitle(context))
+        .setContentText(context.getString(R.string.transcription_progress_notification_body))
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .build()
@@ -59,8 +64,8 @@ internal fun buildEnhancementProgressNotification(context: Context): Notificatio
     return NotificationCompat
         .Builder(context, ENHANCEMENT_FOREGROUND_CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_upload)
-        .setContentTitle(enhancementProgressNotificationTitle())
-        .setContentText("Applying recording enhancements in the background")
+        .setContentTitle(enhancementProgressNotificationTitle(context))
+        .setContentText(context.getString(R.string.enhancement_progress_notification_body))
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .build()
@@ -138,12 +143,12 @@ private fun ensureTranscriptionProgressChannel(context: Context) {
     val channel =
         NotificationChannel(
             TRANSCRIPTION_FOREGROUND_CHANNEL_ID,
-            "Transcription",
+            context.getString(R.string.transcription_progress_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Shows while a recording is being transcribed"
+            description = context.getString(R.string.transcription_progress_channel_description)
             setShowBadge(false)
-    }
+        }
     notificationManager.createNotificationChannel(channel)
 }
 
@@ -155,10 +160,10 @@ private fun ensureEnhancementProgressChannel(context: Context) {
     val channel =
         NotificationChannel(
             ENHANCEMENT_FOREGROUND_CHANNEL_ID,
-            "Enhancement",
+            context.getString(R.string.enhancement_progress_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Shows while a recording is being enhanced"
+            description = context.getString(R.string.enhancement_progress_channel_description)
             setShowBadge(false)
         }
     notificationManager.createNotificationChannel(channel)
@@ -205,6 +210,27 @@ internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): Chu
                 throw NonRetryableTranscriptionException(message)
             }
         }
+    }
+}
+
+/**
+ * I18N-05: terminal failure notifications show short actionable copy mapped from the failure
+ * class; raw exception messages are developer diagnostics and stay in logs / the persisted
+ * machine codes.
+ */
+internal fun transcriptionFailureNotificationText(
+    context: Context,
+    exception: Exception,
+): String {
+    val message = exception.message.orEmpty()
+    return when {
+        dev.chirpboard.app.data.model.isWaitingForSpeechModel(message) ->
+            context.getString(R.string.transcription_error_model_missing)
+
+        message.contains("ENOSPC") || message.contains("No space left", ignoreCase = true) ->
+            context.getString(R.string.transcription_error_storage_full)
+
+        else -> context.getString(R.string.transcription_error_generic)
     }
 }
 

@@ -65,6 +65,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -98,6 +100,9 @@ internal fun RecordingListItem(
     onPlayClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // AUD-02/AUD-05/ERR-14: live-session advisory rendered as the live banner's hint line;
+    // only the live-capture row ever consumes it.
+    liveCaptureAdvisory: RecordingSessionAdvisory? = null,
 ) {
     val isCurrentItem = playbackState.recordingId == item.id
     val isPlayingCurrent = isCurrentItem && playbackState.isPlaying
@@ -136,9 +141,12 @@ internal fun RecordingListItem(
                 modifier = Modifier.weight(1f),
             )
             if (!item.isLiveCapture) {
+                // A11Y-6: no fixed 40dp size on either button — the M3 default keeps the 40dp
+                // visual container while restoring 48dp interactive bounds; these two controls
+                // sit 4-8dp apart, so fixed 40dp nodes got no touch-bounds expansion between
+                // each other.
                 FilledTonalIconButton(
                     onClick = onPlayClick,
-                    modifier = Modifier.size(40.dp),
                     colors =
                         IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -160,10 +168,7 @@ internal fun RecordingListItem(
                 // kebab opens the SAME actions sheet that long-press does (long-press stays as the
                 // secondary path). The button has its own click target so it does not trigger the
                 // row's onClick (open studio).
-                IconButton(
-                    onClick = onLongClick,
-                    modifier = Modifier.size(40.dp),
-                ) {
+                IconButton(onClick = onLongClick) {
                     Icon(
                         imageVector = Icons.Rounded.MoreVert,
                         contentDescription = stringResource(R.string.rec_more_actions),
@@ -183,7 +188,10 @@ internal fun RecordingListItem(
         // on screen (a live capture stops, transcription progresses), so the height change is
         // worth animating.
         PushDownReveal(visible = item.isLiveCapture) {
-            LiveCaptureHomeBanner(isPaused = isLiveCapturePaused)
+            LiveCaptureHomeBanner(
+                isPaused = isLiveCapturePaused,
+                advisory = liveCaptureAdvisory,
+            )
         }
 
         val transcriptionProgressCopy = if (item.isLiveCapture) null else item.status.transcriptionProgressCopy()
@@ -199,7 +207,7 @@ internal fun RecordingListItem(
         PushDownReveal(visible = shouldShowStuckRecoveryAction(item.status)) {
             Text(
                 text =
-                    item.errorMessage.asHomeProcessingNote()
+                    homeProcessingNoteRes(item.errorMessage)?.let { stringResource(it) }
                         ?: stringResource(
                             R.string.rec_stuck_recovery_message,
                             item.status.name
@@ -293,7 +301,10 @@ private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
 }
 
 @Composable
-private fun LiveCaptureHomeBanner(isPaused: Boolean) {
+private fun LiveCaptureHomeBanner(
+    isPaused: Boolean,
+    advisory: RecordingSessionAdvisory? = null,
+) {
     // Keep the pulse as State<Float> and read it inside drawBehind so the infinite transition
     // invalidates only the draw phase. Reading `.value` here in composition would re-run the
     // whole banner scope every vsync for the entire live capture.
@@ -348,17 +359,23 @@ private fun LiveCaptureHomeBanner(isPaused: Boolean) {
                     style = MaterialTheme.typography.titleSmall,
                     color = accents.recordingLive,
                 )
+                // AUD-02/AUD-05/ERR-14: when the service reports a session advisory (focus
+                // pause, silenced mic, low storage), it replaces the navigation hint so the
+                // live row explains the condition. The polite live region announces the
+                // change for TalkBack without stealing focus.
                 Text(
                     text =
                         stringResource(
-                            if (isPaused) {
-                                R.string.rec_live_capture_banner_subtitle_paused
-                            } else {
-                                R.string.rec_live_capture_banner_subtitle_active
-                            },
+                            advisory?.advisoryStringRes()
+                                ?: if (isPaused) {
+                                    R.string.rec_live_capture_banner_subtitle_paused
+                                } else {
+                                    R.string.rec_live_capture_banner_subtitle_active
+                                },
                         ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
             }
         }
@@ -485,7 +502,7 @@ internal fun RecordingActionsSheet(
             HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
             SheetActionItem(
                 icon = Icons.Rounded.Refresh,
-                text = stringResource(R.string.rec_retry_transcription),
+                text = stringResource(CoreR.string.rec_retry_transcription),
                 onClick = onRetryTranscription,
             )
         }
@@ -505,7 +522,7 @@ internal fun RecordingActionsSheet(
             HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
             SheetActionItem(
                 icon = Icons.Rounded.Close,
-                text = stringResource(R.string.rec_cancel_transcription),
+                text = stringResource(CoreR.string.rec_cancel_transcription),
                 onClick = onCancelTranscription,
             )
         }

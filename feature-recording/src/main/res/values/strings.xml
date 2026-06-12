@@ -7,12 +7,13 @@
     <string name="rec_replacement">Replacement</string>
     <string name="rec_replacement_desc">What to replace it with (leave empty to remove)</string>
     <string name="rec_tags">Tags</string>
-    <string name="rec_gen_title">Generate title</string>
-    <string name="rec_gen_summary">Generate summary</string>
-    <string name="rec_retry_transcription">Retry transcription</string>
-    <string name="rec_import_audio">Import audio</string>
-    <string name="rec_recover_stuck">Recover stuck (%1$d)</string>
-    <string name="rec_profile_name">Name *</string>
+    <string name="rec_gen_title">Generate Title</string>
+    <string name="rec_gen_summary">Generate Summary</string>
+    <string name="rec_import_audio">Import Audio</string>
+    <string name="rec_recover_stuck">Recover Stuck (%1$d)</string>
+    <string name="rec_profile_name">Name</string>
+    <!-- I18N-18: required-field marker as supporting text, not a "*" baked into the label. -->
+    <string name="rec_profile_name_required">Required</string>
     <string name="rec_profile_icon">Icon (emoji)</string>
     <string name="rec_profile_icon_desc">Optional emoji to identify this profile</string>
     <string name="rec_profile_mode">Default Processing Mode</string>
@@ -20,9 +21,8 @@
     <string name="rec_profiles">Profiles</string>
     <string name="rec_home_quick_starts_title">Quick starts</string>
     <string name="rec_profile_quick_start_title">Pin to Home quick starts</string>
-    <string name="rec_profile_quick_start_description">Keep this profile in the home quick-start row even when it is not recent</string>
-    
-    <string name="desc_selected">Selected</string>
+    <string name="rec_profile_quick_start_description">Keep this profile in the home quick-start row even when it is not recent.</string>
+
     <string name="desc_remove_tag">Remove tag</string>
     <string name="desc_add_replacement">Add replacement</string>
     <string name="desc_add_tag">Add tag</string>
@@ -41,7 +41,7 @@
     <string name="start_over">Start Over</string>
     <string name="recording_in_progress_title">Recording in Progress</string>
     <string name="recording_in_progress_text">Save, discard, or browse home while recording continues in the background.</string>
-    <string name="rec_browse_home">Browse home</string>
+    <string name="rec_browse_home">Browse Home</string>
     <string name="rec_live_capture_banner_title">Recording</string>
     <string name="rec_live_capture_banner_subtitle_active">Tap to return to recorder</string>
     <string name="rec_live_capture_banner_subtitle_paused">Paused — tap to return</string>
@@ -50,7 +50,7 @@
     <string name="desc_add_profile">Add Profile</string>
 
     <string name="rec_profile_name_placeholder">e.g., Meeting Notes</string>
-    <string name="rec_profile_icon_placeholder">e.g., 🎤</string>
+    <string name="rec_profile_icon_placeholder" translatable="false">e.g., 🎤</string>
 
 
     <string name="desc_play">Play</string>
@@ -62,15 +62,15 @@
     <string name="rec_new_profile">New Profile</string>
     <string name="rec_profile_automation_settings">Automation Settings</string>
     <string name="rec_profile_auto_transcribe_title">Auto Transcribe</string>
-    <string name="rec_profile_auto_transcribe_description">Automatically transcribe recordings when finished</string>
+    <string name="rec_profile_auto_transcribe_description">Automatically transcribe recordings when finished.</string>
     <string name="rec_profile_auto_title_title">Auto Title</string>
-    <string name="rec_profile_auto_title_description">Generate title using AI after transcription</string>
+    <string name="rec_profile_auto_title_description">Generate a title with AI processing after transcription.</string>
     <string name="rec_profile_auto_summary_title">Auto Summary</string>
-    <string name="rec_profile_auto_summary_description">Generate summary using AI after transcription</string>
+    <string name="rec_profile_auto_summary_description">Generate a summary with AI processing after transcription.</string>
     <string name="rec_profile_processing_section">Processing</string>
     <string name="rec_profile_obsidian_integration">Obsidian Integration</string>
     <string name="rec_profile_auto_export_title">Auto Export to Obsidian</string>
-    <string name="rec_profile_auto_export_description">Automatically export processed recordings to Obsidian</string>
+    <string name="rec_profile_auto_export_description">Automatically export processed recordings to Obsidian.</string>
     <string name="rec_profile_mode_none">None (No processing)</string>
     <string name="rec_profile_mode_enhance">Enhance</string>
     <string name="rec_profile_mode_summarize">Summarize</string>
@@ -82,20 +82,19 @@
     <string name="rec_profile_chip_obsidian">Obsidian</string>
     <string name="rec_word_replacements_empty_title">No word replacements</string>
     <string name="rec_filter_empty_title">No recordings match this filter</string>
-    <string name="rec_filter_clear">Clear filter</string>
+    <string name="rec_filter_clear">Clear Filter</string>
     <string name="rec_filter_processing">Processing</string>
-    <string name="rec_recover">Recover</string>
     <string name="rec_case_sensitive">Case sensitive</string>
     <string name="rec_recordings_title_collapsed">Recordings</string>
     <string name="rec_recordings_title_expanded">Your Recordings</string>
     <string name="rec_record_fab_checking">Checking…</string>
     <string name="rec_record_fab_default">Record</string>
     <string name="rec_empty_state_record_checking">Checking model…</string>
-    <string name="rec_empty_state_record_default">Record now</string>
-    <string name="rec_recover_stuck_processing">Recover stuck processing</string>
+    <string name="rec_empty_state_record_default">Record Now</string>
+    <string name="rec_recover_stuck_processing">Recover Stuck Processing</string>
     <string name="rec_stuck_recovery_message">Stuck in %1$s. Long-press for recovery.</string>
-    <string name="rec_empty_state_title">Your stage awaits</string>
-    <string name="rec_empty_state_subtitle">Tap Record to capture your first brilliant idea</string>
+    <string name="rec_empty_state_title">Nothing recorded yet</string>
+    <string name="rec_empty_state_subtitle">Tap Record to capture your first note</string>
     <string name="rec_notification_starting_title">Starting recording</string>
     <string name="rec_notification_starting_text">Preparing microphone</string>
     <string name="rec_notification_channel_name">Recording</string>
@@ -105,7 +104,7 @@
     <string name="rec_notification_action_pause">Pause</string>
     <string name="rec_notification_action_resume">Resume</string>
     <string name="rec_notification_action_done">Done</string>
-    <string name="rec_notification_restart_refused_title">Couldn\'t start over</string>
+    <string name="rec_notification_restart_refused_title">Couldn’t start over</string>
     <string name="rec_notification_restart_refused_text">Still saving the previous recording — try again in a moment</string>
     <string name="rec_notification_paused_focus">Paused — another app interrupted audio. Recording will resume automatically.</string>
     <string name="rec_notification_storage_low">Storage low — recording will stop soon</string>
@@ -126,16 +125,17 @@
     <string name="rec_add_tag_label">Add tag</string>
     <string name="rec_no_profiles_yet">No profiles yet</string>
     <string name="rec_create_profile">Create Profile</string>
-    <string name="rec_empty_profiles_description">Create a profile to save your recording preferences</string>
+    <string name="rec_empty_profiles_description">Create a profile to save your recording preferences.</string>
     <string name="rec_empty_replacements_description">Add replacements to automatically substitute words or phrases during transcription. Useful for correcting commonly misheard words or expanding abbreviations.</string>
     <string name="rec_replacement_remove">(remove)</string>
     <string name="rec_edit_replacement">Edit Replacement</string>
     <string name="rec_add_replacement_title">Add Replacement</string>
     <string name="rec_edit_tag_title">Edit Tag</string>
     <string name="rec_create_tag_title">Create Tag</string>
-    <string name="rec_empty_tags_description">Create tags to organize your recordings</string>
+    <string name="rec_empty_tags_description">Create tags to organize your recordings.</string>
 
 
+    <!-- I18N-11: quotes around the profile name must be escaped or AAPT strips them. -->
     <string name="rec_delete_profile_confirm">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
 
 
@@ -145,13 +145,13 @@
     </plurals>
 
     <string name="rec_recovery_title">Recover interrupted recording?</string>
-    <string name="rec_recovery_message">Chirp found an unfinished recording from a previous session. You can recover it, keep the file, or discard it.</string>
+    <string name="rec_recovery_message">Chirpboard found an unfinished recording from a previous session. You can recover it, keep the file, or discard it.</string>
     <plurals name="rec_recovery_message_with_loss">
-        <item quantity="one">Chirp found an unfinished recording. Up to %1$d minute of the most recent audio may not have been saved. You can still recover what was captured.</item>
-        <item quantity="other">Chirp found an unfinished recording. Up to %1$d minutes of the most recent audio may not have been saved. You can still recover what was captured.</item>
+        <item quantity="one">Chirpboard found an unfinished recording. Up to %1$d minute of the most recent audio may not have been saved. You can still recover what was captured.</item>
+        <item quantity="other">Chirpboard found an unfinished recording. Up to %1$d minutes of the most recent audio may not have been saved. You can still recover what was captured.</item>
     </plurals>
     <string name="rec_recovery_recover">Recover</string>
-    <string name="rec_recovery_keep">Keep file</string>
+    <string name="rec_recovery_keep">Keep File</string>
     <string name="rec_recovery_discard">Discard</string>
     <string name="rec_recovery_banner_title">Interrupted recording found</string>
     <string name="rec_recovery_banner_body">A previous recording may not have finished saving.</string>
@@ -163,8 +163,8 @@
     <string name="rec_done_wait_for_id">Preparing recording…</string>
 
     <string name="rec_mic_permission_needed_title">Microphone access needed</string>
-    <string name="rec_mic_permission_needed_message">Chirpboard can\'t record without the microphone. Allow microphone access in system settings.</string>
-    <string name="rec_mic_permission_open_settings">Open settings</string>
+    <string name="rec_mic_permission_needed_message">Chirpboard can’t record without the microphone. Allow microphone access in system settings.</string>
+    <string name="rec_mic_permission_open_settings">Open Settings</string>
     <string name="rec_mic_permission_denied">Microphone access is required to record.</string>
 
     <string name="rec_record_status_recording">Recording</string>
@@ -174,8 +174,55 @@
     <string name="rec_home_list_cap_footer">Showing the latest %1$d recordings. Search to find older ones.</string>
     <string name="desc_loading_recordings">Loading recordings</string>
 
-    <string name="rec_cancel_transcription">Cancel transcription</string>
     <string name="rec_transcribe_now">Transcribe</string>
     <string name="rec_awaiting_transcription_note">Waiting for you to start transcription</string>
 
+    <!-- I18N-08: home/record ViewModel snackbar copy (previously Kotlin literals). -->
+    <string name="rec_msg_recovered">Recording recovered.</string>
+    <plurals name="rec_msg_recovered_with_loss">
+        <item quantity="one">Recording recovered. Up to %1$d minute of recent audio may be missing.</item>
+        <item quantity="other">Recording recovered. Up to %1$d minutes of recent audio may be missing.</item>
+    </plurals>
+    <string name="rec_msg_already_recording">Recording already in progress from %1$s</string>
+    <string name="rec_origin_app">the app</string>
+    <string name="rec_origin_keyboard">the keyboard</string>
+    <string name="rec_origin_widget">the widget</string>
+    <string name="rec_origin_recognition">voice recognition</string>
+    <string name="rec_msg_recovery_queued">Recovery queued</string>
+    <plurals name="rec_msg_recover_all_queued">
+        <item quantity="one">Queued recovery for %1$d recording</item>
+        <item quantity="other">Queued recovery for %1$d recordings</item>
+    </plurals>
+    <string name="rec_msg_recover_all_none">No recoverable recordings were queued</string>
+    <string name="rec_msg_no_transcript_for_title">No transcript available for title generation</string>
+    <string name="rec_msg_no_transcript_for_summary">No transcript available for summary generation</string>
+    <string name="rec_msg_generating_title">Generating title…</string>
+    <string name="rec_msg_generating_summary">Generating summary…</string>
+    <string name="rec_msg_title_updated">Title updated</string>
+    <string name="rec_msg_summary_updated">Summary updated</string>
+    <string name="rec_msg_title_generation_failed">Couldn’t generate a title. %1$s</string>
+    <string name="rec_msg_summary_generation_failed">Couldn’t generate a summary. %1$s</string>
+    <!-- I18N-05: actionable hints appended to AI title/summary failures. -->
+    <string name="rec_msg_enrichment_hint_network">Check your internet connection and try again.</string>
+    <string name="rec_msg_enrichment_hint_generic">Try again, or check your AI Processing settings.</string>
+    <string name="rec_msg_persist_failed_storage">Couldn’t save the result. Your device storage may be full.</string>
+    <string name="rec_msg_queued_for_transcription">Queued for transcription</string>
+    <string name="rec_msg_import_failed">Couldn’t import the audio file. It may not be a playable audio file.</string>
+    <string name="rec_msg_profile_missing">Profile no longer exists. Using default recording settings.</string>
+    <string name="rec_msg_stop_in_progress">Recording is already being saved. Start over isn’t available right now.</string>
+    <string name="rec_msg_tag_update_failed">Couldn’t update tags. The recording may no longer exist.</string>
+    <string name="rec_msg_tag_add_failed">Couldn’t add the tag. The recording may no longer exist.</string>
+    <string name="rec_msg_profile_not_found">Profile not found</string>
+    <string name="rec_msg_profile_name_required">Name is required</string>
+    <string name="rec_msg_profile_save_failed">Couldn’t save the profile. Try again.</string>
+    <!-- I18N-08: audio import pipeline copy (previously Kotlin literals). -->
+    <string name="rec_import_default_title">Imported Audio</string>
+    <string name="rec_import_save_failed">Couldn’t save the imported audio.</string>
+    <string name="rec_import_open_failed">Couldn’t open the shared audio file.</string>
+    <string name="rec_import_copy_failed">Couldn’t copy the shared audio file.</string>
+    <string name="rec_import_queue_recovery">Import finished, but queue handoff failed. Recovery is ready on startup.</string>
+    <!-- I18N-05: friendly home-card note for persisted machine recovery codes. -->
+    <string name="rec_note_stale_recovered">A stalled attempt was recovered. Processing will retry.</string>
+    <string name="rec_note_queue_handoff">Queueing was interrupted. Recovery runs on next launch, or recover manually.</string>
+    <string name="rec_note_manual_recovery">Recovery was requested. Waiting for processing to pick it up.</string>
 </resources>

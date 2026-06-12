@@ -45,7 +45,11 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // WorkManager
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    // PLT-03: 2.9.0 -> 2.10.5 (latest 2.10.x). 2.10.0+ implements Service.onTimeout for the
+    // Android 15/16 dataSync 6h budget (stops the worker with STOP_REASON_TIMEOUT) and catches
+    // budget-exhausted startForeground refusals — 2.9.0 crashed the shared IME process with
+    // ForegroundServiceDidNotStopInTimeException when the budget ran out mid-transcription.
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
 
     // Lifecycle
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")

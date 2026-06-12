@@ -6,37 +6,65 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.RemoteViews
+import androidx.annotation.ColorRes
+import androidx.annotation.DrawableRes
+import androidx.annotation.StringRes
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.feature.widget.R
 
 /**
  * AppWidgetProvider for the recording widget.
- * 
+ *
  * Displays a record/stop button based on current recording state.
- * Widget UI is updated via [updateWidgetState] when recording state changes.
+ * Widget UI is updated via [updateWidgetState] when recording state changes, and
+ * [onUpdate] re-renders the REAL current state (IME-16/PLT-04) whenever the launcher
+ * re-inflates widgets (widget add, launcher restart, theme/Good Lock changes) — a
+ * hardcoded Idle frame here used to show "Tap to record" while the mic was live,
+ * and tapping it stopped the recording the UI claimed was not running.
  */
 class RecordingWidgetProvider : AppWidgetProvider() {
-    
+    /** Hilt access from the static widget callback (the receiver runs in the app process). */
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    internal interface WidgetEntryPoint {
+        fun recordingStateManager(): RecordingStateManager
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        val stateManager =
+            runCatching {
+                EntryPointAccessors
+                    .fromApplication(context.applicationContext, WidgetEntryPoint::class.java)
+                    .recordingStateManager()
+            }.onFailure { Log.w(TAG, "Recording state unavailable; rendering Idle", it) }
+                .getOrNull()
+        val state = stateManager?.state?.value ?: RecordingState.Idle
+        val durationMs = stateManager?.getCurrentDurationMs() ?: 0L
         for (appWidgetId in appWidgetIds) {
-            updateAppWidgetWithState(context, appWidgetManager, appWidgetId, RecordingState.Idle, 0L)
+            updateAppWidgetWithState(context, appWidgetManager, appWidgetId, state, durationMs)
         }
     }
-    
-    
+
     companion object {
+        private const val TAG = "RecordingWidget"
         const val ACTION_TOGGLE_RECORDING = "dev.chirpboard.app.TOGGLE_RECORDING"
-        
+
         fun updateWidgetState(context: Context, state: RecordingState, currentDurationMs: Long) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val componentName = ComponentName(context, RecordingWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
-            
+
             for (appWidgetId in appWidgetIds) {
                 updateAppWidgetWithState(context, appWidgetManager, appWidgetId, state, currentDurationMs)
             }
@@ -50,44 +78,42 @@ class RecordingWidgetProvider : AppWidgetProvider() {
             currentDurationMs: Long
         ) {
             val views = RemoteViews(context.packageName, R.layout.widget_layout)
-            
+
+            // Button glyph + tint + accessible description follow the ACTION a tap performs
+            // (IME-21: Paused taps stop-and-save, so Paused shows the stop glyph and says so).
+            val buttonSpec = widgetButtonSpecFor(state)
+            views.setImageViewResource(R.id.widget_button, buttonSpec.iconRes)
+            views.setInt(R.id.widget_button, "setColorFilter", context.getColor(buttonSpec.tintRes))
+            views.setContentDescription(
+                R.id.widget_button,
+                context.getString(buttonSpec.contentDescriptionRes),
+            )
+
             when (state) {
                 is RecordingState.Recording -> {
-                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
                     // Use Chronometer for recording duration
                     val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
                     views.setChronometer(R.id.widget_status, base, null, true)
                 }
                 is RecordingState.Paused -> {
-                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt()) // Red tint
                     // Show the accumulated time statically
                     val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
                     views.setChronometer(R.id.widget_status, base, null, false)
                 }
                 is RecordingState.Starting -> {
-                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
                     views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_starting), false)
                 }
                 is RecordingState.Stopping -> {
-                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_stop)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFF9E9E9E.toInt())
                     views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_saving), false)
                 }
                 is RecordingState.Error -> {
-                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
                     views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_error), false)
                 }
                 is RecordingState.Idle -> {
-                    views.setImageViewResource(R.id.widget_button, R.drawable.ic_widget_record)
-                    views.setInt(R.id.widget_button, "setColorFilter", 0xFFE53935.toInt())
                     views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_idle), false)
                 }
             }
-            
+
             // Set up click handler for toggle button
             val toggleIntent = Intent(context, WidgetReceiver::class.java).apply {
                 action = ACTION_TOGGLE_RECORDING
@@ -99,9 +125,45 @@ class RecordingWidgetProvider : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setOnClickPendingIntent(R.id.widget_button, pendingIntent)
-            
+
             // Update the widget
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
     }
 }
+
+/** How the widget's single button should render for a recording state. */
+internal data class WidgetButtonSpec(
+    @field:DrawableRes val iconRes: Int,
+    @field:ColorRes val tintRes: Int,
+    @field:StringRes val contentDescriptionRes: Int,
+)
+
+/**
+ * Pure state -> render mapping (JVM-testable, TST-014). Derived from
+ * [widgetToggleActionFor] so the glyph/description always advertise the action a tap
+ * actually performs (IME-21).
+ */
+internal fun widgetButtonSpecFor(state: RecordingState): WidgetButtonSpec =
+    when (widgetToggleActionFor(state)) {
+        WidgetToggleAction.Start,
+        WidgetToggleAction.ClearErrorAndStart,
+        ->
+            WidgetButtonSpec(
+                iconRes = R.drawable.ic_widget_record,
+                tintRes = R.color.widget_tint_live,
+                contentDescriptionRes = R.string.widget_desc_start_recording,
+            )
+        WidgetToggleAction.StopActive ->
+            WidgetButtonSpec(
+                iconRes = R.drawable.ic_widget_stop,
+                tintRes = R.color.widget_tint_live,
+                contentDescriptionRes = R.string.widget_desc_stop_recording,
+            )
+        WidgetToggleAction.ShowStoppingFeedback ->
+            WidgetButtonSpec(
+                iconRes = R.drawable.ic_widget_stop,
+                tintRes = R.color.widget_tint_saving,
+                contentDescriptionRes = R.string.widget_desc_saving_recording,
+            )
+    }

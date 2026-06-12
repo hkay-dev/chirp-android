@@ -24,7 +24,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Chirp">
 
-        <!-- Main Activity for setup/permissions -->
+        <!-- Main Activity for setup/permissions.
+             LIF-16 (documented decision): the ACTION_SEND filter means sharing audio into
+             Chirpboard opens a second MainActivity instance inside the sharing app's task.
+             That is standard Android share behavior and deliberately kept — singleTask/
+             documentLaunchMode would rip the user out of the sharing app's context, and all
+             recording/playback state lives in process singletons so dual instances are safe. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -40,7 +45,19 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
             </intent-filter>
+            <!-- Static launcher shortcuts (long-press the app icon). -->
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- The system keyboard-settings gear (input_method.xml settingsActivity) launches this
+             alias; MainActivity detects the alias component and deep-links straight to the
+             keyboard settings destination instead of dumping the user on Home (LIF-15). -->
+        <activity-alias
+            android:name=".KeyboardSettingsLauncherActivity"
+            android:targetActivity=".MainActivity"
+            android:exported="true" />
 
         <!-- Voice Recognition Activity for RECOGNIZE_SPEECH intents.
              configChanges keeps rotation/theme changes from recreating the activity
@@ -61,13 +78,14 @@
             </intent-filter>
         </activity>
 
-        <!-- Input Method Service (from feature-keyboard) -->
+        <!-- Input Method Service (from feature-keyboard). No foregroundServiceType: the IME
+             never calls startForeground — keyboard capture is in-process and recordings run
+             through RecordingService, which owns the microphone FGS type. -->
         <service
             android:name="dev.chirpboard.app.feature.keyboard.service.ChirpKeyboardService"
             android:exported="true"
             android:label="@string/keyboard_name"
-            android:permission="android.permission.BIND_INPUT_METHOD"
-            android:foregroundServiceType="microphone">
+            android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
             </intent-filter>

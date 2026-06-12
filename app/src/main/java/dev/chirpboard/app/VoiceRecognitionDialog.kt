@@ -98,6 +98,7 @@ import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.ui.theme.chirpAccents
 import dev.chirpboard.app.core.ui.theme.recordingTimerStyle
+import dev.chirpboard.app.core.ui.R as CoreUiR
 import dev.chirpboard.app.core.util.formatAsDuration
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -212,7 +213,7 @@ internal fun VoiceRecognitionDialog(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClickLabel = stringResource(R.string.desc_cancel),
+                    onClickLabel = stringResource(CoreUiR.string.desc_cancel),
                     onClick = requestCancel,
                 ),
         contentAlignment = Alignment.BottomCenter,
@@ -499,7 +500,7 @@ private fun VoiceRecognitionTopBar(
         ) {
             Icon(
                 Icons.Rounded.Close,
-                contentDescription = stringResource(R.string.desc_cancel),
+                contentDescription = stringResource(CoreUiR.string.desc_cancel),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
@@ -63,8 +64,9 @@ internal fun LlmSettingsBackupSection(
             ) {
                 Text(
                     text =
-                        stringResource(
-                            R.string.llm_backup_saved_keys_summary,
+                        pluralStringResource(
+                            R.plurals.llm_backup_saved_keys_summary,
+                            configuredKeyCount,
                             configuredKeyCount,
                         ),
                     style = MaterialTheme.typography.bodyMedium,

@@ -149,7 +149,10 @@ class ChirpRecognitionService : RecognitionService() {
     private fun saveTranscription(rawText: String) {
         scope.launch(Dispatchers.IO) {
             val persistenceResult =
-                persistRecognitionHistoryAtomically(rawText) { recording, transcript ->
+                persistRecognitionHistoryAtomically(
+                    rawText = rawText,
+                    fallbackTitle = getString(R.string.recognition_history_fallback_title),
+                ) { recording, transcript ->
                     recordingRepository.createRecordingWithTranscript(recording, transcript)
                 }
 
