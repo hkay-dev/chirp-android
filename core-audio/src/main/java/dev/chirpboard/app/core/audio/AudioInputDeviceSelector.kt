@@ -87,7 +87,8 @@ class AudioInputDeviceSelector
             refreshAvailableDevices()
         }
 
-        fun listInputDevices(): List<AudioInputDeviceSummary> = inputDevices().map(::summaryFor)
+        fun listInputDevices(): List<AudioInputDeviceSummary> =
+            surfaceableInputDevices(inputDevices().map(::summaryFor))
 
         /**
          * Whether the app may read real Bluetooth device names/addresses. Without the
@@ -198,7 +199,7 @@ class AudioInputDeviceSelector
         }
 
         private fun refreshAvailableDevices() {
-            _availableDevices.value = inputDevices().map(::summaryFor)
+            _availableDevices.value = surfaceableInputDevices(inputDevices().map(::summaryFor))
         }
 
         private fun summaryFor(device: AudioDeviceInfo): AudioInputDeviceSummary =
@@ -221,11 +222,30 @@ class AudioInputDeviceSelector
                     AudioInputDeviceKind.Other,
                 )
 
+            /**
+             * The user-facing input list: Android (notably Samsung) enumerates the same
+             * logical mic as several [AudioDeviceInfo] rows (e.g. two TYPE_BUILTIN_MIC
+             * entries for the bottom/reference mics) and also returns non-recordable
+             * "Other" endpoints (telephony, FM, remote-submix) that are not meaningful
+             * recording sources. Collapse to one row per user-meaningful choice — its
+             * displayed (kind, name) identity, since the multiple built-in-mic rows share
+             * the "Built-in microphone" display name but carry different productName-derived
+             * selection keys — and drop the Other kinds so the picker shows exactly the mics
+             * a user can choose. Pure for testability.
+             */
+            fun surfaceableInputDevices(
+                summaries: List<AudioInputDeviceSummary>,
+            ): List<AudioInputDeviceSummary> =
+                summaries
+                    .filter { it.kind != AudioInputDeviceKind.Other }
+                    .distinctBy { it.kind to it.productName }
+
             fun kindFor(type: Int): AudioInputDeviceKind =
                 when (type) {
                     AudioDeviceInfo.TYPE_BUILTIN_MIC -> AudioInputDeviceKind.BuiltIn
                     AudioDeviceInfo.TYPE_USB_DEVICE,
                     AudioDeviceInfo.TYPE_USB_HEADSET,
+                    AudioDeviceInfo.TYPE_USB_ACCESSORY,
                     -> AudioInputDeviceKind.Usb
                     AudioDeviceInfo.TYPE_WIRED_HEADSET,
                     AudioDeviceInfo.TYPE_AUX_LINE,

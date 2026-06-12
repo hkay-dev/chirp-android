@@ -420,4 +420,43 @@ class AudioInputDeviceSelectorTest {
         assertEquals("Bluetooth LE", AudioInputDeviceSelector.typeLabel(AudioDeviceInfo.TYPE_BLE_HEADSET))
         assertEquals("Bluetooth", AudioInputDeviceSelector.typeLabel(AudioDeviceInfo.TYPE_BLUETOOTH_SCO))
     }
+
+    // --- Surfaced (picker) device list ------------------------------------------------
+
+    @Test
+    fun surfaceableInputDevices_collapsesDuplicateBuiltInMicsAndDropsOtherKinds() {
+        // Samsung returns two TYPE_BUILTIN_MIC rows (blank address -> identical composite
+        // selectionKey) plus non-recordable "Other" endpoints (telephony/FM as model name).
+        val bottomMic = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+        val referenceMic = summary(id = 2, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+        val telephony = summary(id = 3, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
+        val fmTuner = summary(id = 4, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
+
+        val surfaced =
+            AudioInputDeviceSelector.surfaceableInputDevices(
+                listOf(bottomMic, referenceMic, telephony, fmTuner),
+            )
+
+        assertEquals(1, surfaced.size)
+        assertEquals(AudioInputDeviceKind.BuiltIn, surfaced.single().kind)
+    }
+
+    @Test
+    fun surfaceableInputDevices_keepsDistinctRealMicsIncludingUsb() {
+        val builtIn = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+        val usb = summary(id = 2, kind = AudioInputDeviceKind.Usb, name = "USB Mic", address = "usb:1")
+        val bt = summary(id = 3, kind = AudioInputDeviceKind.Bluetooth, name = "Earbuds", address = "AA:BB")
+
+        val surfaced = AudioInputDeviceSelector.surfaceableInputDevices(listOf(builtIn, usb, bt))
+
+        assertEquals(3, surfaced.size)
+        assertTrue(surfaced.any { it.kind == AudioInputDeviceKind.Usb })
+        assertTrue(surfaced.any { it.kind == AudioInputDeviceKind.Bluetooth })
+        assertTrue(surfaced.any { it.kind == AudioInputDeviceKind.BuiltIn })
+    }
+
+    @Test
+    fun kindFor_mapsUsbAccessoryToUsb() {
+        assertEquals(AudioInputDeviceKind.Usb, AudioInputDeviceSelector.kindFor(AudioDeviceInfo.TYPE_USB_ACCESSORY))
+    }
 }
