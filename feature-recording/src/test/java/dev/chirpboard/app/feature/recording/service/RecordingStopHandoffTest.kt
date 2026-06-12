@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.service
 
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.test.runTest
@@ -24,6 +25,7 @@ class RecordingStopHandoffTest {
                 stopCapture = {
                     events += "capture-stop-start"
                     events += "capture-stop-complete"
+                    CaptureStopHandoffResult.Completed(File("/tmp/test.m4a"))
                 },
                 captureSnapshot = { snapshot(recordingId) },
                 markAbandoned = { _, _ -> events += "abandoned" },
@@ -56,7 +58,10 @@ class RecordingStopHandoffTest {
                 sessionId = sessionId,
                 generation = 1,
                 stopGeneration = stopGeneration,
-                stopCapture = { events += "capture-stop-complete" },
+                stopCapture = {
+                    events += "capture-stop-complete"
+                    CaptureStopHandoffResult.Completed(File("/tmp/test.m4a"))
+                },
                 captureSnapshot = { snapshot(recordingId = null) },
                 markAbandoned = { id, recordingId -> events += "abandoned:$id:$recordingId" },
                 markStopping = { events += "stopping:$it" },
@@ -76,7 +81,7 @@ class RecordingStopHandoffTest {
         }
 
     @Test
-    fun `generation bumped during capture stop skips all side effects`() =
+    fun `stale verdict from capture stop skips all side effects`() =
         runTest {
             val sessionId = UUID.randomUUID()
             val stopGeneration = AtomicInteger(1)
@@ -89,8 +94,9 @@ class RecordingStopHandoffTest {
                     stopGeneration = stopGeneration,
                     stopCapture = {
                         events += "capture-stop-complete"
-                        // A cancel or restart supersedes this stop while the capture winds down.
-                        stopGeneration.incrementAndGet()
+                        // The mutex-protected stopper observed a cancel/restart supersede
+                        // the stop mid-flight and returns the single staleness verdict.
+                        CaptureStopHandoffResult.StaleGeneration
                     },
                     captureSnapshot = { events += "snapshot"; snapshot(UUID.randomUUID()) },
                     markAbandoned = { _, _ -> events += "abandoned" },
@@ -117,7 +123,10 @@ class RecordingStopHandoffTest {
                     sessionId = sessionId,
                     generation = 1,
                     stopGeneration = stopGeneration,
-                    stopCapture = { events += "capture-stop-complete" },
+                    stopCapture = {
+                        events += "capture-stop-complete"
+                        CaptureStopHandoffResult.Completed(File("/tmp/test.m4a"))
+                    },
                     captureSnapshot = { snapshot(recordingId) },
                     markAbandoned = { _, _ -> events += "abandoned" },
                     markStopping = { id ->

@@ -24,7 +24,6 @@ import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
-import dev.chirpboard.app.feature.recording.session.RecordingCheckpointScheduler
 import dev.chirpboard.app.feature.recording.session.RecordingSegmentRotator
 import dev.chirpboard.app.feature.recording.session.RecordingSessionHeartbeat
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
@@ -93,9 +92,6 @@ class RecordingService : Service() {
     lateinit var sessionHeartbeat: RecordingSessionHeartbeat
 
     @Inject
-    lateinit var checkpointScheduler: RecordingCheckpointScheduler
-
-    @Inject
     lateinit var segmentRotator: RecordingSegmentRotator
 
     @Inject
@@ -117,7 +113,6 @@ class RecordingService : Service() {
     private var amplitudeJob: Job? = null
     private var heartbeatJob: Job? = null
     private var storageCheckJob: Job? = null
-    private var checkpointJob: Job? = null
     private var segmentRotationJob: Job? = null
     private val segmentTransitionMutex = Mutex()
     private val stopRequestGate = StopRequestGate()
@@ -224,7 +219,6 @@ class RecordingService : Service() {
                     amplitudeJob?.cancel()
                     heartbeatJob?.cancel()
                     storageCheckJob?.cancel()
-                    checkpointJob?.cancel()
                     segmentRotationJob?.cancel()
                 },
                 detachCallbacks = {
@@ -445,7 +439,6 @@ class RecordingService : Service() {
             startAmplitudeCollection()
             startSessionHeartbeat()
             startStorageMonitoring()
-            startCheckpointCopies()
             startSegmentRotation()
         } catch (e: kotlinx.coroutines.CancellationException) {
             if (startGenerationToken != startGeneration.get()) {
@@ -606,7 +599,6 @@ class RecordingService : Service() {
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
-        checkpointJob?.cancel()
         segmentRotationJob?.cancel()
 
         serviceScope.launch {
@@ -687,7 +679,6 @@ class RecordingService : Service() {
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
-        checkpointJob?.cancel()
         segmentRotationJob?.cancel()
 
         serviceScope.launch {
@@ -816,7 +807,6 @@ class RecordingService : Service() {
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
-        checkpointJob?.cancel()
         segmentRotationJob?.cancel()
 
         val generation = stopGeneration.incrementAndGet()
@@ -909,7 +899,13 @@ class RecordingService : Service() {
             },
         )
 
-    private suspend fun stopActiveCaptureForHandoff(generation: Int) {
+    /**
+     * Stops the active capture inside the segment-transition mutex and returns the verdict
+     * unchanged so [RecordingStopHandoff] can react to it once. On a stale verdict no service
+     * state is touched (a superseding cancel/restart owns it); every non-stale verdict adopts
+     * the finalized/fallback file and detaches the engine before the handoff proceeds.
+     */
+    private suspend fun stopActiveCaptureForHandoff(generation: Int): CaptureStopHandoffResult {
         val result =
             RecordingCaptureStopper.stopForHandoff(
                 segmentTransitionMutex = segmentTransitionMutex,
@@ -951,6 +947,7 @@ class RecordingService : Service() {
             }
             CaptureStopHandoffResult.StaleGeneration -> Unit
         }
+        return result
     }
 
     private fun captureStopSnapshot(): StopSnapshot? =
@@ -1048,16 +1045,6 @@ class RecordingService : Service() {
         heartbeatJob?.cancel()
         heartbeatJob =
             sessionHeartbeat.start(
-                scope = serviceScope,
-                sessionIdProvider = { currentSessionId },
-                activeFileProvider = { currentRecordingFile },
-            )
-    }
-
-    private fun startCheckpointCopies() {
-        checkpointJob?.cancel()
-        checkpointJob =
-            checkpointScheduler.start(
                 scope = serviceScope,
                 sessionIdProvider = { currentSessionId },
                 activeFileProvider = { currentRecordingFile },

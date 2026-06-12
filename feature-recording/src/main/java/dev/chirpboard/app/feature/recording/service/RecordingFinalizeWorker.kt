@@ -4,7 +4,6 @@ import android.content.Context
 import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
-import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -73,19 +72,14 @@ class RecordingFinalizeWorker
             )
             recoveryStore.refresh()
 
-            return finalizeWorkerResultFor(result)
+            // Never retry: every persistence outcome (success, no-audio, failure, or
+            // queue-pending) has already been handled terminally above — the recovery
+            // paths own all failure handling, so a WorkManager retry would only
+            // double-process. The applier is the single decision point.
+            return Result.success()
         }
 
         companion object {
             private const val TAG = "RecordingFinalizeWorker"
         }
-    }
-
-internal fun finalizeWorkerResultFor(result: StopPersistenceResult): ListenableWorker.Result =
-    when (result) {
-        is StopPersistenceResult.PersistenceFailed,
-        StopPersistenceResult.NoAudioFile,
-        is StopPersistenceResult.SavedAndQueued,
-        is StopPersistenceResult.SavedPendingRecovery,
-        -> ListenableWorker.Result.success()
     }

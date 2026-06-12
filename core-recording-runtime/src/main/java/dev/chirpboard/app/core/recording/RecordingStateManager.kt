@@ -71,8 +71,19 @@ class RecordingStateManager @Inject constructor() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var timeoutJob: Job? = null
     private var lastAmplitudeEmitMs = 0L
-    private val stoppingTimeoutHandlers =
-        mutableMapOf<RecordingOrigin, suspend (RecordingState.Stopping) -> Unit>()
+
+    /**
+     * The single registered stopping-timeout rescue handler, tagged with the origin it was
+     * registered for. Only one recording can be active at a time (the global recording lock),
+     * so at most one handler is ever live; the origin tag preserves the invariant that a
+     * handler only fires when the stopping state's origin matches the one it registered for.
+     */
+    private var stoppingTimeoutHandler: StoppingTimeoutHandlerRegistration? = null
+
+    private class StoppingTimeoutHandlerRegistration(
+        val origin: RecordingOrigin,
+        val handler: suspend (RecordingState.Stopping) -> Unit,
+    )
 
     /** Test-only override for stopping timeout duration. */
     @VisibleForTesting
@@ -106,7 +117,6 @@ class RecordingStateManager @Inject constructor() {
     fun tryStartRecording(
         origin: RecordingOrigin,
         profileId: UUID? = null,
-        onTransition: (RecordingState) -> Unit = {}
     ): RecordingStartResult {
         // Atomic check-and-set: only one caller can acquire the lock
         if (!recordingLock.compareAndSet(false, true)) {
@@ -115,12 +125,12 @@ class RecordingStateManager @Inject constructor() {
                 currentOrigin = currentState.activeOrigin ?: RecordingOrigin.APP
             )
         }
-        
+
         // We have the lock - update state to Starting
         accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Starting")
-            RecordingState.Starting(origin, profileId).also(onTransition)
+            RecordingState.Starting(origin, profileId)
         }
         return RecordingStartResult.Success
     }
@@ -150,7 +160,6 @@ class RecordingStateManager @Inject constructor() {
     fun onRecordingStarted(
         audioFilePath: String,
         recordingId: UUID? = null,
-        onTransition: (RecordingState) -> Unit = {},
     ) {
         _state.update { current ->
             when (current) {
@@ -161,11 +170,7 @@ class RecordingStateManager @Inject constructor() {
                         profileId = current.profileId,
                         audioFilePath = audioFilePath,
                         recordingId = recordingId ?: current.recordingId,
-                    ).also(onTransition)
-
-
-
-
+                    )
                 }
                 else -> {
                     Log.w(TAG, "onRecordingStarted called in wrong state: ${current::class.simpleName}")
@@ -281,9 +286,13 @@ class RecordingStateManager @Inject constructor() {
         handler: (suspend (RecordingState.Stopping) -> Unit)?,
     ) {
         if (handler == null) {
-            stoppingTimeoutHandlers.remove(origin)
+            // A null handler clears only this origin's registration, mirroring the
+            // previous per-origin removal.
+            if (stoppingTimeoutHandler?.origin == origin) {
+                stoppingTimeoutHandler = null
+            }
         } else {
-            stoppingTimeoutHandlers[origin] = handler
+            stoppingTimeoutHandler = StoppingTimeoutHandlerRegistration(origin, handler)
         }
     }
 
@@ -296,8 +305,9 @@ class RecordingStateManager @Inject constructor() {
         origin: RecordingOrigin,
         handler: suspend (RecordingState.Stopping) -> Unit,
     ) {
-        if (stoppingTimeoutHandlers[origin] === handler) {
-            stoppingTimeoutHandlers.remove(origin)
+        val current = stoppingTimeoutHandler
+        if (current != null && current.origin == origin && current.handler === handler) {
+            stoppingTimeoutHandler = null
         }
     }
 
@@ -315,7 +325,10 @@ class RecordingStateManager @Inject constructor() {
                     return@launch
                 }
                 // Handler cleanup (journal abandon, row delete) must finish before Error + lock release.
-                stoppingTimeoutHandlers[stoppingState.origin]?.invoke(stoppingState)
+                val registration = stoppingTimeoutHandler
+                if (registration != null && registration.origin == stoppingState.origin) {
+                    registration.handler.invoke(stoppingState)
+                }
                 var timedOut = false
                 _state.update { current ->
                     if (current is RecordingState.Stopping) {
@@ -336,14 +349,6 @@ class RecordingStateManager @Inject constructor() {
         return timeoutJob
     }
 
-    /**
-     * @deprecated Use [transitionToStopping] followed by [startStoppingTimeout] after IO release.
-     */
-    fun beginStopRecording(): Job? {
-        if (!transitionToStopping()) return null
-        return startStoppingTimeout(fileSizeBytes = 0L)
-    }
-    
     /**
      * Capture has stopped and finalize work was enqueued.
      * Releases the recording lock immediately while the DB row remains in-progress until finalize completes.
