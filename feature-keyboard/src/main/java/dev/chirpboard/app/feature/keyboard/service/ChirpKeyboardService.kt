@@ -334,6 +334,14 @@ class ChirpKeyboardService :
         coordinator.destroy()
         phoneCallHandler?.unregister()
         phoneCallHandler = null
+        // Wait out any off-main stop/finalize/cancel recorder teardown before closing the
+        // recorder. Both run stopToFileBacked()/cancelCapture() on IO under the recorder's
+        // sampleLock; without this join capture.close() (on main) could win the lock and delete
+        // the just-captured dictation temp PCM, or the transcription pipeline would be launched
+        // on the already-cancelled scope and orphan the staged PCM. The wait is bounded by the
+        // 5-50ms teardown and restores the pre-PERF-5 ordering where on-main stop and on-main
+        // destroy could never interleave.
+        coordinator.awaitInFlightTeardown()
         coordinator.capture.close()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)

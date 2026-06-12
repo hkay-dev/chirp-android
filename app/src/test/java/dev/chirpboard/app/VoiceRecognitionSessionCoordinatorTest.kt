@@ -194,6 +194,31 @@ class VoiceRecognitionSessionCoordinatorTest {
         }
 
     @Test
+    fun `start whose client cancelled before it ran never turns on the recorder`() =
+        runTest {
+            val manager = RecordingStateManager()
+            val gate = VoiceRecognitionCaptureGate(manager)
+            val recorder = FakeRecorderControl()
+            val coordinator = newCoordinator(gate, recorder)
+
+            recorder.completeStart()
+            val generation = coordinator.issueGeneration()
+            // Simulates the service's onCancel marking the still-current generation while a slow
+            // model load delays the start (no newer start was issued, so it is not superseded).
+            coordinator.markCancelRequested(generation)
+
+            val result = coordinator.start(generation, {}, {}, {})
+
+            // The microphone must never go hot after a cancel: no gate acquired, recorder
+            // untouched, and the mark consumed so it cannot misclassify a later session.
+            assertEquals(VoiceRecognitionSessionCoordinator.StartResult.Cancelled, result)
+            assertFalse(recorder.startRequested)
+            assertFalse(gate.isHeld())
+            assertEquals(RecordingState.Idle, manager.state.value)
+            assertFalse(coordinator.consumeCancelRequest(generation))
+        }
+
+    @Test
     fun `cancelling an in-flight start releases the gate and leaves the recorder stopped`() =
         runTest {
             val manager = RecordingStateManager()

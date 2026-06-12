@@ -105,6 +105,13 @@ class SpeechModelManager
                         is SpeechModelDownloadState.Progress -> updateDownloadProgress(state.progress)
                         SpeechModelDownloadState.Complete -> {
                             markDownloadComplete()
+                            // The gate caches readiness and only re-verifies from Unknown; a prior
+                            // open-keyboard-before-download warmup already pinned it to Unavailable,
+                            // where warmupIfNeeded is a no-op. Invalidate first (like deleteModel)
+                            // so the post-download warmup actually re-verifies the now-present model
+                            // and the cached-gate keyboard banner clears instead of sticking on
+                            // NotDownloaded.
+                            readinessGate.invalidate()
                             readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
                             onComplete()
                         }

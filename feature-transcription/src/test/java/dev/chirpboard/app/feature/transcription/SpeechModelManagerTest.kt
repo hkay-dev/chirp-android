@@ -69,6 +69,23 @@ class SpeechModelManagerTest {
     }
 
     @Test
+    fun `downloadModel invalidates the gate before warming so a stale Unavailable re-verifies`() = runTest {
+        coEvery { speechModelStore.downloadModel() } returns
+            flowOf(SpeechModelDownloadState.Complete)
+
+        classUnderTest.downloadModel()
+
+        // The gate caches readiness and warmupIfNeeded no-ops unless state==Unknown; a prior
+        // open-keyboard-before-download warmup pins it to Unavailable. Invalidating before the
+        // post-download warmup is what makes the warmup actually re-verify the now-present model
+        // (otherwise the cached-gate keyboard banner sticks on NotDownloaded).
+        verify(ordering = io.mockk.Ordering.ORDERED) {
+            readinessGate.invalidate()
+            readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
+        }
+    }
+
+    @Test
     fun `downloadModel surfaces store errors`() = runTest {
         coEvery { speechModelStore.downloadModel() } returns
             flowOf(SpeechModelDownloadState.Error("Download failed"))

@@ -153,7 +153,14 @@ class ChirpRecognitionService : RecognitionService() {
             // model genuinely failed or did not become ready within the deadline.
             if (!transcriberProvider.isReady() && !awaitModelReady()) {
                 Log.w(TAG, "Recognizer not ready within deadline (model still loading)")
-                runCatching { listener.error(SpeechRecognizer.ERROR_SERVER) }
+                // The client can cancel while we await the multi-second model load; consume
+                // the mark so the cancel is its own terminal event and a stale ERROR_SERVER is
+                // not delivered afterwards (and no later branch re-reads the mark).
+                if (sessionCoordinator.consumeCancelRequest(generation)) {
+                    Log.w(TAG, "Dropping not-ready error for cancelled session (generation=$generation)")
+                } else {
+                    runCatching { listener.error(SpeechRecognizer.ERROR_SERVER) }
+                }
                 return@launch
             }
 
@@ -166,6 +173,11 @@ class ChirpRecognitionService : RecognitionService() {
                 )
             when (result) {
                 VoiceRecognitionSessionCoordinator.StartResult.Started -> Unit
+
+                VoiceRecognitionSessionCoordinator.StartResult.Cancelled ->
+                    // The client cancelled while a slow model load delayed this start; the
+                    // recorder/gate were never touched. The cancel was terminal, so no callback.
+                    Log.w(TAG, "Start aborted: client cancelled before it ran (generation=$generation)")
 
                 VoiceRecognitionSessionCoordinator.StartResult.Superseded -> {
                     Log.w(TAG, "Start superseded before running (generation=$generation)")

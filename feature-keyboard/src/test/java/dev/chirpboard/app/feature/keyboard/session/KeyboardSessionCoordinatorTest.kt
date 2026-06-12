@@ -38,6 +38,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -638,6 +639,222 @@ class KeyboardSessionCoordinatorTest {
             verify { capture.stopAsAudioSource() }
             verify { recordingStateManager.transitionToStopping() }
         }
+
+    @Test
+    fun awaitInFlightTeardown_waitsForStopTeardownSoCloseCannotRaceIt() {
+        // This test must NOT use UnconfinedTestDispatcher: the destroy-vs-teardown race only
+        // exists when the off-main teardown runs concurrently with the main-thread close(). Run
+        // the teardown on a real background dispatcher and gate stopAsAudioSource so the teardown
+        // is genuinely in flight when awaitInFlightTeardown() is called from the "main" thread.
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val realScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val stopGate = CountDownLatch(1)
+        val stopEntered = CountDownLatch(1)
+        val staged = CountDownLatch(1)
+        try {
+            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } answers {
+                stopEntered.countDown()
+                // Hold the recorder teardown open so close() would race it without the join.
+                check(stopGate.await(5, TimeUnit.SECONDS)) { "stop gate never opened" }
+                InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
+            }
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                staged.countDown()
+            }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = realScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            assertTrue("teardown should be running off-main", stopEntered.await(5, TimeUnit.SECONDS))
+
+            // Let the teardown finish only once awaitInFlightTeardown is blocking on it.
+            val awaitDone = CountDownLatch(1)
+            val joiner =
+                Thread {
+                    coordinator.awaitInFlightTeardown()
+                    awaitDone.countDown()
+                }
+            joiner.start()
+            stopGate.countDown()
+
+            // awaitInFlightTeardown must not return until the teardown (and the
+            // finishStopAfterTeardown that stages the capture + launches the pipeline) has run,
+            // so a subsequent capture.close() can never delete the just-captured temp PCM.
+            assertTrue("awaitInFlightTeardown should join the teardown", awaitDone.await(5, TimeUnit.SECONDS))
+            assertTrue("capture must be staged before destroy proceeds", staged.await(5, TimeUnit.SECONDS))
+            verify { recordingStateManager.transitionToStopping() }
+        } finally {
+            realScope.cancel()
+            teardownExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun stopTeardown_completesWhileScopeDispatcherThreadIsBlocked() {
+        // Regression for the PERF-5 destroy deadlock: in production the coordinator scope is
+        // Dispatchers.Main and onDestroy calls awaitInFlightTeardown() (runBlocking { join() }) ON
+        // that main thread. If the stop teardown's post-recorder continuation resumes on the scope
+        // dispatcher, it can never run while the only scope thread is parked in runBlocking ->
+        // permanent deadlock/ANR. The fix runs the whole teardown body on teardownDispatcher, so
+        // its continuation never needs the scope thread. A plain JVM unit test cannot use the real
+        // HandlerDispatcher whose Looper runBlocking refuses to pump, so instead of a flaky
+        // deadlock-timeout we assert the structural property that prevents it: the teardown
+        // (stage capture + launch pipeline) runs to completion while the scope's single dispatcher
+        // thread is held blocked the entire time.
+        val scopeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val scopeDispatcher = scopeExecutor.asCoroutineDispatcher()
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val blockedScope = CoroutineScope(SupervisorJob() + scopeDispatcher)
+        val holdScopeThread = CountDownLatch(1)
+        val scopeThreadParked = CountDownLatch(1)
+        val staged = CountDownLatch(1)
+        try {
+            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } returns
+                InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                staged.countDown()
+            }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = blockedScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            // Mark this session recording without going through the scope (startRecording would
+            // queue behind the about-to-be-blocked scope thread), then stop it.
+            coordinator.startRecording()
+            // Wait until the start coroutine has flipped isRecording on the scope thread.
+            val recordingActive = CountDownLatch(1)
+            Thread {
+                while (!coordinator.isRecordingActive()) {
+                    Thread.sleep(5)
+                }
+                recordingActive.countDown()
+            }.start()
+            assertTrue(recordingActive.await(5, TimeUnit.SECONDS))
+
+            // Park the scope's single dispatcher thread, exactly as onDestroy's runBlocking would.
+            scopeExecutor.execute {
+                scopeThreadParked.countDown()
+                check(holdScopeThread.await(5, TimeUnit.SECONDS)) { "scope thread never released" }
+            }
+            assertTrue(scopeThreadParked.await(5, TimeUnit.SECONDS))
+
+            // Trigger the stop teardown. Its body + continuation must run entirely on
+            // teardownDispatcher; if any part resumed on the (blocked) scope dispatcher it would
+            // never stage the capture -> the assertion below would time out.
+            coordinator.stopAndTranscribe { true }
+
+            assertTrue(
+                "stop teardown must complete without the scope dispatcher thread",
+                staged.await(5, TimeUnit.SECONDS),
+            )
+            verify { recordingStateManager.transitionToStopping() }
+        } finally {
+            holdScopeThread.countDown()
+            blockedScope.cancel()
+            scopeExecutor.shutdownNow()
+            teardownExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun cancelTeardown_completesWhileScopeDispatcherThreadIsBlocked() {
+        // Same regression as the stop path for cancelRecording(userInitiated = false), which
+        // onDestroy runs before awaitInFlightTeardown(). The cancel teardown's continuation must
+        // also run off the scope dispatcher so the runBlocking { join() } on the scope thread
+        // cannot deadlock. Asserted by completing the teardown while the scope thread is blocked.
+        val scopeExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val scopeDispatcher = scopeExecutor.asCoroutineDispatcher()
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val blockedScope = CoroutineScope(SupervisorJob() + scopeDispatcher)
+        val holdScopeThread = CountDownLatch(1)
+        val scopeThreadParked = CountDownLatch(1)
+        val cancelToreDown = CountDownLatch(1)
+        try {
+            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            every { capture.cancelCapture() } answers { cancelToreDown.countDown() }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = blockedScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            coordinator.startRecording()
+            val recordingActive = CountDownLatch(1)
+            Thread {
+                while (!coordinator.isRecordingActive()) {
+                    Thread.sleep(5)
+                }
+                recordingActive.countDown()
+            }.start()
+            assertTrue(recordingActive.await(5, TimeUnit.SECONDS))
+
+            scopeExecutor.execute {
+                scopeThreadParked.countDown()
+                check(holdScopeThread.await(5, TimeUnit.SECONDS)) { "scope thread never released" }
+            }
+            assertTrue(scopeThreadParked.await(5, TimeUnit.SECONDS))
+
+            coordinator.cancelRecording(userInitiated = false)
+
+            assertTrue(
+                "cancel teardown must complete without the scope dispatcher thread",
+                cancelToreDown.await(5, TimeUnit.SECONDS),
+            )
+        } finally {
+            holdScopeThread.countDown()
+            blockedScope.cancel()
+            scopeExecutor.shutdownNow()
+            teardownExecutor.shutdownNow()
+        }
+    }
 
     private fun stubSuccessfulCapture(sampleCount: Long) {
         coEvery { capture.start() } returns QuickCaptureStartResult.Success

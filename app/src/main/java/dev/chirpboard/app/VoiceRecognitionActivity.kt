@@ -234,6 +234,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     Log.w(TAG, "Start superseded before running")
                 }
 
+                VoiceRecognitionSessionCoordinator.StartResult.Cancelled -> {
+                    // This activity gates start on model Ready synchronously and never marks a
+                    // cancel, so this is not expected here; reset the dialog to Idle defensively
+                    // rather than leaving it stuck on Starting.
+                    Log.w(TAG, "Start cancelled before running")
+                    _recordingState.value = RecordingState.Idle
+                }
+
                 is VoiceRecognitionSessionCoordinator.StartResult.Busy -> {
                     Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
                     _recordingState.value = RecordingState.Idle

@@ -63,6 +63,13 @@ internal class VoiceRecognitionSessionCoordinator(
         /** A newer start superseded this one before it ran; the session was already abandoned. */
         data object Superseded : StartResult
 
+        /**
+         * This session's own client cancelled it before it could start (e.g. while a slow model
+         * load delayed the start). The cancel was the client's terminal event, so no callback is
+         * owed and the recorder/gate were never touched.
+         */
+        data object Cancelled : StartResult
+
         data class Busy(val sourceLabel: String) : StartResult
 
         data class Failed(val cause: Throwable?) : StartResult
@@ -159,7 +166,16 @@ internal class VoiceRecognitionSessionCoordinator(
         if (generation != issuedGeneration) {
             // A newer start was issued before this one ran. The framework only does this
             // after abandoning the old session (e.g. via cancel), so no callback is owed.
+            // Leave any cancel mark intact: the service's Superseded handling consults it to
+            // decide whether a stale terminal BUSY is owed.
             return StartResult.Superseded
+        }
+        // A client can cancel a start that is still pending behind a slow model load. The
+        // service marks the generation synchronously on cancel; consume it here, before the
+        // gate is acquired and the recorder started, so the microphone never goes hot after a
+        // cancel. Only the still-current (non-superseded) generation is consumed here.
+        if (consumeCancelRequest(generation)) {
+            return StartResult.Cancelled
         }
         if (activeGeneration != null) {
             return StartResult.Busy(SELF_BUSY_LABEL)
