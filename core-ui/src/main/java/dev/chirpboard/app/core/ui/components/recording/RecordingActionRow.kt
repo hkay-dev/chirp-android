@@ -9,12 +9,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
@@ -54,7 +54,7 @@ fun RecordingActionRow(
             modifier = Modifier.size(64.dp),
         ) {
             Icon(
-                imageVector = if (isPaused || !isActive) Icons.Default.PlayArrow else Icons.Default.Pause,
+                imageVector = if (isPaused || !isActive) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
                 contentDescription = null,
                 modifier = Modifier.size(32.dp),
             )
@@ -66,13 +66,13 @@ fun RecordingActionRow(
             modifier = Modifier
                 .padding(horizontal = 16.dp)
                 .height(80.dp),
-            shape = RoundedCornerShape(28.dp),
+            shape = ChirpShapes.ExtraLarge,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
             ),
         ) {
-            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(32.dp))
+            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Text(stringResource(CoreR.string.rec_done), style = MaterialTheme.typography.titleLarge)
         }
@@ -86,7 +86,7 @@ fun RecordingActionRow(
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
             ),
         ) {
-            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(32.dp))
+            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(32.dp))
         }
     }
 }

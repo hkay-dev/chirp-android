@@ -17,6 +17,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
 import dev.chirpboard.app.core.ui.theme.recordingTimerStyle
+import dev.chirpboard.app.core.ui.theme.chirpAccents
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.util.formatAsDuration
 
@@ -40,7 +41,7 @@ fun RecordingTimer(
     var previousSegmentsMs by remember { mutableLongStateOf(0L) }
 
     val textColor by animateColorAsState(
-        targetValue = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+        targetValue = if (isRecording) MaterialTheme.colorScheme.chirpAccents.recordingLive else MaterialTheme.colorScheme.onSurface,
         animationSpec = tween(durationMillis = 300),
         label = "timerColor"
     )
