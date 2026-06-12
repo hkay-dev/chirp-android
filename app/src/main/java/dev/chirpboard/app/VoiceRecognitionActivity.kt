@@ -29,6 +29,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
+import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -118,6 +119,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
     @Inject lateinit var modePort: ProcessingModePort
 
     @Inject lateinit var llmPreferences: LlmPreferences
+
+    @Inject lateinit var dynamicColorPreference: DynamicColorPreference
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     private val _shouldDismiss = MutableStateFlow(false)
     private val _partialTranscript = MutableStateFlow("")
@@ -168,7 +171,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
         }
 
         setContent {
-            ChirpTheme {
+            val useDynamicColor by dynamicColorPreference.useDynamicColor
+                .collectAsStateWithLifecycle(initialValue = DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR)
+            ChirpTheme(dynamicColor = useDynamicColor) {
                 val llmEnabled by llmPreferences.llmEnabled.collectAsStateWithLifecycle(initialValue = true)
                 val currentMode by modePort.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
                 // Selectable modes for the dialog's mode picker — the same source the keyboard's
