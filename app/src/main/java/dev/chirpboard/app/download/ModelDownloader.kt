@@ -310,7 +310,7 @@ class ModelDownloader(
                 emit(
                     DownloadState.Error(
                         "Model files from a previous install were found but this install cannot access them. " +
-                            "Allow \"All files access\" for Chirpboard in system settings to reuse the existing model, " +
+                            "Allow \"All files access\" for Chirp in system settings to reuse the existing model, " +
                             "then try again.",
                         retryable = false,
                     ),

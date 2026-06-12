@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -80,13 +81,13 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // PRM-7 brand identity: the Chirpboard parakeet mark stands in for a generic app
-                // glyph here, the natural spot for the brand on the About screen.
-                Icon(
-                    painter = painterResource(R.drawable.ic_chirp_parakeet),
+                // Brand identity: the real app icon (blue waveform-bird on the cream rounded
+                // square, the launcher PNG). Rendered with Image — Icon would tint the
+                // multicolor artwork into a flat silhouette.
+                Image(
+                    painter = painterResource(R.mipmap.ic_launcher),
                     contentDescription = null,
                     modifier = Modifier.size(80.dp),
-                    tint = MaterialTheme.colorScheme.primary,
                 )
 
                 // App name

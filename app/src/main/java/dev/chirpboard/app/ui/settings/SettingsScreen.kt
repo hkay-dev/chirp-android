@@ -92,7 +92,6 @@ fun SettingsScreen(
                     icon = Icons.Rounded.AutoAwesome,
                     title = stringResource(R.string.settings_llm_title),
                     subtitle = stringResource(R.string.settings_llm_subtitle),
-                    badge = SettingsBadge.NEW,
                     onClick = onNavigateToLlmSettings,
                 )
             }

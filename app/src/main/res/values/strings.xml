@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- I18N-03: the product name is "Chirpboard" everywhere users can see it (launcher,
+    <!-- I18N-03: the product name is "Chirp" everywhere users can see it (launcher,
          IME label, widget, dialogs). Keep these in sync with feature-widget/strings.xml. -->
-    <string name="app_name" translatable="false">Chirpboard</string>
-    <string name="keyboard_name" translatable="false">Chirpboard Voice</string>
+    <string name="app_name" translatable="false">Chirp</string>
+    <string name="keyboard_name" translatable="false">Chirp Voice</string>
     <string name="subtype_label">Voice Input</string>
     <string name="enable_keyboard">Enable Keyboard</string>
     <string name="select_keyboard">Select Keyboard</string>
@@ -16,7 +16,7 @@
     <string name="keyboard_settings_enable_llm_title">Enable AI Processing</string>
     <string name="keyboard_settings_enable_llm_description">Clean up text with AI before inserting it.</string>
     <string name="keyboard_settings_system_title">System Settings</string>
-    <string name="keyboard_settings_system_description">Enable or switch to the Chirpboard keyboard.</string>
+    <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>
     <string name="keyboard_settings_processing_mode_title">Default Mode</string>
     <string name="keyboard_settings_processing_mode_description">How your voice should be formatted.</string>
     <string name="keyboard_settings_processing_mode_disabled">Enable AI Processing to use this setting</string>
@@ -36,7 +36,7 @@
     <string name="record_entry_model_integrity_failed_title">Model Integrity Check Failed</string>
     <string name="record_entry_model_integrity_failed_message">Model files are corrupted. Re-download the model in Settings.</string>
     <string name="record_entry_model_storage_denied_title">Storage Access Needed</string>
-    <string name="record_entry_model_storage_denied_message">A downloaded model from a previous install was found, but Chirpboard can’t access it. Allow \"All files access\" for Chirpboard in system settings (Apps → Special app access → All files access), then try again.</string>
+    <string name="record_entry_model_storage_denied_message">A downloaded model from a previous install was found, but Chirp can’t access it. Allow \"All files access\" for Chirp in system settings (Apps → Special app access → All files access), then try again.</string>
     <string name="record_entry_model_check_error_title">Model Check Error</string>
     <!-- I18N-05: no raw exception text; actionable guidance only (details stay in logs). -->
     <string name="record_entry_model_check_error_message">Could not verify model readiness. Try again, or re-download the model in Settings.</string>
@@ -47,7 +47,7 @@
     <string name="settings_section_keyboard">Keyboard</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_dynamic_color_title">Use System Colors</string>
-    <string name="settings_dynamic_color_subtitle">Match Chirpboard to your wallpaper (Material You). Off keeps the brand colors.</string>
+    <string name="settings_dynamic_color_subtitle">Match Chirp to your wallpaper (Material You). Off keeps the brand colors.</string>
     <string name="settings_section_organization">Organization</string>
     <string name="settings_section_about">About</string>
     <string name="settings_transcription_title">Voice Model</string>

@@ -432,7 +432,7 @@ class ObsidianTranscriptExportPort
             val notification =
                 NotificationCompat
                     .Builder(context, EXPORT_ERROR_CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_chirp_parakeet)
+                    .setSmallIcon(R.drawable.ic_notif_export_error)
                     .setContentTitle(context.getString(ObsidianR.string.obsidian_export_failed_title))
                     .setContentText(message)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(message))

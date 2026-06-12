@@ -6,7 +6,6 @@
     <string name="desc_navigate_back">Navigate back</string>
     <string name="desc_selected">Selected</string>
     <!-- All-caps is the badge's visual style (en-only app; I18N-17 documents the policy). -->
-    <string name="settings_badge_new" translatable="false">NEW</string>
     <string name="settings_badge_connected" translatable="false">CONNECTED</string>
     <string name="rec_done">Done</string>
     <string name="playback_play">Play</string>

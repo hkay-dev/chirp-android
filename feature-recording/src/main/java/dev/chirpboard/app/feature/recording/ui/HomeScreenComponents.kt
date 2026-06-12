@@ -134,8 +134,10 @@ internal fun RecordingListItem(
         ) {
             Text(
                 text = item.title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
+                // One step up from titleMedium/Medium: the row title (date or processed title) is
+                // the anchor of each list row and read under-weighted at 16sp Medium.
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),

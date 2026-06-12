@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
@@ -62,6 +63,13 @@ fun StatsPillRow(
 ) {
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
+        // VIS-5: the clickable processing pill measures 48dp tall (Material3's
+        // minimumInteractiveComponentSize on Surface(onClick)) while the display-only pills
+        // measure their ~30dp content. LazyRow defaults to Alignment.Top, which top-aligned the
+        // short pills against the 48dp interactive box and left the processing capsule (centered
+        // inside its touch target) riding ~9dp lower. Center-align the cross axis so all three
+        // capsules share one visual baseline while keeping the 48dp touch target.
+        verticalAlignment = Alignment.CenterVertically,
         contentPadding = PaddingValues(horizontal = ChirpSpacing.ScreenHorizontal),
         modifier = modifier,
     ) {

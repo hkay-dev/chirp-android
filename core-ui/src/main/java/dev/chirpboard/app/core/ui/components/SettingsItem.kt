@@ -44,7 +44,6 @@ import dev.chirpboard.app.core.ui.R
  * Badge types for settings items.
  */
 enum class SettingsBadge {
-    NEW,
     CONNECTED,
 }
 
@@ -222,15 +221,6 @@ fun SettingsSwitchItem(
 fun StatusBadge(badge: SettingsBadge) {
     val (containerColor, contentColor, text, showCheckmark) =
         when (badge) {
-            SettingsBadge.NEW -> {
-                BadgeColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    text = stringResource(R.string.settings_badge_new),
-                    showCheckmark = false,
-                )
-            }
-
             SettingsBadge.CONNECTED -> {
                 BadgeColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,

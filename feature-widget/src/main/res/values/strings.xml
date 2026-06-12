@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- I18N-03: keep the product name "Chirpboard" in sync with app/strings.xml. -->
-    <string name="widget_name" translatable="false">Chirpboard Recording</string>
+    <!-- I18N-03: keep the product name "Chirp" in sync with app/strings.xml. -->
+    <string name="widget_name" translatable="false">Chirp Recording</string>
     <string name="widget_description">Quick access to start and stop voice recordings</string>
-    <string name="widget_title" translatable="false">Chirpboard</string>
+    <string name="widget_title" translatable="false">Chirp</string>
     <string name="widget_status_idle">Tap to record</string>
     <string name="widget_status_starting">Starting…</string>
     <string name="widget_status_saving">Saving…</string>
@@ -12,7 +12,7 @@
     <string name="widget_desc_start_recording">Start recording</string>
     <string name="widget_desc_stop_recording">Stop and save recording</string>
     <string name="widget_desc_saving_recording">Saving recording</string>
-    <string name="widget_keyboard_stop_queued">Recording will finish when you reopen the Chirpboard keyboard</string>
+    <string name="widget_keyboard_stop_queued">Recording will finish when you reopen the Chirp keyboard</string>
     <string name="widget_finishing_recording">Finishing current recording</string>
-    <string name="widget_start_failed">Could not start recording. Open Chirpboard to record.</string>
+    <string name="widget_start_failed">Could not start recording. Open Chirp to record.</string>
 </resources>

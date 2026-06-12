@@ -671,21 +671,30 @@ fun HomeScreen(
 
                     item(key = "stats", contentType = "stats") {
                         PushDownReveal(visible = searchQuery.isBlank() && stats.totalRecordings > 0) {
-                            StatsPillRow(
-                                recordingCount = stats.totalRecordings,
-                                totalDurationMs = stats.totalDurationMs,
-                                processingCount = stats.processingCount,
-                                onProcessingClick = { viewModel.onProcessingClick() },
-                                processingFilterActive = listFilter == ListFilterMode.PROCESSING,
-                                // VIS-4: no horizontal inset here — StatsPillRow applies
-                                // ChirpSpacing.ScreenHorizontal internally, so the pills' left edge
-                                // lines up with the list rows below (the old 8dp + internal 16dp
-                                // double-inset pushed them to 24dp).
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = ChirpSpacing.Small),
-                            )
+                            Column {
+                                StatsPillRow(
+                                    recordingCount = stats.totalRecordings,
+                                    totalDurationMs = stats.totalDurationMs,
+                                    processingCount = stats.processingCount,
+                                    onProcessingClick = { viewModel.onProcessingClick() },
+                                    processingFilterActive = listFilter == ListFilterMode.PROCESSING,
+                                    // VIS-4: no horizontal inset here — StatsPillRow applies
+                                    // ChirpSpacing.ScreenHorizontal internally, so the pills' left edge
+                                    // lines up with the list rows below (the old 8dp + internal 16dp
+                                    // double-inset pushed them to 24dp).
+                                    modifier =
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = ChirpSpacing.Small),
+                                )
+                                // Edge-to-edge divider closing the header block (title + stat pills)
+                                // so the start of the recording list reads clearly; deliberately
+                                // full-width, unlike the inset per-row dividers below.
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(top = ChirpSpacing.Small),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                )
+                            }
                         }
                     }
 

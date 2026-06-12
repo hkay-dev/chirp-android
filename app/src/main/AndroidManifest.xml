@@ -26,7 +26,7 @@
 
         <!-- Main Activity for setup/permissions.
              LIF-16 (documented decision): the ACTION_SEND filter means sharing audio into
-             Chirpboard opens a second MainActivity instance inside the sharing app's task.
+             Chirp opens a second MainActivity instance inside the sharing app's task.
              That is standard Android share behavior and deliberately kept — singleTask/
              documentLaunchMode would rip the user out of the sharing app's context, and all
              recording/playback state lives in process singletons so dual instances are safe. -->

@@ -145,10 +145,10 @@
     </plurals>
 
     <string name="rec_recovery_title">Recover interrupted recording?</string>
-    <string name="rec_recovery_message">Chirpboard found an unfinished recording from a previous session. You can recover it, keep the file, or discard it.</string>
+    <string name="rec_recovery_message">Chirp found an unfinished recording from a previous session. You can recover it, keep the file, or discard it.</string>
     <plurals name="rec_recovery_message_with_loss">
-        <item quantity="one">Chirpboard found an unfinished recording. Up to %1$d minute of the most recent audio may not have been saved. You can still recover what was captured.</item>
-        <item quantity="other">Chirpboard found an unfinished recording. Up to %1$d minutes of the most recent audio may not have been saved. You can still recover what was captured.</item>
+        <item quantity="one">Chirp found an unfinished recording. Up to %1$d minute of the most recent audio may not have been saved. You can still recover what was captured.</item>
+        <item quantity="other">Chirp found an unfinished recording. Up to %1$d minutes of the most recent audio may not have been saved. You can still recover what was captured.</item>
     </plurals>
     <string name="rec_recovery_recover">Recover</string>
     <string name="rec_recovery_keep">Keep File</string>
@@ -163,7 +163,7 @@
     <string name="rec_done_wait_for_id">Preparing recording…</string>
 
     <string name="rec_mic_permission_needed_title">Microphone access needed</string>
-    <string name="rec_mic_permission_needed_message">Chirpboard can’t record without the microphone. Allow microphone access in system settings.</string>
+    <string name="rec_mic_permission_needed_message">Chirp can’t record without the microphone. Allow microphone access in system settings.</string>
     <string name="rec_mic_permission_open_settings">Open Settings</string>
     <string name="rec_mic_permission_denied">Microphone access is required to record.</string>
 

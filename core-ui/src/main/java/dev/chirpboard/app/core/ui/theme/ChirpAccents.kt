@@ -39,7 +39,7 @@ data class ChirpAccents(
 )
 
 /**
- * Brand accents for the static Chirpboard palette (the lavender/purple identity).
+ * Brand accents for the static Chirp palette (the lavender/purple identity).
  *
  * The recording accent is a warm coral that is distinct from the lavender brand yet softer than the
  * stock Material error red; the AI accent reuses the brand's tertiary/violet family so the sparkle
@@ -89,7 +89,7 @@ internal fun ColorScheme.deriveDynamicAccents(): ChirpAccents =
 val LocalChirpAccents = staticCompositionLocalOf { BrandLightAccents }
 
 /**
- * Resolved Chirpboard accents for the current theme.
+ * Resolved Chirp accents for the current theme.
  *
  * Usage: `MaterialTheme.colorScheme.chirpAccents.recordingLive`. The receiver disambiguates the
  * extension and reads from [LocalChirpAccents].

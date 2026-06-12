@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="voice_recognition_model_loading">Preparing voice model…</string>
-    <string name="voice_recognition_model_unavailable">Voice model unavailable. Open Chirpboard to download it.</string>
+    <string name="voice_recognition_model_unavailable">Voice model unavailable. Open Chirp to download it.</string>
     <!-- Calm pre-roll status shown for a beat before auto-start so the dialog opens on-brand. -->
     <string name="voice_recognition_ready">Ready to listen</string>
     <!-- Status line shown while actively capturing, mirroring the keyboard's calm "Recording" label. -->
@@ -15,15 +15,15 @@
     <string name="voice_recognition_ai_enable">Enable AI processing</string>
     <string name="voice_recognition_ai_disable">Disable AI processing</string>
     <!-- Action button for the model-unavailable and mic-permission states (ERR-9/ERR-10). -->
-    <string name="voice_recognition_open_app">Open Chirpboard</string>
+    <string name="voice_recognition_open_app">Open Chirp</string>
     <!-- Shown when the caller requested a non-English language (PIPE-08): the model is English-only. -->
     <string name="voice_recognition_english_only">Transcription is English-only</string>
     <!-- Terminal in-dialog error states; shown briefly before the result is returned (ERR-23/ERR-27). -->
-    <string name="voice_recognition_error_permission">Microphone access needed. Open Chirpboard to allow it.</string>
+    <string name="voice_recognition_error_permission">Microphone access needed. Open Chirp to allow it.</string>
     <string name="voice_recognition_error_busy">Microphone in use by %1$s</string>
     <string name="voice_recognition_error_capture_failed">Recording stopped unexpectedly</string>
     <string name="voice_recognition_error_transcription">Couldn’t transcribe your dictation</string>
-    <string name="voice_recognition_error_transcription_rescued">Couldn’t transcribe. Your audio was saved in Chirpboard.</string>
+    <string name="voice_recognition_error_transcription_rescued">Couldn’t transcribe. Your audio was saved in Chirp.</string>
     <string name="voice_recognition_error_no_speech">Didn’t catch anything</string>
     <!-- Gentle persistent state when no speech arrived within the initial-silence budget; offers a retry. -->
     <string name="voice_recognition_no_speech_timeout">Didn’t catch anything. Speak when you’re ready.</string>
