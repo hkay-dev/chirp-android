@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -558,7 +559,11 @@ private fun BackupSectionRow(
                     role = Role.Checkbox,
                     enabled = enabled,
                 )
-                .padding(horizontal = ChirpSpacing.Small, vertical = ChirpSpacing.ExtraSmall),
+                .heightIn(min = 56.dp)
+                .padding(horizontal = ChirpSpacing.Large, vertical = ChirpSpacing.Small),
+        // A null-callback Checkbox renders at its compact intrinsic size (no 48dp touch-target
+        // reservation, since the row owns the toggle), so the gap to the label must be explicit.
+        horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
