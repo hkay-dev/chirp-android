@@ -15,6 +15,7 @@ import dev.chirpboard.app.feature.recording.session.validation.RecordingFileVali
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
 import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
+import dev.chirpboard.app.feature.recording.service.MaterializedExport
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -468,7 +469,8 @@ class RecordingSessionRecoveryTest {
 
             coEvery { recordingRepository.getRecording(linkedRecordingId) } returns null
             coEvery { recordingRepository.finalizeInProgressRecording(linkedRecordingId, any(), any(), any()) } returns null
-            every { segmentFinalize.materializeExportFile(sessionId, activeSegment.absolutePath) } returns finalFile
+            every { segmentFinalize.materializeExportFile(sessionId, activeSegment.absolutePath) } returns
+                MaterializedExport(finalFile, validatedPlayable = true)
             coEvery {
                 recordingRepository.createRecording(any(), any(), any(), any(), any())
             } returns
@@ -511,7 +513,8 @@ class RecordingSessionRecoveryTest {
             journal.markAbandoned(sessionId)
 
             coEvery { recordingRepository.getRecording(linkedRecordingId) } returns null
-            every { segmentFinalize.materializeExportFile(sessionId, activeSegment.absolutePath) } returns finalFile
+            every { segmentFinalize.materializeExportFile(sessionId, activeSegment.absolutePath) } returns
+                MaterializedExport(finalFile, validatedPlayable = true)
             coEvery {
                 recordingRepository.createRecording(any(), any(), any(), any(), any())
             } returns

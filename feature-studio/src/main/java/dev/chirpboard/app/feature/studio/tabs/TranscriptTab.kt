@@ -85,6 +85,7 @@ fun TranscriptTab(
     onRunTranscriptSelectionAction: (TranscriptPassageAction) -> Unit,
     onCopySelectionResult: (String) -> Unit,
     onStartTranscription: (() -> Unit)?,
+    onRetryTranscription: (() -> Unit)?,
     onSegmentClicked: ((Long) -> Unit)?,
     onTranscriptDraftChange: (String) -> Unit,
     onCopyTranscript: () -> Unit,
@@ -211,17 +212,8 @@ fun TranscriptTab(
                         }
                     }
 
-                    TranscriptBodyMode.EmptyCompleted -> {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = stringResource(R.string.rec_no_transcript_available),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                        }
-                    }
+                    TranscriptBodyMode.EmptyCompleted ->
+                        EmptyCompletedTranscriptContent(onRetryTranscription = onRetryTranscription)
 
                     TranscriptBodyMode.Editing -> {
                         // A11Y: name the edit box so TalkBack says what is being edited.
@@ -390,6 +382,35 @@ private fun passageActionLabel(action: TranscriptPassageAction): String =
         TranscriptPassageAction.EXPLAIN -> stringResource(R.string.rec_passage_explain)
         TranscriptPassageAction.EXTRACT_ITEMS -> stringResource(R.string.rec_passage_extract_items)
     }
+
+/**
+ * Body for a COMPLETED recording whose transcription produced no text (typically a
+ * silence-only capture, sweep-04): explain what happened in plain words and offer a retry
+ * instead of the dead-end "No transcript available".
+ */
+@Composable
+private fun EmptyCompletedTranscriptContent(onRetryTranscription: (() -> Unit)?) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.rec_no_speech_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = stringResource(R.string.rec_no_speech_message),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (onRetryTranscription != null) {
+            FilledTonalButton(onClick = onRetryTranscription) {
+                Text(stringResource(CoreR.string.rec_retry_transcription))
+            }
+        }
+    }
+}
 
 /**
  * PLH-4: body for AWAITING_MANUAL_TRANSCRIPTION — the recording was deliberately not queued

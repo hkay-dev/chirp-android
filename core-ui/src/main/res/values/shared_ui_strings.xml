@@ -19,6 +19,9 @@
     <string name="rec_retry_transcription">Retry Transcription</string>
     <string name="rec_cancel_transcription">Cancel Transcription</string>
     <string name="rec_share_recording_chooser">Share recording</string>
+    <!-- Delete confirmation shared by the home list and the processing studio. -->
+    <string name="rec_delete_recording_title">Delete recording?</string>
+    <string name="rec_delete_recording_message">\"%1$s\" and its transcript will be permanently deleted. This cannot be undone.</string>
     <!-- I18N-02/I18N-08: snackbar copy shared by the home and studio screens. -->
     <string name="rec_msg_audio_missing">Audio file not found</string>
     <string name="rec_msg_delete_failed">Couldn’t delete the recording. Try again.</string>

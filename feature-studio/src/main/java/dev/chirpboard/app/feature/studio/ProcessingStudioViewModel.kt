@@ -318,6 +318,17 @@ class ProcessingStudioViewModel
                                 createdAt = recording.createdAt.time,
                                 audioPath = recording.audioPath,
                                 source = recording.source,
+                                // Seed the duration from the persisted row so the header pill and
+                                // player total don't read 0:00 until Media3 loads the file (studio
+                                // playback prepare is deferred, and skipped entirely while another
+                                // recording owns the controller). Once playback reports a duration
+                                // for this recording, that value stays authoritative.
+                                durationMs =
+                                    if (currentState.durationMs > 0) {
+                                        currentState.durationMs
+                                    } else {
+                                        recording.durationMs
+                                    },
                             )
 
                         if (renderedTranscriptChanged) {

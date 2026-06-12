@@ -79,8 +79,12 @@ internal class SpeechEndpointer(
         /** Default trailing silence that ends an utterance, matching platform engines (~2s). */
         const val DEFAULT_COMPLETE_SILENCE_MS = 2_000L
 
-        /** Default window in which some speech must be detected before ERROR_SPEECH_TIMEOUT. */
-        const val DEFAULT_NO_SPEECH_TIMEOUT_MS = 5_000L
+        /**
+         * Default initial-silence budget in which some speech must be detected before the
+         * session terminates with ERROR_SPEECH_TIMEOUT (~8-12s per platform convention; a
+         * 5s budget cut off slow starters on-device).
+         */
+        const val DEFAULT_NO_SPEECH_TIMEOUT_MS = 10_000L
 
         /**
          * Mean-abs amplitude (at gain 1.0) above which a frame counts as speech. Quiet-room
@@ -93,4 +97,35 @@ internal class SpeechEndpointer(
         const val MAX_CLIENT_SILENCE_MS = 30_000L
         const val MAX_CLIENT_MINIMUM_LENGTH_MS = 60_000L
     }
+}
+
+/**
+ * Builds the per-session [SpeechEndpointer] from the client's RecognizerIntent silence
+ * extras, already extracted to milliseconds (null = extra not provided). Shared by both
+ * system recognition surfaces ([ChirpRecognitionService] and [VoiceRecognitionActivity])
+ * so they apply identical clamps and identical initial-silence semantics (IME-2):
+ *
+ *  - `EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS` sets the trailing-silence window,
+ *    clamped to sane bounds;
+ *  - `EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS` delays any terminal event (the endpointer
+ *    enforces it for the no-speech timeout too);
+ *  - the no-speech budget never undercuts a client-requested complete-silence window, so
+ *    a caller that tolerates 20s pauses is not cut off after 10s of leading silence.
+ *
+ * Pure (no android.content.Intent) so the policy stays unit-testable on the JVM.
+ */
+internal fun recognizerSessionEndpointer(
+    clientCompleteSilenceMs: Long?,
+    clientMinimumLengthMs: Long?,
+): SpeechEndpointer {
+    val completeSilenceMs =
+        clientCompleteSilenceMs
+            ?.coerceIn(SpeechEndpointer.MIN_CLIENT_SILENCE_MS, SpeechEndpointer.MAX_CLIENT_SILENCE_MS)
+            ?: SpeechEndpointer.DEFAULT_COMPLETE_SILENCE_MS
+    return SpeechEndpointer(
+        completeSilenceMs = completeSilenceMs,
+        minimumUtteranceMs =
+            clientMinimumLengthMs?.coerceAtMost(SpeechEndpointer.MAX_CLIENT_MINIMUM_LENGTH_MS) ?: 0L,
+        noSpeechTimeoutMs = maxOf(SpeechEndpointer.DEFAULT_NO_SPEECH_TIMEOUT_MS, completeSilenceMs),
+    )
 }

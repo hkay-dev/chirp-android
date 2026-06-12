@@ -32,24 +32,32 @@ class RecordingStopOrchestrator
             snapshot: StopSnapshot,
             sessionId: UUID? = null,
         ): StopPersistenceResult {
-            val exportFile =
+            val materialized =
                 withContext(Dispatchers.IO) {
                     segmentFinalize.materializeExportFile(sessionId, snapshot.audioFilePath)
                 } ?: run {
                     val fallbackPath = snapshot.audioFilePath
                     if (fallbackPath == null) return StopPersistenceResult.NoAudioFile
-                    File(fallbackPath).takeIf { it.exists() }
+                    File(fallbackPath)
+                        .takeIf { it.exists() }
+                        ?.let { MaterializedExport(it, validatedPlayable = false) }
                 }
 
-            if (exportFile == null || !exportFile.exists()) {
+            if (materialized == null || !materialized.file.exists()) {
                 return StopPersistenceResult.NoAudioFile
             }
+            val exportFile = materialized.file
 
-            val validation = fileValidator.validateForStop(exportFile)
-            if (!validation.isPlayable) {
-                return StopPersistenceResult.PersistenceFailed(
-                    validation.failureReason ?: "Recording file validation failed",
-                )
+            // Segment materialization already ran a full PLAYABLE validation on the file it
+            // returned; only the fallback paths still need the check (PERF: avoids reading
+            // the whole export twice on every stop).
+            if (!materialized.validatedPlayable) {
+                val validation = fileValidator.validateForStop(exportFile)
+                if (!validation.isPlayable) {
+                    return StopPersistenceResult.PersistenceFailed(
+                        validation.failureReason ?: "Recording file validation failed",
+                    )
+                }
             }
 
             return withContext(Dispatchers.IO) {

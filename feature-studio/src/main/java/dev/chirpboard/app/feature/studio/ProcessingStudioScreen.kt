@@ -10,6 +10,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +26,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
@@ -73,11 +77,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.contracts.R as ContractsR
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import dev.chirpboard.app.core.ui.components.ChirpPill
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.MetadataPillRow
 import dev.chirpboard.app.core.ui.components.SkeletonPlaceholder
+import dev.chirpboard.app.core.ui.components.icon
+import dev.chirpboard.app.core.ui.components.label
+import dev.chirpboard.app.core.util.formatRelative
+import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
 import dev.chirpboard.app.core.ui.playback.RecordingFullPlayer
 import dev.chirpboard.app.data.model.RecordingSource
@@ -90,6 +100,7 @@ import dev.chirpboard.app.feature.studio.tabs.TranscriptTab
 import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
 import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import kotlinx.coroutines.launch
+import java.util.Date
 import java.util.UUID
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -153,6 +164,10 @@ fun ProcessingStudioScreen(
     var showOptionsMenu by rememberSaveable { mutableStateOf(false) }
     var showShareMenu by rememberSaveable { mutableStateOf(false) }
     var showRetranscribeConfirmation by rememberSaveable { mutableStateOf(false) }
+    // Destructive recording delete always requires an explicit confirmation (same policy as
+    // Home); undo is intentionally not offered because the row, its cascade-deleted transcript,
+    // and the audio file are unrecoverable once removed.
+    var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
     // LIF-11: back gesture in edit mode confirms before discarding an in-progress correction.
     var showDiscardEditDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -234,6 +249,31 @@ fun ProcessingStudioScreen(
             dismissButton = {
                 TextButton(onClick = { showDiscardEditDialog = false }) {
                     Text(stringResource(R.string.rec_discard_edit_keep))
+                }
+            },
+        )
+    }
+
+    if (showDeleteConfirmation) {
+        AnimatedAlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text(stringResource(CoreR.string.rec_delete_recording_title)) },
+            text = { Text(stringResource(CoreR.string.rec_delete_recording_message, state.title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmation = false
+                        // PRM-1: heavy thunk on the destructive confirm, matching Home.
+                        ChirpHaptics.delete(context)
+                        viewModel.deleteRecording { onNavigateBack() }
+                    },
+                ) {
+                    Text(stringResource(CoreR.string.rec_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(stringResource(CoreR.string.rec_cancel))
                 }
             },
         )
@@ -378,9 +418,7 @@ fun ProcessingStudioScreen(
                                     text = { Text(stringResource(CoreR.string.rec_delete)) },
                                     onClick = {
                                         showOptionsMenu = false
-                                        // PRM-1: heavy thunk on the destructive confirm.
-                                        ChirpHaptics.delete(context)
-                                        viewModel.deleteRecording { onNavigateBack() }
+                                        showDeleteConfirmation = true
                                     },
                                     leadingIcon = {
                                         Icon(
@@ -499,7 +537,7 @@ fun ProcessingStudioScreen(
                         }
                     }
                 } else {
-                    MetadataPillRow(
+                    StudioMetadataPills(
                         createdAtMs = state.createdAt,
                         durationMs = state.durationMs,
                         source = state.source ?: RecordingSource.APP,
@@ -528,8 +566,27 @@ fun ProcessingStudioScreen(
                                 playbackState.title,
                             )
                         }
+                    // Until Media3 has loaded THIS recording (prepare is deferred, and skipped
+                    // while another recording owns the controller), the raw playback state has
+                    // no duration, so the player read "0:00" with a dead scrubber. Seed the
+                    // persisted row duration so the total time and seek math are right from the
+                    // first frame; live playback state stays authoritative once it reports.
+                    val playerState =
+                        when {
+                            playbackState.recordingId != screenRecordingId ->
+                                RecordingPlaybackState(
+                                    recordingId = screenRecordingId,
+                                    title = state.title,
+                                    audioPath = state.audioPath,
+                                    durationMs = state.durationMs,
+                                    playbackSpeed = playbackState.playbackSpeed,
+                                )
+                            playbackState.durationMs <= 0 && state.durationMs > 0 ->
+                                playbackState.copy(durationMs = state.durationMs)
+                            else -> playbackState
+                        }
                     RecordingFullPlayer(
-                        state = playbackState,
+                        state = playerState,
                         screenRecordingId = screenRecordingId!!,
                         screenTitle = state.title,
                         alternateAudioNotice = alternateNotice,
@@ -659,6 +716,9 @@ fun ProcessingStudioScreen(
                                 } else {
                                     null
                                 },
+                            // sweep-04: a completed-but-empty (silence-only) transcript offers a
+                            // retry instead of a dead end.
+                            onRetryTranscription = { viewModel.retranscribe() },
                             onSegmentClicked = if (state.canUseTranscriptInteractions()) viewModel::onWordClicked else null,
                             onTranscriptDraftChange = viewModel::updateTranscriptDraft,
                             onCopyTranscript = {
@@ -715,6 +775,51 @@ fun ProcessingStudioScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Studio header pills. While the duration is still unknown (an in-progress row holds 0 until
+ * finalize stamps the real value — the "Stitching" window), the duration pill shows a
+ * placeholder instead of a misleading "0:00" (sweep-03/04). Once stamped, this delegates to
+ * the shared [MetadataPillRow] so the pills stay visually identical to the home list.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StudioMetadataPills(
+    createdAtMs: Long,
+    durationMs: Long,
+    source: RecordingSource,
+) {
+    if (durationMs > 0) {
+        MetadataPillRow(
+            createdAtMs = createdAtMs,
+            durationMs = durationMs,
+            source = source,
+        )
+    } else {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            val today = stringResource(ContractsR.string.date_today)
+            val yesterday = stringResource(ContractsR.string.date_yesterday)
+            ChirpPill(
+                label = remember(createdAtMs, today, yesterday) { Date(createdAtMs).formatRelative(today, yesterday) },
+                icon = Icons.Filled.Schedule,
+                contentDescription = stringResource(CoreR.string.rec_pill_recorded),
+            )
+            ChirpPill(
+                label = stringResource(R.string.rec_duration_pending),
+                icon = Icons.Filled.Timer,
+                contentDescription = stringResource(CoreR.string.rec_pill_duration),
+            )
+            ChirpPill(
+                label = source.label(),
+                icon = source.icon(),
+                contentDescription = stringResource(CoreR.string.rec_pill_source),
+            )
         }
     }
 }

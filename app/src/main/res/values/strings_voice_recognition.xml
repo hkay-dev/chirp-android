@@ -25,6 +25,9 @@
     <string name="voice_recognition_error_transcription">Couldn’t transcribe your dictation</string>
     <string name="voice_recognition_error_transcription_rescued">Couldn’t transcribe. Your audio was saved in Chirpboard.</string>
     <string name="voice_recognition_error_no_speech">Didn’t catch anything</string>
+    <!-- Gentle persistent state when no speech arrived within the initial-silence budget; offers a retry. -->
+    <string name="voice_recognition_no_speech_timeout">Didn’t catch anything. Speak when you’re ready.</string>
+    <string name="voice_recognition_try_again">Try again</string>
     <!-- Confirm-before-cancel when transcribed text would be discarded (A11Y-2). -->
     <string name="voice_recognition_discard_title">Discard Dictation?</string>
     <string name="voice_recognition_discard_message">Your words haven’t been returned to the app yet.</string>

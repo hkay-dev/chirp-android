@@ -272,6 +272,32 @@ class VoiceRecognitionSessionCoordinatorTest {
         }
 
     @Test
+    fun `cancel after stop is a no-op so a late no-speech timeout cannot double-terminate`() =
+        runTest {
+            // The dialog/service no-speech timeout terminates via cancel(generation); if a
+            // user stop already resolved the session, that cancel must be stale so exactly
+            // one terminal callback is ever delivered (and the recorder is not re-torn-down).
+            val manager = RecordingStateManager()
+            val gate = VoiceRecognitionCaptureGate(manager)
+            val recorder = FakeRecorderControl()
+            val coordinator = newCoordinator(gate, recorder)
+
+            recorder.completeStart()
+            val generation = coordinator.issueGeneration()
+            assertEquals(
+                VoiceRecognitionSessionCoordinator.StartResult.Started,
+                coordinator.start(generation, {}, {}, {}),
+            )
+
+            val stop = coordinator.stop(generation) {}
+            assertTrue(stop is VoiceRecognitionSessionCoordinator.StopResult.Captured)
+
+            assertFalse(coordinator.cancel(generation))
+            assertFalse(recorder.cancelCalled)
+            assertFalse(gate.isHeld())
+        }
+
+    @Test
     fun `listener failure during start releases the gate and stops the recorder`() =
         runTest {
             val manager = RecordingStateManager()

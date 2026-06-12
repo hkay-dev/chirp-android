@@ -111,8 +111,7 @@ class AudioEncoder
 
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
-        var trackIndex = -1
-        var muxerStarted = false
+        var muxerSession: MuxerSession? = null
 
         return try {
             File(outputPath).parentFile?.mkdirs()
@@ -132,7 +131,10 @@ class AudioEncoder
             codec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
 
-            muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val mux = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = mux
+            val session = MuxerSession(mux)
+            muxerSession = session
 
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
@@ -160,34 +162,7 @@ class AudioEncoder
                     }
                 }
 
-                val outputIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
-                when {
-                    outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        trackIndex = muxer.addTrack(codec.outputFormat)
-                        muxer.start()
-                        muxerStarted = true
-                    }
-
-                    outputIndex >= 0 -> {
-                        val outputBuffer = codec.getOutputBuffer(outputIndex)!!
-
-                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                            bufferInfo.size = 0
-                        }
-
-                        if (bufferInfo.size > 0 && muxerStarted) {
-                            outputBuffer.position(bufferInfo.offset)
-                            outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                            muxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
-                        }
-
-                        codec.releaseOutputBuffer(outputIndex, false)
-
-                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                            outputDone = true
-                        }
-                    }
-                }
+                outputDone = drainEncoderOutput(codec, bufferInfo, session, waitForEndOfStream = inputDone)
             }
 
             Log.d(TAG, "Successfully encoded to $outputPath")
@@ -200,7 +175,7 @@ class AudioEncoder
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
-            runCatching { if (muxerStarted) muxer?.stop() }
+            runCatching { if (muxerSession?.started == true) muxer?.stop() }
             runCatching { muxer?.release() }
         }
     }
@@ -342,8 +317,7 @@ class AudioEncoder
     ): Boolean {
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
-        var trackIndex = -1
-        var muxerStarted = false
+        var muxerSession: MuxerSession? = null
         var reader: PcmFloatFileReader? = null
 
         return try {
@@ -358,7 +332,10 @@ class AudioEncoder
             codec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
 
-            muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val mux = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = mux
+            val session = MuxerSession(mux)
+            muxerSession = session
             reader = PcmFloatFileReader(inputPath)
 
             val bufferInfo = MediaCodec.BufferInfo()
@@ -393,30 +370,7 @@ class AudioEncoder
                     }
                 }
 
-                val outputIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
-                when {
-                    outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                        trackIndex = muxer.addTrack(codec.outputFormat)
-                        muxer.start()
-                        muxerStarted = true
-                    }
-
-                    outputIndex >= 0 -> {
-                        val outputBuffer = codec.getOutputBuffer(outputIndex)!!
-                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                            bufferInfo.size = 0
-                        }
-                        if (bufferInfo.size > 0 && muxerStarted) {
-                            outputBuffer.position(bufferInfo.offset)
-                            outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                            muxer.writeSampleData(trackIndex, outputBuffer, bufferInfo)
-                        }
-                        codec.releaseOutputBuffer(outputIndex, false)
-                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                            outputDone = true
-                        }
-                    }
-                }
+                outputDone = drainEncoderOutput(codec, bufferInfo, session, waitForEndOfStream = inputDone)
             }
 
             true
@@ -429,7 +383,7 @@ class AudioEncoder
             runCatching { reader?.close() }
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
-            runCatching { if (muxerStarted) muxer?.stop() }
+            runCatching { if (muxerSession?.started == true) muxer?.stop() }
             runCatching { muxer?.release() }
         }
     }
@@ -442,8 +396,7 @@ class AudioEncoder
         val sampleRate = readWavSampleRate(File(inputPath))
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
-        var trackIndex = -1
-        var muxerStarted = false
+        var muxerSession: MuxerSession? = null
 
         return try {
             File(outputPath).parentFile?.mkdirs()
@@ -456,7 +409,10 @@ class AudioEncoder
             codec = MediaCodec.createEncoderByType(MIME_TYPE)
             codec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec.start()
-            muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val mux = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            muxer = mux
+            val session = MuxerSession(mux)
+            muxerSession = session
 
             FileInputStream(inputPath).use { input ->
                 input.skip(WavFileWriter.WAV_HEADER_BYTES.toLong())
@@ -499,30 +455,7 @@ class AudioEncoder
                         }
                     }
 
-                    val outputIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
-                    when {
-                        outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                            trackIndex = muxer!!.addTrack(codec.outputFormat)
-                            muxer!!.start()
-                            muxerStarted = true
-                        }
-
-                        outputIndex >= 0 -> {
-                            val outputBuffer = codec.getOutputBuffer(outputIndex)!!
-                            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                                bufferInfo.size = 0
-                            }
-                            if (bufferInfo.size > 0 && muxerStarted) {
-                                outputBuffer.position(bufferInfo.offset)
-                                outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                                muxer!!.writeSampleData(trackIndex, outputBuffer, bufferInfo)
-                            }
-                            codec.releaseOutputBuffer(outputIndex, false)
-                            if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                                outputDone = true
-                            }
-                        }
-                    }
+                    outputDone = drainEncoderOutput(codec, bufferInfo, session, waitForEndOfStream = inputDone)
                 }
             }
             true
@@ -534,7 +467,7 @@ class AudioEncoder
         } finally {
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
-            runCatching { if (muxerStarted) muxer?.stop() }
+            runCatching { if (muxerSession?.started == true) muxer?.stop() }
             runCatching { muxer?.release() }
         }
     }
@@ -586,6 +519,79 @@ class AudioEncoder
             Log.e(TAG, "WAV to MP3 encoding failed", error)
             runCatching { File(outputPath).delete() }
             false
+        }
+    }
+
+    /**
+     * Drains every output buffer the encoder currently has ready into the muxer,
+     * returning true once the end-of-stream buffer has been consumed.
+     *
+     * Draining at most one buffer per feed iteration (the previous loop shape) lets the
+     * encoder's output queue fill, after which every ~64ms AAC frame costs a [TIMEOUT_US]
+     * dequeueInputBuffer stall — multi-second finalizes for sub-minute captures. While
+     * input is still flowing this polls with zero timeout and returns as soon as the codec
+     * has nothing ready; once [waitForEndOfStream] is set (end-of-stream already queued on
+     * the input side) it keeps [TIMEOUT_US]-polling until the end-of-stream buffer surfaces.
+     */
+    private fun drainEncoderOutput(
+        codec: MediaCodec,
+        bufferInfo: MediaCodec.BufferInfo,
+        session: MuxerSession,
+        waitForEndOfStream: Boolean,
+    ): Boolean {
+        val timeoutUs = if (waitForEndOfStream) TIMEOUT_US else 0L
+        while (true) {
+            val outputIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs)
+            when {
+                outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                    if (!waitForEndOfStream) return false
+                }
+
+                outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    session.onOutputFormatChanged(codec.outputFormat)
+                }
+
+                outputIndex >= 0 -> {
+                    val outputBuffer = codec.getOutputBuffer(outputIndex)!!
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                        bufferInfo.size = 0
+                    }
+                    if (bufferInfo.size > 0 && session.started) {
+                        outputBuffer.position(bufferInfo.offset)
+                        outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                        session.writeSample(outputBuffer, bufferInfo)
+                    }
+                    codec.releaseOutputBuffer(outputIndex, false)
+                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        return true
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Tracks muxer start state across [drainEncoderOutput] calls: the muxer cannot start
+     * (and samples cannot be written) until the codec reports its negotiated output format.
+     */
+    private class MuxerSession(
+        private val muxer: MediaMuxer,
+    ) {
+        var started = false
+            private set
+        private var trackIndex = -1
+
+        fun onOutputFormatChanged(format: MediaFormat) {
+            trackIndex = muxer.addTrack(format)
+            muxer.start()
+            started = true
+        }
+
+        fun writeSample(
+            buffer: ByteBuffer,
+            info: MediaCodec.BufferInfo,
+        ) {
+            muxer.writeSampleData(trackIndex, buffer, info)
         }
     }
 

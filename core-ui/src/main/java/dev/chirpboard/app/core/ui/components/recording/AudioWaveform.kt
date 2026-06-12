@@ -11,16 +11,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.theme.chirpAccents
+import kotlin.math.ceil
 import kotlin.math.pow
 
 /**
@@ -31,6 +32,11 @@ import kotlin.math.pow
  * height flicker when the newest bar becomes historical.
  *
  * Displays vertical bars when recording, or a subtle dotted line when idle or paused.
+ *
+ * Geometry (on-device sweep fix): the newest bar is anchored fully *inside* the right edge and
+ * the canvas clips to its bounds, so bars can never bleed into the host card's padding; the
+ * visible history window is derived from the actual canvas width ([barCount] only sets a floor),
+ * so the bars always fill the width they are given instead of a fixed 42-slot viewport.
  *
  * [color] defaults to the cohesive brand "recording/live" accent
  * ([ChirpAccents.recordingLive][dev.chirpboard.app.core.ui.theme.ChirpAccents.recordingLive]) so
@@ -64,7 +70,10 @@ fun AudioWaveform(
             modifier
                 .fillMaxWidth()
                 .height(maxBarHeight + 16.dp)
-                .graphicsLayer()
+                // clipToBounds() == graphicsLayer(clip = true): keeps the standalone layer that
+                // isolates amplitude redraws AND stops bars rendering outside the waveform's
+                // bounds (they previously bled past the host card's inner padding).
+                .clipToBounds()
                 .drawBehind {
                     val minHeightPx = minBarHeight.toPx()
                     val maxHeightPx = maxBarHeight.toPx()
@@ -97,15 +106,21 @@ fun AudioWaveform(
                     if (totalSamples == 0) return@drawBehind
 
                     val firstSampleIndex = sampleCount - totalSamples
-                    val visibleSampleCount = barCount.coerceAtLeast(1) + 2
+                    val visibleSampleCount =
+                        waveformVisibleSlotCount(
+                            canvasWidthPx = canvasWidth,
+                            stepPx = stepPx,
+                            barCountFloor = barCount,
+                        )
                     val startIndex = (totalSamples - visibleSampleCount).coerceAtLeast(0)
+                    val newestBarCenterX = canvasWidth - barWidthPx / 2f
 
                     for (i in startIndex until totalSamples) {
                         val absoluteIdx = firstSampleIndex + i
                         val distanceInSlots = scrollSampleCount - absoluteIdx.toFloat() - 1f
-                        val xCenter = canvasWidth - (distanceInSlots * stepPx)
+                        val xCenter = newestBarCenterX - (distanceInSlots * stepPx)
 
-                        if (xCenter < -barWidthPx / 2f || xCenter > canvasWidth + barWidthPx / 2f) {
+                        if (xCenter < -barWidthPx / 2f) {
                             continue
                         }
 
@@ -127,4 +142,19 @@ fun AudioWaveform(
                     }
                 },
     )
+}
+
+/**
+ * Number of history slots the draw loop walks: enough to span the actual canvas width (plus a
+ * two-slot margin so a partially scrolled-out bar on the left edge still draws), with
+ * [barCountFloor] as a lower bound for compatibility with callers sized around the historical
+ * 42-bar default. Pure so the width-fill contract is unit-testable (on-device sweep fix).
+ */
+internal fun waveformVisibleSlotCount(
+    canvasWidthPx: Float,
+    stepPx: Float,
+    barCountFloor: Int,
+): Int {
+    val slotsAcrossWidth = if (stepPx > 0f) ceil(canvasWidthPx / stepPx).toInt() else 0
+    return maxOf(barCountFloor, slotsAcrossWidth).coerceAtLeast(1) + 2
 }

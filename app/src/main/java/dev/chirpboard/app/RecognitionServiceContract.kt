@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import android.content.Intent
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import dev.chirpboard.app.core.audio.recorder.RecordingError
@@ -129,6 +130,31 @@ internal suspend fun resolveServiceRecognitionDelivery(
             )
         }
     }
+}
+
+/**
+ * Builds the per-session end-of-speech/no-speech detector from a recognition request's
+ * RecognizerIntent extras (IME-2). Used by both system recognition surfaces so a silent
+ * session terminates identically whether it runs through [ChirpRecognitionService]
+ * (terminal ERROR_SPEECH_TIMEOUT) or the [VoiceRecognitionActivity] dialog (gentle
+ * retry state). A null intent yields the default configuration.
+ */
+internal fun recognizerIntentEndpointer(intent: Intent?): SpeechEndpointer =
+    recognizerSessionEndpointer(
+        clientCompleteSilenceMs =
+            intent?.positiveDurationExtraMs(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS),
+        clientMinimumLengthMs =
+            intent?.positiveDurationExtraMs(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS),
+    )
+
+/** Reads a positive millisecond duration extra that callers may set as Int or Long. */
+private fun Intent.positiveDurationExtraMs(key: String): Long? {
+    val intValue = getIntExtra(key, -1)
+    if (intValue > 0) {
+        return intValue.toLong()
+    }
+    val longValue = getLongExtra(key, -1L)
+    return longValue.takeIf { it > 0L }
 }
 
 /** Lower clamp so silence still produces a finite dB value. */

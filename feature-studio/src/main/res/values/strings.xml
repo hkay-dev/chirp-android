@@ -19,7 +19,9 @@
     <string name="rec_studio_go_back">Go Back</string>
     <string name="rec_word_timing_unavailable">Word-level timing isn’t available for this transcript.</string>
     <string name="rec_edit_title">Edit Title</string>
-    <string name="rec_no_transcript_available">No transcript available</string>
+    <string name="rec_no_speech_title">No speech detected in this recording</string>
+    <string name="rec_no_speech_message">The audio is saved, but transcription didn’t find any words in it. If that doesn’t look right, retry the transcription.</string>
+    <string name="rec_duration_pending" translatable="false">--:--</string>
     <string name="rec_retranscribe">Re-transcribe</string>
     <string name="rec_retranscribe_desc">Re-transcribe recording</string>
     <string name="rec_recover_queue">Recover Queue</string>

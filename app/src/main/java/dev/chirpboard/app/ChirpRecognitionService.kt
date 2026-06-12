@@ -192,7 +192,7 @@ class ChirpRecognitionService : RecognitionService() {
         // into the recognition history.
         val secureSession = intent.getBooleanExtra(RecognizerIntent.EXTRA_SECURE, false)
         currentSessionSecure = secureSession
-        val endpointer = buildEndpointer(intent)
+        val endpointer = recognizerIntentEndpointer(intent)
 
         val generation = sessionCoordinator.issueGeneration()
         scope.launch {
@@ -262,24 +262,6 @@ class ChirpRecognitionService : RecognitionService() {
             }
         }
     }
-
-    /**
-     * Builds the per-session end-of-speech detector (IME-2), honoring the client's
-     * silence-length extras with sane clamps.
-     */
-    private fun buildEndpointer(intent: Intent): SpeechEndpointer =
-        SpeechEndpointer(
-            completeSilenceMs =
-                intent
-                    .positiveDurationExtraMs(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS)
-                    ?.coerceIn(SpeechEndpointer.MIN_CLIENT_SILENCE_MS, SpeechEndpointer.MAX_CLIENT_SILENCE_MS)
-                    ?: SpeechEndpointer.DEFAULT_COMPLETE_SILENCE_MS,
-            minimumUtteranceMs =
-                intent
-                    .positiveDurationExtraMs(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS)
-                    ?.coerceAtMost(SpeechEndpointer.MAX_CLIENT_MINIMUM_LENGTH_MS)
-                    ?: 0L,
-        )
 
     /**
      * IME-2: every way a live session can end without an explicit client stop must still
@@ -517,16 +499,6 @@ class ChirpRecognitionService : RecognitionService() {
     private fun recognitionRequestLanguageTag(intent: Intent): String? =
         intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE)
             ?: intent.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE)
-
-    /** Reads a positive millisecond duration extra that callers may set as Int or Long. */
-    private fun Intent.positiveDurationExtraMs(key: String): Long? {
-        val intValue = getIntExtra(key, -1)
-        if (intValue > 0) {
-            return intValue.toLong()
-        }
-        val longValue = getLongExtra(key, -1L)
-        return longValue.takeIf { it > 0L }
-    }
 
     override fun onDestroy() {
         Log.d(TAG, "Service destroyed")

@@ -56,7 +56,10 @@ class RecordingSegmentFinalizeTest {
 
         val result = classUnderTest.materializeExportFile(sessionId, missingActiveSegment.absolutePath)
 
-        assertEquals(exportFile, result)
+        assertEquals(exportFile, result?.file)
+        // The materialization pass validated the export itself, so the stop path may skip
+        // its duplicate full-file validation read.
+        assertTrue(result?.validatedPlayable == true)
         verify(exactly = 0) { segmentConcatenator.concatToExport(any(), any()) }
         verify(exactly = 0) { capturePaths.deleteCaptureArtifacts(any()) }
         exportFile.delete()
@@ -118,7 +121,8 @@ class RecordingSegmentFinalizeTest {
 
         val result = classUnderTest.materializeExportFile(sessionId, activeSegment.absolutePath)
 
-        assertEquals(exportFile, result)
+        assertEquals(exportFile, result?.file)
+        assertTrue(result?.validatedPlayable == true)
         verify(exactly = 1) { capturePaths.deleteCaptureArtifacts(sessionId) }
     }
 
@@ -153,7 +157,7 @@ class RecordingSegmentFinalizeTest {
 
         val result = classUnderTest.materializeExportFile(sessionId, missingSegment.absolutePath)
 
-        assertEquals(exportFile, result)
+        assertEquals(exportFile, result?.file)
         assertTrue(WavFileWriter.hasAccurateHeader(exportFile))
         verify(exactly = 0) { segmentConcatenator.concatToExport(any(), any()) }
     }

@@ -93,4 +93,65 @@ class SpeechEndpointerTest {
         assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 9_999L))
         assertEquals(SpeechEndpointer.Event.END_OF_SPEECH, endpointer.onAmplitude(SILENCE, 10_000L))
     }
+
+    // --- recognizerSessionEndpointer: the shared per-session config both surfaces use ---
+
+    @Test
+    fun `default session terminates an all-silence capture within the 10s budget`() {
+        // Regression for the live no-speech hang: with no client extras, a session in
+        // which speech never starts must still reach a terminal within ~8-12s.
+        val endpointer = recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = null)
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 0L))
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 9_999L))
+        assertEquals(SpeechEndpointer.Event.NO_SPEECH_TIMEOUT, endpointer.onAmplitude(SILENCE, 10_000L))
+    }
+
+    @Test
+    fun `default session keeps the 2s trailing-silence endpointing after speech`() {
+        val endpointer = recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = null)
+        assertEquals(SpeechEndpointer.Event.SPEECH_STARTED, endpointer.onAmplitude(SPEECH, 0L))
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 1_999L))
+        assertEquals(SpeechEndpointer.Event.END_OF_SPEECH, endpointer.onAmplitude(SILENCE, 2_000L))
+    }
+
+    @Test
+    fun `client complete-silence longer than the default raises the no-speech budget`() {
+        // A caller that tolerates 20s pauses must not be cut off after 10s of leading silence.
+        val endpointer = recognizerSessionEndpointer(clientCompleteSilenceMs = 20_000L, clientMinimumLengthMs = null)
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 0L))
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 19_999L))
+        assertEquals(SpeechEndpointer.Event.NO_SPEECH_TIMEOUT, endpointer.onAmplitude(SILENCE, 20_000L))
+    }
+
+    @Test
+    fun `client minimum length delays the no-speech timeout`() {
+        // EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS: no terminal before the client's minimum.
+        val endpointer = recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = 30_000L)
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 0L))
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 29_999L))
+        assertEquals(SpeechEndpointer.Event.NO_SPEECH_TIMEOUT, endpointer.onAmplitude(SILENCE, 30_000L))
+    }
+
+    @Test
+    fun `client silence extras are clamped to sane bounds`() {
+        // A 1ms complete-silence request clamps up to 500ms instead of ending the
+        // utterance on the first quiet frame.
+        val endpointer = recognizerSessionEndpointer(clientCompleteSilenceMs = 1L, clientMinimumLengthMs = null)
+        endpointer.onAmplitude(SPEECH, 0L)
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 100L))
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 499L))
+        assertEquals(SpeechEndpointer.Event.END_OF_SPEECH, endpointer.onAmplitude(SILENCE, 500L))
+    }
+
+    @Test
+    fun `client minimum length is clamped so a session cannot be made unterminable`() {
+        val endpointer =
+            recognizerSessionEndpointer(
+                clientCompleteSilenceMs = null,
+                clientMinimumLengthMs = Long.MAX_VALUE,
+            )
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 0L))
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 59_999L))
+        assertEquals(SpeechEndpointer.Event.NO_SPEECH_TIMEOUT, endpointer.onAmplitude(SILENCE, 60_000L))
+    }
 }

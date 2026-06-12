@@ -574,6 +574,58 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `recording row duration seeds the ui state before playback loads media`() =
+        runTest {
+            // Regression (sweep-03/04): the header pill and player total read uiState.durationMs,
+            // which was only ever fed from Media3 playback — a finalized recording showed 0:00
+            // until its first playback. The persisted row duration must seed the state.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId).copy(durationMs = 38_000L)))
+            stubSupportingFlows(recordingId)
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            assertEquals(38_000L, viewModel.uiState.value.durationMs)
+        }
+
+    @Test
+    fun `playback-reported duration stays authoritative over the persisted row duration`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val recordingFlow =
+                MutableStateFlow<RepositoryFlowState<Recording?>>(
+                    RepositoryFlowState(sampleRecording(recordingId).copy(durationMs = 38_000L)),
+                )
+            every { repository.getRecordingFlow(recordingId) } returns recordingFlow
+            stubSupportingFlows(recordingId)
+            val playbackFlow = MutableStateFlow(RecordingPlaybackState())
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns playbackFlow
+                }
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), playbackController = playbackController)
+            advanceUntilIdle()
+            assertEquals(38_000L, viewModel.uiState.value.durationMs)
+
+            // Media3 reports its own measurement once the file loads…
+            playbackFlow.value = RecordingPlaybackState(recordingId = recordingId, durationMs = 38_057L)
+            advanceUntilIdle()
+            assertEquals(38_057L, viewModel.uiState.value.durationMs)
+
+            // …and a later row re-emission (e.g. a title edit) must not clobber it.
+            recordingFlow.value = RepositoryFlowState(sampleRecording(recordingId).copy(durationMs = 38_000L, title = "Renamed"))
+            advanceUntilIdle()
+            assertEquals(38_057L, viewModel.uiState.value.durationMs)
+        }
+
+    @Test
     fun `cancelTranscription cancels processing and reports it`() =
         runTest {
             // PIPE-07: studio cancel affordance routes through the recovery port.

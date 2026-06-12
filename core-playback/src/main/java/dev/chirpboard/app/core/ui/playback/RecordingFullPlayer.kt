@@ -128,6 +128,17 @@ fun shouldShowGlobalMiniPlayer(
     // Error states stay visible until dismissed (close = stop()); without this a
     // playback failure would silently hide the bar mid-message (AUD-12).
     if (!playbackState.isActive && !playbackState.isLoading && playbackState.errorMessage == null) return false
-    if (studioRecordingId == null || currentRoute?.contains("processing_studio") != true) return true
+    // Capture and playback UIs never co-exist: the Record screen owns the bottom edge
+    // (action row + auto-started capture) and the controller refuses play() during a live
+    // recording anyway (AUD-10), so the global bar hides for the whole record route. Any
+    // still-active playback resumes its bar as soon as the user navigates back.
+    if (currentRoute?.substringBefore('?') == RECORD_ROUTE_BASE) return false
+    if (studioRecordingId == null || currentRoute?.contains(STUDIO_ROUTE_BASE) != true) return true
     return playbackState.recordingId?.toString() != studioRecordingId
 }
+
+/** Base of the app's Record destination route ("record?autoStart=…&profileId=…"). */
+private const val RECORD_ROUTE_BASE = "record"
+
+/** Base of the app's Processing Studio destination route ("processing_studio/{recordingId}"). */
+private const val STUDIO_ROUTE_BASE = "processing_studio"

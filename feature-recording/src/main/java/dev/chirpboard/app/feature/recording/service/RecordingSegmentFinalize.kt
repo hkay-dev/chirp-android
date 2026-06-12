@@ -10,6 +10,17 @@ import dev.chirpboard.app.feature.recording.session.validation.RecordingFileVali
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * A materialized export file. [validatedPlayable] is true when this materialization pass
+ * already ran a full [RecordingFileValidator.validateForStop] PLAYABLE check on [file], so
+ * callers on the stop path can skip a duplicate full-file validation read (PERF: the stop
+ * path used to validate the same export twice back to back).
+ */
+data class MaterializedExport(
+    val file: File,
+    val validatedPlayable: Boolean,
+)
+
 @Singleton
 class RecordingSegmentFinalize
     @Inject
@@ -22,20 +33,21 @@ class RecordingSegmentFinalize
         fun materializeExportFile(
             sessionId: UUID?,
             activeSegmentPath: String?,
-        ): File? {
+        ): MaterializedExport? {
             if (sessionId == null) {
-                return activeSegmentPath?.let(::File)?.takeIf { it.exists() }
+                return unvalidatedExport(activeSegmentPath?.let(::File))
             }
 
-            val entry = sessionJournal.findBySessionId(sessionId) ?: return activeSegmentPath?.let(::File)?.takeIf { it.exists() }
+            val entry = sessionJournal.findBySessionId(sessionId)
+                ?: return unvalidatedExport(activeSegmentPath?.let(::File))
             if (!entry.usesSegmentCapture()) {
-                return activeSegmentPath?.let(::File)?.takeIf { it.exists() }
-                    ?: File(entry.audioPath).takeIf { it.exists() }
+                return unvalidatedExport(activeSegmentPath?.let(::File))
+                    ?: unvalidatedExport(File(entry.audioPath))
             }
 
             val exportFile = File(entry.exportAudioPath())
             if (exportFile.exists() && fileValidator.validateForStop(exportFile).isPlayable) {
-                return exportFile
+                return MaterializedExport(exportFile, validatedPlayable = true)
             }
 
             val segmentFiles = entry.orderedSegmentFiles(activeSegmentPath)
@@ -54,24 +66,29 @@ class RecordingSegmentFinalize
                     if (playableExport != null) {
                         capturePaths.deleteCaptureArtifacts(entry.sessionId)
                     }
-                    playableExport
+                    playableExport?.let { MaterializedExport(it, validatedPlayable = true) }
                 }
                 is SegmentConcatResult.Failed -> null
             }
         }
+
+        private fun unvalidatedExport(file: File?): MaterializedExport? =
+            file?.takeIf { it.exists() }?.let { MaterializedExport(it, validatedPlayable = false) }
 
         /**
          * Pre-fix app versions could delete segments while leaving an export with a
          * stale/zeroed WAV header. With no segments left, that export's payload is the
          * only remaining audio, so repair its header before giving up on the session.
          */
-        private fun repairedLegacyExport(exportFile: File): File? {
+        private fun repairedLegacyExport(exportFile: File): MaterializedExport? {
             if (!exportFile.exists()) {
                 return null
             }
             if (RecordingOutputFormat.fromFile(exportFile) == RecordingOutputFormat.WAV) {
                 WavFileWriter.repairHeaderIfNeeded(exportFile)
             }
-            return exportFile.takeIf { fileValidator.validateForStop(it).isPlayable }
+            return exportFile
+                .takeIf { fileValidator.validateForStop(it).isPlayable }
+                ?.let { MaterializedExport(it, validatedPlayable = true) }
         }
     }

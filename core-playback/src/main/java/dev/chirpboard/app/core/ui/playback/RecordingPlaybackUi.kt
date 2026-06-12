@@ -319,10 +319,17 @@ internal fun MiniPlayerSeekTrack(
                 .height(32.dp),
         contentAlignment = Alignment.Center,
     ) {
+        // The hairline is inset by half the thumb slot on each side so it spans exactly the
+        // Slider's internal track (which M3 insets by thumbWidth/2): the custom fill and the
+        // thumb's center then agree at every fraction, and the resting dot at position 0 sits
+        // ON the line inside the bar instead of overhanging the screen edge (on-device sweep).
         MiniPlayerProgressTrack(
             positionMs = displayedPositionMs,
             durationMs = durationMs,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MiniThumbSlotWidth / 2),
         )
         Slider(
             value = progressFraction,
@@ -356,7 +363,15 @@ internal fun MiniPlayerSeekTrack(
     }
 }
 
-/** Resting scrub thumb for the mini-player (PRM-5): a small dot that grows while dragging. */
+/**
+ * Resting scrub thumb for the mini-player (PRM-5): a small dot that grows while dragging.
+ *
+ * The dot is centered inside a fixed-size slot. This matters for two reasons (on-device sweep):
+ * M3's Slider measures its thumb slot with the track's 16dp min-height constraint and top-aligns
+ * the content, so a bare 8dp dot rendered ~4dp ABOVE the track line — the slot fills that height
+ * and centers the dot back onto the line. The slot width is fixed at the dragging diameter so the
+ * track length (and thumb position math) never jitters as the dot grows under the finger.
+ */
 @Composable
 private fun MiniPlayerSeekThumb(isDragging: Boolean) {
     val diameter by animateDpAsState(
@@ -365,12 +380,26 @@ private fun MiniPlayerSeekThumb(isDragging: Boolean) {
         label = "miniSeekThumb",
     )
     Box(
-        modifier =
-            Modifier
-                .size(diameter)
-                .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape),
-    )
+        modifier = Modifier.size(width = MiniThumbSlotWidth, height = MiniThumbSlotHeight),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .size(diameter)
+                    .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape),
+        )
+    }
 }
 
 private val MiniThumbRestingDiameter = 8.dp
 private val MiniThumbDraggingDiameter = 14.dp
+
+/** Fixed thumb slot width: the largest diameter, so the dot never overhangs its travel range. */
+private val MiniThumbSlotWidth = MiniThumbDraggingDiameter
+
+/**
+ * Thumb slot height matching the M3 slider's internal 16dp track measurement floor, so the
+ * slot exactly fills the constraint-forced height and the centered dot lands on the track line.
+ */
+private val MiniThumbSlotHeight = 16.dp

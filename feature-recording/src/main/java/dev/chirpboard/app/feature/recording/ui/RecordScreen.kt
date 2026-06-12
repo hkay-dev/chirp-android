@@ -486,29 +486,37 @@ fun RecordScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            Surface(
+            // On-device sweep fix: the card wraps the waveform's own height (~184dp with padding)
+            // and floats centered in the leftover space, instead of stretching to fill it — the
+            // old weight(1f) Surface rendered as a mostly-empty box with a thin waveform band.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                contentAlignment = Alignment.Center,
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (isRecording) {
-                        RecordingGlowBackground(
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                ) {
+                    Box {
+                        if (isRecording) {
+                            RecordingGlowBackground(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clip(MaterialTheme.shapes.extraLarge),
+                            )
+                        }
+
+                        RecordingWaveform(
+                            viewModel = viewModel,
+                            isRecording = isRecording,
                             modifier = Modifier
-                                .fillMaxSize()
-                                .clip(MaterialTheme.shapes.extraLarge)
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 24.dp),
                         )
                     }
-                    
-                    RecordingWaveform(
-                        viewModel = viewModel,
-                        isRecording = isRecording,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 16.dp, vertical = 24.dp)
-                    )
                 }
             }
 

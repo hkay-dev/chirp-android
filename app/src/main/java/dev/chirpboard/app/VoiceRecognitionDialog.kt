@@ -120,6 +120,7 @@ internal fun VoiceRecognitionDialog(
     englishOnlyHint: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onRetry: () -> Unit,
     onCancel: () -> Unit,
     onOpenApp: () -> Unit,
     onDismissComplete: () -> Unit,
@@ -239,6 +240,7 @@ internal fun VoiceRecognitionDialog(
                 englishOnlyHint = englishOnlyHint,
                 onStart = onStart,
                 onStop = onStop,
+                onRetry = onRetry,
                 onCancel = requestCancel,
                 onOpenApp = onOpenApp,
                 onToggleLlm = onToggleLlm,
@@ -288,6 +290,7 @@ private fun VoiceRecognitionDialogContent(
     englishOnlyHint: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onRetry: () -> Unit,
     onCancel: () -> Unit,
     onOpenApp: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
@@ -358,8 +361,13 @@ private fun VoiceRecognitionDialogContent(
         ) {
             // Brand "recording/live" glow while capturing (DLG-3/VIS-8): replaces the off-brand
             // red error glow with the cohesive recordingLive accent used across all surfaces.
+            // matchParentSize is load-bearing: the decorative glow must adopt the panel's
+            // content-driven size without participating in its measurement. A plain
+            // fillMaxSize here resolved against the full-screen window constraints
+            // (MATCH_PARENT for the scrim) and ballooned the whole sheet to screen height.
             AnimatedVisibility(
                 visible = showRecordingVisuals,
+                modifier = Modifier.matchParentSize(),
                 enter = fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS)),
                 exit = fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS)),
             ) {
@@ -418,6 +426,7 @@ private fun VoiceRecognitionDialogContent(
                         isRecording = isRecording,
                         isProcessing = isProcessing,
                         callerPrompt = callerPrompt,
+                        onRetry = onRetry,
                         onOpenApp = onOpenApp,
                     )
 
@@ -771,6 +780,7 @@ private fun VoiceRecognitionTranscriptArea(
     isRecording: Boolean,
     isProcessing: Boolean,
     callerPrompt: String?,
+    onRetry: () -> Unit,
     onOpenApp: () -> Unit,
 ) {
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
@@ -810,6 +820,7 @@ private fun VoiceRecognitionTranscriptArea(
                     VoiceRecognitionErrorStatus(
                         uiError = uiError,
                         statusLiveRegion = statusLiveRegion,
+                        onRetry = onRetry,
                         onOpenApp = onOpenApp,
                     )
 
@@ -881,12 +892,15 @@ private fun VoiceRecognitionTranscriptArea(
 /**
  * Terminal in-dialog error status (ERR-9/ERR-23/ERR-27): explains the failure where the
  * sheet previously just vanished. The permission state carries an "Open Chirp" affordance
- * since an IME-less dialog cannot request the grant itself.
+ * since an IME-less dialog cannot request the grant itself. The no-speech timeout is a
+ * gentle state, not a failure: neutral color and a "Try again" affordance instead of an
+ * abrupt close (the error code is returned only if the user dismisses without retrying).
  */
 @Composable
 private fun VoiceRecognitionErrorStatus(
     uiError: VoiceRecognitionUiError?,
     statusLiveRegion: Modifier,
+    onRetry: () -> Unit,
     onOpenApp: () -> Unit,
 ) {
     val message =
@@ -910,15 +924,30 @@ private fun VoiceRecognitionErrorStatus(
 
             VoiceRecognitionUiError.NoSpeech ->
                 stringResource(R.string.voice_recognition_error_no_speech)
+
+            VoiceRecognitionUiError.NoSpeechTimeout ->
+                stringResource(R.string.voice_recognition_no_speech_timeout)
         }
+    val gentle = uiError == VoiceRecognitionUiError.NoSpeechTimeout
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = message,
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.error,
+            color =
+                if (gentle) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
             textAlign = TextAlign.Center,
             modifier = statusLiveRegion,
         )
+        if (gentle) {
+            Spacer(modifier = Modifier.height(ChirpSpacing.Small))
+            FilledTonalButton(onClick = onRetry) {
+                Text(stringResource(R.string.voice_recognition_try_again))
+            }
+        }
         if (uiError == VoiceRecognitionUiError.PermissionMissing) {
             Spacer(modifier = Modifier.height(ChirpSpacing.Small))
             FilledTonalButton(onClick = onOpenApp) {

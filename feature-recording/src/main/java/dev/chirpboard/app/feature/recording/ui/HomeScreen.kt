@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -76,14 +77,17 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.SkeletonPlaceholder
 import dev.chirpboard.app.core.ui.components.StatsPillRow
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.ui.components.StatusBarProtection
+import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
@@ -203,6 +207,19 @@ fun HomeScreen(
         }
     val sheetState = rememberModalBottomSheetState()
 
+    // On-device sweep fix (delete policy): a recording delete is irreversible — the row, its
+    // cascade-deleted transcript/summary, and the audio file are all gone, and a true undo would
+    // have to resurrect all three (and fight the rescue-persistence guarantees). So the policy is
+    // an explicit confirmation, consistent with the profile-delete confirm dialog, instead of a
+    // silent one-tap removal. Keyed by UUID string in rememberSaveable (like the sheet above) so
+    // the pending confirmation survives rotation/process death and self-dismisses if the
+    // recording disappears underneath it.
+    var pendingDeleteItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    val pendingDeleteItem =
+        remember(pendingDeleteItemId, displayItems) {
+            pendingDeleteItemId?.let { id -> displayItems.firstOrNull { it.id.toString() == id } }
+        }
+
     // Show error messages
     RepositoryErrorSnackbarEffect(
         errorMessage = errorMessage,
@@ -253,6 +270,31 @@ fun HomeScreen(
             onOpenSettings = {
                 showMicSettingsDialog = false
                 openAppSettingsForPermission(context)
+            },
+        )
+    }
+
+    pendingDeleteItem?.let { item ->
+        AnimatedAlertDialog(
+            onDismissRequest = { pendingDeleteItemId = null },
+            title = { Text(stringResource(CoreR.string.rec_delete_recording_title)) },
+            text = { Text(stringResource(CoreR.string.rec_delete_recording_message, item.title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteItemId = null
+                        // PRM-1: heavy thunk on the destructive confirm, matching the studio.
+                        ChirpHaptics.delete(context)
+                        viewModel.deleteRecording(item)
+                    },
+                ) {
+                    Text(stringResource(CoreR.string.rec_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteItemId = null }) {
+                    Text(stringResource(CoreR.string.rec_cancel))
+                }
             },
         )
     }
@@ -551,19 +593,28 @@ fun HomeScreen(
                             .padding(horizontal = ChirpSpacing.ScreenHorizontal),
                 )
 
-                HomeContentPhase.LIST ->
+                HomeContentPhase.LIST -> {
+                // INS-7 / on-device sweep fix: clearance sized to the FULL floating stack — the
+                // Record FAB, the quick-start surface stacked above it, and (when the global
+                // mini-player bar is visible, stealing ~90dp of viewport from this screen) extra
+                // headroom so the last row can always be scrolled well clear of the Record pill.
+                val listBottomClearance by animateDpAsState(
+                    targetValue =
+                        homeListBottomClearance(
+                            quickStartVisible = shouldShowHomeQuickStartSurface(quickStarts),
+                            miniPlayerVisible = playbackRowState.impliesGlobalMiniPlayer(),
+                        ),
+                    label = "homeListBottomClearance",
+                )
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     contentPadding =
                         PaddingValues(
                             top = paddingValues.calculateTopPadding(),
-                            // INS-7: reserve clearance for BOTH the Record FAB and the global
-                            // mini-player bar (a layout sibling below this screen) so the last row
-                            // is never cramped under the now-playing transport when it is visible.
                             bottom =
                                 paddingValues.calculateBottomPadding() +
-                                    HOME_LIST_BOTTOM_CLEARANCE,
+                                    listBottomClearance,
                         ),
                 ) {
                     item(key = "recovery_banner", contentType = "recovery_banner") {
@@ -797,6 +848,7 @@ fun HomeScreen(
                         }
                     }
                 }
+                }
             }
         }
 
@@ -825,7 +877,9 @@ fun HomeScreen(
                         dismissSheet()
                     },
                     onDelete = {
-                        viewModel.deleteRecording(item)
+                        // Stage the confirmation; the actual delete runs only from the
+                        // dialog's explicit confirm (sweep fix: no silent one-tap delete).
+                        pendingDeleteItemId = item.id.toString()
                         dismissSheet()
                     },
                     onRetryTranscription =
@@ -926,11 +980,46 @@ internal fun homeContentPhase(
     }
 
 /**
- * Bottom clearance reserved by the home list (INS-7). Covers the Record FAB AND the global
- * mini-player bar (a layout sibling below this screen, ~72dp tall when visible) so the last row is
- * never cramped under the now-playing transport. Slightly larger than the previous FAB-only 96dp.
+ * Base bottom clearance reserved by the home list (INS-7): the Record FAB (56dp) plus its 16dp
+ * margin plus breathing room, so a fully-scrolled last row sits clear above the pill.
  */
 private val HOME_LIST_BOTTOM_CLEARANCE = 112.dp
+
+/**
+ * Extra clearance when the quick-start surface is stacked above the FAB (on-device sweep fix):
+ * the surface (~96dp) plus its 12dp stack spacing — without it the floating stack is taller than
+ * the base clearance and the last row could never scroll clear.
+ */
+private val HOME_LIST_QUICK_START_CLEARANCE = 108.dp
+
+/**
+ * Extra clearance while the global mini-player bar is visible (on-device sweep fix, r17): the
+ * bar is a layout sibling below this screen and steals ~90dp of viewport, which pushed short
+ * lists' last rows under the Record pill with almost no scroll range to escape. The allowance
+ * restores that range so the overlapped row can always be scrolled well clear of the pill.
+ */
+private val HOME_LIST_MINI_PLAYER_CLEARANCE = 88.dp
+
+/**
+ * Bottom clearance for the home list's content padding, sized to the floating UI actually shown
+ * (Record FAB + optional quick-start surface + optional mini-player allowance). Pure so the
+ * stacking contract is unit-testable.
+ */
+internal fun homeListBottomClearance(
+    quickStartVisible: Boolean,
+    miniPlayerVisible: Boolean,
+): Dp =
+    HOME_LIST_BOTTOM_CLEARANCE +
+        (if (quickStartVisible) HOME_LIST_QUICK_START_CLEARANCE else 0.dp) +
+        (if (miniPlayerVisible) HOME_LIST_MINI_PLAYER_CLEARANCE else 0.dp)
+
+/**
+ * Mirrors [dev.chirpboard.app.core.ui.playback.shouldShowGlobalMiniPlayer]'s state predicate
+ * (active OR loading OR error) from the home row projection, so the list reserves clearance
+ * exactly when the bar is on screen.
+ */
+internal fun RecordingPlaybackRowState.impliesGlobalMiniPlayer(): Boolean =
+    recordingId != null || isLoading || errorMessage != null
 
 /** Number of shimmer placeholder rows shown in the first-load skeleton (LOAD-3). */
 private const val HOME_SKELETON_ROW_COUNT = 4

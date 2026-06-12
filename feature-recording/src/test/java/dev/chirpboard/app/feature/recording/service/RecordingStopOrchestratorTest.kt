@@ -209,6 +209,94 @@ class RecordingStopOrchestratorTest {
     }
 
     @Test
+    fun `finalized recording is stamped with the probed container duration`() = runTest {
+        // Regression (sweep-03/04): the finalize path must stamp a real duration at save
+        // time; relying on a later backfill leaves 0:00 in every duration surface.
+        val file = File.createTempFile("test_audio", ".m4a")
+        file.writeBytes(
+            byteArrayOf(0, 0, 0, 0x18, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+                ByteArray(512) + "moov".encodeToByteArray(),
+        )
+
+        val recordingId = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.id } returns recordingId
+        coEvery {
+            recordingRepository.finalizeInProgressRecording(recordingId, any(), any(), file.absolutePath)
+        } returns recording
+
+        mockkStatic("dev.chirpboard.app.feature.recording.util.AudioDurationProbeKt")
+        try {
+            every { dev.chirpboard.app.feature.recording.util.probeDurationMs(any()) } returns 38_000L
+
+            val snapshot = StopSnapshot(
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                audioFilePath = file.absolutePath,
+                durationMs = 0L,
+                stoppedAtEpochMs = System.currentTimeMillis(),
+                wasPaused = false,
+                correlationId = "corr-id"
+            )
+
+            val result = orchestrator.persistAndQueueRecording(snapshot)
+
+            assertTrue(result is StopPersistenceResult.SavedAndQueued)
+            coVerify(exactly = 1) {
+                recordingRepository.finalizeInProgressRecording(recordingId, 38_000L, any(), file.absolutePath)
+            }
+        } finally {
+            unmockkStatic("dev.chirpboard.app.feature.recording.util.AudioDurationProbeKt")
+            file.delete()
+        }
+    }
+
+    @Test
+    fun `finalized recording falls back to the snapshot duration when the container probe fails`() = runTest {
+        val file = File.createTempFile("test_audio", ".m4a")
+        file.writeBytes(
+            byteArrayOf(0, 0, 0, 0x18, 'f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte()) +
+                ByteArray(512) + "moov".encodeToByteArray(),
+        )
+
+        val recordingId = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.id } returns recordingId
+        coEvery {
+            recordingRepository.finalizeInProgressRecording(recordingId, any(), any(), file.absolutePath)
+        } returns recording
+
+        mockkStatic("dev.chirpboard.app.feature.recording.util.AudioDurationProbeKt")
+        try {
+            every { dev.chirpboard.app.feature.recording.util.probeDurationMs(any()) } returns 0L
+
+            val snapshot = StopSnapshot(
+                origin = RecordingOrigin.APP,
+                profileId = null,
+                recordingId = recordingId,
+                audioFilePath = file.absolutePath,
+                durationMs = 37_500L,
+                stoppedAtEpochMs = System.currentTimeMillis(),
+                wasPaused = false,
+                correlationId = "corr-id"
+            )
+
+            val result = orchestrator.persistAndQueueRecording(snapshot)
+
+            assertTrue(result is StopPersistenceResult.SavedAndQueued)
+            // A finalized recording must never persist durationMs = 0 while a measured
+            // duration is available from the stop snapshot.
+            coVerify(exactly = 1) {
+                recordingRepository.finalizeInProgressRecording(recordingId, 37_500L, any(), file.absolutePath)
+            }
+        } finally {
+            unmockkStatic("dev.chirpboard.app.feature.recording.util.AudioDurationProbeKt")
+            file.delete()
+        }
+    }
+
+    @Test
     fun `persistAndQueueRecording returns SavedPendingRecovery if enqueue fails`() = runTest {
         val file = File.createTempFile("test_audio", ".m4a")
         file.writeBytes(

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
+import android.os.SystemClock
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
@@ -89,6 +90,16 @@ internal sealed interface VoiceRecognitionUiError {
     data object NoSpeech : VoiceRecognitionUiError {
         override val speechErrorCode: Int = SpeechRecognizer.ERROR_NO_MATCH
     }
+
+    /**
+     * No speech was detected within the initial-silence budget (the SpeechRecognizer
+     * ERROR_SPEECH_TIMEOUT convention). Persistent rather than auto-returning: the
+     * dialog shows a gentle "didn't catch anything" state with a retry affordance, and
+     * the error code is returned only when the user dismisses without retrying.
+     */
+    data object NoSpeechTimeout : VoiceRecognitionUiError {
+        override val speechErrorCode: Int = SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+    }
 }
 
 /**
@@ -155,8 +166,15 @@ class VoiceRecognitionActivity : ComponentActivity() {
             }
 
             // The dialog renders the waveform directly from recorder.sampleCountFlow /
-            // waveformBuffer, so the coordinator's RMS stream is unused on this surface.
-            override suspend fun streamRms(onRms: (Float) -> Unit) = Unit
+            // waveformBuffer; this stream's only consumer here is the per-session
+            // endpointer that terminates an all-silence capture (mirrors the service).
+            override suspend fun streamRms(onRms: (Float) -> Unit) {
+                recorder.sampleCountFlow.collect { count ->
+                    if (count > 0L) {
+                        onRms(recorder.waveformBuffer.lastOrNull() ?: 0f)
+                    }
+                }
+            }
         }
 
     /**
@@ -187,6 +205,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private val _partialTranscript = MutableStateFlow("")
     private val _modelState = MutableStateFlow(VoiceRecognitionModelState.Initializing)
     private val _uiError = MutableStateFlow<VoiceRecognitionUiError?>(null)
+
+    /**
+     * True when the live capture's teardown was already classified as a discard (user
+     * cancel, or the no-speech timeout's pure-silence cancel). The coordinator cancel
+     * hops to the IO dispatcher, so the capture gate can still be held when [onDestroy]
+     * runs ~250ms later — without this mark that race misfiled a deliberate discard as a
+     * system interruption and persisted a "Voice recognition interrupted" rescue entry.
+     * Main-thread only; reset by [startRecording] for each new session.
+     */
+    private var captureTeardownDiscardsAudio = false
 
     /**
      * IME-6: a caller that sets [RecognizerIntent.EXTRA_SECURE] (keyguard/secure contexts)
@@ -294,6 +322,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     englishOnlyHint = englishOnlyHint,
                     onStart = ::startRecording,
                     onStop = { stopRecording(effectiveLlmEnabled, currentMode) },
+                    onRetry = ::retryAfterNoSpeech,
                     onCancel = ::cancelRecording,
                     onOpenApp = ::openAppAndDismiss,
                     onDismissComplete = { finish() },
@@ -331,7 +360,12 @@ class VoiceRecognitionActivity : ComponentActivity() {
         // Reflect Starting in the dialog immediately; the coordinator's generation+mutex
         // (not this flag) is what serializes a rapid second tap against the in-flight start.
         _recordingState.value = RecordingState.Starting(RecordingOrigin.KEYBOARD)
+        captureTeardownDiscardsAudio = false
         val generation = sessionCoordinator.issueGeneration()
+        // Same initial-silence/trailing-silence detector the service uses (IME-2), honoring
+        // the caller's RecognizerIntent silence extras. The dialog is a manual-stop surface,
+        // so only the no-speech timeout is acted on (see onSessionAmplitude).
+        val endpointer = recognizerIntentEndpointer(intent)
         lifecycleScope.launch {
             val result =
                 sessionCoordinator.start(
@@ -340,7 +374,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     onBeginningOfSpeech = {
                         _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
                     },
-                    onRms = {},
+                    onRms = { amplitude -> onSessionAmplitude(generation, endpointer, amplitude) },
                 )
             when (result) {
                 VoiceRecognitionSessionCoordinator.StartResult.Started -> Unit
@@ -372,6 +406,63 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Per-amplitude-frame endpointer feed for the dialog session (IME-2 parity with the
+     * service). END_OF_SPEECH is deliberately ignored — this surface keeps its explicit
+     * stop button — but a session in which speech never starts must still terminate
+     * instead of listening forever.
+     */
+    private fun onSessionAmplitude(
+        generation: Int,
+        endpointer: SpeechEndpointer,
+        amplitude: Float,
+    ) {
+        when (endpointer.onAmplitude(amplitude, SystemClock.elapsedRealtime())) {
+            SpeechEndpointer.Event.NO_SPEECH_TIMEOUT -> onNoSpeechTimeout(generation)
+            else -> Unit
+        }
+    }
+
+    /**
+     * Initial-silence timeout: nothing was said within the budget, so cancel the capture
+     * and show the gentle "didn't catch anything" retry state instead of either listening
+     * forever or abruptly closing. The coordinator's generation gate keeps the terminal
+     * exactly-once against a racing stop/cancel — if another path already ended the
+     * session, it owns the outcome and this does nothing.
+     */
+    private fun onNoSpeechTimeout(generation: Int) {
+        if (_shouldDismiss.value || _uiError.value != null) {
+            return
+        }
+        // A timeout for a superseded session must not touch the live one's bookkeeping
+        // (the discard mark below would wrongly strip the new session's rescue cover).
+        if (generation != sessionCoordinator.currentGeneration()) {
+            return
+        }
+        // The endpointer fires this only when no speech was ever detected, so the capture
+        // is zero-speech audio: classify the teardown as a discard *before* the async
+        // cancel so a destroy racing it never rescues pure silence (never-drop-speech
+        // applies to speech; a session that raced into Stopping is owned by the pipeline).
+        captureTeardownDiscardsAudio = true
+        lifecycleScope.launch {
+            if (!sessionCoordinator.cancel(generation)) {
+                return@launch
+            }
+            Log.w(TAG, "No speech detected within the initial-silence budget; offering retry")
+            _recordingState.value = RecordingState.Idle
+            _uiError.value = VoiceRecognitionUiError.NoSpeechTimeout
+        }
+    }
+
+    /** Retry from the no-speech state (W4 dialog UX): clear it and start a fresh session. */
+    private fun retryAfterNoSpeech() {
+        if (_shouldDismiss.value || _uiError.value != VoiceRecognitionUiError.NoSpeechTimeout) {
+            return
+        }
+        _uiError.value = null
+        startRecording()
     }
 
     private fun stopRecording(
@@ -572,6 +663,11 @@ class VoiceRecognitionActivity : ComponentActivity() {
             // unmarked cancellation (system kill, task swipe) still rescues the capture.
             inlineTranscription.markUserCancelled()
         }
+        // The user chose to discard this capture: a destroy racing the async cancel below
+        // (its recorder teardown hops to the IO dispatcher, so the gate can still be held
+        // when onDestroy runs) must not re-file the discard as "Voice recognition
+        // interrupted" (see shouldRescueOnDestroy).
+        captureTeardownDiscardsAudio = true
         // Route the capture teardown through the coordinator so the cancel is serialized
         // against any in-flight start (it stops the recorder and releases the gate). When
         // the session is already past its active window (Stopping/Idle) cancel is a no-op,
@@ -609,11 +705,12 @@ class VoiceRecognitionActivity : ComponentActivity() {
         if (captureGate.isHeld()) {
             val samples = recorder.stop()
             captureGate.releaseCompleted()
-            // Once stopRecording hands samples to the inline pipeline the state is
-            // Stopping and the pipeline owns persistence (it rescues on cancellation
-            // itself); rescuing here too would duplicate the same capture. Secure
-            // sessions persist nothing, ever (IME-6).
-            if (_recordingState.value !is RecordingState.Stopping && !secureSession) {
+            if (shouldRescueOnDestroy(
+                    recordingState = _recordingState.value,
+                    secureSession = secureSession,
+                    teardownDiscardsAudio = captureTeardownDiscardsAudio,
+                )
+            ) {
                 rescueInterruptedCapture(samples)
             }
         }
@@ -639,8 +736,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     rawText = null,
                     processedText = null,
                     errorMessage = "Voice recognition interrupted",
-                    // Not user-initiated: a user cancel releases the gate before destroy,
-                    // so a held gate here means the system interrupted the capture.
+                    // Not user-initiated: shouldRescueOnDestroy already excluded the
+                    // teardowns the user (or the no-speech timeout) classified as a
+                    // discard, so a held gate here means the system interrupted the
+                    // capture mid-session.
                     reason = InlineCapturePersistReason.RESCUE,
                 )
             } catch (e: Exception) {
@@ -740,6 +839,27 @@ internal fun resolveRecognitionDelivery(
         terminalPhase is InlineTranscriptionPhase.Error -> RecognitionDelivery.Failure(SpeechRecognizer.ERROR_CLIENT)
         else -> RecognitionDelivery.Failure(SpeechRecognizer.ERROR_NO_MATCH)
     }
+
+/**
+ * Whether a capture still held at activity destroy must be rescue-persisted.
+ *
+ * Rescue exists for *system* interruptions of a live capture (never-drop-speech):
+ *  - once the samples are handed to the inline pipeline (Stopping) the pipeline owns
+ *    persistence — rescuing here too would duplicate the capture;
+ *  - secure sessions persist nothing, ever (IME-6);
+ *  - a teardown the user (cancel) or the dialog itself (no-speech timeout, which by
+ *    construction means zero detected speech) already classified as a discard must not
+ *    be re-filed as "Voice recognition interrupted" merely because the asynchronous
+ *    coordinator cancel had not yet released the gate when destroy ran.
+ */
+internal fun shouldRescueOnDestroy(
+    recordingState: RecordingState,
+    secureSession: Boolean,
+    teardownDiscardsAudio: Boolean,
+): Boolean =
+    recordingState !is RecordingState.Stopping &&
+        !secureSession &&
+        !teardownDiscardsAudio
 
 /**
  * Wraps the shared capture persistence for a single dictation hand-off to the inline

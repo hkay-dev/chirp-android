@@ -159,7 +159,7 @@ class RecordingSessionRecovery
 
                 val exportFile =
                     if (entry.usesSegmentCapture()) {
-                        segmentFinalize.materializeExportFile(sessionId, entry.audioPath)
+                        segmentFinalize.materializeExportFile(sessionId, entry.audioPath)?.file
                     } else {
                         resolveRecoveryFile(entry)
                     }
