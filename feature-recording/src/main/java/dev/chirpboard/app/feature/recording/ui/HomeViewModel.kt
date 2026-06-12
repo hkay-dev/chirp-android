@@ -193,8 +193,10 @@ class HomeViewModel
             _searchQuery
                 // DATA-7: debounce keystrokes so a 7-character query no longer spawns 7 full
                 // LIKE-scan flows + downstream re-subscriptions; distinctUntilChanged drops
-                // no-op restores (e.g. clearing then retyping the same text).
-                .debounce(SEARCH_DEBOUNCE_MS)
+                // no-op restores (e.g. clearing then retyping the same text). Only non-blank
+                // queries are debounced, so the initial/cleared blank query reaches the full
+                // list immediately instead of flashing an empty list for the debounce window.
+                .debounce { query -> if (query.isBlank()) 0L else SEARCH_DEBOUNCE_MS }
                 .distinctUntilChanged()
                 .flatMapLatest { query ->
                     if (query.isBlank()) {
