@@ -254,20 +254,6 @@ class RecordingSessionJournal
             }
         }
 
-        fun updateCheckpoint(
-            sessionId: UUID,
-            checkpointPath: String,
-            fileBytes: Long,
-        ) {
-            updateEntry(sessionId) { entry ->
-                entry.copy(
-                    checkpointPath = checkpointPath,
-                    fileBytes = fileBytes,
-                    lastHeartbeatEpochMs = System.currentTimeMillis(),
-                )
-            }
-        }
-
         fun markStopping(sessionId: UUID) {
             updateEntry(sessionId) { entry ->
                 entry.copy(state = SessionJournalState.STOPPING)
@@ -586,7 +572,6 @@ class RecordingSessionJournal
             private const val SEGMENT_PATH_DELIMITER = "\u001f"
             const val CORRUPT_SUFFIX = ".corrupt"
             const val MIN_RECOVERABLE_FILE_BYTES = 512L
-            const val CHECKPOINT_INTERVAL_MS = 15 * 60 * 1000L
             const val SEGMENT_ROTATION_INTERVAL_MS = 5 * 60 * 1000L
             const val DEFAULT_ABANDONED_PRUNE_AGE_MS = 30L * 24 * 60 * 60 * 1000
             const val DEFAULT_CORRUPT_PRUNE_AGE_MS = 30L * 24 * 60 * 60 * 1000

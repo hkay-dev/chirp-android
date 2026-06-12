@@ -448,10 +448,9 @@ class KeyboardSessionCoordinator(
                     transcription.transcribeWithCommitResult(
                         request =
                             InlineTranscriptionRequest(
-                                samples = FloatArray(0),
+                                audioSource = audioSource,
                                 llmEnabled = llmEnabled.value,
                                 processingModeId = currentMode.value.id,
-                                audioSource = audioSource,
                             ),
                         persistence = persistence,
                         commitText = commitText,

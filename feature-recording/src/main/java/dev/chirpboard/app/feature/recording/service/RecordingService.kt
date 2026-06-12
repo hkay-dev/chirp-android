@@ -19,7 +19,6 @@ import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -261,12 +260,11 @@ class RecordingService : Service() {
                 )
             },
             onAlreadyRecording = { ownedByThisService ->
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_START,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = if (ownedByThisService) "already_recording" else "already_recording_unowned",
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.RECORDING_START,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    ).skipped(if (ownedByThisService) "already_recording" else "already_recording_unowned")
             },
             beginStart = {
                 val generation = startGeneration.incrementAndGet()
@@ -319,6 +317,11 @@ class RecordingService : Service() {
         currentCorrelationId = ReliabilityEventLogger.newCorrelationId("record")
         currentOrigin = origin
         currentProfileId = profileId
+        val startLog =
+            ReliabilityEventLogger.scoped(
+                stage = ReliabilityStage.RECORDING_START,
+                correlationId = currentCorrelationId!!,
+            )
 
         val storageCheck = storageMonitor.checkAvailableStorage()
         if (storageCheck.level == StorageCheckLevel.CRITICAL) {
@@ -338,12 +341,7 @@ class RecordingService : Service() {
             is AudioFocusManager.FocusResult.Granted -> Unit
         }
 
-        ReliabilityEventLogger.log(
-            stage = ReliabilityStage.RECORDING_START,
-            outcome = ReliabilityOutcome.STARTED,
-            correlationId = currentCorrelationId!!,
-            reasonCode = "service_start",
-        )
+        startLog.started("service_start")
 
         try {
             withContext(Dispatchers.Default) {
@@ -383,6 +381,9 @@ class RecordingService : Service() {
                             RecordingOrigin.APP -> RecordingSource.APP
                             RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
                             RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+                            // Recognition surfaces never drive RecordingService capture; map to
+                            // the KEYBOARD source for consistency with recognition history.
+                            RecordingOrigin.RECOGNITION -> RecordingSource.KEYBOARD
                         }
                     val provisionalTitle =
                         SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date())
@@ -420,12 +421,7 @@ class RecordingService : Service() {
                 recordingId = currentInProgressRecordingId,
             )
 
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_START,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = currentCorrelationId!!,
-                reasonCode = "recorder_started",
-            )
+            startLog.success("recorder_started")
 
             // Upgrade the starting notification to the live recording UI
             ServiceCompat.startForeground(
@@ -481,13 +477,11 @@ class RecordingService : Service() {
             segmentCapture?.setCaptureErrorListener(null)
             segmentCapture?.releaseWithoutSave()
             segmentCapture = null
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_START,
-                outcome = ReliabilityOutcome.FAILURE,
-                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                reasonCode = "recorder_start_failed",
-                message = e.message,
-            )
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.RECORDING_START,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                ).failure("recorder_start_failed", e)
             recordingStateManager.onRecordingError("Failed to start recording: ${e.message}", e)
             // Delete the audio file if it was created during setup
             currentRecordingFile?.let { file ->
@@ -530,12 +524,11 @@ class RecordingService : Service() {
                         completedSegmentPath = finalized.absolutePath,
                         fileBytes = finalized.length(),
                     )
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.RECORDING_STOP,
-                        outcome = ReliabilityOutcome.SUCCESS,
-                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                        reasonCode = "segment_saved_on_pause",
-                    )
+                    ReliabilityEventLogger
+                        .scoped(
+                            stage = ReliabilityStage.RECORDING_STOP,
+                            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        ).success("segment_saved_on_pause")
                 }
                 notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -568,13 +561,11 @@ class RecordingService : Service() {
                     currentRecordingFile = nextSegment
                     sessionJournal.beginNextSegment(sessionId, nextSegment.absolutePath)
                     recordingStateManager.resumeRecording(nextSegment.absolutePath)
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.RECORDING_START,
-                        outcome = ReliabilityOutcome.SUCCESS,
-                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                        reasonCode = "segment_started_on_resume",
-                        message = "segment=${entry.segmentPaths.size}",
-                    )
+                    ReliabilityEventLogger
+                        .scoped(
+                            stage = ReliabilityStage.RECORDING_START,
+                            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        ).success("segment_started_on_resume", message = "segment=${entry.segmentPaths.size}")
                 }
                 startAmplitudeCollection()
                 startSegmentRotation()
@@ -660,12 +651,11 @@ class RecordingService : Service() {
     ) {
         if (!restartStopCoordinator.tryBeginRestart()) {
             Log.d(TAG, "Refusing restart while a stop is in progress")
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_START,
-                outcome = ReliabilityOutcome.SKIPPED,
-                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                reasonCode = "restart_during_stop",
-            )
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.RECORDING_START,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                ).skipped("restart_during_stop")
             notificationFactory.notifyRestartRefused(this)
             return
         }
@@ -708,12 +698,11 @@ class RecordingService : Service() {
      */
     private fun honorStopRequestedDuringRestart() {
         Log.i(TAG, "Honoring stop received during restart teardown; not starting a new recording")
-        ReliabilityEventLogger.log(
-            stage = ReliabilityStage.RECORDING_STOP,
-            outcome = ReliabilityOutcome.SUCCESS,
-            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-            reasonCode = "stop_honored_after_restart",
-        )
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.RECORDING_STOP,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            ).success("stop_honored_after_restart")
         currentProfileId = null
         currentCorrelationId = null
         audioFocusManager.abandonFocus()
@@ -762,24 +751,22 @@ class RecordingService : Service() {
             // force the live capture's state to Idle. Keyboard stops are routed through
             // the keyboard stop bridge instead.
             Log.w(TAG, "Ignoring stop for a keyboard capture this service instance does not own")
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_STOP,
-                outcome = ReliabilityOutcome.SKIPPED,
-                correlationId = ReliabilityEventLogger.newCorrelationId("record"),
-                reasonCode = "stop_ignored_unowned_capture",
-            )
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.RECORDING_STOP,
+                    correlationId = ReliabilityEventLogger.newCorrelationId("record"),
+                ).skipped("stop_ignored_unowned_capture")
             return
         }
         if (!stopRequestGate.tryBegin()) {
             when (restartStopCoordinator.classifyRejectedStop()) {
                 RestartStopCoordinator.RejectedStop.QUEUED_BEHIND_RESTART -> {
                     Log.i(TAG, "Stop requested during restart teardown; restart will stop instead of starting anew")
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.RECORDING_STOP,
-                        outcome = ReliabilityOutcome.STARTED,
-                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                        reasonCode = "stop_queued_during_restart",
-                    )
+                    ReliabilityEventLogger
+                        .scoped(
+                            stage = ReliabilityStage.RECORDING_STOP,
+                            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                        ).started("stop_queued_during_restart")
                 }
                 RestartStopCoordinator.RejectedStop.DUPLICATE_STOP ->
                     Log.d(TAG, "Ignoring duplicate stop request while stop is in progress")
@@ -860,12 +847,11 @@ class RecordingService : Service() {
             stopCapture = { stopActiveCaptureForHandoff(generation) },
             captureSnapshot = {
                 captureStopSnapshot()?.also { snapshot ->
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.RECORDING_STOP,
-                        outcome = ReliabilityOutcome.STARTED,
-                        correlationId = snapshot.correlationId,
-                        reasonCode = "stop_requested",
-                    )
+                    ReliabilityEventLogger
+                        .scoped(
+                            stage = ReliabilityStage.RECORDING_STOP,
+                            correlationId = snapshot.correlationId,
+                        ).started("stop_requested")
                 }
             },
             markAbandoned = { abandonedSessionId, recordingId ->
@@ -890,12 +876,11 @@ class RecordingService : Service() {
             },
             onCaptureStopHandoff = recordingStateManager::onCaptureStopHandoff,
             onStaleHandoff = {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "stop_handoff_stale_generation",
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    ).skipped("stop_handoff_stale_generation")
             },
         )
 
@@ -926,24 +911,20 @@ class RecordingService : Service() {
             is CaptureStopHandoffResult.TimedOut -> {
                 currentRecordingFile = result.fallbackFile ?: currentRecordingFile
                 detachSegmentCapture()
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "capture_stop_timeout",
-                    message = "Capture stop exceeded ${CAPTURE_STOP_TIMEOUT_MS}ms",
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    ).failure("capture_stop_timeout", message = "Capture stop exceeded ${CAPTURE_STOP_TIMEOUT_MS}ms")
             }
             is CaptureStopHandoffResult.Failed -> {
                 currentRecordingFile = result.fallbackFile ?: currentRecordingFile
                 detachSegmentCapture()
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "capture_stop_failed",
-                    message = result.cause.message,
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    ).failure("capture_stop_failed", message = result.cause.message)
             }
             CaptureStopHandoffResult.StaleGeneration -> Unit
         }
@@ -1130,23 +1111,19 @@ class RecordingService : Service() {
                 Log.w(TAG, "Ignoring capture error from a discarded engine: $detail")
             CaptureEngineErrorRouting.Decision.INFORMATIONAL_STOP_IN_FLIGHT -> {
                 Log.w(TAG, "Capture error while a stop is already in flight: $detail")
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "capture_error_during_stop",
-                    message = detail,
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    ).skipped("capture_error_during_stop", message = detail)
             }
             CaptureEngineErrorRouting.Decision.STOP_WITH_SAVE -> {
                 Log.e(TAG, "Capture engine died mid-recording; stopping with save: $detail")
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_STOP,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "capture_engine_error",
-                    message = detail,
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.RECORDING_STOP,
+                        correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    ).failure("capture_engine_error", message = detail)
                 launchGatedStop()
             }
         }

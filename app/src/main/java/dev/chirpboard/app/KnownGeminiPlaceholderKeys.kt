@@ -1,5 +1,7 @@
 package dev.chirpboard.app
 
+import androidx.annotation.VisibleForTesting
+
 /**
  * Detects legacy placeholder Gemini keys that earlier app versions shipped as defaults.
  *
@@ -9,7 +11,8 @@ package dev.chirpboard.app
  * what the set actually contains.
  */
 internal object KnownGeminiPlaceholderKeys {
-    private val PLACEHOLDER_KEYS: Set<String> =
+    @VisibleForTesting
+    val PLACEHOLDER_KEYS: Set<String> =
         setOf(
             "REMOVED_GOOGLE_API_KEY",
             "REMOVED_GOOGLE_API_KEY",

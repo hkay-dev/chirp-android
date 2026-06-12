@@ -8,7 +8,6 @@ import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.data.model.RecordingSource
@@ -195,6 +194,9 @@ class RecordingSessionRecovery
                         RecordingOrigin.APP -> RecordingSource.APP
                         RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
                         RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+                        // Recognition surfaces never drive RecordingService capture; map to the
+                        // KEYBOARD source for consistency with recognition history persistence.
+                        RecordingOrigin.RECOGNITION -> RecordingSource.KEYBOARD
                     }
 
                 var linkedRecordingExists = false
@@ -234,13 +236,12 @@ class RecordingSessionRecovery
                             "Linked recording could not be finalized",
                         )
 
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.PERSISTENCE_SAVE,
-                        outcome = ReliabilityOutcome.SUCCESS,
-                        correlationId = correlationId,
-                        recordingId = recording.id,
-                        reasonCode = "session_recovered",
-                    )
+                    ReliabilityEventLogger
+                        .scoped(
+                            stage = ReliabilityStage.PERSISTENCE_SAVE,
+                            correlationId = correlationId,
+                            recordingId = recording.id,
+                        ).success("session_recovered")
 
                     try {
                         transcriptionRecovery.enqueue(recording.id, correlationId)

@@ -5,7 +5,6 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
@@ -80,14 +79,23 @@ class InlineTranscriptionCoordinatorImpl
             // id rather than minting a fresh one, keeping STARTED paired with its
             // terminal FAILURE for stuck-in-STARTED trace analysis.
             val correlationId = ReliabilityEventLogger.newCorrelationId(request.correlationPrefix)
+            // Bound loggers fill in the stage/correlationId and derive the prefix portion of
+            // every reason code so each emit below is a one-liner instead of a 5-line block.
+            val transcriptionLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    correlationId = correlationId,
+                    reasonPrefix = request.correlationPrefix,
+                )
+            val enhancementLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    correlationId = correlationId,
+                    reasonPrefix = request.correlationPrefix,
+                )
 
             try {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    outcome = ReliabilityOutcome.STARTED,
-                    correlationId = correlationId,
-                    reasonCode = "${request.correlationPrefix}_transcription_started",
-                )
+                transcriptionLog.started("transcription_started")
 
                 if (!transcriberProvider.isReady()) {
                     _phase.value = InlineTranscriptionPhase.LoadingModel(progress = null)
@@ -99,12 +107,7 @@ class InlineTranscriptionCoordinatorImpl
                             } else {
                                 "Failed to load speech model"
                             }
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.TRANSCRIPTION,
-                            outcome = ReliabilityOutcome.FAILURE,
-                            correlationId = correlationId,
-                            reasonCode = "${request.correlationPrefix}_recognizer_not_ready",
-                        )
+                        transcriptionLog.failure("recognizer_not_ready")
                         rescueCapture(
                             persistence = persistence,
                             audioSource = request.audioSource,
@@ -135,12 +138,7 @@ class InlineTranscriptionCoordinatorImpl
                         is InlineTranscriptionResolution.Success -> mappedOutcome.text
 
                         InlineTranscriptionResolution.NoSpeech -> {
-                            ReliabilityEventLogger.log(
-                                stage = ReliabilityStage.TRANSCRIPTION,
-                                outcome = ReliabilityOutcome.SKIPPED,
-                                correlationId = correlationId,
-                                reasonCode = "${request.correlationPrefix}_no_speech",
-                            )
+                            transcriptionLog.skipped("no_speech")
                             withContext(Dispatchers.Main) {
                                 // Discard only this request's audio: when this pipeline was
                                 // detached by a stop timeout, discardSamples() could delete a
@@ -154,13 +152,7 @@ class InlineTranscriptionCoordinatorImpl
                         }
 
                         is InlineTranscriptionResolution.Failure -> {
-                            ReliabilityEventLogger.log(
-                                stage = ReliabilityStage.TRANSCRIPTION,
-                                outcome = ReliabilityOutcome.FAILURE,
-                                correlationId = correlationId,
-                                reasonCode = "${request.correlationPrefix}_transcription_failed",
-                                message = mappedOutcome.message,
-                            )
+                            transcriptionLog.failure("transcription_failed", message = mappedOutcome.message)
                             rescueCapture(
                                 persistence = persistence,
                                 audioSource = request.audioSource,
@@ -179,20 +171,10 @@ class InlineTranscriptionCoordinatorImpl
                 // the text is whatever the user dictated into another app. Log only its length.
                 Log.d(tag, "Transcribed ${rawText.length} chars")
                 rawTextForPersistence = rawText
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    outcome = ReliabilityOutcome.SUCCESS,
-                    correlationId = correlationId,
-                    reasonCode = "${request.correlationPrefix}_transcription_completed",
-                )
+                transcriptionLog.success("transcription_completed")
 
                 if (request.llmEnabled) {
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.ENHANCEMENT,
-                        outcome = ReliabilityOutcome.STARTED,
-                        correlationId = correlationId,
-                        reasonCode = "${request.correlationPrefix}_enhancement_started",
-                    )
+                    enhancementLog.started("enhancement_started")
                     _phase.value = InlineTranscriptionPhase.Polishing
 
                     val result =
@@ -204,12 +186,7 @@ class InlineTranscriptionCoordinatorImpl
                         if (result != null) {
                             result.fold(
                                 onSuccess = { polishedText ->
-                                    ReliabilityEventLogger.log(
-                                        stage = ReliabilityStage.ENHANCEMENT,
-                                        outcome = ReliabilityOutcome.SUCCESS,
-                                        correlationId = correlationId,
-                                        reasonCode = "${request.correlationPrefix}_enhancement_completed",
-                                    )
+                                    enhancementLog.success("enhancement_completed")
                                     deliverTranscript(
                                         delivery =
                                             TranscriptDelivery(
@@ -227,13 +204,7 @@ class InlineTranscriptionCoordinatorImpl
                                     )
                                 },
                                 onFailure = { error ->
-                                    ReliabilityEventLogger.log(
-                                        stage = ReliabilityStage.ENHANCEMENT,
-                                        outcome = ReliabilityOutcome.FAILURE,
-                                        correlationId = correlationId,
-                                        reasonCode = "${request.correlationPrefix}_enhancement_failed",
-                                        message = error.message,
-                                    )
+                                    enhancementLog.failure("enhancement_failed", error)
                                     deliverTranscript(
                                         delivery =
                                             TranscriptDelivery(
@@ -253,12 +224,7 @@ class InlineTranscriptionCoordinatorImpl
                                 },
                             )
                         } else {
-                            ReliabilityEventLogger.log(
-                                stage = ReliabilityStage.ENHANCEMENT,
-                                outcome = ReliabilityOutcome.FAILURE,
-                                correlationId = correlationId,
-                                reasonCode = "${request.correlationPrefix}_enhancement_timeout",
-                            )
+                            enhancementLog.failure("enhancement_timeout")
                             deliverTranscript(
                                 delivery =
                                     TranscriptDelivery(
@@ -306,13 +272,7 @@ class InlineTranscriptionCoordinatorImpl
                 throw e
             } catch (e: Exception) {
                 val errorMessage = "Transcription failed: ${e.message}"
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    reasonCode = "${request.correlationPrefix}_exception",
-                    message = e.message,
-                )
+                transcriptionLog.failure("exception", e)
                 rescueCapture(
                     persistence = persistence,
                     audioSource = request.audioSource,
@@ -439,12 +399,12 @@ class InlineTranscriptionCoordinatorImpl
             }
 
             Log.w(tag, "Commit refused; persisting transcript as a rescue entry")
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.TRANSCRIPTION,
-                outcome = ReliabilityOutcome.FAILURE,
-                correlationId = delivery.correlationId,
-                reasonCode = "${delivery.request.correlationPrefix}_commit_refused",
-            )
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    correlationId = delivery.correlationId,
+                    reasonPrefix = delivery.request.correlationPrefix,
+                ).failure("commit_refused")
             rescueCapture(
                 persistence = delivery.persistence,
                 audioSource = delivery.request.audioSource,

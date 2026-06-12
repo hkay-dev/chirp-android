@@ -8,7 +8,6 @@ import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
@@ -40,13 +39,12 @@ class RecordingFinalizeWorker
                     runCatching { UUID.fromString(raw) }.getOrNull()
                 }
 
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.RECORDING_STOP,
-                outcome = ReliabilityOutcome.STARTED,
-                correlationId = snapshot.correlationId,
-                recordingId = snapshot.recordingId,
-                reasonCode = "background_finalize_started",
-            )
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.RECORDING_STOP,
+                    correlationId = snapshot.correlationId,
+                    recordingId = snapshot.recordingId,
+                ).started("background_finalize_started")
 
             val result =
                 try {

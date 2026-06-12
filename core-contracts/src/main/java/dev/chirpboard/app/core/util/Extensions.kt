@@ -20,9 +20,6 @@ private val monthDayFormat = object : ThreadLocal<SimpleDateFormat>() {
 private val monthDayYearFormat = object : ThreadLocal<SimpleDateFormat>() {
     override fun initialValue() = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
 }
-private val timeFormat = object : ThreadLocal<SimpleDateFormat>() {
-    override fun initialValue() = SimpleDateFormat("h:mm a", Locale.getDefault())
-}
 
 /**
  * Format duration as "MM:SS" or "HH:MM:SS" for longer durations.
@@ -44,18 +41,6 @@ fun Duration.formatDuration(): String {
  * Format milliseconds as duration string.
  */
 fun Long.formatAsDuration(): String = this.milliseconds.formatDuration()
-fun Long.formatAsHumanReadableDuration(): String {
-    val totalSeconds = this / 1000
-    val minutes = totalSeconds / 60
-    val hours = minutes / 60
-    val remainingMinutes = minutes % 60
-    val remainingSeconds = totalSeconds % 60
-    return when {
-        hours > 0 -> "${hours}h ${remainingMinutes}m ${remainingSeconds}s"
-        minutes > 0 -> "${minutes}m ${remainingSeconds}s"
-        else -> "${remainingSeconds}s"
-    }
-}
 
 /**
  * Format date relative to now (Today, Yesterday, or date).
@@ -87,21 +72,4 @@ private fun isYesterday(now: Calendar, then: Calendar): Boolean {
 
 private fun isSameYear(cal1: Calendar, cal2: Calendar): Boolean {
     return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
-}
-
-/**
- * Format date for header subtitle display.
- * Shows relative day + time: "Today at 10:30 AM", "Yesterday at 3:45 PM", "Jan 29 at 10:30 AM"
- */
-fun Date.formatForHeader(): String {
-    val now = nowCalendar.get()!!.apply { timeInMillis = System.currentTimeMillis() }
-    val then = thenCalendar.get()!!.apply { time = this@formatForHeader }
-    val timeStr = timeFormat.get()!!.format(this)
-    
-    return when {
-        isSameDay(now, then) -> "Today at $timeStr"
-        isYesterday(now, then) -> "Yesterday at $timeStr"
-        isSameYear(now, then) -> "${monthDayFormat.get()!!.format(this)} at $timeStr"
-        else -> "${monthDayYearFormat.get()!!.format(this)} at $timeStr"
-    }
 }

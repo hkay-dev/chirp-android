@@ -50,6 +50,25 @@ object ReliabilityEventLogger {
         _events.value = emptyList()
     }
 
+    /**
+     * Returns a [ReliabilityEventScope] bound to a single [stage]/[correlationId]
+     * (and optional [recordingId]/[reasonPrefix]) so a call site can emit STARTED/
+     * SUCCESS/FAILURE/SKIPPED/RECOVERED events as one-liners instead of re-spelling the
+     * stage, outcome, and correlation id on every [log] call.
+     *
+     * The bound scope only fills in the repeated fields and standardizes how a reason
+     * code is formed: when [reasonPrefix] is non-null the emitted `reasonCode` is
+     * `"${reasonPrefix}_$reason"`, otherwise it is the [reason] verbatim. The resulting
+     * [ReliabilityEvent] is identical to one produced by calling [log] directly — this is
+     * a deduplication helper, not a behavior change.
+     */
+    fun scoped(
+        stage: ReliabilityStage,
+        correlationId: String,
+        recordingId: UUID? = null,
+        reasonPrefix: String? = null,
+    ): ReliabilityEventScope = ReliabilityEventScope(stage, correlationId, recordingId, reasonPrefix)
+
     fun log(
         stage: ReliabilityStage,
         outcome: ReliabilityOutcome,
@@ -79,6 +98,55 @@ object ReliabilityEventLogger {
         } catch (_: Throwable) {
             // android.util.Log may be unavailable in local JVM tests.
         }
+    }
+}
+
+/**
+ * A reliability logger bound to a single stage/correlationId/recordingId (and optional
+ * reason prefix). Each emit method forwards to [ReliabilityEventLogger.log] with the bound
+ * fields filled in, so the emitted [ReliabilityEvent] is identical to a direct [log] call;
+ * the only added behavior is standardized reason-code formation via [reasonCodeFor].
+ *
+ * Obtain one with [ReliabilityEventLogger.scoped].
+ */
+class ReliabilityEventScope internal constructor(
+    private val stage: ReliabilityStage,
+    private val correlationId: String,
+    private val recordingId: UUID?,
+    private val reasonPrefix: String?,
+) {
+    /** Combines the bound [reasonPrefix] (if any) with a per-event [reason] suffix. */
+    private fun reasonCodeFor(reason: String): String =
+        reasonPrefix?.let { "${it}_$reason" } ?: reason
+
+    fun started(reason: String, message: String? = null) =
+        emit(ReliabilityOutcome.STARTED, reason, message)
+
+    fun success(reason: String, message: String? = null) =
+        emit(ReliabilityOutcome.SUCCESS, reason, message)
+
+    fun failure(reason: String, message: String? = null) =
+        emit(ReliabilityOutcome.FAILURE, reason, message)
+
+    /** Convenience overload that records a [throwable]'s message on the failure event. */
+    fun failure(reason: String, throwable: Throwable?) =
+        emit(ReliabilityOutcome.FAILURE, reason, throwable?.message)
+
+    fun skipped(reason: String, message: String? = null) =
+        emit(ReliabilityOutcome.SKIPPED, reason, message)
+
+    fun recovered(reason: String, message: String? = null) =
+        emit(ReliabilityOutcome.RECOVERED, reason, message)
+
+    private fun emit(outcome: ReliabilityOutcome, reason: String, message: String?) {
+        ReliabilityEventLogger.log(
+            stage = stage,
+            outcome = outcome,
+            correlationId = correlationId,
+            recordingId = recordingId,
+            reasonCode = reasonCodeFor(reason),
+            message = message,
+        )
     }
 }
 

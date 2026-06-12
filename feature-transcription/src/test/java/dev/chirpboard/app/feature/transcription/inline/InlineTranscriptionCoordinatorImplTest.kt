@@ -85,7 +85,7 @@ class InlineTranscriptionCoordinatorImplTest {
 
         coordinator.transcribe(
             request =
-                InlineTranscriptionRequest(
+                InlineTranscriptionRequest.inMemory(
                     samples = floatArrayOf(0.1f, 0.2f),
                     llmEnabled = false,
                     processingModeId = "proofread",
@@ -112,14 +112,13 @@ class InlineTranscriptionCoordinatorImplTest {
         coordinator.transcribe(
             request =
                 InlineTranscriptionRequest(
-                    samples = FloatArray(0),
-                    llmEnabled = false,
-                    processingModeId = "proofread",
                     audioSource =
                         InlineAudioSource.PcmFloatFile(
                             path = file.absolutePath,
                             sampleCount = sampleCount.toLong(),
                         ),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
                 ),
             persistence = CapturingPersistence(),
             commitText = { committed = it },
@@ -137,7 +136,7 @@ class InlineTranscriptionCoordinatorImplTest {
 
         coordinator.transcribeWithCommitResult(
             request =
-                InlineTranscriptionRequest(
+                InlineTranscriptionRequest.inMemory(
                     samples = floatArrayOf(0.1f, 0.2f),
                     llmEnabled = false,
                     processingModeId = "proofread",
@@ -164,7 +163,7 @@ class InlineTranscriptionCoordinatorImplTest {
 
         coordinator.transcribeWithCommitResult(
             request =
-                InlineTranscriptionRequest(
+                InlineTranscriptionRequest.inMemory(
                     samples = floatArrayOf(0.1f, 0.2f),
                     llmEnabled = false,
                     processingModeId = "proofread",
@@ -196,10 +195,9 @@ class InlineTranscriptionCoordinatorImplTest {
         coordinator.transcribeWithCommitResult(
             request =
                 InlineTranscriptionRequest(
-                    samples = floatArrayOf(0.1f, 0.2f),
+                    audioSource = source,
                     llmEnabled = false,
                     processingModeId = "proofread",
-                    audioSource = source,
                 ),
             persistence = persistence,
             commitText = { true },
@@ -336,7 +334,7 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     private fun inMemoryRequest(): InlineTranscriptionRequest =
-        InlineTranscriptionRequest(
+        InlineTranscriptionRequest.inMemory(
             samples = floatArrayOf(0.1f, 0.2f),
             llmEnabled = false,
             processingModeId = "proofread",

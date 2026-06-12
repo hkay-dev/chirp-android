@@ -72,6 +72,7 @@ class QuickCaptureSessionImpl(
                         RecordingOrigin.APP -> "app"
                         RecordingOrigin.WIDGET -> "widget"
                         RecordingOrigin.KEYBOARD -> "keyboard"
+                        RecordingOrigin.RECOGNITION -> "voice recognition"
                     }
                 Toast.makeText(context, "Microphone in use by $sourceLabel", Toast.LENGTH_SHORT).show()
                 return QuickCaptureStartResult.AlreadyRecording(sourceLabel)

@@ -11,7 +11,9 @@ enum class RecordingOrigin {
     /** Recording started from the keyboard IME */
     KEYBOARD,
     /** Recording started from the home screen widget */
-    WIDGET
+    WIDGET,
+    /** Recording started from a system speech-recognition surface (RECOGNIZE_SPEECH dialog/service) */
+    RECOGNITION
 }
 
 /**

@@ -1,7 +1,6 @@
 package dev.chirpboard.app.core.util
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Calendar
 
@@ -26,11 +25,5 @@ class ExtensionsTest {
     fun testFormatRelativeYesterday() {
         val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.time
         assertEquals("Yesterday", yesterday.formatRelative())
-    }
-    
-    @Test
-    fun testFormatForHeaderToday() {
-        val now = Calendar.getInstance().time
-        assertTrue(now.formatForHeader().startsWith("Today at "))
     }
 }

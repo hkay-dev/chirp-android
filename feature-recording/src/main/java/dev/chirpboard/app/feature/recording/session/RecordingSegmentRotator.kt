@@ -4,7 +4,6 @@ import android.util.Log
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.feature.recording.service.GaplessSegmentCaptureEngine
 import dev.chirpboard.app.feature.recording.service.SegmentRotationResult
@@ -53,6 +52,11 @@ class RecordingSegmentRotator
 
                 val nextIndex = entry.segmentPaths.size + 1
                 val nextSegment = capturePaths.durableSegmentFile(activeSessionId, nextIndex)
+                val rotationLog =
+                    ReliabilityEventLogger.scoped(
+                        stage = ReliabilityStage.RECORDING_START,
+                        correlationId = correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                    )
 
                 val rotationResult =
                     withContext(Dispatchers.IO) {
@@ -62,13 +66,7 @@ class RecordingSegmentRotator
                 if (rotationResult !is SegmentRotationResult.Success) {
                     val reason = (rotationResult as? SegmentRotationResult.Failed)?.reason ?: "unknown"
                     Log.w(TAG, "Gapless segment rotation skipped: $reason")
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.RECORDING_START,
-                        outcome = ReliabilityOutcome.FAILURE,
-                        correlationId = correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                        reasonCode = "segment_rotation_failed",
-                        message = reason,
-                    )
+                    rotationLog.failure("segment_rotation_failed", message = reason)
                     return@withLock null
                 }
 
@@ -78,13 +76,7 @@ class RecordingSegmentRotator
                         TAG,
                         "Gapless segment rotation produced invalid segment: ${completedValidation.failureReason}",
                     )
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.RECORDING_START,
-                        outcome = ReliabilityOutcome.FAILURE,
-                        correlationId = correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                        reasonCode = "segment_rotation_invalid",
-                        message = completedValidation.failureReason,
-                    )
+                    rotationLog.failure("segment_rotation_invalid", message = completedValidation.failureReason)
                     return@withLock null
                 }
 
@@ -96,13 +88,7 @@ class RecordingSegmentRotator
                 )
 
                 recordingStateManager.rotateSegment(nextSegment.absolutePath)
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.RECORDING_START,
-                    outcome = ReliabilityOutcome.SUCCESS,
-                    correlationId = correlationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                    reasonCode = "segment_rotated_gapless",
-                    message = "segment=$nextIndex",
-                )
+                rotationLog.success("segment_rotated_gapless", message = "segment=$nextIndex")
                 SegmentRotationOutcome(nextSegmentFile = nextSegment)
             }
         }

@@ -107,6 +107,9 @@ class HomeViewModelTest {
                 sessionRecovery,
                 playbackController,
                 savedStateHandle,
+                // Share the test scheduler so flowOn transforms stay on the single dispatcher
+                // that advanceUntilIdle drives — keeps the existing tests deterministic.
+                testDispatcher,
             )
     }
 
@@ -496,6 +499,7 @@ class HomeViewModelTest {
                             every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
                         },
                     savedStateHandle = SavedStateHandle(),
+                    defaultDispatcher = Dispatchers.Unconfined,
                 )
             val collector = launch { localViewModel.displayItems.collect { } }
 
@@ -598,6 +602,7 @@ class HomeViewModelTest {
                             every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
                         },
                     savedStateHandle = SavedStateHandle(),
+                    defaultDispatcher = Dispatchers.Unconfined,
                 )
 
             val collector = launch { localViewModel.displayItems.collect { } }
@@ -650,6 +655,7 @@ class HomeViewModelTest {
                             every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
                         },
                     savedStateHandle = SavedStateHandle(),
+                    defaultDispatcher = Dispatchers.Unconfined,
                 )
 
             val collector = launch { localViewModel.displayItems.collect { } }
@@ -796,6 +802,7 @@ class HomeViewModelTest {
                     every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
                 },
             savedStateHandle = savedStateHandle,
+            defaultDispatcher = testDispatcher,
         )
 
     private fun samplePreview(

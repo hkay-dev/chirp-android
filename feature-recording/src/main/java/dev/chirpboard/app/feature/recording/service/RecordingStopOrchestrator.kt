@@ -3,7 +3,6 @@ package dev.chirpboard.app.feature.recording.service
 import dev.chirpboard.app.feature.recording.util.probeDurationMs
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -68,6 +67,9 @@ class RecordingStopOrchestrator
                         RecordingOrigin.APP -> RecordingSource.APP
                         RecordingOrigin.KEYBOARD -> RecordingSource.KEYBOARD
                         RecordingOrigin.WIDGET -> RecordingSource.WIDGET
+                        // Recognition surfaces never drive RecordingService capture; map to the
+                        // KEYBOARD source for consistency with recognition history persistence.
+                        RecordingOrigin.RECOGNITION -> RecordingSource.KEYBOARD
                     }
 
                 val recording =
@@ -103,13 +105,12 @@ class RecordingStopOrchestrator
                         )
                     }
 
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.PERSISTENCE_SAVE,
-                    outcome = ReliabilityOutcome.SUCCESS,
-                    correlationId = snapshot.correlationId,
-                    recordingId = recording.id,
-                    reasonCode = "recording_saved",
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.PERSISTENCE_SAVE,
+                        correlationId = snapshot.correlationId,
+                        recordingId = recording.id,
+                    ).success("recording_saved")
 
                 sessionId?.let { sessionJournal.markFinalized(it) }
 

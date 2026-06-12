@@ -10,7 +10,6 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -217,14 +216,14 @@ class TranscriptionQueueManager
             correlationId: String?,
         ): String {
             val corrId = correlationId ?: ReliabilityEventLogger.newCorrelationId("queue")
+            val queueLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    correlationId = corrId,
+                    recordingId = recordingId,
+                )
 
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.QUEUE_ENQUEUE,
-                outcome = ReliabilityOutcome.STARTED,
-                correlationId = corrId,
-                recordingId = recordingId,
-                reasonCode = "enqueue_requested",
-            )
+            queueLog.started("enqueue_requested")
 
             // Check constraints and warn user (but still enqueue - WorkManager will wait)
             val status = constraintChecker.checkConstraints()
@@ -237,13 +236,7 @@ class TranscriptionQueueManager
                     executionToken = executionToken,
                 )
             if (!claimed) {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.QUEUE_ENQUEUE,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = corrId,
-                    recordingId = recordingId,
-                    reasonCode = "enqueue_claim_rejected",
-                )
+                queueLog.skipped("enqueue_claim_rejected")
                 return TranscriptionWorkRequest.workName(recordingId)
             }
 
@@ -254,25 +247,12 @@ class TranscriptionQueueManager
                         executionToken = executionToken,
                         correlationId = corrId,
                     )
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.QUEUE_ENQUEUE,
-                    outcome = ReliabilityOutcome.SUCCESS,
-                    correlationId = corrId,
-                    recordingId = recordingId,
-                    reasonCode = "enqueue_scheduled",
-                )
+                queueLog.success("enqueue_scheduled")
                 readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
                 return workId
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.QUEUE_ENQUEUE,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = corrId,
-                    recordingId = recordingId,
-                    reasonCode = "enqueue_exception",
-                    message = e.message,
-                )
+                queueLog.failure("enqueue_exception", e)
                 throw e
             }
         }
@@ -300,14 +280,12 @@ class TranscriptionQueueManager
                 errorMessage = errorMessage,
             )
 
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.QUEUE_ENQUEUE,
-                outcome = ReliabilityOutcome.RECOVERED,
-                correlationId = ReliabilityEventLogger.newCorrelationId("queue-recovery"),
-                recordingId = recordingId,
-                reasonCode = "pending_for_recovery",
-                message = reason,
-            )
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    correlationId = ReliabilityEventLogger.newCorrelationId("queue-recovery"),
+                    recordingId = recordingId,
+                ).recovered("pending_for_recovery", message = reason)
         }
 
         /**
@@ -383,6 +361,12 @@ class TranscriptionQueueManager
             _constraintWarning.value = constraintChecker.getConstraintMessage(constraintStatus)
 
             val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retranscribe")
+            val queueLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.QUEUE_ENQUEUE,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                )
             val executionToken = UUID.randomUUID().toString()
             val claimed =
                 recordingRepository.claimRetranscriptionExecution(
@@ -390,13 +374,7 @@ class TranscriptionQueueManager
                     executionToken = executionToken,
                 )
             if (!claimed) {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.QUEUE_ENQUEUE,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "retranscribe_claim_rejected",
-                )
+                queueLog.skipped("retranscribe_claim_rejected")
                 return ManualRecoveryResult.NOT_RECOVERABLE_STATE
             }
 
@@ -405,13 +383,7 @@ class TranscriptionQueueManager
                 executionToken = executionToken,
                 correlationId = correlationId,
             )
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.QUEUE_ENQUEUE,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "retranscribe_scheduled",
-            )
+            queueLog.success("retranscribe_scheduled")
             readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
             return ManualRecoveryResult.ENQUEUED
         }

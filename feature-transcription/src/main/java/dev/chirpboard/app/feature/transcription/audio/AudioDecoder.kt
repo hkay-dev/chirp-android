@@ -6,7 +6,6 @@ import android.media.MediaFormat
 import android.util.Log
 import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -351,13 +350,11 @@ class AudioDecoder @Inject constructor() {
     }.buffer(Channel.RENDEZVOUS)
 
     private fun recordDecodeDeliveryFailure(error: Throwable) {
-        ReliabilityEventLogger.log(
-            stage = ReliabilityStage.TRANSCRIPTION,
-            outcome = ReliabilityOutcome.FAILURE,
-            correlationId = ReliabilityEventLogger.newCorrelationId("decode"),
-            reasonCode = "decode_chunk_delivery_failed",
-            message = error.message,
-        )
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.TRANSCRIPTION,
+                correlationId = ReliabilityEventLogger.newCorrelationId("decode"),
+            ).failure("decode_chunk_delivery_failed", error)
     }
 
     /**

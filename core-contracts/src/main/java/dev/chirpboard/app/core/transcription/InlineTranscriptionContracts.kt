@@ -20,12 +20,31 @@ sealed interface InlineTranscriptionPhase {
 }
 
 data class InlineTranscriptionRequest(
-    val samples: FloatArray,
+    val audioSource: InlineAudioSource,
     val llmEnabled: Boolean,
     val processingModeId: String,
     val correlationPrefix: String = "keyboard",
-    val audioSource: InlineAudioSource = InlineAudioSource.InMemory(samples),
-)
+) {
+    companion object {
+        /**
+         * Convenience constructor for the in-memory dictation path (e.g. the voice
+         * recognition dialog), wrapping [samples] in an [InlineAudioSource.InMemory].
+         */
+        fun inMemory(
+            samples: FloatArray,
+            llmEnabled: Boolean,
+            processingModeId: String,
+            correlationPrefix: String = "keyboard",
+            sampleRate: Int = 16000,
+        ): InlineTranscriptionRequest =
+            InlineTranscriptionRequest(
+                audioSource = InlineAudioSource.InMemory(samples, sampleRate),
+                llmEnabled = llmEnabled,
+                processingModeId = processingModeId,
+                correlationPrefix = correlationPrefix,
+            )
+    }
+}
 
 sealed interface InlineAudioSource {
     val sampleRate: Int

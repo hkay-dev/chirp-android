@@ -54,7 +54,8 @@ class ApiKeyMigrationTest {
         runTest {
             every { llmPreferences.isSecureStorageAvailable() } returns true
             every { llmPreferences.hasApiKey() } returns false
-            every { preferences.readLegacyGeminiApiKeyForMigration() } returns "REMOVED_GOOGLE_API_KEY"
+            every { preferences.readLegacyGeminiApiKeyForMigration() } returns
+                KnownGeminiPlaceholderKeys.PLACEHOLDER_KEYS.first()
 
             assertEquals(ApiKeyMigration.MigrationResult.NO_CUSTOM_KEY, migration.migrate())
             coVerify(exactly = 0) { llmPreferences.setApiKey(any()) }
@@ -89,8 +90,11 @@ class KnownGeminiPlaceholderKeysTest {
     @Test
     fun `isPlaceholder matches legacy defaults and blank keys`() {
         assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder(""))
-        assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder("REMOVED_GOOGLE_API_KEY"))
-        assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder("REMOVED_GOOGLE_API_KEY"))
+        // Reference the production constants directly instead of re-listing the raw key
+        // literals one directory over (SLOP-19): every known placeholder must be detected.
+        KnownGeminiPlaceholderKeys.PLACEHOLDER_KEYS.forEach { key ->
+            assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder(key))
+        }
     }
 
     @Test

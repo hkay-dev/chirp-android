@@ -12,15 +12,14 @@ internal sealed class VoiceRecognitionCaptureGateResult {
 
 internal class VoiceRecognitionCaptureGate(
     private val recordingStateManager: RecordingStateManager,
-    private val origin: RecordingOrigin = RecordingOrigin.KEYBOARD,
     /**
-     * User-facing label other surfaces show when this gate holds the mic. The
-     * RECOGNIZE_SPEECH dialog/service is not the keyboard IME, so it reports
-     * "voice recognition" rather than the misleading "keyboard" the shared
-     * [RecordingOrigin.KEYBOARD] maps to. (Telemetry origin remains KEYBOARD until a
-     * dedicated RECOGNITION origin is added to the shared contract.)
+     * The RECOGNIZE_SPEECH dialog/service is not the keyboard IME, so it drives the
+     * shared recording state machine with the dedicated [RecordingOrigin.RECOGNITION]
+     * origin. Both the telemetry origin and the user-facing busy label other surfaces
+     * show ("voice recognition", via [sourceLabel]) then reflect the real holder
+     * instead of the misleading "keyboard".
      */
-    private val sourceLabel: String = RECOGNITION_SOURCE_LABEL,
+    private val origin: RecordingOrigin = RecordingOrigin.RECOGNITION,
 ) {
     private var held = false
 
@@ -29,7 +28,7 @@ internal class VoiceRecognitionCaptureGate(
         if (held) {
             // Non-reentrant: a second session must never believe it owns the
             // microphone while an earlier session still holds the gate.
-            return VoiceRecognitionCaptureGateResult.Busy(sourceLabel)
+            return VoiceRecognitionCaptureGateResult.Busy(origin.sourceLabel())
         }
 
         return when (val result = recordingStateManager.tryStartRecording(origin)) {
@@ -73,10 +72,6 @@ internal class VoiceRecognitionCaptureGate(
 
     @Synchronized
     fun isHeld(): Boolean = held
-
-    private companion object {
-        const val RECOGNITION_SOURCE_LABEL = "voice recognition"
-    }
 }
 
 private fun RecordingOrigin.sourceLabel(): String =
@@ -84,4 +79,5 @@ private fun RecordingOrigin.sourceLabel(): String =
         RecordingOrigin.APP -> "app"
         RecordingOrigin.KEYBOARD -> "keyboard"
         RecordingOrigin.WIDGET -> "widget"
+        RecordingOrigin.RECOGNITION -> "voice recognition"
     }

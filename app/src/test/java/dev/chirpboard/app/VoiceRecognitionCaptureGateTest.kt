@@ -31,14 +31,14 @@ class VoiceRecognitionCaptureGateTest {
     }
 
     @Test
-    fun `acquire starts keyboard-origin shared recording and release returns idle`() {
+    fun `acquire starts recognition-origin shared recording and release returns idle`() {
         val manager = RecordingStateManager()
         val gate = VoiceRecognitionCaptureGate(manager)
 
         assertEquals(VoiceRecognitionCaptureGateResult.Acquired, gate.tryAcquire())
         assertTrue(gate.isHeld())
         assertTrue(manager.state.value is RecordingState.Starting)
-        assertEquals(RecordingOrigin.KEYBOARD, manager.state.value.activeOrigin)
+        assertEquals(RecordingOrigin.RECOGNITION, manager.state.value.activeOrigin)
 
         gate.onRecorderStarted("voice_recognition_temp_recording")
         assertTrue(manager.state.value is RecordingState.Recording)
@@ -59,8 +59,8 @@ class VoiceRecognitionCaptureGateTest {
 
         val second = gate.tryAcquire()
 
-        // The recognition surface reports itself as "voice recognition", not "keyboard",
-        // even though it drives the shared KEYBOARD-origin state machine (SLOP-17).
+        // The recognition surface drives the shared state machine with the dedicated
+        // RECOGNITION origin and reports itself as "voice recognition", not "keyboard" (SLOP-17).
         assertEquals(VoiceRecognitionCaptureGateResult.Busy("voice recognition"), second)
         assertTrue(gate.isHeld())
 
@@ -97,7 +97,7 @@ class VoiceRecognitionCaptureGateTest {
         assertFalse(gate.isHeld())
         val state = manager.state.value
         assertTrue(state is RecordingState.Error)
-        assertEquals(RecordingOrigin.KEYBOARD, (state as RecordingState.Error).origin)
+        assertEquals(RecordingOrigin.RECOGNITION, (state as RecordingState.Error).origin)
         assertEquals("Failed to start voice recognition", state.message)
         assertEquals(RecordingStartResult.Success, manager.tryStartRecording(RecordingOrigin.APP))
     }

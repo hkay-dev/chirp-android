@@ -3,7 +3,6 @@ package dev.chirpboard.app.feature.transcription
 import android.util.Log
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -128,6 +127,12 @@ internal class TranscriptionQueueReconciler(
             when {
                 shouldRequeuePending(ownership) -> {
                     val correlationId = ReliabilityEventLogger.newCorrelationId("queue-reconcile")
+                    val queueLog =
+                        ReliabilityEventLogger.scoped(
+                            stage = ReliabilityStage.QUEUE_ENQUEUE,
+                            correlationId = correlationId,
+                            recordingId = recording.id,
+                        )
                     try {
                         val scheduledWorkId =
                             enqueueWorkForRecording(
@@ -138,21 +143,9 @@ internal class TranscriptionQueueReconciler(
                             // Claim was rejected: the row moved on (e.g. a worker began it)
                             // between our read and the claim. Nothing was requeued, so do
                             // not log RECOVERED and do not touch the recovery marker.
-                            ReliabilityEventLogger.log(
-                                stage = ReliabilityStage.QUEUE_ENQUEUE,
-                                outcome = ReliabilityOutcome.SKIPPED,
-                                correlationId = correlationId,
-                                recordingId = recording.id,
-                                reasonCode = "reconcile_claim_rejected"
-                            )
+                            queueLog.skipped("reconcile_claim_rejected")
                         } else {
-                            ReliabilityEventLogger.log(
-                                stage = ReliabilityStage.QUEUE_ENQUEUE,
-                                outcome = ReliabilityOutcome.RECOVERED,
-                                correlationId = correlationId,
-                                recordingId = recording.id,
-                                reasonCode = "reconciled_pending"
-                            )
+                            queueLog.recovered("reconciled_pending")
                             if (recording.hasRecoverablePendingError()) {
                                 clearPendingError(recording)
                             }
@@ -160,14 +153,7 @@ internal class TranscriptionQueueReconciler(
                     } catch (e: Exception) {
                         if (e is kotlinx.coroutines.CancellationException) throw e
                         Log.e(TAG, "Failed to schedule pending recording ${recording.id}", e)
-                        ReliabilityEventLogger.log(
-                            stage = ReliabilityStage.QUEUE_ENQUEUE,
-                            outcome = ReliabilityOutcome.FAILURE,
-                            correlationId = correlationId,
-                            recordingId = recording.id,
-                            reasonCode = "reconcile_enqueue_failed",
-                            message = e.message
-                        )
+                        queueLog.failure("reconcile_enqueue_failed", e)
                     }
                 }
 

@@ -12,7 +12,6 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
@@ -115,13 +114,13 @@ class TranscriptionWorker
                         logStaleTranscription(recordingId, correlationId, "transcription_ownership_lost")
                         return androidx.work.ListenableWorker.Result.success()
                     }
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.TRANSCRIPTION,
-                outcome = ReliabilityOutcome.STARTED,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "worker_started",
-            )
+            val transcriptionLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.TRANSCRIPTION,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                )
+            transcriptionLog.started("worker_started")
 
             // Verify audio file exists
             val audioFile = File(ownedRecording.audioPath)
@@ -132,13 +131,7 @@ class TranscriptionWorker
                     RecordingStatus.FAILED,
                     "Audio file not found: ${ownedRecording.audioPath}",
                 )
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "audio_missing",
-                )
+                transcriptionLog.failure("audio_missing")
                 return buildTranscriptionFailureResult("Audio file not found")
             }
 
@@ -150,13 +143,7 @@ class TranscriptionWorker
                     RecordingStatus.FAILED,
                     "Model not downloaded. Please download the speech recognition model in Settings.",
                 )
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "model_not_downloaded",
-                )
+                transcriptionLog.failure("model_not_downloaded")
                 return buildTranscriptionFailureResult("Model not downloaded")
             }
 
@@ -165,13 +152,7 @@ class TranscriptionWorker
                 Log.d(TAG, "Initializing transcriber...")
                 val initialized = transcriberProvider.initialize()
                 if (!initialized) {
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.TRANSCRIPTION,
-                        outcome = ReliabilityOutcome.FAILURE,
-                        correlationId = correlationId,
-                        recordingId = recordingId,
-                        reasonCode = "model_init_failed",
-                    )
+                    transcriptionLog.failure("model_init_failed")
                     if (transcriberProvider.isModelDownloaded()) {
                         throw RetryableTranscriptionException(
                             "Failed to initialize speech recognition model",
@@ -291,17 +272,12 @@ class TranscriptionWorker
                 enhancementIntent != null &&
                     enhancementExecutionToken != null &&
                     enqueueEnhancement(recordingId, enhancementExecutionToken, correlationId)
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.TRANSCRIPTION,
-                outcome = ReliabilityOutcome.SUCCESS,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode =
-                    if (enhancementQueued) {
-                        "worker_completed_pending_enhancement"
-                    } else {
-                        "worker_completed"
-                    },
+            transcriptionLog.success(
+                if (enhancementQueued) {
+                    "worker_completed_pending_enhancement"
+                } else {
+                    "worker_completed"
+                },
             )
 
             return buildTranscriptionSuccessResult(transcript.id)
@@ -321,13 +297,9 @@ class TranscriptionWorker
                     globalAutoSummary = textEnhancement.defaultAutoSummaryEnabled(),
                 )
             if (!policy.hasRequestedWork) {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.ENHANCEMENT,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "enhancement_not_requested",
-                )
+                ReliabilityEventLogger
+                    .scoped(ReliabilityStage.ENHANCEMENT, correlationId, recordingId)
+                    .skipped("enhancement_not_requested")
                 return null
             }
 
@@ -365,14 +337,9 @@ class TranscriptionWorker
                     status = RecordingStatus.PENDING_ENHANCEMENT,
                     errorMessage = "${RECOVERABLE_QUEUE_HANDOFF_PREFIX}enhancement enqueue failed. Cause: ${e.message.orEmpty()}",
                 )
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.QUEUE_ENQUEUE,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "enhancement_enqueue_failed",
-                    message = e.message,
-                )
+                ReliabilityEventLogger
+                    .scoped(ReliabilityStage.QUEUE_ENQUEUE, correlationId, recordingId)
+                    .failure("enhancement_enqueue_failed", e)
                 true
             }
 
@@ -403,13 +370,9 @@ class TranscriptionWorker
             correlationId: String,
             reasonCode: String,
         ) {
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.TRANSCRIPTION,
-                outcome = ReliabilityOutcome.SKIPPED,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = reasonCode,
-            )
+            ReliabilityEventLogger
+                .scoped(ReliabilityStage.TRANSCRIPTION, correlationId, recordingId)
+                .skipped(reasonCode)
         }
 
         private suspend fun handleError(
@@ -426,14 +389,9 @@ class TranscriptionWorker
                     maxRetryCount = TRANSCRIPTION_MAX_RETRY_COUNT,
                 )
 
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.TRANSCRIPTION,
-                outcome = ReliabilityOutcome.FAILURE,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "worker_exception",
-                message = errorMessage,
-            )
+            ReliabilityEventLogger
+                .scoped(ReliabilityStage.TRANSCRIPTION, correlationId, recordingId)
+                .failure("worker_exception", message = errorMessage)
 
             try {
                 val updated =
@@ -470,14 +428,9 @@ class TranscriptionWorker
                     timeoutMs = computeActiveWaitTimeoutMs(recordingDurationMs),
                 )
             } catch (e: ActiveRecordingWaitTimeoutException) {
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "active_recording_wait_timeout",
-                    message = e.message,
-                )
+                ReliabilityEventLogger
+                    .scoped(ReliabilityStage.TRANSCRIPTION, correlationId, recordingId)
+                    .failure("active_recording_wait_timeout", e)
                 throw e
             }
         }

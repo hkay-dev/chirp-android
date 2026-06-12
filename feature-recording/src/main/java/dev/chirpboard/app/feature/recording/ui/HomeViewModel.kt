@@ -10,6 +10,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.di.DefaultDispatcher
 import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
@@ -37,6 +38,7 @@ import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -49,6 +51,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -137,6 +140,10 @@ class HomeViewModel
         private val sessionRecovery: RecordingRecoveryStore,
         private val playbackController: RecordingPlaybackController,
         private val savedStateHandle: SavedStateHandle,
+        // DATA-2: CPU-bound dispatcher for the heavy Home list transforms so the
+        // filter/map/sort/build work (which re-runs on every Room invalidation) no longer
+        // executes on the main dispatcher. Tests inject a TestDispatcher for determinism.
+        @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
     ) : ViewModel() {
         /** Search query */
         private val _searchQuery = savedStateHandle.getStateFlow("searchQuery", "")
@@ -179,7 +186,8 @@ class HomeViewModel
         private val allRecordingsList: StateFlow<List<Recording>> =
             combine(allRecordingsRaw, recordingManager.state) { recordings, recordingState ->
                 recordings.filter { shouldShowRecordingOnHomeList(it, recordingState) }
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         private val filteredRecordings: StateFlow<List<Recording>> =
             _searchQuery
@@ -210,7 +218,8 @@ class HomeViewModel
                                 .sortedByDescending { it.createdAt.time }
                         }
                     }
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }.flowOn(defaultDispatcher)
+                    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         // DATA-1: key the tag + preview Room flows on the stable id-set, not the whole Recording
         // list. A background pipeline pass produces ~5 status transitions per recording; each one
@@ -239,11 +248,12 @@ class HomeViewModel
                             tagsByRecordingId to previewsByRecordingId
                         }
                     }
-                }.stateIn(
-                    viewModelScope,
-                    SharingStarted.WhileSubscribed(5000),
-                    emptyMap<UUID, List<Tag>>() to emptyMap(),
-                )
+                }.flowOn(defaultDispatcher)
+                    .stateIn(
+                        viewModelScope,
+                        SharingStarted.WhileSubscribed(5000),
+                        emptyMap<UUID, List<Tag>>() to emptyMap(),
+                    )
 
         private val recordingsWithTagsAndTranscripts: StateFlow<List<RecordingDisplayItem>> =
             combine(
@@ -255,7 +265,8 @@ class HomeViewModel
                     tagsByRecordingId = tagsByRecordingId,
                     previewsByRecordingId = previewsByRecordingId,
                 )
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         /** All recordings based on search, enriched with tags/summary/profile */
         private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
@@ -268,12 +279,14 @@ class HomeViewModel
                         profileIcon = profile?.icon,
                     )
                 }
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val quickStartProfiles: StateFlow<List<HomeQuickStartEntry>> =
             combine(allProfiles, allRecordingsList) { profiles, recordings ->
                 deriveHomeQuickStarts(profiles = profiles, recordings = recordings)
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val displayItems: StateFlow<List<RecordingDisplayItem>> =
             combine(
@@ -294,7 +307,8 @@ class HomeViewModel
                         isHomeListProcessingItem(item.recording, recordingState)
                     }
                 }
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val stuckCount: StateFlow<Int> =
             allDisplayItems
@@ -302,7 +316,8 @@ class HomeViewModel
                     items.count { item ->
                         isProcessingOrStuckStatus(item.status)
                     }
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+                }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
         /** Quick stats derived from recordings */
         val stats: StateFlow<HomeStats> =
@@ -319,7 +334,8 @@ class HomeViewModel
                             isHomeListProcessingItem(it, recordingState)
                         },
                 )
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeStats())
+            }.flowOn(defaultDispatcher)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeStats())
 
         /** Current recording state */
         val recordingState: StateFlow<RecordingState> = recordingManager.state
@@ -442,6 +458,7 @@ class HomeViewModel
                             RecordingOrigin.APP -> "the app"
                             RecordingOrigin.KEYBOARD -> "the keyboard"
                             RecordingOrigin.WIDGET -> "the widget"
+                            RecordingOrigin.RECOGNITION -> "voice recognition"
                         }
                     _errorMessage.value = "Recording already in progress from $originText"
                 }

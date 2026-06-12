@@ -295,7 +295,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 var resultText = ""
                 inlineTranscription.transcribe(
                     request =
-                        InlineTranscriptionRequest(
+                        InlineTranscriptionRequest.inMemory(
                             samples = samples,
                             llmEnabled = llmEnabled,
                             processingModeId = processingMode.id,

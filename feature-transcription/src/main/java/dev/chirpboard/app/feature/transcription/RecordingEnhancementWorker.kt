@@ -11,7 +11,6 @@ import dagger.assisted.AssistedInject
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.EnhancementSubworkStatus
 import dev.chirpboard.app.data.model.RecordingEnhancementResult
@@ -69,6 +68,12 @@ class RecordingEnhancementWorker
             correlationId: String,
             executionToken: String,
         ): Result {
+            val enhancementLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                )
             val snapshot = recordingRepository.beginEnhancement(recordingId, executionToken)
             if (snapshot == null) {
                 val recording = recordingRepository.getRecording(recordingId)
@@ -79,17 +84,10 @@ class RecordingEnhancementWorker
                 if (transcript == null) {
                     val errorMessage = "No transcript found for enhancement"
                     recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
-                    ReliabilityEventLogger.log(
-                        stage = ReliabilityStage.ENHANCEMENT,
-                        outcome = ReliabilityOutcome.FAILURE,
-                        correlationId = correlationId,
-                        recordingId = recordingId,
-                        reasonCode = "enhancement_missing_transcript",
-                        message = errorMessage,
-                    )
+                    enhancementLog.failure("enhancement_missing_transcript", message = errorMessage)
                     return buildEnhancementFailureResult(errorMessage)
                 }
-                logSkipped(recordingId, correlationId, "enhancement_ownership_lost")
+                enhancementLog.skipped("enhancement_ownership_lost")
                 return Result.success()
             }
 
@@ -100,45 +98,25 @@ class RecordingEnhancementWorker
                     execution.title.requested ||
                     execution.summary.requested
             if (!hasExecutableSubwork && !execution.legacyRequiresResolution) {
-                logSkipped(recordingId, correlationId, "enhancement_not_requested")
+                enhancementLog.skipped("enhancement_not_requested")
                 recordingRepository.skipEnhancement(recordingId, executionToken)
                 return Result.success()
             }
             if (!hasExecutableSubwork && execution.legacyRequiresResolution) {
                 val errorMessage = "Legacy enhancement request requires full recovery"
                 recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.ENHANCEMENT,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "legacy_enhancement_requires_resolution",
-                    message = errorMessage,
-                )
+                enhancementLog.failure("legacy_enhancement_requires_resolution", message = errorMessage)
                 return buildEnhancementFailureResult(errorMessage)
             }
             if (!textEnhancement.isEnhancementAvailable(execution.llmProviderId)) {
                 val errorMessage = "LLM credentials unavailable for queued enhancement"
                 recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.ENHANCEMENT,
-                    outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = correlationId,
-                    recordingId = recordingId,
-                    reasonCode = "llm_unavailable",
-                    message = errorMessage,
-                )
+                enhancementLog.failure("llm_unavailable", message = errorMessage)
                 return buildEnhancementFailureResult(errorMessage)
             }
 
             setForeground(buildEnhancementForegroundInfo(applicationContext))
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = ReliabilityOutcome.STARTED,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = "enhancement_started",
-            )
+            enhancementLog.started("enhancement_started")
 
             val baseProcessedText =
                 transcript.processedText
@@ -223,13 +201,11 @@ class RecordingEnhancementWorker
                 processingStatus == EnhancementSubworkStatus.SUCCEEDED ||
                     titleStatus == EnhancementSubworkStatus.SUCCEEDED ||
                     summaryStatus == EnhancementSubworkStatus.SUCCEEDED
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = if (applied) ReliabilityOutcome.SUCCESS else ReliabilityOutcome.FAILURE,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = if (applied) "enhancement_applied" else "enhancement_failed",
-            )
+            if (applied) {
+                enhancementLog.success("enhancement_applied")
+            } else {
+                enhancementLog.failure("enhancement_failed")
+            }
 
             val committed =
                 recordingRepository.completeEnhancement(
@@ -251,7 +227,7 @@ class RecordingEnhancementWorker
                         ),
                 )
             if (!committed) {
-                logSkipped(recordingId, correlationId, "enhancement_commit_stale")
+                enhancementLog.skipped("enhancement_commit_stale")
             }
             return Result.success()
         }
@@ -264,29 +240,18 @@ class RecordingEnhancementWorker
         ): Result {
             val errorMessage = exception.message ?: "Unknown enhancement error"
             val updated = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = if (updated) ReliabilityOutcome.FAILURE else ReliabilityOutcome.SKIPPED,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = if (updated) "enhancement_exception" else "enhancement_error_stale",
-                message = errorMessage,
-            )
+            val enhancementLog =
+                ReliabilityEventLogger.scoped(
+                    stage = ReliabilityStage.ENHANCEMENT,
+                    correlationId = correlationId,
+                    recordingId = recordingId,
+                )
+            if (updated) {
+                enhancementLog.failure("enhancement_exception", message = errorMessage)
+            } else {
+                enhancementLog.skipped("enhancement_error_stale", message = errorMessage)
+            }
             return buildEnhancementFailureResult(errorMessage)
-        }
-
-        private fun logSkipped(
-            recordingId: UUID,
-            correlationId: String,
-            reasonCode: String,
-        ) {
-            ReliabilityEventLogger.log(
-                stage = ReliabilityStage.ENHANCEMENT,
-                outcome = ReliabilityOutcome.SKIPPED,
-                correlationId = correlationId,
-                recordingId = recordingId,
-                reasonCode = reasonCode,
-            )
         }
     }
 

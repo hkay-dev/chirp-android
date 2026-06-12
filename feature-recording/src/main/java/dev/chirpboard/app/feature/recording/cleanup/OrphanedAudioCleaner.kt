@@ -5,7 +5,6 @@ import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
-import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
@@ -95,13 +94,11 @@ class OrphanedAudioCleaner
                         if (deleted) {
                             deletedCount++
                             Log.d(TAG, "Deleted orphaned audio file: ${file.name}")
-                            ReliabilityEventLogger.log(
-                                stage = ReliabilityStage.PERSISTENCE_SAVE,
-                                outcome = ReliabilityOutcome.SKIPPED,
-                                correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
-                                reasonCode = "orphan_audio_deleted",
-                                message = file.name,
-                            )
+                            ReliabilityEventLogger
+                                .scoped(
+                                    stage = ReliabilityStage.PERSISTENCE_SAVE,
+                                    correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
+                                ).skipped("orphan_audio_deleted", message = file.name)
                         } else {
                             Log.e(TAG, "Failed to delete orphaned audio file: ${file.name}")
                         }
@@ -210,13 +207,11 @@ class OrphanedAudioCleaner
             if (file.renameTo(target)) {
                 target.setLastModified(System.currentTimeMillis())
                 Log.i(TAG, "Quarantined expired protected audio: ${file.name}")
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.PERSISTENCE_SAVE,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
-                    reasonCode = "orphan_audio_quarantined",
-                    message = file.name,
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.PERSISTENCE_SAVE,
+                        correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
+                    ).skipped("orphan_audio_quarantined", message = file.name)
             } else {
                 Log.e(TAG, "Failed to quarantine expired protected audio: ${file.name}")
             }
@@ -231,13 +226,11 @@ class OrphanedAudioCleaner
             if (sessionDir.renameTo(target)) {
                 target.setLastModified(System.currentTimeMillis())
                 Log.i(TAG, "Quarantined expired protected capture directory: ${sessionDir.name}")
-                ReliabilityEventLogger.log(
-                    stage = ReliabilityStage.PERSISTENCE_SAVE,
-                    outcome = ReliabilityOutcome.SKIPPED,
-                    correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
-                    reasonCode = "orphan_capture_dir_quarantined",
-                    message = sessionDir.name,
-                )
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.PERSISTENCE_SAVE,
+                        correlationId = ReliabilityEventLogger.newCorrelationId("orphan"),
+                    ).skipped("orphan_capture_dir_quarantined", message = sessionDir.name)
             } else {
                 Log.e(TAG, "Failed to quarantine expired protected capture directory: ${sessionDir.name}")
             }
