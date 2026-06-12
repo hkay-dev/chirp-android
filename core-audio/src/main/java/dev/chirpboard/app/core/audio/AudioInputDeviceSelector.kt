@@ -508,18 +508,25 @@ class AudioInputDeviceSelector
              * entries for the bottom/reference mics) and also returns non-recordable
              * "Other" endpoints (telephony, FM, remote-submix) that are not meaningful
              * recording sources. Drop the Other kinds (via [recordableInputDevices]) and
-             * collapse to one row per user-meaningful choice — its displayed (kind, name,
-             * address) identity. Devices with distinct non-blank addresses are genuinely
-             * different hardware (e.g. two same-model USB mics on a hub) and both stay
-             * selectable, while blank-address duplicates (the multiple built-in-mic rows
-             * sharing the "Built-in microphone" display name, hidden-name Bluetooth) still
-             * collapse because the user could never tell them apart. Pure for testability.
+             * collapse to one row per user-meaningful choice. An external device with a
+             * distinct non-blank address is genuinely different hardware (e.g. two
+             * same-model USB mics on a hub, two paired Bluetooth headsets) and both stay
+             * selectable. The built-in mic is the exception: its several TYPE_BUILTIN_MIC
+             * rows carry DISTINCT addresses (e.g. "bottom", "back") the user cannot choose
+             * between, so built-in always collapses by (kind, name) regardless of address —
+             * as do blank-address duplicates such as hidden-name Bluetooth. Pure for
+             * testability.
              */
             fun surfaceableInputDevices(
                 summaries: List<AudioInputDeviceSummary>,
             ): List<AudioInputDeviceSummary> =
                 recordableInputDevices(summaries)
-                    .distinctBy { Triple(it.kind, it.productName, it.address?.takeIf(String::isNotBlank)) }
+                    .distinctBy { summary ->
+                        val disambiguatingAddress =
+                            summary.address
+                                ?.takeIf { it.isNotBlank() && summary.kind != AudioInputDeviceKind.BuiltIn }
+                        Triple(summary.kind, summary.productName, disambiguatingAddress)
+                    }
 
             fun kindFor(type: Int): AudioInputDeviceKind =
                 when (type) {

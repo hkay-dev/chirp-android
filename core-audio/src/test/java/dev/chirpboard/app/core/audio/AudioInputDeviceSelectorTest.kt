@@ -425,10 +425,12 @@ class AudioInputDeviceSelectorTest {
 
     @Test
     fun surfaceableInputDevices_collapsesDuplicateBuiltInMicsAndDropsOtherKinds() {
-        // Samsung returns two TYPE_BUILTIN_MIC rows (blank address -> identical composite
-        // selectionKey) plus non-recordable "Other" endpoints (telephony/FM as model name).
-        val bottomMic = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
-        val referenceMic = summary(id = 2, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+        // Samsung returns two TYPE_BUILTIN_MIC rows with DISTINCT non-blank addresses
+        // (on-device finding: SM-S938U1 reports e.g. "bottom"/"back", not blank) that the
+        // user cannot choose between, plus non-recordable "Other" endpoints (telephony/FM
+        // as model name). Built-in must collapse to one row regardless of the address.
+        val bottomMic = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1", address = "bottom")
+        val referenceMic = summary(id = 2, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1", address = "back")
         val telephony = summary(id = 3, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
         val fmTuner = summary(id = 4, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
 
