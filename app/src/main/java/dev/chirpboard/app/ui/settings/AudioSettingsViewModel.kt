@@ -109,7 +109,16 @@ class AudioSettingsViewModel
 
         fun setInputDevicePolicy(policy: AudioInputDevicePolicy) {
             viewModelScope.launch {
-                audioSettingsStore.setInputDevicePolicy(policy)
+                when (policy) {
+                    // Atomic single-edit flip; leaves the dormant manual key in place so a
+                    // later switch back to Manual restores the prior selection verbatim.
+                    AudioInputDevicePolicy.Automatic -> audioSettingsStore.selectAutomatic()
+                    // Manual without a chosen device yet, and PreferBuiltIn, only flip the
+                    // policy; the manual key is written when a device row is tapped.
+                    AudioInputDevicePolicy.PreferBuiltIn,
+                    AudioInputDevicePolicy.Manual,
+                    -> audioSettingsStore.setInputDevicePolicy(policy)
+                }
             }
         }
 
@@ -121,8 +130,9 @@ class AudioSettingsViewModel
          */
         fun setManualInputDevice(device: AudioInputDeviceSummary) {
             viewModelScope.launch {
-                audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
-                audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+                // Single atomic edit so a capture racing the tap can never read the new key
+                // under the old (automatic) policy, and the picker sees one `settings` emission.
+                audioSettingsStore.selectManualDevice(device.selectionKey, device.productName)
             }
         }
 

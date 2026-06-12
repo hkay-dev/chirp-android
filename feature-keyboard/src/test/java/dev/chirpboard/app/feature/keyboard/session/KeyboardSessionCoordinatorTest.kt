@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.keyboard.session
 
 import android.content.Context
+import dev.chirpboard.app.core.audio.DeviceLostEvent
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
@@ -40,6 +41,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -79,6 +81,12 @@ class KeyboardSessionCoordinatorTest {
     private lateinit var stoppingTimeoutHandler: CapturingSlot<suspend (RecordingState.Stopping) -> Unit>
     private val phaseFlow = MutableStateFlow<InlineTranscriptionPhase>(InlineTranscriptionPhase.Idle)
 
+    // MIC-014: the selector's device-lost events as exposed through the capture wrapper.
+    private val deviceLostFlow = MutableSharedFlow<DeviceLostEvent>(extraBufferCapacity = 4)
+
+    // MIC-008: the shared state machine's live state, read by onMicTap's stop-window check.
+    private val recordingStateFlow = MutableStateFlow<RecordingState>(RecordingState.Idle)
+
     @Before
     fun setup() {
         Dispatchers.setMain(dispatcher)
@@ -95,6 +103,7 @@ class KeyboardSessionCoordinatorTest {
         every { capture.onRecordingError = capture(captureErrorHandler) } just runs
         every { capture.onLimitReached = capture(limitReachedHandler) } just runs
         every { capture.onSilenceStateChanged = capture(silenceHandler) } just runs
+        every { capture.deviceLostEvents } returns deviceLostFlow
 
         transcription =
             mockk {
@@ -108,6 +117,7 @@ class KeyboardSessionCoordinatorTest {
 
         stoppingTimeoutHandler = slot()
         recordingStateManager = mockk(relaxed = true)
+        every { recordingStateManager.state } returns recordingStateFlow
         every {
             recordingStateManager.setStoppingTimeoutHandler(
                 RecordingOrigin.KEYBOARD,
@@ -235,6 +245,79 @@ class KeyboardSessionCoordinatorTest {
             coordinator.startRecording()
             assertTrue(coordinator.isRecordingActive())
             assertFalse(coordinator.uiState.value.silenceHint)
+        }
+
+    // MIC-014 keyboard half: a hot-unplug of the session's active device surfaces a transient
+    // hint (inform, don't stop) and never leaks past the session that saw it.
+    @Test
+    fun deviceLost_whileRecordingSurfacesTheHintAndResetsPerSession() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {}
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            assertFalse(coordinator.uiState.value.deviceLostHint)
+
+            assertTrue(deviceLostFlow.tryEmit(DeviceLostEvent(deviceId = 7, deviceName = "USB mic")))
+            // Inform, don't stop: the hint shows while the dictation keeps recording.
+            assertTrue(coordinator.uiState.value.deviceLostHint)
+            assertTrue(coordinator.isRecordingActive())
+
+            // After the stop the hint dies with the session.
+            coordinator.stopAndTranscribe { true }
+            assertFalse(coordinator.uiState.value.deviceLostHint)
+
+            // And the next session starts without the stale hint.
+            coordinator.startRecording()
+            assertTrue(coordinator.isRecordingActive())
+            assertFalse(coordinator.uiState.value.deviceLostHint)
+        }
+
+    // MIC-008: a mic tap inside the previous dictation's stop window must not fall through to
+    // capture.start() — that attempt bounced off the still-held global lock with a
+    // self-referential "mic in use by the keyboard" toast.
+    @Test
+    fun micTap_duringKeyboardStopWindowSuppressesTheStartAttempt() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val transcribeStarted = CompletableDeferred<Unit>()
+            val transcribeGate = CompletableDeferred<Unit>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                transcribeStarted.complete(Unit)
+                transcribeGate.await()
+            }
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            transcribeStarted.await()
+            recordingStateFlow.value = stoppingState()
+
+            coordinator.onMicTap { true }
+
+            // Only the original session's start; the re-tap is suppressed with no error UI.
+            coVerify(exactly = 1) { capture.start() }
+            verify(exactly = 0) { transcription.setError(any()) }
+            transcribeGate.complete(Unit)
+        }
+
+    @Test
+    fun micTap_whileAppRecordingIsLiveStillAttemptsTheStart() =
+        runTest {
+            // Cross-surface busy is not the keyboard's own stop window: the start attempt
+            // proceeds and the capture layer surfaces the busy result (label + toast) as before.
+            recordingStateFlow.value = RecordingState.Recording(origin = RecordingOrigin.APP)
+            coEvery { capture.start() } returns QuickCaptureStartResult.AlreadyRecording("app")
+            val coordinator = buildCoordinator()
+
+            coordinator.onMicTap { true }
+
+            coVerify(exactly = 1) { capture.start() }
+            assertFalse(coordinator.isRecordingActive())
         }
 
     @Test
@@ -887,6 +970,128 @@ class KeyboardSessionCoordinatorTest {
             holdScopeThread.countDown()
             blockedScope.cancel()
             scopeExecutor.shutdownNow()
+            teardownExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun cancelDuringStopTeardown_discardsCaptureAndSkipsThePipeline() {
+        // MIC-017: a cancel tapped inside the stop-teardown window (isRecording already false,
+        // recorder teardown in flight, transcription pipeline not launched yet) used to be a
+        // silent no-op and the dictation committed against the user's intent. Hold the teardown
+        // open on a real background dispatcher so the cancel genuinely lands inside the window.
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val realScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val stopGate = CountDownLatch(1)
+        val stopEntered = CountDownLatch(1)
+        try {
+            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } answers {
+                stopEntered.countDown()
+                check(stopGate.await(5, TimeUnit.SECONDS)) { "stop gate never opened" }
+                InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
+            }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = realScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            assertTrue("teardown should be running off-main", stopEntered.await(5, TimeUnit.SECONDS))
+
+            // The user changed their mind right after the stop tap.
+            coordinator.cancelRecording()
+
+            stopGate.countDown()
+            coordinator.awaitInFlightTeardown()
+
+            // The pipeline never starts: no commit, no Stopping transition, no COMPLETED persist.
+            coVerify(exactly = 0) {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            }
+            verify(exactly = 0) { recordingStateManager.transitionToStopping() }
+            // The capture took the USER_CANCELLED persistence path (save preference applies).
+            verify(exactly = 1) { transcription.markUserCancelled() }
+            assertEquals(1, persistence.persistCalls)
+            assertEquals(InlineCapturePersistReason.USER_CANCELLED, persistence.lastReason)
+            // The state machine is released for the next dictation.
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            verify { transcription.resetPhase() }
+            coVerify(atLeast = 1) { pendingStopStore.clear() }
+        } finally {
+            realScope.cancel()
+            teardownExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun destroyCancelDuringStopTeardown_doesNotDiscardAndStillLaunchesThePipeline() {
+        // MIC-017 edge: a NON-user-initiated cancel (IME service destruction) inside the
+        // teardown window must NOT set the cancel flag — the pipeline still launches so the
+        // capture is rescued through the unmarked-cancellation path exactly as before.
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val realScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val stopGate = CountDownLatch(1)
+        val stopEntered = CountDownLatch(1)
+        val transcribeStarted = CountDownLatch(1)
+        try {
+            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } answers {
+                stopEntered.countDown()
+                check(stopGate.await(5, TimeUnit.SECONDS)) { "stop gate never opened" }
+                InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
+            }
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                transcribeStarted.countDown()
+            }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = realScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            assertTrue("teardown should be running off-main", stopEntered.await(5, TimeUnit.SECONDS))
+
+            coordinator.cancelRecording(userInitiated = false)
+
+            stopGate.countDown()
+            coordinator.awaitInFlightTeardown()
+
+            assertTrue("pipeline must still launch", transcribeStarted.await(5, TimeUnit.SECONDS))
+            verify(exactly = 0) { transcription.markUserCancelled() }
+            verify { recordingStateManager.transitionToStopping() }
+        } finally {
+            realScope.cancel()
             teardownExecutor.shutdownNow()
         }
     }

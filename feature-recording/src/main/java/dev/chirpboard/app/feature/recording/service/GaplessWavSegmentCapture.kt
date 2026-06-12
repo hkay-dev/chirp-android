@@ -4,6 +4,8 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Process
+import android.util.Log
+import dev.chirpboard.app.core.audio.AudioCaptureSession
 import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.WavFileWriter
@@ -52,8 +54,32 @@ class GaplessWavSegmentCapture(
     private var currentSegmentFile: File? = null
     private val recentMaxAmplitude = AtomicInteger(0)
 
+    /**
+     * Token of the live session's active-device publication (from [AudioCaptureSession]),
+     * passed back to [AudioInputDeviceSelector.clearActiveDevice] in every release path so
+     * a finished session's late clear can never clobber a newer session's published state.
+     * Guarded by [lock].
+     */
+    private var sessionToken: Long? = null
+
+    /**
+     * Set when the capture thread survives both bounded joins in
+     * [signalStopAndJoinCaptureThread]. Consulted by [releaseAudioLocked] so the
+     * AudioRecord is never released underneath a thread that may still be blocked inside
+     * [AudioRecord.read]; reset when a fresh capture thread starts.
+     */
+    private val captureThreadWedged = AtomicBoolean(false)
+
     override val maxAmplitude: Int
         get() = recentMaxAmplitude.get()
+
+    /**
+     * The live capture session's active-device publication token, for service teardown
+     * paths that do not funnel through this engine's release functions. Null while no
+     * session is live (the release paths clear it alongside the AudioRecord).
+     */
+    val activeSessionToken: Long?
+        get() = synchronized(lock) { sessionToken }
 
     override fun setCaptureErrorListener(listener: GaplessCaptureErrorListener?) {
         captureErrorListener = listener
@@ -70,37 +96,63 @@ class GaplessWavSegmentCapture(
         require(minBufferSize > 0) { "Invalid AudioRecord buffer size" }
         val bufferSize = minBufferSize * 2
 
-        val record = buildInitializedAudioRecord(channelConfig, audioFormat, bufferSize)
+        val session = buildInitializedAudioRecord(channelConfig, audioFormat, bufferSize)
 
-        synchronized(controlLock) {
-            synchronized(lock) {
-                require(!running.get()) { "Capture already running" }
-                segmentFile.parentFile?.mkdirs()
-                currentSegmentFile = segmentFile
-                lastRotationCompletedFile = null
-                pcmReadBufferSize = bufferSize
-                audioRecord = record
-                openWriterLocked(segmentFile)
-                record.startRecording()
-                running.set(true)
-                paused.set(false)
-                startCaptureThreadLocked()
+        try {
+            synchronized(controlLock) {
+                synchronized(lock) {
+                    require(!running.get()) { "Capture already running" }
+                    segmentFile.parentFile?.mkdirs()
+                    currentSegmentFile = segmentFile
+                    lastRotationCompletedFile = null
+                    pcmReadBufferSize = bufferSize
+                    audioRecord = session.record
+                    sessionToken = session.sessionToken
+                    openWriterLocked(segmentFile)
+                    session.record.startRecording()
+                    // Live-routing subscription happens before the locks drop: a racing
+                    // stop would otherwise release the record before the listener is
+                    // registered, leaking the selector's per-record entry (MIC-013).
+                    inputDeviceSelector.observeRouting(session.record)
+                    captureThreadWedged.set(false)
+                    running.set(true)
+                    paused.set(false)
+                    startCaptureThreadLocked()
+                }
             }
+        } catch (e: Exception) {
+            // A throw after the build (start-on-running misuse, a startRecording
+            // failure) must not leak the freshly built native record or its routing
+            // listener, and the failed session's publication is token-cleared so its
+            // state never outlives it (MIC-021).
+            synchronized(lock) {
+                if (audioRecord === session.record) {
+                    finalizeWriterLocked()
+                    audioRecord = null
+                    sessionToken = null
+                }
+            }
+            inputDeviceSelector.stopObservingRouting(session.record)
+            runCatching { session.record.release() }
+            inputDeviceSelector.clearActiveDevice(session.sessionToken)
+            throw e
         }
     }
 
     /**
-     * Builds the AudioRecord, retrying transient init failures (common right after a
-     * call ends) and releasing every failed instance so no native handle leaks.
+     * Builds the capture session, retrying transient init failures (common right after a
+     * call ends) and releasing every failed instance so no native handle leaks. A failed
+     * attempt's active-device publication is token-cleared so it cannot dangle past the
+     * release (or the final throw).
      */
     private suspend fun buildInitializedAudioRecord(
         channelConfig: Int,
         audioFormat: Int,
         bufferSize: Int,
-    ): AudioRecord {
+    ): AudioCaptureSession {
         var lastFailure: Exception? = null
         repeat(INIT_MAX_ATTEMPTS) { attempt ->
-            val record =
+            val session =
                 try {
                     inputDeviceSelector
                         .buildAudioRecord(
@@ -109,18 +161,19 @@ class GaplessWavSegmentCapture(
                             channelConfig = channelConfig,
                             audioFormat = audioFormat,
                             bufferSize = bufferSize,
-                        ).record
+                        )
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     lastFailure = e
                     null
                 }
-            if (record != null) {
-                if (record.state == AudioRecord.STATE_INITIALIZED) {
-                    return record
+            if (session != null) {
+                if (session.record.state == AudioRecord.STATE_INITIALIZED) {
+                    return session
                 }
-                runCatching { record.release() }
+                runCatching { session.record.release() }
+                inputDeviceSelector.clearActiveDevice(session.sessionToken)
             }
             if (attempt < INIT_MAX_ATTEMPTS - 1) {
                 delay(INIT_RETRY_DELAY_MS)
@@ -130,13 +183,12 @@ class GaplessWavSegmentCapture(
     }
 
     override fun rotateSegment(nextSegmentFile: File): SegmentRotationResult {
-        synchronized(lock) {
-            if (!running.get()) return SegmentRotationResult.Failed("Capture not running")
-            if (pendingRotationTarget != null) return SegmentRotationResult.Failed("Segment rotation already pending")
-        }
-
         val latch = CountDownLatch(1)
         synchronized(lock) {
+            // Entry check and latch install are one atomic block so two racing callers
+            // can never both believe they own the pending rotation (MIC-021).
+            if (!running.get()) return SegmentRotationResult.Failed("Capture not running")
+            if (pendingRotationTarget != null) return SegmentRotationResult.Failed("Segment rotation already pending")
             rotationLatch = latch
             pendingRotationTarget = nextSegmentFile
         }
@@ -229,7 +281,10 @@ class GaplessWavSegmentCapture(
     /**
      * Clears the running flag and stops the AudioRecord (unblocking any blocking read so the
      * capture thread can hand off its final buffer), then joins OUTSIDE the state lock so the
-     * capture thread can take it to finish the handoff.
+     * capture thread can take it to finish the handoff. A timed-out join gets one more
+     * bounded attempt before the thread is declared wedged (a stuck HAL can pin it inside a
+     * blocking read past stop()); [releaseAudioLocked] consults the flag so the AudioRecord
+     * is never released underneath a thread that may still be reading from it (MIC-021).
      */
     private fun signalStopAndJoinCaptureThread() {
         val thread =
@@ -238,7 +293,15 @@ class GaplessWavSegmentCapture(
                 runCatching { audioRecord?.stop() }
                 captureThread.also { captureThread = null }
             }
-        thread?.takeIf { it !== Thread.currentThread() }?.join(CAPTURE_JOIN_TIMEOUT_MS)
+        if (thread == null || thread === Thread.currentThread()) return
+        thread.join(CAPTURE_JOIN_TIMEOUT_MS)
+        if (!thread.isAlive) return
+        Log.e(TAG, "Capture thread did not exit within ${CAPTURE_JOIN_TIMEOUT_MS}ms; retrying join once")
+        thread.join(CAPTURE_JOIN_TIMEOUT_MS)
+        if (thread.isAlive) {
+            captureThreadWedged.set(true)
+            Log.e(TAG, "Capture thread wedged after two bounded joins; AudioRecord release will be skipped")
+        }
     }
 
     private fun cancelPendingRotationLocked() {
@@ -395,9 +458,25 @@ class GaplessWavSegmentCapture(
     }
 
     private fun releaseAudioLocked() {
-        runCatching { audioRecord?.stop() }
-        runCatching { audioRecord?.release() }
+        audioRecord?.let { record ->
+            // Routing-listener removal must precede release so the observer never
+            // outlives the record (MIC-013).
+            inputDeviceSelector.stopObservingRouting(record)
+            runCatching { record.stop() }
+            if (captureThreadWedged.get()) {
+                // A wedged capture thread may still be blocked inside record.read();
+                // releasing underneath it risks a native use-after-free, so drop the
+                // reference and leak this one record instead (MIC-021).
+                Log.e(TAG, "Skipping AudioRecord.release under a wedged capture thread")
+            } else {
+                runCatching { record.release() }
+            }
+        }
         audioRecord = null
+        // Token-gated clear: a finished session's late clear no-ops once a newer
+        // session has published (MIC-003).
+        sessionToken?.let { inputDeviceSelector.clearActiveDevice(it) }
+        sessionToken = null
     }
 
     private fun updateAmplitude(
@@ -420,6 +499,7 @@ class GaplessWavSegmentCapture(
     private val silenceWarningBytes: Long = sampleRate.toLong() * PCM16_BYTES_PER_SAMPLE * SILENCE_WARNING_SECONDS
 
     companion object {
+        private const val TAG = "GaplessWavCapture"
         private const val CAPTURE_JOIN_TIMEOUT_MS = 5_000L
         private const val ROTATION_WAIT_TIMEOUT_MS = 5_000L
         private const val DEFAULT_BUFFER_BYTES = 4096

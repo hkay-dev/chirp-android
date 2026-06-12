@@ -12,12 +12,14 @@ import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.justRun
 import io.mockk.mockk
 import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.unmockkConstructor
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.verifyOrder
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
@@ -33,6 +35,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -76,6 +79,9 @@ class VoiceRecorderTest {
         coEvery {
             selector.buildAudioRecord(any(), any(), any(), any(), any())
         } returns AudioCaptureSession(record, sessionToken = 1L)
+        justRun { selector.observeRouting(any()) }
+        justRun { selector.stopObservingRouting(any()) }
+        justRun { selector.clearActiveDevice(any<Long>()) }
     }
 
     @After
@@ -488,6 +494,135 @@ class VoiceRecorderTest {
             recorder.collectSamples()
 
             assertTrue("unexpected silence transitions: $transitions", transitions.isEmpty())
+        }
+
+    @Test
+    fun `stop racing a new start leaves the new session recording`() =
+        runBlocking {
+            // Sub-minimum session duration: a raced stop must not judge (and
+            // report TooShort for) the new session it no longer owns.
+            every { SystemClock.elapsedRealtime() } answers {
+                clockMs += 100L
+                clockMs
+            }
+            val errors = mutableListOf<RecordingError>()
+            recorder.onRecordingError = { errors.add(it) }
+            assertTrue(recorder.start())
+
+            val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
+            every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            recorder.afterStopAudioRecordForTest = {
+                // A fresh start() publishes a new session inside the gap between
+                // the stop's two lock blocks; the stop must leave it untouched.
+                recorder.afterStopAudioRecordForTest = null
+                coEvery {
+                    selector.buildAudioRecord(any(), any(), any(), any(), any())
+                } returns AudioCaptureSession(secondRecord, sessionToken = 2L)
+                runBlocking { assertTrue(recorder.start()) }
+            }
+
+            val captured = recorder.stop()
+
+            assertEquals(0, captured.size)
+            assertTrue(errors.isEmpty())
+            assertTrue(recorder.isRecording())
+            verify { secondRecord.startRecording() }
+            verify(exactly = 0) { secondRecord.stop() }
+            verify(exactly = 0) { secondRecord.release() }
+        }
+
+    @Test
+    fun `stopToFileBacked racing a new start never steals the new session's capture`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder()
+            fileRecorder.onRecordingError = {}
+            assertTrue(fileRecorder.start())
+
+            val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
+            every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            fileRecorder.afterStopAudioRecordForTest = {
+                fileRecorder.afterStopAudioRecordForTest = null
+                coEvery {
+                    selector.buildAudioRecord(any(), any(), any(), any(), any())
+                } returns AudioCaptureSession(secondRecord, sessionToken = 2L)
+                runBlocking { assertTrue(fileRecorder.start()) }
+            }
+
+            val stolen = fileRecorder.stopToFileBacked()
+
+            assertNull(stolen)
+            assertTrue(fileRecorder.isRecording())
+            // The new session's capture file survives the racing stop.
+            assertEquals(1, captureFiles().size)
+            verify { secondRecord.startRecording() }
+            verify(exactly = 0) { secondRecord.stop() }
+            verify(exactly = 0) { secondRecord.release() }
+
+            // The new session's output stream stayed intact: a normal capture
+            // and stop still return its audio.
+            var result: VoiceRecorder.CapturedPcmFloatFile? = null
+            var reads = 0
+            every { secondRecord.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads++
+                if (reads == 1) {
+                    firstArg<FloatArray>().fill(0.5f)
+                    READ_BUFFER_SIZE
+                } else {
+                    result = fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+            fileRecorder.collectSamples()
+
+            assertEquals(READ_BUFFER_SIZE, requireNotNull(result).sampleCount)
+        }
+
+    @Test
+    fun `stop clears the selector's active device exactly once with the session token`() =
+        runBlocking {
+            assertTrue(recorder.start())
+
+            recorder.stop()
+            // A second stop must not clear again (the token was already handed back).
+            recorder.stop()
+
+            verify(exactly = 1) { selector.clearActiveDevice(1L) }
+        }
+
+    @Test
+    fun `stopToFileBacked clears the selector's active device with the session token`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder()
+            fileRecorder.onRecordingError = {}
+            assertTrue(fileRecorder.start())
+
+            fileRecorder.stopToFileBacked()
+
+            verify(exactly = 1) { selector.clearActiveDevice(1L) }
+        }
+
+    @Test
+    fun `cancelCapture clears the selector's active device with the session token`() =
+        runBlocking {
+            assertTrue(recorder.start())
+
+            recorder.cancelCapture()
+
+            verify(exactly = 1) { selector.clearActiveDevice(1L) }
+        }
+
+    @Test
+    fun `routing is observed after start and removed before release on stop`() =
+        runBlocking {
+            assertTrue(recorder.start())
+            recorder.stop()
+
+            verifyOrder {
+                record.startRecording()
+                selector.observeRouting(record)
+                selector.stopObservingRouting(record)
+                record.release()
+            }
         }
 
     private fun fileBackedRecorder(): VoiceRecorder {

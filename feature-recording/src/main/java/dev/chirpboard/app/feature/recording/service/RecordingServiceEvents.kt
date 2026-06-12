@@ -19,6 +19,19 @@ enum class RecordingAutoPauseReason {
     FOCUS_LOST_TRANSIENT,
 }
 
+/**
+ * A resume re-resolved the input device and landed on a different microphone than the one
+ * in use before the pause. Re-resolution is deliberate (it is what makes the supported
+ * pause -> swap -> resume flow work), but the swap must be visible — the session continues
+ * with a different gain structure and noise floor. Display-only; never feeds selection.
+ */
+data class RecordingDeviceChange(
+    /** Name of the device the session captured from before the pause. */
+    val fromDeviceName: String?,
+    /** Name of the device the resume actually selected. */
+    val toDeviceName: String?,
+)
+
 /** A single auto-stop occurrence; [atEpochMs] disambiguates repeats of the same reason. */
 data class RecordingAutoStopEvent(
     val reason: RecordingAutoStopReason,
@@ -67,6 +80,9 @@ class RecordingServiceEvents
         private val _storageLow = MutableStateFlow(false)
         val storageLow: StateFlow<Boolean> = _storageLow.asStateFlow()
 
+        private val _deviceChangedOnResume = MutableStateFlow<RecordingDeviceChange?>(null)
+        val deviceChangedOnResume: StateFlow<RecordingDeviceChange?> = _deviceChangedOnResume.asStateFlow()
+
         fun publishAutoStop(
             reason: RecordingAutoStopReason,
             detail: String? = null,
@@ -90,10 +106,15 @@ class RecordingServiceEvents
             _storageLow.value = storageLow
         }
 
+        fun setDeviceChangedOnResume(change: RecordingDeviceChange?) {
+            _deviceChangedOnResume.value = change
+        }
+
         /** Clears per-session transient state when a session ends; auto-stop events persist. */
         fun resetSessionState() {
             _autoPauseReason.value = null
             _silenceDetected.value = false
             _storageLow.value = false
+            _deviceChangedOnResume.value = null
         }
     }

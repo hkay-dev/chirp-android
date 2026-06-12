@@ -4,6 +4,7 @@ import android.content.Context
 import android.widget.Toast
 import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
+import dev.chirpboard.app.core.audio.DeviceLostEvent
 import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.transcription.InlineAudioSource
@@ -17,12 +18,13 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.feature.keyboard.R
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 
 class QuickCaptureSessionImpl(
     private val context: Context,
     scope: CoroutineScope,
-    inputDeviceSelector: AudioInputDeviceSelector,
+    private val inputDeviceSelector: AudioInputDeviceSelector,
     private val recordingStateManager: RecordingStateManager,
     private val audioFocusManager: AudioFocusManager,
 ) : QuickCaptureSession {
@@ -70,6 +72,14 @@ class QuickCaptureSessionImpl(
             recorder.onSilenceStateChanged = value
         }
 
+    /**
+     * MIC-014 (keyboard half): hot-unplug events for the ACTIVE capture device, straight
+     * from the shared selector so this surface reacts to the same physical event as the
+     * recording service. Display-only here — the coordinator surfaces a transient hint
+     * while the platform reroutes capture to a fallback mic; nothing stops the dictation.
+     */
+    val deviceLostEvents: SharedFlow<DeviceLostEvent> get() = inputDeviceSelector.deviceLostEvents
+
     override suspend fun start(): QuickCaptureStartResult {
         if (!RecordingPermissionGuard.hasRecordAudioPermission(context)) {
             return QuickCaptureStartResult.PermissionDenied(
@@ -87,12 +97,19 @@ class QuickCaptureSessionImpl(
                         RecordingOrigin.KEYBOARD -> context.getString(R.string.keyboard_mic_source_keyboard)
                         RecordingOrigin.RECOGNITION -> context.getString(R.string.keyboard_mic_source_recognition)
                     }
-                Toast
-                    .makeText(
-                        context,
-                        context.getString(R.string.keyboard_mic_in_use, sourceLabel),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                // MIC-008: a KEYBOARD-origin busy result means our own previous dictation's
+                // stop pipeline still holds the global lock — to the user "the keyboard" is
+                // themselves, so the self-referential "mic in use by keyboard" toast is
+                // suppressed; the coordinator owns that window's UI (Transcribing phase).
+                // A genuinely other-origin busy keeps the explanatory toast.
+                if (result.currentOrigin != RecordingOrigin.KEYBOARD) {
+                    Toast
+                        .makeText(
+                            context,
+                            context.getString(R.string.keyboard_mic_in_use, sourceLabel),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                }
                 return QuickCaptureStartResult.AlreadyRecording(sourceLabel)
             }
         }

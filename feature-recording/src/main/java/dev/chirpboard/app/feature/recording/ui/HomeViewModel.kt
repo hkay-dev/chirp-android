@@ -190,7 +190,8 @@ class HomeViewModel
         }
 
         /**
-         * AUD-02/AUD-05/ERR-14: live-session advisory (focus pause, silenced mic, low storage)
+         * AUD-02/AUD-05/ERR-14/MIC-010: live-session advisory (focus pause, device change on
+         * resume, silenced mic, low storage)
          * for the Home live row's hint line — the same resolution the record screen banner
          * uses, so the two surfaces always agree. Session-scoped: the service clears the
          * underlying flags when the session ends.
@@ -200,11 +201,13 @@ class HomeViewModel
                 serviceEvents.autoPauseReason,
                 serviceEvents.silenceDetected,
                 serviceEvents.storageLow,
-            ) { autoPauseReason, silenceDetected, storageLow ->
+                serviceEvents.deviceChangedOnResume,
+            ) { autoPauseReason, silenceDetected, storageLow, deviceChange ->
                 resolveSessionAdvisory(
                     autoPauseReason = autoPauseReason,
                     silenceDetected = silenceDetected,
                     storageLow = storageLow,
+                    deviceChangedOnResume = deviceChange != null,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 

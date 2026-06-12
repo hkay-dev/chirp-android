@@ -104,11 +104,21 @@ data class KeyboardUiState(
      * for the "no audio detected" hint; only ever true while [voicePanel] is Recording.
      */
     val silenceHint: Boolean = false,
+    /**
+     * MIC-014 (keyboard half): the session's active input device disconnected mid-dictation
+     * (hot-unplug, Bluetooth drop). Inform-don't-stop: the platform reroutes capture to a
+     * fallback mic and the dictation continues, so this only swaps the "Recording" status
+     * label for the "mic disconnected" hint; only ever true while [voicePanel] is Recording.
+     */
+    val deviceLostHint: Boolean = false,
 ) {
     @StringRes
     fun statusLabelRes(): Int? =
         when {
             voicePanel == VoicePanelPhase.Recording && silenceHint -> R.string.keyboard_status_no_audio
+            // MIC-014: silence outranks the disconnect hint — no audio at all is the more
+            // actionable signal when both fire on the same unplug.
+            voicePanel == VoicePanelPhase.Recording && deviceLostHint -> R.string.keyboard_status_device_lost
             voicePanel == VoicePanelPhase.Recording -> R.string.keyboard_status_recording
             voicePanel == VoicePanelPhase.LoadingModel -> R.string.keyboard_loading_speech_model
             voicePanel == VoicePanelPhase.Transcribing -> R.string.keyboard_transcribing
@@ -128,6 +138,7 @@ fun mapKeyboardUiState(
     overlayError: KeyboardOverlayError?,
     sensitiveInput: Boolean = false,
     silenceDetected: Boolean = false,
+    deviceLost: Boolean = false,
 ): KeyboardUiState {
     val voicePanel =
         when {
@@ -173,5 +184,8 @@ fun mapKeyboardUiState(
         // AUD-02: gate on the LIVE recording phase so a stale silence flag (or one arriving
         // while an error overlay replaced the panel) can never show the hint out of context.
         silenceHint = voicePanel == VoicePanelPhase.Recording && silenceDetected,
+        // MIC-014: same live-phase gating for the device-lost hint, so it dies with the
+        // session instead of leaking into transcription or the next dictation.
+        deviceLostHint = voicePanel == VoicePanelPhase.Recording && deviceLost,
     )
 }

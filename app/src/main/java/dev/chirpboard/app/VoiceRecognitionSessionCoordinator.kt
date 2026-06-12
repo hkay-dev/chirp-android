@@ -147,6 +147,12 @@ internal class VoiceRecognitionSessionCoordinator(
 
     /**
      * Synchronous cleanup for service destruction. Leaves the recorder stopped and the gate released.
+     *
+     * The service invokes this from a short-lived IO teardown scope rather than its main
+     * thread (MIC-015): the recorder cancel is blocking binder/file work. That is safe
+     * off-main — the gate is internally synchronized, [RecorderControl.cancel] is the same
+     * call the IO-hopped session paths make, and the generation bookkeeping cleared here is
+     * never consulted again after destroy.
      */
     fun shutdown() {
         activeGeneration = null

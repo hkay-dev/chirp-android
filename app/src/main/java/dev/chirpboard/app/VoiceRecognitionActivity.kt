@@ -16,8 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.audio.ActiveInputDevice
 import dev.chirpboard.app.core.audio.AudioFocusManager
-import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
@@ -42,6 +42,7 @@ import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -212,6 +213,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private val _uiError = MutableStateFlow<VoiceRecognitionUiError?>(null)
 
     /**
+     * Name of the active capture device that disconnected mid-session (MIC-014), surfaced
+     * through the dialog's existing "Using X — Y isn't connected" notice by overlaying the
+     * published active device's fallback annotation (see [withDeviceLostNotice]). Inform,
+     * don't stop: only RecordingService auto-stops on device loss, and only for its own
+     * capture — here the capture continues on the platform's fallback route and the
+     * endpointer or the user's stop governs the session end. Reset by [startRecording].
+     */
+    private val _lostInputDeviceName = MutableStateFlow<String?>(null)
+
+    /**
      * True when the live capture's teardown was already classified as a discard (user
      * cancel, or the no-speech timeout's pure-silence cancel). The coordinator cancel
      * hops to the IO dispatcher, so the capture gate can still be held when [onDestroy]
@@ -220,6 +231,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
      * Main-thread only; reset by [startRecording] for each new session.
      */
     private var captureTeardownDiscardsAudio = false
+
+    /**
+     * MIC-018: wall-clock watchdog for the live capture session. The endpointer only
+     * advances when amplitude frames arrive, so a capture whose reads stall entirely
+     * (wedged Bluetooth route, HAL stall) would otherwise leave the dialog listening
+     * forever with a frozen waveform. A stalled session routes into the same
+     * generation-gated no-speech path the endpointer uses ([onNoSpeechTimeout]), so it
+     * stays idempotent against any racing stop/cancel. Main-thread only, like the
+     * session bookkeeping around it.
+     */
+    private var captureStallWatchdog: Job? = null
 
     /**
      * IME-6: a caller that sets [RecognizerIntent.EXTRA_SECURE] (keyguard/secure contexts)
@@ -262,6 +284,19 @@ class VoiceRecognitionActivity : ComponentActivity() {
             if (kind == AudioFocusManager.FocusLossKind.PERMANENT) {
                 Log.w(TAG, "Permanent audio focus loss; stopping recognition capture")
                 stopFromSystemInterrupt()
+            }
+        }
+
+        // MIC-014: the selector's shared device-lost flow, collected for the activity's
+        // lifetime and gated on a live session (the single-capture lock means a loss
+        // observed while this dialog is capturing belongs to this session). The advisory
+        // informs; it never stops the capture (see [_lostInputDeviceName]).
+        lifecycleScope.launch {
+            inputDeviceSelector.deviceLostEvents.collect { lost ->
+                if (recognitionSessionLive(_recordingState.value)) {
+                    Log.w(TAG, "Active input device lost mid-recognition: ${lost.deviceName}")
+                    _lostInputDeviceName.value = lost.deviceName
+                }
             }
         }
 
@@ -318,6 +353,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 val audioSettings by audioSettingsStore.settings
                     .collectAsStateWithLifecycle(initialValue = AudioSettings())
                 val activeInputDevice by inputDeviceSelector.activeDevice.collectAsStateWithLifecycle()
+                val dialogRecordingState by _recordingState.collectAsStateWithLifecycle()
+                val lostInputDeviceName by _lostInputDeviceName.collectAsStateWithLifecycle()
                 val bluetoothPermissionLauncher =
                     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
                         if (granted) {
@@ -361,17 +398,26 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             policy = audioSettings.inputDevicePolicy,
                             manualKey = audioSettings.manualDeviceAddress,
                             manualName = audioSettings.manualDeviceName,
-                            activeDevice = activeInputDevice,
+                            // MIC-014: a device lost mid-capture overlays the fallback
+                            // annotation so the dialog's existing notice explains the
+                            // silent platform reroute (inform, don't stop).
+                            activeDevice = activeInputDevice.withDeviceLostNotice(lostInputDeviceName),
+                            // MIC-004: while a session is live the chip shows the device
+                            // actually in use and the sheet notes that a selection
+                            // applies to the NEXT capture start.
+                            sessionLive = recognitionSessionLive(dialogRecordingState),
                         ),
                     onSelectInputDeviceAutomatic = {
                         lifecycleScope.launch {
-                            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+                            // MIC-005: single-edit policy flip, so a capture starting
+                            // mid-selection never reads a torn key/policy pair.
+                            audioSettingsStore.selectAutomatic()
                         }
                     },
                     onSelectInputDevice = { device ->
                         lifecycleScope.launch {
-                            audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
-                            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+                            // MIC-005: key, display name and Manual policy in one atomic edit.
+                            audioSettingsStore.selectManualDevice(device.selectionKey, device.productName)
                         }
                     },
                     onRequestBluetoothNames = {
@@ -402,12 +448,18 @@ class VoiceRecognitionActivity : ComponentActivity() {
         // (not this flag) is what serializes a rapid second tap against the in-flight start.
         _recordingState.value = RecordingState.Starting(RecordingOrigin.KEYBOARD)
         captureTeardownDiscardsAudio = false
+        _lostInputDeviceName.value = null
         val generation = sessionCoordinator.issueGeneration()
-        // Same initial-silence/trailing-silence detector the service uses (IME-2), honoring
-        // the caller's RecognizerIntent silence extras. The dialog is a manual-stop surface,
-        // so only the no-speech timeout is acted on (see onSessionAmplitude).
-        val endpointer = recognizerIntentEndpointer(intent)
         lifecycleScope.launch {
+            // Same initial-silence/trailing-silence detector the service uses (IME-2), honoring
+            // the caller's RecognizerIntent silence extras. The dialog is a manual-stop surface,
+            // so only the no-speech timeout is acted on (see onSessionAmplitude). The speech
+            // threshold is compensated for the session's microphone gain (MIC-018): the
+            // amplitude stream is post-gain, so steady amplified ambient noise would otherwise
+            // establish "speech" and disable the no-speech cap.
+            val endpointer =
+                recognizerIntentEndpointer(intent)
+                    .gainCompensated(audioSettingsStore.currentMicrophoneGain())
             val result =
                 sessionCoordinator.start(
                     generation = generation,
@@ -418,7 +470,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     onRms = { amplitude -> onSessionAmplitude(generation, endpointer, amplitude) },
                 )
             when (result) {
-                VoiceRecognitionSessionCoordinator.StartResult.Started -> Unit
+                VoiceRecognitionSessionCoordinator.StartResult.Started ->
+                    armCaptureStallWatchdog(generation, endpointer)
 
                 VoiceRecognitionSessionCoordinator.StartResult.Superseded -> {
                     // A newer start replaced this one before it ran; the newer session owns
@@ -464,6 +517,31 @@ class VoiceRecognitionActivity : ComponentActivity() {
             SpeechEndpointer.Event.NO_SPEECH_TIMEOUT -> onNoSpeechTimeout(generation)
             else -> Unit
         }
+    }
+
+    /** Arms the per-session frame-starvation watchdog (MIC-018); see [captureStallWatchdog]. */
+    private fun armCaptureStallWatchdog(
+        generation: Int,
+        endpointer: SpeechEndpointer,
+    ) {
+        captureStallWatchdog?.cancel()
+        captureStallWatchdog =
+            lifecycleScope.launch {
+                if (awaitRecognitionCaptureStall(endpointer) { recorder.sampleCountFlow.value }) {
+                    Log.w(TAG, "Capture frames stalled; ending the session as no-speech")
+                    onNoSpeechTimeout(generation)
+                }
+            }
+    }
+
+    /**
+     * Stands the stall watchdog down on a session terminal/stop. Never called from the
+     * watchdog's own coroutine: the endpointer-driven no-speech path stands it down via
+     * the endpointer's terminal mark, and a watchdog-driven firing has already completed.
+     */
+    private fun cancelCaptureStallWatchdog() {
+        captureStallWatchdog?.cancel()
+        captureStallWatchdog = null
     }
 
     /**
@@ -514,6 +592,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
             Log.w(TAG, "Not actively recording, ignoring stop request")
             return
         }
+        // The owner is stopping the session; the stall watchdog must not outlive it.
+        cancelCaptureStallWatchdog()
         val generation = sessionCoordinator.currentGeneration()
         val secure = secureSession
         lifecycleScope.launch {
@@ -665,6 +745,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 return@launch
             }
             Log.e(TAG, "Recorder failed mid-session: ${error.userMessage}")
+            cancelCaptureStallWatchdog()
             sessionCoordinator.cancel(sessionCoordinator.currentGeneration())
             _recordingState.value = RecordingState.Idle
             showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
@@ -709,6 +790,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         // when onDestroy runs) must not re-file the discard as "Voice recognition
         // interrupted" (see shouldRescueOnDestroy).
         captureTeardownDiscardsAudio = true
+        cancelCaptureStallWatchdog()
         // Route the capture teardown through the coordinator so the cancel is serialized
         // against any in-flight start (it stops the recorder and releases the gate). When
         // the session is already past its active window (Stopping/Idle) cancel is a no-op,
@@ -743,20 +825,29 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (captureGate.isHeld()) {
-            val samples = recorder.stop()
-            captureGate.releaseCompleted()
-            if (shouldRescueOnDestroy(
+        // The rescue classification reads main-confined state (_recordingState, the
+        // intent-backed secureSession, the discard mark), so decide it synchronously
+        // before anything is dispatched. The recorder teardown itself — AudioRecord
+        // stop/release binder calls plus a multi-MB samples.copyOf after a long capture —
+        // hops to [rescueScope] (MIC-015): it must not stall the main thread during
+        // destroy, and rescueScope survives the activity's own scope cancellation.
+        val gateHeld = captureGate.isHeld()
+        val rescue =
+            gateHeld &&
+                shouldRescueOnDestroy(
                     recordingState = _recordingState.value,
                     secureSession = secureSession,
                     teardownDiscardsAudio = captureTeardownDiscardsAudio,
                 )
-            ) {
-                rescueInterruptedCapture(samples)
-            }
-        }
-        recorder.close()
-        audioFocus.abandonFocus()
+        rescueScope.launchRecognitionDestroyTeardown(
+            gateHeld = gateHeld,
+            rescue = rescue,
+            stopRecorder = recorder::stop,
+            releaseGate = captureGate::releaseCompleted,
+            rescueSamples = ::rescueInterruptedCapture,
+            closeRecorder = recorder::close,
+            abandonFocus = audioFocus::abandonFocus,
+        )
         super.onDestroy()
     }
 
@@ -901,6 +992,62 @@ internal fun shouldRescueOnDestroy(
     recordingState !is RecordingState.Stopping &&
         !secureSession &&
         !teardownDiscardsAudio
+
+/**
+ * MIC-015/PERF-5: destroy-path capture teardown, dispatched off the main thread.
+ * The recorder stop performs AudioRecord stop/release binder calls plus a samples copy
+ * that reaches tens of MB after a long capture — none of it may run on the main thread
+ * while the activity is being destroyed. The rescue classification reads main-confined
+ * state, so the caller decides [gateHeld]/[rescue] synchronously BEFORE launching; the
+ * stop, gate release, optional rescue persist, recorder close and focus abandon then run
+ * on the receiver scope (the activity's rescueScope, which survives teardown). Extracted
+ * so the async dispatch and its ordering stay unit-testable.
+ */
+internal fun CoroutineScope.launchRecognitionDestroyTeardown(
+    gateHeld: Boolean,
+    rescue: Boolean,
+    stopRecorder: () -> FloatArray,
+    releaseGate: () -> Unit,
+    rescueSamples: (FloatArray) -> Unit,
+    closeRecorder: () -> Unit,
+    abandonFocus: () -> Unit,
+): Job =
+    launch {
+        if (gateHeld) {
+            val samples = stopRecorder()
+            releaseGate()
+            if (rescue) {
+                rescueSamples(samples)
+            }
+        }
+        closeRecorder()
+        abandonFocus()
+    }
+
+/**
+ * MIC-004: whether the dialog's capture session is live for the input-device picker —
+ * while live, the chip must show the session's ACTUAL device (not the predicted next
+ * one) and the sheet notes that a selection applies to the next session. This surface
+ * never pauses, so liveness is exactly Starting/Recording/Stopping.
+ */
+internal fun recognitionSessionLive(state: RecordingState): Boolean =
+    state is RecordingState.Starting ||
+        state is RecordingState.Recording ||
+        state is RecordingState.Stopping
+
+/**
+ * MIC-014: overlays a mid-session device-loss advisory onto the live capture's published
+ * active device, so the dialog's existing fallback notice renders
+ * "Using <current> — <lost> isn't connected" for the rerouted capture instead of needing
+ * a parallel notice path. No-op when nothing was lost, the loss event carried no usable
+ * name, or no capture is live (the selector publishes no active device between sessions).
+ */
+internal fun ActiveInputDevice?.withDeviceLostNotice(lostDeviceName: String?): ActiveInputDevice? =
+    if (this == null || lostDeviceName.isNullOrBlank()) {
+        this
+    } else {
+        copy(fallbackFromPreferredName = lostDeviceName)
+    }
 
 /**
  * Wraps the shared capture persistence for a single dictation hand-off to the inline

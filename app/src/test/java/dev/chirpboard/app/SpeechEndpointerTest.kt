@@ -20,6 +20,19 @@ class SpeechEndpointerTest {
          * non-zero RMS that the amplitude heuristic mistakes for speech.
          */
         const val AMBIENT_NOISE = 0.012f
+
+        /** Session microphone gain at the top of the user-settable range (MIC-018). */
+        const val HIGH_GAIN = 5f
+
+        /**
+         * Steady ambient noise as the endpointer sees it at 5x gain: ~0.004 raw mean-abs
+         * (fan / traffic / air-conditioning) pre-multiplied by the gain — CONTINUOUSLY
+         * above the 0.01 base threshold, unlike [AMBIENT_NOISE]'s varying flicker.
+         */
+        const val CONTINUOUS_NOISE_AT_HIGH_GAIN = 0.02f
+
+        /** Voiced speech (~0.05 raw) as the endpointer sees it at 5x gain. */
+        const val SPEECH_AT_HIGH_GAIN = 0.25f
     }
 
     private fun endpointer(
@@ -282,5 +295,59 @@ class SpeechEndpointerTest {
         val endpointer = recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = 30_000L)
         endpointer.pumpVaryingAmbientNoise(fromMs = 0L, toMs = 30_000L)
         assertEquals(SpeechEndpointer.Event.NO_SPEECH_TIMEOUT, endpointer.onAmplitude(SILENCE, 30_000L))
+    }
+
+    // --- MIC-018: gain compensation — the endpointer's amplitude stream is POST-gain ---
+
+    @Test
+    fun `continuous gain-amplified ambient noise times out with the compensated threshold`() {
+        // The surviving corner of the live no-speech hang: STEADY (not flickering) ambient
+        // noise at 5x gain sits continuously above the 0.01 base threshold, so an
+        // uncompensated endpointer establishes "speech" within 300ms, the no-speech cap is
+        // permanently disabled, and the session listens until the 10-minute recorder cap.
+        // Scaling the threshold by the session gain keeps the tuned operating point and the
+        // absolute cap terminates the session on budget.
+        val endpointer =
+            recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = null)
+                .gainCompensated(HIGH_GAIN)
+        var nowMs = 0L
+        while (nowMs < 10_000L) {
+            assertEquals(
+                "steady amplified noise at $nowMs must stay below the compensated threshold",
+                SpeechEndpointer.Event.NONE,
+                endpointer.onAmplitude(CONTINUOUS_NOISE_AT_HIGH_GAIN, nowMs),
+            )
+            nowMs += 66L
+        }
+        assertEquals(
+            SpeechEndpointer.Event.NO_SPEECH_TIMEOUT,
+            endpointer.onAmplitude(CONTINUOUS_NOISE_AT_HIGH_GAIN, 10_000L),
+        )
+    }
+
+    @Test
+    fun `genuine speech at high gain still establishes and ends on trailing silence`() {
+        val endpointer =
+            recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = null)
+                .gainCompensated(HIGH_GAIN)
+        // Voiced speech scales with the same gain, so it clears the compensated threshold
+        // and a sustained run still establishes a genuine speech session.
+        assertEquals(SpeechEndpointer.Event.SPEECH_STARTED, endpointer.onAmplitude(SPEECH_AT_HIGH_GAIN, 0L))
+        endpointer.onAmplitude(SPEECH_AT_HIGH_GAIN, 200L)
+        endpointer.onAmplitude(SPEECH_AT_HIGH_GAIN, 400L)
+        // Established speech ends on its trailing silence, never as a no-speech timeout.
+        assertEquals(SpeechEndpointer.Event.NONE, endpointer.onAmplitude(SILENCE, 2_399L))
+        assertEquals(SpeechEndpointer.Event.END_OF_SPEECH, endpointer.onAmplitude(SILENCE, 2_400L))
+    }
+
+    @Test
+    fun `gain below one never lowers the threshold under the tuned base`() {
+        // max(1, gain): a sub-1.0 gain keeps the tuned operating point instead of making
+        // the endpointer MORE noise-sensitive (7a4b3d3's quiet-speaker tuning applies).
+        val endpointer =
+            recognizerSessionEndpointer(clientCompleteSilenceMs = null, clientMinimumLengthMs = null)
+                .gainCompensated(0.5f)
+        // AMBIENT_NOISE sits just above the base threshold, exactly as at gain 1.0.
+        assertEquals(SpeechEndpointer.Event.SPEECH_STARTED, endpointer.onAmplitude(AMBIENT_NOISE, 0L))
     }
 }

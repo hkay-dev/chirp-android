@@ -137,12 +137,20 @@ class RecordingService : Service() {
     private var destroyed = false
 
     /**
-     * True while the current Paused state was entered because of a transient audio focus
-     * loss (call/alarm/assistant), so focus regain may auto-resume. Manual pause always
-     * clears it. Advisory only — never feeds stop/finalize decisions.
+     * Pause/resume bookkeeping for transient focus interruptions, including the latch that
+     * keeps a focus regain delivered BEFORE the asynchronously-launched pause lands from
+     * being dropped (which used to leave the session Paused forever). Advisory only —
+     * never feeds stop/finalize decisions. See [FocusPauseResumeLatch].
      */
-    @Volatile
-    private var pausedByFocusLoss = false
+    private val focusPauseLatch = FocusPauseResumeLatch()
+
+    /**
+     * Active-device label captured when the last pause landed: resume re-resolves the
+     * input device, so the fresh publication is compared against this to surface the
+     * device-changed-on-resume advisory (display-only; selection is never blocked or
+     * altered). Consumed by [publishDeviceChangeOnResume].
+     */
+    private var prePauseDeviceLabel: String? = null
 
     /**
      * Timed partial wakelock held across the stop->finalize handoff (PRF-6). Capture
@@ -161,8 +169,14 @@ class RecordingService : Service() {
         audioFocusManager = AudioFocusManager(getSystemService(AudioManager::class.java))
         audioFocusManager.onFocusLost = { lossKind ->
             when (lossKind) {
-                AudioFocusManager.FocusLossKind.TRANSIENT ->
+                AudioFocusManager.FocusLossKind.TRANSIENT -> {
+                    // Recorded synchronously BEFORE the pause coroutine is launched: a quick
+                    // focus regain can arrive while that coroutine is still queued behind the
+                    // segment-transition mutex, and the latch is what keeps the regain from
+                    // being dropped (see FocusPauseResumeLatch).
+                    focusPauseLatch.onFocusPauseRequested()
                     pauseRecording(autoPauseReason = RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT)
+                }
                 AudioFocusManager.FocusLossKind.PERMANENT -> {
                     announceAutoStop(RecordingAutoStopReason.FOCUS_LOST)
                     stopRecording()
@@ -178,8 +192,14 @@ class RecordingService : Service() {
                     // be silently dropped by clearActiveDevice after the first session), so
                     // it must only ever stop captures this service instance owns. In-process
                     // keyboard/recognition captures detect device death through their own
-                    // AudioRecord read errors.
-                    if (!service.recordingStateManager.state.value.isActive || !service.serviceOwnsCapture()) {
+                    // AudioRecord read errors. Paused is deliberately benign — pause already
+                    // released the mic, and unplugging the device then is the supported
+                    // pause -> swap -> resume flow (see RecordingDeviceLossPolicy).
+                    if (!RecordingDeviceLossPolicy.shouldAutoStop(
+                            state = service.recordingStateManager.state.value,
+                            ownsCapture = service.serviceOwnsCapture(),
+                        )
+                    ) {
                         return@launch
                     }
                     // Stop-with-save is deliberate (no silent mid-recording device swap);
@@ -217,9 +237,14 @@ class RecordingService : Service() {
      * a gated stop owns the session ([RecordingResumeGuard]): a focus-paused session
      * stays Paused until the stop's capture handoff lands, so without the gate check the
      * interrupting audio ending in that window would auto-start an orphaned engine.
+     *
+     * When the regain arrives BEFORE the asynchronously-launched focus pause has landed
+     * (the pause coroutine can queue behind a long segment rotation holding the mutex),
+     * [FocusPauseResumeLatch] records it and the pause coroutine replays this method once
+     * the pause commits — without the latch, that ordering left the session Paused forever.
      */
     private fun resumeAfterFocusRegained() {
-        if (!pausedByFocusLoss) return
+        if (!focusPauseLatch.shouldResumeOnFocusRegain()) return
         if (!RecordingResumeGuard.canResume(
                 state = recordingStateManager.state.value,
                 stopInProgress = stopRequestGate.isInProgress(),
@@ -540,7 +565,8 @@ class RecordingService : Service() {
             currentSessionId?.let { capturePaths.deleteCaptureArtifacts(it) }
             currentSessionId = null
             audioFocusManager.abandonFocus()
-            inputDeviceSelector.clearActiveDevice()
+            // The engine's releaseWithoutSave below clears the active-device publication
+            // with its session token; a no-arg clear here could clobber a newer session.
             segmentCapture?.setCaptureErrorListener(null)
             segmentCapture?.setSilenceListener(null)
             segmentCapture?.releaseWithoutSave()
@@ -563,7 +589,8 @@ class RecordingService : Service() {
             currentSessionId?.let { capturePaths.deleteCaptureArtifacts(it) }
             currentSessionId = null
             audioFocusManager.abandonFocus()
-            inputDeviceSelector.clearActiveDevice()
+            // The engine's releaseWithoutSave below clears the active-device publication
+            // with its session token; a no-arg clear here could clobber a newer session.
             segmentCapture?.setCaptureErrorListener(null)
             segmentCapture?.setSilenceListener(null)
             segmentCapture?.releaseWithoutSave()
@@ -592,49 +619,72 @@ class RecordingService : Service() {
         serviceScope.launch {
             try {
                 segmentTransitionMutex.withLock {
-                    if (recordingStateManager.state.value !is RecordingState.Recording) return@withLock
-                    segmentRotationJob?.cancel()
-                    amplitudeJob?.cancel()
-                    amplitudeJob = null
-                    recordingStateManager.pauseRecording()
-                    recordingStateManager.updateAmplitude(0f)
-                    // Set inside the mutex, after the pause actually landed, so a manual
-                    // pause racing a focus loss can never be auto-resumed later.
-                    pausedByFocusLoss = autoPauseReason == RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT
-                    serviceEvents.setAutoPauseReason(autoPauseReason)
-                    serviceEvents.setSilenceDetected(false)
-
-                    val sessionId = currentSessionId ?: return@withLock
-                    val completedFile =
-                        withContext(Dispatchers.IO) {
-                            segmentCapture?.setCaptureErrorListener(null)
-                            segmentCapture?.setSilenceListener(null)
-                            segmentCapture?.cancelPendingRotation()
-                            segmentCapture?.pauseAndFinalizeSegment()
-                        }
-                    segmentCapture = null
-                    val finalized = completedFile ?: currentRecordingFile ?: return@withLock
-                    currentRecordingFile = finalized
-
-                    sessionJournal.commitPausedSegment(
-                        sessionId = sessionId,
-                        completedSegmentPath = finalized.absolutePath,
-                        fileBytes = finalized.length(),
-                    )
-                    ReliabilityEventLogger
-                        .scoped(
-                            stage = ReliabilityStage.RECORDING_STOP,
-                            correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
-                        ).success("segment_saved_on_pause")
+                    pauseRecordingLocked(autoPauseReason)
+                    // A focus regain that arrived while this pause was still in flight was
+                    // latched instead of dropped — replay it now, still under the mutex, so
+                    // a quick LOSS_TRANSIENT -> GAIN pair can never leave the session Paused
+                    // forever. resumeAfterFocusRegained re-validates the state and the stop
+                    // gate before any new engine starts.
+                    if (focusPauseLatch.onPauseAttemptFinished()) {
+                        resumeAfterFocusRegained()
+                    }
                 }
                 refreshRecordingNotification()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to pause recording", e)
-                recordingStateManager.onRecordingError("Couldn't pause the recording", e)
+                failSessionAndShutdown("Couldn't pause the recording", e)
             }
         }
+    }
+
+    /**
+     * Pause body; the caller holds [segmentTransitionMutex]. Early returns are deliberate
+     * no-ops (already non-Recording, no session, nothing finalized) — the caller's latch
+     * drain still runs for every exit so an in-flight focus-pause request is always closed.
+     */
+    private suspend fun pauseRecordingLocked(autoPauseReason: RecordingAutoPauseReason?) {
+        if (recordingStateManager.state.value !is RecordingState.Recording) return
+        segmentRotationJob?.cancel()
+        amplitudeJob?.cancel()
+        amplitudeJob = null
+        recordingStateManager.pauseRecording()
+        recordingStateManager.updateAmplitude(0f)
+        // Set inside the mutex, after the pause actually landed, so a manual
+        // pause racing a focus loss can never be auto-resumed later.
+        focusPauseLatch.onPauseLanded(
+            byFocusLoss = autoPauseReason == RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT,
+        )
+        serviceEvents.setAutoPauseReason(autoPauseReason)
+        serviceEvents.setSilenceDetected(false)
+        // The pre-pause device is what the next resume's re-resolution is compared
+        // against; a fresh pause also supersedes any earlier device-change advisory.
+        serviceEvents.setDeviceChangedOnResume(null)
+        prePauseDeviceLabel = inputDeviceSelector.activeDeviceLabel.value
+
+        val sessionId = currentSessionId ?: return
+        val completedFile =
+            withContext(Dispatchers.IO) {
+                segmentCapture?.setCaptureErrorListener(null)
+                segmentCapture?.setSilenceListener(null)
+                segmentCapture?.cancelPendingRotation()
+                segmentCapture?.pauseAndFinalizeSegment()
+            }
+        segmentCapture = null
+        val finalized = completedFile ?: currentRecordingFile ?: return
+        currentRecordingFile = finalized
+
+        sessionJournal.commitPausedSegment(
+            sessionId = sessionId,
+            completedSegmentPath = finalized.absolutePath,
+            fileBytes = finalized.length(),
+        )
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.RECORDING_STOP,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            ).success("segment_saved_on_pause")
     }
 
     private fun resumeRecording() {
@@ -649,7 +699,7 @@ class RecordingService : Service() {
                 ).skipped("resume_ignored_stop_in_progress")
             return
         }
-        pausedByFocusLoss = false
+        focusPauseLatch.reset()
         serviceEvents.setAutoPauseReason(null)
         serviceScope.launch {
             try {
@@ -691,6 +741,7 @@ class RecordingService : Service() {
                     currentRecordingFile = nextSegment
                     sessionJournal.beginNextSegment(sessionId, nextSegment.absolutePath)
                     recordingStateManager.resumeRecording(nextSegment.absolutePath)
+                    publishDeviceChangeOnResume()
                     ReliabilityEventLogger
                         .scoped(
                             stage = ReliabilityStage.RECORDING_START,
@@ -702,9 +753,32 @@ class RecordingService : Service() {
                 refreshRecordingNotification()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                recordingStateManager.onRecordingError("Couldn't resume the recording", e)
+                failSessionAndShutdown("Couldn't resume the recording", e)
             }
         }
+    }
+
+    /**
+     * Resume re-resolves the input device — that re-resolution is exactly what makes the
+     * supported pause -> swap -> resume flow work — so when it lands on a different
+     * microphone than the one in use before the pause, the swap is made visible (advisory
+     * banner + notification status line) instead of silently changing the session's sound.
+     * Display-only: selection is never blocked or altered. Caller holds
+     * [segmentTransitionMutex] with the new engine already started (device published).
+     */
+    private fun publishDeviceChangeOnResume() {
+        val fromName = prePauseDeviceLabel
+        val toName = inputDeviceSelector.activeDeviceLabel.value
+        prePauseDeviceLabel = null
+        if (fromName.isNullOrBlank() || toName.isNullOrBlank() || fromName == toName) return
+        serviceEvents.setDeviceChangedOnResume(
+            RecordingDeviceChange(fromDeviceName = fromName, toDeviceName = toName),
+        )
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.RECORDING_START,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            ).started("device_changed_on_resume", message = "from=$fromName to=$toName")
     }
 
     /**
@@ -720,8 +794,18 @@ class RecordingService : Service() {
 
     private fun currentRecordingStatusText(): String? =
         when {
-            recordingStateManager.state.value is RecordingState.Paused && pausedByFocusLoss ->
+            recordingStateManager.state.value is RecordingState.Paused && focusPauseLatch.pausedByFocusLoss ->
                 getString(R.string.rec_notification_paused_focus)
+            serviceEvents.deviceChangedOnResume.value != null -> {
+                // Resume re-resolved onto a different microphone; same priority slot as
+                // the in-app advisory (below the focus pause, above the silence hint).
+                val toName = serviceEvents.deviceChangedOnResume.value?.toDeviceName
+                if (toName.isNullOrBlank()) {
+                    getString(R.string.rec_notification_device_changed)
+                } else {
+                    getString(R.string.rec_notification_device_changed_named, toName)
+                }
+            }
             serviceEvents.silenceDetected.value -> {
                 // AUD-02 + device picker: name the silent device and suggest switching.
                 val deviceName = inputDeviceSelector.activeDeviceLabel.value
@@ -782,10 +866,12 @@ class RecordingService : Service() {
                     }
                     currentRecordingFile = null
                     currentFinalAudioPath = null
-                    pausedByFocusLoss = false
+                    focusPauseLatch.reset()
                     serviceEvents.resetSessionState()
                     audioFocusManager.abandonFocus()
-                    inputDeviceSelector.clearActiveDevice()
+                    // releaseWithoutSave above already cleared the active-device publication
+                    // with the engine's session token (and a paused session's engine cleared
+                    // it when the pause released the mic).
                     recordingStateManager.forceCancel()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
@@ -865,7 +951,8 @@ class RecordingService : Service() {
         currentProfileId = null
         currentCorrelationId = null
         audioFocusManager.abandonFocus()
-        inputDeviceSelector.clearActiveDevice()
+        // The restart teardown's releaseWithoutSave already cleared the active-device
+        // publication with the engine's session token.
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -900,7 +987,7 @@ class RecordingService : Service() {
                 oldFile?.takeIf { it.exists() }?.delete()
                 oldFinalFile?.takeIf { it.exists() }?.delete()
             }
-            pausedByFocusLoss = false
+            focusPauseLatch.reset()
             serviceEvents.resetSessionState()
             recordingStateManager.forceCancel()
         }
@@ -945,6 +1032,10 @@ class RecordingService : Service() {
      * stop-with-save semantics should claim the gate and reuse this path.
      */
     private fun launchGatedStop() {
+        // A latched focus regain must never replay into a gated stop (a permanent loss
+        // between a transient LOSS/GAIN pair routes here): drop the pause/regain
+        // bookkeeping the moment the stop claims the session.
+        focusPauseLatch.reset()
         // PRF-6: keep the CPU awake across the stop->handoff window (lock-screen stops
         // would otherwise suspend mid-save until the next screen-on). Timed + released in
         // finishStopLifecycle; never alters any stop-gate or journal decision.
@@ -1145,10 +1236,13 @@ class RecordingService : Service() {
         currentInProgressRecordingId = null
         currentCorrelationId = null
         stopRequestGate.reset()
-        pausedByFocusLoss = false
+        focusPauseLatch.reset()
         serviceEvents.resetSessionState()
         audioFocusManager.abandonFocus()
-        inputDeviceSelector.clearActiveDevice()
+        // The active-device publication is cleared by the engine's own release paths with
+        // its session token: an unconditional clear here used to clobber the state a newer
+        // in-process capture (keyboard/recognition) had already published in the
+        // handoff -> finish window.
         releaseStopWakeLock()
 
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -1171,6 +1265,75 @@ class RecordingService : Service() {
     private fun releaseStopWakeLock() {
         runCatching { stopWakeLock?.takeIf { it.isHeld }?.release() }
         stopWakeLock = null
+    }
+
+    /**
+     * Shared failure teardown for the pause/resume error paths (ERR family): the state
+     * machine going Error releases the shared recording lock, but the engine, the audio
+     * focus request, the foreground notification and the session fields used to leak until
+     * the next start (stuck notification, ducked media, half-finalized engine). Mirrors the
+     * start path's failure cleanup with one deliberate difference: nothing here ever
+     * deletes captured audio — the engine release is the non-destructive
+     * [GaplessSegmentCaptureEngine.releaseAfterStopTimeout] and the journal entry is
+     * abandoned only when it references no recoverable artifacts, so the startup
+     * reconciler recovers a multi-segment session at the next launch instead of discarding
+     * it. The active-device publication is cleared by the engine release itself
+     * (token-aware), never unconditionally here. Sequencing lives in
+     * [RecordingSessionFailureCleanup] so it stays unit-testable.
+     */
+    private suspend fun failSessionAndShutdown(
+        message: String,
+        cause: Exception,
+    ) {
+        amplitudeJob?.cancel()
+        heartbeatJob?.cancel()
+        storageCheckJob?.cancel()
+        segmentRotationJob?.cancel()
+        val sessionId = currentSessionId
+        val inProgressRecordingId = currentInProgressRecordingId
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.RECORDING_STOP,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            ).failure("session_failed_shutdown", cause)
+        RecordingSessionFailureCleanup.run(
+            releaseEngineNonDestructively = {
+                segmentCapture?.setCaptureErrorListener(null)
+                segmentCapture?.setSilenceListener(null)
+                withContext(NonCancellable + Dispatchers.IO) {
+                    runCatching { segmentCapture?.releaseAfterStopTimeout() }
+                }
+                segmentCapture = null
+            },
+            abandonFocus = audioFocusManager::abandonFocus,
+            hasRecoverableArtifacts = {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    RecordingFinalizeRecoveryPolicy.hasRecoverableArtifacts(
+                        sessionJournal = sessionJournal,
+                        sessionId = sessionId,
+                        snapshot = null,
+                    )
+                }
+            },
+            abandonSessionArtifacts = {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    sessionId?.let { sessionJournal.markAbandoned(it) }
+                    inProgressRecordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
+                }
+            },
+            onRecordingError = { recordingStateManager.onRecordingError(message, cause) },
+            stopService = {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            },
+        )
+        currentRecordingFile = null
+        currentFinalAudioPath = null
+        currentSessionId = null
+        currentInProgressRecordingId = null
+        prePauseDeviceLabel = null
+        focusPauseLatch.reset()
+        serviceEvents.resetSessionState()
     }
 
     /**
@@ -1423,5 +1586,128 @@ class RecordingService : Service() {
 
         /** Capture-stop budget plus margin; the timed acquire guarantees release. */
         private const val STOP_WAKELOCK_TIMEOUT_MS = CAPTURE_STOP_TIMEOUT_MS + 30_000L
+    }
+}
+
+/**
+ * The transient-focus pause is asynchronous (it does IO under the segment-transition
+ * mutex) while the focus-regain callback is synchronous, so a quick
+ * LOSS_TRANSIENT -> GAIN pair can deliver the regain BEFORE the pause lands: the regain
+ * used to read a not-yet-set pausedByFocusLoss and bail, leaving the session Paused
+ * forever with "will auto-resume" showing. This latch records the early regain
+ * ([shouldResumeOnFocusRegain]) and the pause coroutine replays it once the pause commits
+ * ([onPauseAttemptFinished]).
+ *
+ * The flags are @Volatile because the focus callback, the pause coroutine and the
+ * stop/cancel paths that [reset] them are not all confined to one thread. Advisory
+ * only — never feeds stop/finalize decisions.
+ */
+internal class FocusPauseResumeLatch {
+    /**
+     * True while the current Paused state was entered because of a transient audio focus
+     * loss (call/alarm/assistant), so focus regain may auto-resume. Manual pause always
+     * clears it.
+     */
+    @Volatile
+    var pausedByFocusLoss = false
+        private set
+
+    /** A transient-loss pause coroutine is in flight but has not landed yet. */
+    @Volatile
+    private var focusPauseRequested = false
+
+    /** A focus regain arrived before the in-flight pause landed; replay it after. */
+    @Volatile
+    private var focusRegainPending = false
+
+    /**
+     * Synchronous half of the transient-loss handler: must run BEFORE the pause coroutine
+     * is launched so a regain can never observe "no pause anywhere" mid-flight.
+     */
+    fun onFocusPauseRequested() {
+        focusPauseRequested = true
+    }
+
+    /**
+     * Focus-regain decision: true when the auto-resume should run now. When the
+     * transient-loss pause has not landed yet, the regain is latched instead and replayed
+     * by the pause coroutine via [onPauseAttemptFinished]; a regain with no focus pause
+     * anywhere (manual pause, spurious GAIN) does nothing.
+     */
+    fun shouldResumeOnFocusRegain(): Boolean {
+        if (pausedByFocusLoss) return true
+        if (focusPauseRequested) focusRegainPending = true
+        return false
+    }
+
+    /**
+     * The in-mutex flag write at the moment the pause actually landed — kept inside the
+     * mutex, after the state transition, so a manual pause racing a focus loss can never
+     * be auto-resumed later.
+     */
+    fun onPauseLanded(byFocusLoss: Boolean) {
+        pausedByFocusLoss = byFocusLoss
+    }
+
+    /**
+     * End of every pause attempt (still inside the mutex, including the no-op early
+     * exits): the in-flight request is over, and a latched regain is consumed — returned
+     * as "resume now" only when the landed pause was focus-initiated, so a manual pause
+     * that won the race stays paused.
+     */
+    fun onPauseAttemptFinished(): Boolean {
+        focusPauseRequested = false
+        if (!focusRegainPending) return false
+        focusRegainPending = false
+        return pausedByFocusLoss
+    }
+
+    /** A resume, gated stop, cancel or restart took over; no queued regain may fire later. */
+    fun reset() {
+        pausedByFocusLoss = false
+        focusPauseRequested = false
+        focusRegainPending = false
+    }
+}
+
+/**
+ * Decides whether losing the ACTIVE input device should auto-stop the service's session.
+ * Paused is deliberately benign: pause already released the mic, so unplugging the device
+ * then is the supported pause -> swap -> resume flow — resume re-resolves the device and
+ * annotates any fallback. Starting still stops: a device that disappears mid-start should
+ * abort deliberately rather than silently record from a surprise fallback.
+ */
+internal object RecordingDeviceLossPolicy {
+    fun shouldAutoStop(
+        state: RecordingState,
+        ownsCapture: Boolean,
+    ): Boolean = (state is RecordingState.Recording || state is RecordingState.Starting) && ownsCapture
+}
+
+/**
+ * Pause/resume failure teardown sequence, extracted so the resource-release ordering and
+ * the journal-abandon gating stay unit-testable: the engine is released non-destructively
+ * first (mic + writer freed, no segment files deleted), audio focus is abandoned so other
+ * apps stop ducking, the session journal is abandoned ONLY when it references no
+ * recoverable artifacts (a multi-segment session must be recovered at the next launch,
+ * never discarded), and only then does the state machine go Error and the foreground
+ * service stop.
+ */
+internal object RecordingSessionFailureCleanup {
+    suspend fun run(
+        releaseEngineNonDestructively: suspend () -> Unit,
+        abandonFocus: () -> Unit,
+        hasRecoverableArtifacts: suspend () -> Boolean,
+        abandonSessionArtifacts: suspend () -> Unit,
+        onRecordingError: () -> Unit,
+        stopService: () -> Unit,
+    ) {
+        releaseEngineNonDestructively()
+        abandonFocus()
+        if (!hasRecoverableArtifacts()) {
+            abandonSessionArtifacts()
+        }
+        onRecordingError()
+        stopService()
     }
 }

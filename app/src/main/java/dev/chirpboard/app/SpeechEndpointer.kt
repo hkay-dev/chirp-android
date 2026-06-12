@@ -1,5 +1,8 @@
 package dev.chirpboard.app
 
+import kotlinx.coroutines.delay
+import kotlin.math.max
+
 /**
  * Amplitude-driven end-of-speech detector for the system [ChirpRecognitionService] (IME-2).
  *
@@ -41,6 +44,9 @@ package dev.chirpboard.app
  * coordinator's generation token already makes idempotent against a racing manual stop.
  *
  * Pure and clock-agnostic: callers pass a monotonic timestamp with every amplitude frame.
+ * That also makes it event-driven only — a capture whose reads stall entirely never
+ * advances it — so the session owners pair it with the wall-clock
+ * [awaitRecognitionCaptureStall] companion (MIC-018).
  */
 internal class SpeechEndpointer(
     private val completeSilenceMs: Long = DEFAULT_COMPLETE_SILENCE_MS,
@@ -72,6 +78,18 @@ internal class SpeechEndpointer(
      */
     private var speechEstablished = false
     private var finished = false
+
+    /**
+     * True once a terminal event ([Event.END_OF_SPEECH] / [Event.NO_SPEECH_TIMEOUT]) was
+     * emitted. The wall-clock stall watchdog ([awaitRecognitionCaptureStall]) consults
+     * this to stand down once the session owner already has its terminal.
+     */
+    val terminalEmitted: Boolean
+        get() = finished
+
+    /** The session's absolute no-speech budget, exposed for the wall-clock stall watchdog. */
+    val noSpeechBudgetMs: Long
+        get() = noSpeechTimeoutMs
 
     /**
      * Feed one amplitude frame (mean-abs of the capture buffer, 0..1) observed at
@@ -143,6 +161,26 @@ internal class SpeechEndpointer(
         return event
     }
 
+    /**
+     * A fresh endpointer with this session's configuration and the speech threshold scaled
+     * for the session's microphone-gain multiplier (MIC-018). The recorder's amplitude
+     * stream is POST-gain, so the absolute threshold tuned at gain 1.0 would classify
+     * steady amplified ambient noise (fan/traffic at the user-settable 3-5x gain) as a
+     * *sustained* speech run and permanently disable the no-speech cap; genuine speech
+     * scales with the same gain, so establishment is unaffected. The base threshold is
+     * never lowered — a sub-1.0 gain keeps the tuned operating point that protects
+     * slow-quiet speakers. Returns a NEW endpointer (per-frame state is not carried over);
+     * compensate before feeding any frames.
+     */
+    fun gainCompensated(gainMultiplier: Float): SpeechEndpointer =
+        SpeechEndpointer(
+            completeSilenceMs = completeSilenceMs,
+            minimumUtteranceMs = minimumUtteranceMs,
+            noSpeechTimeoutMs = noSpeechTimeoutMs,
+            speechAmplitudeThreshold = speechAmplitudeThreshold * max(1f, gainMultiplier),
+            minSustainedSpeechMs = minSustainedSpeechMs,
+        )
+
     private fun terminal(event: Event): Event {
         finished = true
         return event
@@ -181,6 +219,19 @@ internal class SpeechEndpointer(
         const val MIN_CLIENT_SILENCE_MS = 500L
         const val MAX_CLIENT_SILENCE_MS = 30_000L
         const val MAX_CLIENT_MINIMUM_LENGTH_MS = 60_000L
+
+        /**
+         * Floor for the stall watchdog's wall-clock budget (MIC-018): a session is never
+         * declared stalled before max(noSpeechTimeoutMs, this) has elapsed, so the
+         * watchdog can never undercut the endpointer's own no-speech terminal.
+         */
+        const val STALL_WATCHDOG_MIN_BUDGET_MS = 15_000L
+
+        /** How long the recorder's sample count must sit unchanged to count as a frame stall. */
+        const val STALL_WATCHDOG_STALL_MS = 5_000L
+
+        /** Poll cadence of the stall watchdog (frames normally arrive at ~15 Hz). */
+        const val STALL_WATCHDOG_POLL_MS = 500L
     }
 }
 
@@ -213,4 +264,52 @@ internal fun recognizerSessionEndpointer(
             clientMinimumLengthMs?.coerceAtMost(SpeechEndpointer.MAX_CLIENT_MINIMUM_LENGTH_MS) ?: 0L,
         noSpeechTimeoutMs = maxOf(SpeechEndpointer.DEFAULT_NO_SPEECH_TIMEOUT_MS, completeSilenceMs),
     )
+}
+
+/**
+ * Wall-clock frame-starvation watchdog for a recognition capture session (MIC-018). The
+ * endpointer is purely event-driven — time only advances when amplitude frames arrive — so
+ * a capture whose reads stop entirely (wedged Bluetooth route, HAL stall: a blocking read
+ * that never returns) feeds it nothing, neither terminal can ever fire, and the session
+ * would listen forever with a frozen waveform. This companion suspends until one outcome
+ * is known:
+ *
+ *  - returns true when the watchdog budget (max of the session's no-speech budget and
+ *    [SpeechEndpointer.STALL_WATCHDOG_MIN_BUDGET_MS]) has elapsed with no endpointer
+ *    terminal AND [sampleCount] has not advanced for at least
+ *    [SpeechEndpointer.STALL_WATCHDOG_STALL_MS] — the caller routes into its existing
+ *    generation-gated no-speech path, which keeps a racing stop idempotent;
+ *  - returns false when the endpointer emitted its own terminal: frames are flowing and
+ *    the session owner already acted.
+ *
+ * Callers launch this in a session-scoped job and cancel it on any terminal/stop; a stale
+ * firing is harmless either way because the no-speech paths are generation-gated.
+ */
+internal suspend fun awaitRecognitionCaptureStall(
+    endpointer: SpeechEndpointer,
+    sampleCount: () -> Long,
+): Boolean {
+    val budgetMs = maxOf(endpointer.noSpeechBudgetMs, SpeechEndpointer.STALL_WATCHDOG_MIN_BUDGET_MS)
+    // The stall window is measured inside the budget, so the earliest possible firing
+    // lands exactly at the budget (budget minus the stall window of lead time, then at
+    // least a full stall window of unchanged sample count).
+    delay(budgetMs - SpeechEndpointer.STALL_WATCHDOG_STALL_MS)
+    var lastSampleCount = sampleCount()
+    var unchangedMs = 0L
+    while (true) {
+        if (endpointer.terminalEmitted) {
+            return false
+        }
+        delay(SpeechEndpointer.STALL_WATCHDOG_POLL_MS)
+        val count = sampleCount()
+        if (count == lastSampleCount) {
+            unchangedMs += SpeechEndpointer.STALL_WATCHDOG_POLL_MS
+            if (unchangedMs >= SpeechEndpointer.STALL_WATCHDOG_STALL_MS) {
+                return true
+            }
+        } else {
+            lastSampleCount = count
+            unchangedMs = 0L
+        }
+    }
 }

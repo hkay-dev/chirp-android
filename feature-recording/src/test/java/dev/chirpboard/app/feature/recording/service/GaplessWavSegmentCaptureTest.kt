@@ -16,18 +16,23 @@ import io.mockk.mockkStatic
 import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.verify
+import io.mockk.verifyOrder
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -62,7 +67,10 @@ class GaplessWavSegmentCaptureTest {
             buffer.size
         }
 
-        inputDeviceSelector = mockk()
+        // relaxUnitFun: the engine drives observeRouting/stopObservingRouting and the
+        // token-gated clearActiveDevice on every start/release; only buildAudioRecord
+        // needs explicit stubbing.
+        inputDeviceSelector = mockk(relaxUnitFun = true)
         coEvery {
             inputDeviceSelector.buildAudioRecord(
                 audioSource = any(),
@@ -463,6 +471,140 @@ class GaplessWavSegmentCaptureTest {
             // The partial segment was finalized with an accurate header (stop-with-save).
             assertTrue(WavFileWriter.hasAccurateHeader(segment))
             verify { audioRecord.release() }
+        }
+
+    @Test
+    fun startWhileRunning_throwsAndReleasesOnlyTheFreshlyBuiltRecord() =
+        runTest {
+            // The misuse start builds its own record + session token; pre-fix the
+            // require threw without releasing it, leaking the native handle (MIC-021).
+            val secondRecord = mockk<AudioRecord>(relaxed = true)
+            every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            coEvery {
+                inputDeviceSelector.buildAudioRecord(
+                    audioSource = any(),
+                    sampleRate = any(),
+                    channelConfig = any(),
+                    audioFormat = any(),
+                    bufferSize = any(),
+                )
+            } returns AudioCaptureSession(audioRecord, sessionToken = 1L) andThen
+                AudioCaptureSession(secondRecord, sessionToken = 2L)
+
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val firstSegment = File(temporaryFolder.root, "running.wav")
+            capture.start(firstSegment)
+            Thread.sleep(100)
+
+            val secondStart = runCatching { capture.start(File(temporaryFolder.root, "rejected.wav")) }
+
+            assertTrue(secondStart.exceptionOrNull() is IllegalArgumentException)
+            verify { secondRecord.release() }
+            // The dead session's publication is token-cleared; the live session's
+            // record stays untouched until its own stop.
+            verify { inputDeviceSelector.clearActiveDevice(2L) }
+            verify(exactly = 0) { audioRecord.release() }
+
+            val finalized = capture.stopAndFinalize()
+            assertEquals(firstSegment, finalized)
+        }
+
+    @Test
+    fun rotateSegment_racingEntries_admitExactlyOneRotation() =
+        runTest {
+            // The first read delivers a buffer; later reads block until the gate opens,
+            // so an installed rotation target cannot be consumed while two contenders
+            // race through the entry check. Pre-fix the check and the latch install
+            // were separate lock blocks, so both racers could believe they owned the
+            // pending rotation (MIC-021).
+            val firstReadDone = AtomicBoolean(false)
+            val readGate = CountDownLatch(1)
+            every {
+                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
+            } answers {
+                val buffer = firstArg<ByteArray>()
+                if (!firstReadDone.getAndSet(true)) {
+                    buffer.fill(0x01)
+                    buffer.size
+                } else {
+                    readGate.await(10, TimeUnit.SECONDS)
+                    buffer.fill(0x01)
+                    buffer.size
+                }
+            }
+
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val segmentDir = temporaryFolder.newFolder("rotation-race")
+            capture.start(File(segmentDir, "segment-001.wav"))
+            Thread.sleep(150)
+
+            val barrier = CyclicBarrier(2)
+            val results = ConcurrentHashMap<Int, SegmentRotationResult>()
+            val contenders =
+                (0 until 2).map { index ->
+                    Thread {
+                        barrier.await()
+                        results[index] = capture.rotateSegment(File(segmentDir, "segment-00${index + 2}.wav"))
+                    }.also { it.start() }
+                }
+
+            // The loser must fail fast at the single atomic entry check; only then may
+            // the capture thread resume and consume the winner's pending target.
+            val loserDeadline = System.currentTimeMillis() + 5_000
+            while (results.isEmpty() && System.currentTimeMillis() < loserDeadline) {
+                Thread.sleep(10)
+            }
+            readGate.countDown()
+            contenders.forEach { it.join(10_000) }
+
+            assertEquals(2, results.size)
+            assertEquals(1, results.values.count { it == SegmentRotationResult.Success })
+            val failure = results.values.filterIsInstance<SegmentRotationResult.Failed>().single()
+            assertEquals("Segment rotation already pending", failure.reason)
+
+            capture.stopAndFinalize()
+        }
+
+    @Test
+    fun startThenStop_observesRoutingAndClearsSessionTokenOnRelease() =
+        runTest {
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val segment = File(temporaryFolder.root, "routing.wav")
+
+            capture.start(segment)
+            assertEquals(1L, capture.activeSessionToken)
+            Thread.sleep(100)
+
+            capture.stopAndFinalize()
+
+            // MIC-013 listener symmetry: subscribe after a successful startRecording,
+            // unsubscribe before the record is released.
+            verifyOrder {
+                inputDeviceSelector.observeRouting(audioRecord)
+                inputDeviceSelector.stopObservingRouting(audioRecord)
+                audioRecord.release()
+            }
+            verify { inputDeviceSelector.clearActiveDevice(1L) }
+            assertNull(capture.activeSessionToken)
+        }
+
+    @Test
+    fun releaseWithoutSave_stopsRoutingObservationAndClearsSessionToken() =
+        runTest {
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val segment = File(temporaryFolder.root, "discard.wav")
+            capture.start(segment)
+            Thread.sleep(100)
+
+            capture.releaseWithoutSave()
+
+            verifyOrder {
+                inputDeviceSelector.stopObservingRouting(audioRecord)
+                audioRecord.release()
+            }
+            verify { inputDeviceSelector.clearActiveDevice(1L) }
+            assertNull(capture.activeSessionToken)
+            assertFalse(segment.exists())
         }
 
     private companion object {

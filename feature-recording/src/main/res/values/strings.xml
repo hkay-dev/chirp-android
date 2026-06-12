@@ -111,6 +111,9 @@
     <string name="rec_notification_silence">No audio detected — the microphone may be in use by another app</string>
     <!-- Named variant of the silence hint; %1$s is the active input device. -->
     <string name="rec_notification_silence_named">No audio from %1$s — it may be in use elsewhere. Try a different microphone.</string>
+    <string name="rec_notification_device_changed">Microphone changed when the recording resumed</string>
+    <!-- Named variant; %1$s is the input device the resume selected. -->
+    <string name="rec_notification_device_changed_named">Microphone changed — now recording from %1$s</string>
     <string name="rec_auto_stop_title">Recording stopped and saved</string>
     <string name="rec_auto_stop_storage">Storage was full</string>
     <string name="rec_auto_stop_focus">Another app took control of audio</string>

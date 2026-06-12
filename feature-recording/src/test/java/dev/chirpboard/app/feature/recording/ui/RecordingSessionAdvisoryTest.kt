@@ -34,6 +34,35 @@ class RecordingSessionAdvisoryTest {
     }
 
     @Test
+    fun `focus pause wins over the resume device change`() {
+        // The focus pause explains a visibly-paused session; the device change only
+        // matters once the session is actually capturing again.
+        assertEquals(
+            RecordingSessionAdvisory.PAUSED_BY_FOCUS_LOSS,
+            resolveSessionAdvisory(
+                autoPauseReason = RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT,
+                silenceDetected = false,
+                storageLow = false,
+                deviceChangedOnResume = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `resume device change wins over silence and storage`() {
+        // MIC-010 priority slot: below the focus pause, above the silence hint.
+        assertEquals(
+            RecordingSessionAdvisory.DEVICE_CHANGED_ON_RESUME,
+            resolveSessionAdvisory(
+                autoPauseReason = null,
+                silenceDetected = true,
+                storageLow = true,
+                deviceChangedOnResume = true,
+            ),
+        )
+    }
+
+    @Test
     fun `silence wins over storage`() {
         assertEquals(
             RecordingSessionAdvisory.SILENCED,
@@ -63,6 +92,10 @@ class RecordingSessionAdvisoryTest {
         assertEquals(
             dev.chirpboard.app.feature.recording.R.string.rec_notification_paused_focus,
             RecordingSessionAdvisory.PAUSED_BY_FOCUS_LOSS.advisoryStringRes(),
+        )
+        assertEquals(
+            dev.chirpboard.app.feature.recording.R.string.rec_notification_device_changed,
+            RecordingSessionAdvisory.DEVICE_CHANGED_ON_RESUME.advisoryStringRes(),
         )
         assertEquals(
             dev.chirpboard.app.feature.recording.R.string.rec_notification_silence,

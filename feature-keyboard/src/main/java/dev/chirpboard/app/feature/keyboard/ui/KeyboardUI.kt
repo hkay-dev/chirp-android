@@ -589,7 +589,11 @@ private fun KeyboardTopBar(
         ) {
             KeyboardInputDeviceMenu(
                 pickerState = inputDevicePicker,
-                sessionLive = uiState.voicePanel == VoicePanelPhase.Recording,
+                // MIC-004: trust the service's origin-scoped derivation (KEYBOARD owns the
+                // active recording, covering Starting/Stopping too) instead of recomputing
+                // from the voice phase, which missed the stop window and could not be
+                // origin-checked from here.
+                sessionLive = inputDevicePicker.sessionLive,
                 onSelectAutomatic = onSelectInputDeviceAutomatic,
                 onSelectDevice = onSelectInputDevice,
                 onRequestBluetoothNames = onRequestBluetoothNames,

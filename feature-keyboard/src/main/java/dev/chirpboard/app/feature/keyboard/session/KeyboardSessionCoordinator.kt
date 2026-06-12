@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class KeyboardSessionCoordinator(
@@ -65,6 +66,15 @@ class KeyboardSessionCoordinator(
      * leak the hint into the next one.
      */
     private val silenceDetected = MutableStateFlow(false)
+
+    /**
+     * MIC-014 (keyboard half): the session's ACTIVE input device disconnected mid-dictation
+     * (hot-unplug, Bluetooth drop). Inform-don't-stop on this surface: the platform reroutes
+     * capture to a fallback mic and the dictation continues, so this only drives a transient
+     * status hint. Like [silenceDetected] it is gated on the live Recording phase at map time
+     * and reset on every session start so it can never leak into the next session.
+     */
+    private val deviceLost = MutableStateFlow(false)
     private val overlayError = MutableStateFlow<KeyboardOverlayError?>(null)
     private val sensitiveInput = MutableStateFlow(false)
     private val modelBanner = MutableStateFlow(ModelBannerState.Initializing)
@@ -108,6 +118,18 @@ class KeyboardSessionCoordinator(
     private val activeStopToken = AtomicReference<Any?>(null)
 
     /**
+     * MIC-017: a user cancel that lands inside the stop-teardown window — [isRecording]
+     * already false, [teardownJob] still tearing the recorder down, transcription pipeline
+     * not launched yet — has no job to cancel, so [cancelRecording] records the intent here.
+     * [finishStopAfterTeardown] consumes it (check-and-clear) to discard the capture through
+     * the USER_CANCELLED persistence path and skip the pipeline, instead of committing a
+     * dictation the user just cancelled. Set on the IME main thread, consumed on
+     * [teardownDispatcher]; cleared on every session start so a stale intent can never
+     * discard a later session's stop.
+     */
+    private val cancelRequestedDuringTeardown = AtomicBoolean(false)
+
+    /**
      * Supplies a commit callback bound to the live input session. Set by the IME service so
      * stops it does not initiate directly (for example the max-duration limit) still commit
      * recognized text to the field exactly like a user-initiated stop.
@@ -134,12 +156,13 @@ class KeyboardSessionCoordinator(
         val phase: InlineTranscriptionPhase,
         val modelBanner: ModelBannerState,
         val silenceDetected: Boolean,
+        val deviceLost: Boolean,
     )
 
     val uiState: StateFlow<KeyboardUiState> =
         combine(
-            combine(isRecording, transcription.phase, modelBanner, silenceDetected) { recording, phase, banner, silenced ->
-                CaptureUiInputs(recording, phase, banner, silenced)
+            combine(isRecording, transcription.phase, modelBanner, silenceDetected, deviceLost) { recording, phase, banner, silenced, lost ->
+                CaptureUiInputs(recording, phase, banner, silenced, lost)
             },
             combine(
                 modelInitFailedMessage,
@@ -158,6 +181,7 @@ class KeyboardSessionCoordinator(
                 transcriptionPhase = captureState.phase,
                 modelBanner = captureState.modelBanner,
                 silenceDetected = captureState.silenceDetected,
+                deviceLost = captureState.deviceLost,
                 modelInitFailedMessage = prefsState.modelInitFailedMessage,
                 llmEnabled = prefsState.llmEnabled,
                 // PLH-1: the keyboard-scoped default mode wins over the global mode when set.
@@ -433,8 +457,27 @@ class KeyboardSessionCoordinator(
                 initializeModel()
             }
             panel == VoicePanelPhase.LlmError -> transcription.resetPhase()
+            // MIC-008: the previous dictation's stop pipeline is still finishing. A start
+            // attempt here would only bounce off the still-held global lock and surface a
+            // self-referential "mic in use by the keyboard" toast — to the user, "the
+            // keyboard" is themselves and they just stopped. The panel already shows the
+            // Transcribing phase for this window, so the tap is suppressed with no extra UI.
+            stopPipelineInFlight() -> Unit
             else -> startRecording()
         }
+    }
+
+    /**
+     * True while the previous dictation's stop is still being torn down or transcribed —
+     * the window in which the global recording lock is still held by this surface's own
+     * just-stopped session (MIC-008): state Stopping with KEYBOARD origin, or a live
+     * teardown/transcription job.
+     */
+    private fun stopPipelineInFlight(): Boolean {
+        val state = recordingStateManager.state.value
+        return (state is RecordingState.Stopping && state.origin == RecordingOrigin.KEYBOARD) ||
+            teardownJob?.isActive == true ||
+            transcriptionJob?.isActive == true
     }
 
     fun startRecording() {
@@ -442,9 +485,14 @@ class KeyboardSessionCoordinator(
             return
         }
         stopRequestedDuringStart = false
+        // MIC-017: a cancel intent recorded against a previous session's teardown window
+        // must never discard this session's stop.
+        cancelRequestedDuringTeardown.set(false)
         // AUD-02: the recorder only reports silence TRANSITIONS, so a session that ended
         // mid-silence would otherwise leak a stale hint into the next session's first 4s.
         silenceDetected.value = false
+        // MIC-014: same per-session reset for the device-lost hint.
+        deviceLost.value = false
         startJob =
             scope.launch {
                 try {
@@ -464,7 +512,20 @@ class KeyboardSessionCoordinator(
                             }
                             HapticFeedback.onRecordStart(context)
                             isRecording.value = true
-                            recordingJob = scope.launch { capture.collectSamples() }
+                            recordingJob =
+                                scope.launch {
+                                    // MIC-014: surface a hot-unplug of the session's active
+                                    // device as a transient hint (inform, don't stop — only
+                                    // RecordingService auto-stops, and only for its own
+                                    // capture; the platform reroutes this one to a fallback
+                                    // mic). The collector is a child of recordingJob, so
+                                    // every stop/cancel/finalize/error path already scopes
+                                    // it to the session via recordingJob.cancel().
+                                    launch {
+                                        capture.deviceLostEvents.collect { deviceLost.value = true }
+                                    }
+                                    capture.collectSamples()
+                                }
                         }
 
                         is QuickCaptureStartResult.PermissionDenied -> {
@@ -541,11 +602,40 @@ class KeyboardSessionCoordinator(
         return true
     }
 
-    private fun finishStopAfterTeardown(
+    private suspend fun finishStopAfterTeardown(
         audioSource: InlineAudioSource?,
         commitText: (String) -> Boolean,
         suppressHistory: Boolean = false,
     ) {
+        // MIC-017: consume a cancel that landed inside the teardown window (check-and-clear,
+        // so a stale flag can never affect a later stop). The user changed their mind after
+        // the stop tap but before the pipeline existed; honor it here — discard the capture
+        // through the USER_CANCELLED persistence path (which respects the save preference
+        // and the IME-3 incognito wrapper) and never launch the transcription pipeline.
+        if (cancelRequestedDuringTeardown.getAndSet(false)) {
+            if (audioSource == null) {
+                persistence.discardSamples()
+            } else {
+                val sessionPersistence =
+                    if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
+                // Swallow persistence failures: rethrowing out of the NonCancellable
+                // teardown body would crash the IME process after the cancel succeeded.
+                runCatching {
+                    sessionPersistence.persistAudioSource(
+                        audioSource = audioSource,
+                        rawText = null,
+                        processedText = null,
+                        errorMessage = TEARDOWN_CANCEL_MESSAGE,
+                        reason = InlineCapturePersistReason.USER_CANCELLED,
+                    )
+                }.onFailure { Log.e(tag, "Failed to persist teardown-window cancel", it) }
+            }
+            recordingStateManager.onRecordingCompleted()
+            transcription.resetPhase()
+            clearPendingStop()
+            return
+        }
+
         if (audioSource == null) {
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
@@ -666,6 +756,18 @@ class KeyboardSessionCoordinator(
                         transcription.resetPhase()
                         clearPendingStop()
                     }
+            } else if (userInitiated && teardownJob?.isActive == true) {
+                // MIC-017: the cancel landed inside the stop-teardown window — the stop
+                // already flipped isRecording and the transcription pipeline does not exist
+                // yet, so there is no job to cancel. Record the intent for
+                // finishStopAfterTeardown to consume instead of silently dropping the cancel
+                // (the dictation would commit against the user's intent). Mark the
+                // user-cancel too so the persistence layer respects the save preference.
+                // A non-user-initiated cancel (service destruction) deliberately does NOT
+                // set the flag: destroy keeps rescuing the capture through the unmarked
+                // pipeline-cancellation path exactly as before.
+                cancelRequestedDuringTeardown.set(true)
+                transcription.markUserCancelled()
             }
             return
         }
@@ -804,5 +906,11 @@ class KeyboardSessionCoordinator(
             "Transcription is taking longer than expected"
         internal const val STOP_TIMEOUT_RESCUE_MESSAGE =
             "Dictation stop timed out; the captured audio was saved to recordings"
+
+        /**
+         * MIC-017: persisted with the USER_CANCELLED reason when a cancel landed inside the
+         * stop-teardown window; mirrors the pipeline's own user-cancel persist message.
+         */
+        internal const val TEARDOWN_CANCEL_MESSAGE = "Dictation cancelled"
     }
 }

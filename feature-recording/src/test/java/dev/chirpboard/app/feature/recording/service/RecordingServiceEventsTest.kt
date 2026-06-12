@@ -49,6 +49,9 @@ class RecordingServiceEventsTest {
         events.setAutoPauseReason(RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT)
         events.setSilenceDetected(true)
         events.setStorageLow(true)
+        events.setDeviceChangedOnResume(
+            RecordingDeviceChange(fromDeviceName = "Built-in microphone", toDeviceName = "USB mic"),
+        )
 
         events.resetSessionState()
 
@@ -56,6 +59,20 @@ class RecordingServiceEventsTest {
         assertNull(events.autoPauseReason.value)
         assertFalse(events.silenceDetected.value)
         assertFalse(events.storageLow.value)
+        assertNull(events.deviceChangedOnResume.value)
+    }
+
+    // MIC-010: a resume that re-resolved onto a different microphone publishes the swap so
+    // the advisory banner and the notification status line can name the new device.
+    @Test
+    fun `resume device change carries both device names`() {
+        events.setDeviceChangedOnResume(
+            RecordingDeviceChange(fromDeviceName = "Built-in microphone", toDeviceName = "USB mic"),
+        )
+
+        val change = events.deviceChangedOnResume.value
+        assertEquals("Built-in microphone", change?.fromDeviceName)
+        assertEquals("USB mic", change?.toDeviceName)
     }
 
     @Test

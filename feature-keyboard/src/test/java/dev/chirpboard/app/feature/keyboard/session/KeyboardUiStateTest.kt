@@ -100,6 +100,66 @@ class KeyboardUiStateTest {
     }
 
     @Test
+    fun `device lost while recording surfaces the disconnect hint`() {
+        // MIC-014 keyboard half: a hot-unplugged active mic mid-dictation must be visible
+        // in the panel (inform, don't stop — the platform reroutes and capture continues).
+        val state =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+                deviceLost = true,
+            )
+        assertTrue(state.deviceLostHint)
+        assertEquals(
+            dev.chirpboard.app.feature.keyboard.R.string.keyboard_status_device_lost,
+            state.statusLabelRes(),
+        )
+    }
+
+    @Test
+    fun `device lost flag is ignored outside a live recording and outranked by silence`() {
+        // A stale device-lost flag must never show the hint once the session ended, and
+        // when silence and a disconnect fire on the same unplug the no-audio hint wins.
+        val idle =
+            mapKeyboardUiState(
+                isRecording = false,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+                deviceLost = true,
+            )
+        assertFalse(idle.deviceLostHint)
+
+        val silencedToo =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+                silenceDetected = true,
+                deviceLost = true,
+            )
+        assertEquals(
+            dev.chirpboard.app.feature.keyboard.R.string.keyboard_status_no_audio,
+            silencedToo.statusLabelRes(),
+        )
+    }
+
+    @Test
     fun `recording without silence keeps the recording status label`() {
         val state =
             mapKeyboardUiState(

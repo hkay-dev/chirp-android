@@ -124,7 +124,7 @@ class AudioSettingsViewModelTest {
         }
 
     @Test
-    fun `setManualInputDevice persists the selection key, display name, and manual policy`() =
+    fun `setManualInputDevice persists the selection key, display name, and manual policy atomically`() =
         runTest {
             val viewModel = createViewModel()
             val device =
@@ -139,7 +139,32 @@ class AudioSettingsViewModelTest {
 
             viewModel.setManualInputDevice(device)
 
-            coVerify { audioSettingsStore.setManualDevice("device:7:BT Headset", "BT Headset") }
+            // Single atomic edit — never the old two-call setManualDevice + setInputDevicePolicy pair.
+            coVerify { audioSettingsStore.selectManualDevice("device:7:BT Headset", "BT Headset") }
+            coVerify(exactly = 0) { audioSettingsStore.setManualDevice(any(), any()) }
+            coVerify(exactly = 0) { audioSettingsStore.setInputDevicePolicy(any()) }
+        }
+
+    @Test
+    fun `setInputDevicePolicy Automatic flips policy atomically`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+
+            coVerify { audioSettingsStore.selectAutomatic() }
+            coVerify(exactly = 0) { audioSettingsStore.setInputDevicePolicy(any()) }
+        }
+
+    @Test
+    fun `setInputDevicePolicy Manual flips policy without writing a manual key`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+
             coVerify { audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual) }
+            coVerify(exactly = 0) { audioSettingsStore.selectManualDevice(any(), any()) }
+            coVerify(exactly = 0) { audioSettingsStore.selectAutomatic() }
         }
 }

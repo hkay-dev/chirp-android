@@ -32,7 +32,6 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioFocusManager
-import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.audio.AudioSettings
@@ -357,6 +356,11 @@ class ChirpKeyboardService :
                 val audioSettings by audioSettingsStore.settings
                     .collectAsStateWithLifecycle(initialValue = AudioSettings())
                 val activeInputDevice by inputDeviceSelector.activeDevice.collectAsStateWithLifecycle()
+                // MIC-004: the picker is "session live" only while the KEYBOARD origin owns
+                // the recording, so the chip pins the live session's actual device and the
+                // sheet shows the applies-next-session note — and an app/widget/recognition
+                // capture can never mark this surface live.
+                val recordingState by recordingStateManager.state.collectAsStateWithLifecycle()
                 KeyboardScreen(
                     uiState = uiState,
                     waveformBuffer = coordinator.capture.waveformBuffer,
@@ -386,6 +390,7 @@ class ChirpKeyboardService :
                             manualKey = audioSettings.manualDeviceAddress,
                             manualName = audioSettings.manualDeviceName,
                             activeDevice = activeInputDevice,
+                            sessionLive = keyboardPickerSessionLive(recordingState),
                         ),
                     onSelectInputDeviceAutomatic = ::selectInputDeviceAutomatic,
                     onSelectInputDevice = ::selectInputDevice,
@@ -518,18 +523,19 @@ class ChirpKeyboardService :
     /**
      * AUDIODEV picker actions. Persisted via the shared [AudioSettingsStore], so the
      * choice applies to the NEXT capture start on EVERY surface (keyboard, recorder,
-     * recognition) — never a mid-session swap.
+     * recognition) — never a mid-session swap. Each selection is a single atomic
+     * DataStore edit (MIC-005): a capture starting concurrently can never read the new
+     * manual key under the old policy.
      */
     private fun selectInputDeviceAutomatic() {
         scope.launch {
-            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+            audioSettingsStore.selectAutomatic()
         }
     }
 
     private fun selectInputDevice(device: AudioInputDeviceSummary) {
         scope.launch {
-            audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
-            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+            audioSettingsStore.selectManualDevice(device.selectionKey, device.productName)
         }
     }
 
@@ -571,3 +577,11 @@ class ChirpKeyboardService :
         return committed
     }
 }
+
+/**
+ * MIC-004 (keyboard half): the IME picker counts as "session live" only while the KEYBOARD
+ * origin owns the active recording. Origin-scoped so an app/widget/recognition capture never
+ * pins the keyboard's chip to a device its own next session will not use.
+ */
+internal fun keyboardPickerSessionLive(state: RecordingState): Boolean =
+    state.isActive && state.activeOrigin == RecordingOrigin.KEYBOARD

@@ -45,6 +45,7 @@ class QuickCaptureSessionImplTest {
     private val context =
         mockk<Context>(relaxed = true) {
             every { getString(R.string.keyboard_mic_source_app) } returns "app"
+            every { getString(R.string.keyboard_mic_source_keyboard) } returns "keyboard"
             every { getString(R.string.keyboard_audio_busy) } returns "Another app is using audio"
             every { getString(R.string.keyboard_record_start_failed) } returns "Failed to start recording"
         }
@@ -106,7 +107,26 @@ class QuickCaptureSessionImplTest {
             val result = session.start()
 
             assertEquals(QuickCaptureStartResult.AlreadyRecording(sourceLabel = "app"), result)
+            // A genuinely other-origin busy keeps the explanatory toast (MIC-008).
+            verify(exactly = 1) { Toast.makeText(any(), any<CharSequence>(), any()) }
             // The refusal never requests focus or starts the recorder.
+            verify(exactly = 0) { audioFocusManager.requestFocus() }
+        }
+
+    @Test
+    fun `mic held by the keyboard itself returns busy without the self-referential toast`() =
+        runTest {
+            // MIC-008: a KEYBOARD-origin busy result means our own previous dictation's stop
+            // pipeline still holds the lock; the coordinator owns that window's UI, so the
+            // "mic in use by keyboard" toast aimed at the user who just stopped is suppressed.
+            every { recordingStateManager.tryStartRecording(RecordingOrigin.KEYBOARD, null) } returns
+                RecordingStartResult.AlreadyRecording(currentOrigin = RecordingOrigin.KEYBOARD)
+            val session = createSession(this)
+
+            val result = session.start()
+
+            assertEquals(QuickCaptureStartResult.AlreadyRecording(sourceLabel = "keyboard"), result)
+            verify(exactly = 0) { Toast.makeText(any(), any<CharSequence>(), any()) }
             verify(exactly = 0) { audioFocusManager.requestFocus() }
         }
 

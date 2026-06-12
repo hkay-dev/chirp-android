@@ -24,6 +24,7 @@ import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -79,6 +80,16 @@ class ChirpRecognitionService : RecognitionService() {
      * Read/written only on the service main thread, alongside the generation tokens.
      */
     private var currentSessionSecure = false
+
+    /**
+     * MIC-018: wall-clock frame-starvation watchdog for the live session, armed by
+     * [armSessionTermination] and cancelled on the session's terminal. The endpointer is
+     * event-driven — a capture whose reads stall entirely (wedged Bluetooth route, HAL
+     * stall) feeds it nothing — so without this the client would wait forever for a
+     * terminal callback. Read/written only on the service main thread, like
+     * [currentSessionSecure].
+     */
+    private var captureStallWatchdog: Job? = null
 
     private val recorderControl =
         object : VoiceRecognitionSessionCoordinator.RecorderControl {
@@ -192,7 +203,6 @@ class ChirpRecognitionService : RecognitionService() {
         // into the recognition history.
         val secureSession = intent.getBooleanExtra(RecognizerIntent.EXTRA_SECURE, false)
         currentSessionSecure = secureSession
-        val endpointer = recognizerIntentEndpointer(intent)
 
         val generation = sessionCoordinator.issueGeneration()
         scope.launch {
@@ -214,6 +224,13 @@ class ChirpRecognitionService : RecognitionService() {
                 return@launch
             }
 
+            // The per-session endpointer honors the caller's silence extras, with its
+            // speech threshold compensated for the session's microphone gain (MIC-018):
+            // the amplitude stream is post-gain, so steady amplified ambient noise would
+            // otherwise establish "speech" and disable the no-speech cap.
+            val endpointer =
+                recognizerIntentEndpointer(intent)
+                    .gainCompensated(audioSettingsStore.currentMicrophoneGain())
             val result =
                 sessionCoordinator.start(
                     generation = generation,
@@ -227,7 +244,7 @@ class ChirpRecognitionService : RecognitionService() {
                 )
             when (result) {
                 VoiceRecognitionSessionCoordinator.StartResult.Started ->
-                    armSessionTermination(generation, listener, secureSession)
+                    armSessionTermination(generation, listener, secureSession, endpointer)
 
                 VoiceRecognitionSessionCoordinator.StartResult.Cancelled ->
                     // The client cancelled while a slow model load delayed this start; the
@@ -266,15 +283,17 @@ class ChirpRecognitionService : RecognitionService() {
     /**
      * IME-2: every way a live session can end without an explicit client stop must still
      * produce a terminal callback — the 10-minute recorder cap, a mid-capture recorder
-     * failure, and a permanent audio-focus loss all route into the same generation-gated
-     * stop/cancel paths a manual stop uses, so a racing manual stop stays idempotent.
-     * Armed only after [VoiceRecognitionSessionCoordinator.StartResult.Started] so a Busy
-     * start can never re-point the live session's callbacks at a rejected one.
+     * failure, a permanent audio-focus loss, and a frame-starved capture (MIC-018) all
+     * route into the same generation-gated stop/cancel paths a manual stop uses, so a
+     * racing manual stop stays idempotent. Armed only after
+     * [VoiceRecognitionSessionCoordinator.StartResult.Started] so a Busy start can never
+     * re-point the live session's callbacks at a rejected one.
      */
     private fun armSessionTermination(
         generation: Int,
         listener: Callback,
         secureSession: Boolean,
+        endpointer: SpeechEndpointer,
     ) {
         recorder.onLimitReached = {
             Log.w(TAG, "Recording limit reached; delivering captured audio (generation=$generation)")
@@ -289,6 +308,17 @@ class ChirpRecognitionService : RecognitionService() {
                 scope.launch { stopAndDeliver(generation, listener, secureSession) }
             }
         }
+        // MIC-018: a capture whose reads stall delivers no amplitude frames, so the
+        // event-driven endpointer can never time it out; the wall-clock watchdog routes
+        // a stalled session into the same generation-gated no-speech path.
+        captureStallWatchdog?.cancel()
+        captureStallWatchdog =
+            scope.launch {
+                if (awaitRecognitionCaptureStall(endpointer) { recorder.sampleCountFlow.value }) {
+                    Log.w(TAG, "Capture frames stalled; aborting session as no-speech (generation=$generation)")
+                    abortSilentSession(generation, listener)
+                }
+            }
     }
 
     /**
@@ -348,9 +378,23 @@ class ChirpRecognitionService : RecognitionService() {
                 runCatching { listener.error(SpeechRecognizer.ERROR_AUDIO) }
             }
 
-            is VoiceRecognitionSessionCoordinator.StopResult.Captured ->
+            is VoiceRecognitionSessionCoordinator.StopResult.Captured -> {
+                // The session reached its terminal; its stall watchdog stands down (a
+                // stale firing would be generation-gated anyway).
+                cancelCaptureStallWatchdog()
                 transcribeAndDeliver(result.samples, listener, secureSession)
+            }
         }
+    }
+
+    /**
+     * Stands the stall watchdog down on a session terminal. Never called from the
+     * watchdog's own coroutine: the endpointer-driven terminals stand it down via the
+     * endpointer's terminal mark, and a watchdog-driven firing has already completed.
+     */
+    private fun cancelCaptureStallWatchdog() {
+        captureStallWatchdog?.cancel()
+        captureStallWatchdog = null
     }
 
     /**
@@ -364,6 +408,7 @@ class ChirpRecognitionService : RecognitionService() {
         error: RecordingError,
     ) {
         if (sessionCoordinator.cancel(generation)) {
+            cancelCaptureStallWatchdog()
             Log.e(TAG, "Recorder failed mid-session (generation=$generation): ${error.userMessage}")
             runCatching { listener.error(recognitionErrorCodeFor(error)) }
         }
@@ -442,6 +487,8 @@ class ChirpRecognitionService : RecognitionService() {
         // generation resolves as Superseded: a session its own client cancelled must
         // not receive a stale terminal BUSY afterwards.
         sessionCoordinator.markCancelRequested(generation)
+        // The client abandoned the session; its stall watchdog must not outlive it.
+        cancelCaptureStallWatchdog()
         scope.launch {
             if (!sessionCoordinator.cancel(generation)) {
                 Log.w(TAG, "Ignoring cancel for inactive session (generation=$generation)")
@@ -502,9 +549,18 @@ class ChirpRecognitionService : RecognitionService() {
 
     override fun onDestroy() {
         Log.d(TAG, "Service destroyed")
-        sessionCoordinator.shutdown()
-        recorder.close()
-        audioFocus.abandonFocus()
+        // MIC-015/PERF-5: the coordinator shutdown cancels the recorder (AudioRecord
+        // stop/release binder calls plus a temp-file delete) and close() releases its
+        // buffers — blocking work that must not stall the main thread during destroy.
+        // It hops to a short-lived IO scope that outlives [scope]; the session
+        // bookkeeping the shutdown clears is never consulted again after destroy.
+        // scope.cancel() stays ordered after the hop is launched, so in-flight session
+        // jobs tear down exactly as before.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            sessionCoordinator.shutdown()
+            recorder.close()
+            audioFocus.abandonFocus()
+        }
         scope.cancel()
         super.onDestroy()
     }

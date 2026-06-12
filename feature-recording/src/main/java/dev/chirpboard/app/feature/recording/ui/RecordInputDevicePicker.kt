@@ -18,7 +18,6 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.audio.ActiveInputDevice
-import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.audio.AudioSettingsStore
@@ -74,14 +73,13 @@ class InputDevicePickerViewModel
 
         fun selectAutomatic() {
             viewModelScope.launch {
-                audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+                audioSettingsStore.selectAutomatic()
             }
         }
 
         fun selectDevice(device: AudioInputDeviceSummary) {
             viewModelScope.launch {
-                audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
-                audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+                audioSettingsStore.selectManualDevice(device.selectionKey, device.productName)
             }
         }
 
@@ -122,7 +120,12 @@ fun RecordInputDevicePicker(
             state = state,
             onClick = { sheetOpen = true },
         )
-        InputDeviceFallbackNotice(activeDevice = activeDevice)
+        // Gate the fallback notice on a live session: the selector's app-wide activeDevice
+        // can stay populated after a keyboard/recognition session ends, and replaying a
+        // "Using Built-in — Buds isn't connected" notice with no recording in flight is stale.
+        if (state.sessionLive) {
+            InputDeviceFallbackNotice(activeDevice = activeDevice)
+        }
     }
 
     if (sheetOpen) {

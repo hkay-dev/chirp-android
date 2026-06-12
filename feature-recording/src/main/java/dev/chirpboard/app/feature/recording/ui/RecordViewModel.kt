@@ -123,7 +123,8 @@ class RecordViewModel
         }
 
         /**
-         * AUD-02/AUD-05/ERR-14: live-session advisory (focus pause, silenced mic, low storage)
+         * AUD-02/AUD-05/ERR-14/MIC-010: live-session advisory (focus pause, device change on
+         * resume, silenced mic, low storage)
          * rendered as an inline banner on the record screen — the in-app twin of the
          * notification's transient status line. Session-scoped: the service clears the
          * underlying flags when the session ends.
@@ -133,11 +134,13 @@ class RecordViewModel
                 serviceEvents.autoPauseReason,
                 serviceEvents.silenceDetected,
                 serviceEvents.storageLow,
-            ) { autoPauseReason, silenceDetected, storageLow ->
+                serviceEvents.deviceChangedOnResume,
+            ) { autoPauseReason, silenceDetected, storageLow, deviceChange ->
                 resolveSessionAdvisory(
                     autoPauseReason = autoPauseReason,
                     silenceDetected = silenceDetected,
                     storageLow = storageLow,
+                    deviceChangedOnResume = deviceChange != null,
                 )
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 

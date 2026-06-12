@@ -9,6 +9,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.SystemClock
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import androidx.core.content.ContextCompat
 import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
@@ -113,6 +114,16 @@ class VoiceRecorder(
     )
 
     private var audioRecord: AudioRecord? = null
+
+    /**
+     * Active-device publication token for the live capture (from
+     * [AudioInputDeviceSelector.buildAudioRecord]); passed back to
+     * [AudioInputDeviceSelector.clearActiveDevice] in [stopAudioRecord] so every
+     * VoiceRecorder surface (IME + recognition) clears the selector's published
+     * device exactly once, and a late clear can never clobber a newer session's
+     * publication. Guarded by [sampleLock].
+     */
+    private var selectorSessionToken: Long? = null
     private val isRecording = AtomicBoolean(false)
 
     /**
@@ -161,6 +172,9 @@ class VoiceRecorder(
         var pendingCaptureFile: File? = null
         var pendingCaptureOutput: BufferedOutputStream? = null
 
+        /** Selector publication token from buildAudioRecord, until published or cleared. */
+        var pendingSessionToken: Long? = null
+
         /** Session generation this attempt published, or null if it never went live. */
         var publishedGeneration: Long? = null
     }
@@ -188,8 +202,22 @@ class VoiceRecorder(
      */
     var onSilenceStateChanged: ((Boolean) -> Unit)? = null
 
-    /** Whether an error occurred during the current recording session */
+    /**
+     * Whether an error occurred during the current recording session. Volatile
+     * because it is reset from start/collect threads outside [sampleLock] while
+     * the stop paths read it under the lock.
+     */
+    @Volatile
     private var hasError = false
+
+    /**
+     * Test seam invoked in the gap between a stop path's two lock blocks (after
+     * [stopAudioRecord], before the capture-state block) so tests can interleave
+     * a racing [start] inside the otherwise microsecond-wide window. Never set
+     * in production.
+     */
+    @VisibleForTesting
+    internal var afterStopAudioRecordForTest: (() -> Unit)? = null
 
     val waveformBuffer = WaveformBuffer(42)
     private val _sampleCountFlow = MutableStateFlow(0L)
@@ -251,14 +279,16 @@ class VoiceRecorder(
                     // phoneme-smearing noise suppression) instead of generic MIC defaults.
                     attempt.pendingRecord =
                         inputDeviceSelector?.let { selector ->
-                            selector
-                                .buildAudioRecord(
+                            val session =
+                                selector.buildAudioRecord(
                                     audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION,
                                     sampleRate = SAMPLE_RATE,
                                     channelConfig = CHANNEL_CONFIG,
                                     audioFormat = AUDIO_FORMAT,
                                     bufferSize = bufferSize * 2,
-                                ).record
+                                )
+                            attempt.pendingSessionToken = session.sessionToken
+                            session.record
                         } ?: AudioRecord(
                             MediaRecorder.AudioSource.VOICE_RECOGNITION,
                             SAMPLE_RATE,
@@ -288,6 +318,7 @@ class VoiceRecorder(
             if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
                 record?.release()
                 attempt.pendingRecord = null
+                clearPendingSessionToken(attempt)
                 ready.completeExceptionally(initException ?: IllegalStateException("AudioRecord not initialized after retries"))
                 return false
             }
@@ -308,13 +339,21 @@ class VoiceRecorder(
                 sampleFile = attempt.pendingCaptureFile
                 sampleOutput = attempt.pendingCaptureOutput
                 audioRecord = record
+                selectorSessionToken = attempt.pendingSessionToken
                 attempt.pendingRecord = null
                 attempt.pendingCaptureFile = null
                 attempt.pendingCaptureOutput = null
+                attempt.pendingSessionToken = null
                 recordingStartTimeMs = SystemClock.elapsedRealtime()
                 attempt.publishedGeneration = sessionGeneration.incrementAndGet()
                 isRecording.set(true)
             }
+
+            // Track live reroutes for the rest of the session ([stopAudioRecord]
+            // removes the listener before release); the first-read refresh in
+            // collectSamples stays because the platform may not fire the listener
+            // for the initial route on all OS versions.
+            inputDeviceSelector?.observeRouting(record)
 
             // Signal that recording is ready for collection
             ready.complete(Unit)
@@ -356,6 +395,7 @@ class VoiceRecorder(
             runCatching { attempt.pendingRecord?.stop() }
             attempt.pendingRecord?.release()
             attempt.pendingRecord = null
+            clearPendingSessionToken(attempt)
             runCatching { attempt.pendingCaptureOutput?.close() }
             attempt.pendingCaptureOutput = null
             runCatching { attempt.pendingCaptureFile?.delete() }
@@ -363,6 +403,16 @@ class VoiceRecorder(
         }
         // No-op if start() already completed it (boundary cancellation case).
         attempt.ready?.completeExceptionally(cause)
+    }
+
+    /**
+     * Releases the selector publication a failed or aborted start attempt made
+     * via [AudioInputDeviceSelector.buildAudioRecord] before it went live.
+     * Token-aware, so a newer session's published device always survives.
+     */
+    private fun clearPendingSessionToken(attempt: StartAttempt) {
+        attempt.pendingSessionToken?.let { token -> inputDeviceSelector?.clearActiveDevice(token) }
+        attempt.pendingSessionToken = null
     }
 
     suspend fun collectSamples() =
@@ -499,47 +549,64 @@ class VoiceRecorder(
         }
 
     fun stop(): FloatArray {
-        val durationMs = stopAudioRecord()
+        val (durationMs, endedGeneration) = stopAudioRecord()
+        afterStopAudioRecordForTest?.invoke()
 
         if (captureStorageMode == CaptureStorageMode.FileBacked) {
             synchronized(sampleLock) {
-                resetFileBackedCaptureLocked(deleteExisting = true)
-                sampleCount = 0
+                // Mirror failCollect's discipline: a start() racing this stop
+                // may have published a new session in the gap between the two
+                // lock blocks, and its state is no longer ours to reset.
+                if (sessionGeneration.get() == endedGeneration) {
+                    resetFileBackedCaptureLocked(deleteExisting = true)
+                    sampleCount = 0
+                }
             }
             return FloatArray(0)
         }
 
-        if (hasError) {
-            clearInMemoryCapture()
-            hasError = false
-            return FloatArray(0)
-        }
-
-        if (durationMs < MINIMUM_RECORDING_MS) {
+        var failed = false
+        val captured =
+            synchronized(sampleLock) {
+                // Mirror failCollect's discipline: a start() racing this stop
+                // may have published a new session in the gap between the two
+                // lock blocks; zeroing its capture would lose it from t=0.
+                if (sessionGeneration.get() != endedGeneration) return FloatArray(0)
+                failed = hasError
+                hasError = false
+                val capturedSamples =
+                    if (failed || durationMs < MINIMUM_RECORDING_MS) {
+                        FloatArray(0)
+                    } else {
+                        samples.copyOf(sampleCount)
+                    }
+                sampleCount = 0
+                // Release the multi-MB buffer instead of re-allocating a 1-minute
+                // one that may never be used again; the next start allocates lazily.
+                samples = EMPTY_SAMPLES
+                capturedSamples
+            }
+        if (!failed && durationMs < MINIMUM_RECORDING_MS) {
             Log.w(TAG, "Recording too short: ${durationMs}ms")
-            clearInMemoryCapture()
             onRecordingError?.invoke(RecordingError.TooShort)
-            return FloatArray(0)
         }
-
-        return synchronized(sampleLock) {
-            val capturedSamples = samples.copyOf(sampleCount)
-            sampleCount = 0
-            // Release the multi-MB buffer instead of re-allocating a 1-minute
-            // one that may never be used again; the next start allocates lazily.
-            samples = EMPTY_SAMPLES
-            capturedSamples
-        }
+        return captured
     }
 
     fun stopToFileBacked(): CapturedPcmFloatFile? {
-        val durationMs = stopAudioRecord()
+        val (durationMs, endedGeneration) = stopAudioRecord()
+        afterStopAudioRecordForTest?.invoke()
 
         if (captureStorageMode != CaptureStorageMode.FileBacked) {
             return null
         }
 
         return synchronized(sampleLock) {
+            // Mirror failCollect's discipline: a start() racing this stop may
+            // have published a new session in the gap between the two lock
+            // blocks; closing its output or taking its file would corrupt the
+            // live capture.
+            if (sessionGeneration.get() != endedGeneration) return null
             closeSampleOutputLocked()
             val file = sampleFile
             val count = sampleCount
@@ -566,8 +633,12 @@ class VoiceRecorder(
     }
 
     fun cancelCapture() {
-        stopAudioRecord()
+        val endedGeneration = stopAudioRecord().endedGeneration
+        afterStopAudioRecordForTest?.invoke()
         synchronized(sampleLock) {
+            // No-op when a start() racing this cancel published a new session
+            // in the gap between the two lock blocks (mirrors failCollect).
+            if (sessionGeneration.get() != endedGeneration) return
             sampleCount = 0
             resetFileBackedCaptureLocked(deleteExisting = true)
             samples = EMPTY_SAMPLES
@@ -577,31 +648,47 @@ class VoiceRecorder(
     fun isRecording(): Boolean = isRecording.get()
 
     override fun close() {
-        stopAudioRecord()
+        val endedGeneration = stopAudioRecord().endedGeneration
+        afterStopAudioRecordForTest?.invoke()
         synchronized(sampleLock) {
+            // No-op when a start() racing this close published a new session
+            // in the gap between the two lock blocks (mirrors failCollect).
+            if (sessionGeneration.get() != endedGeneration) return
             sampleCount = 0
             resetFileBackedCaptureLocked(deleteExisting = true)
             samples = EMPTY_SAMPLES
         }
     }
 
-    private fun clearInMemoryCapture() {
-        synchronized(sampleLock) {
-            sampleCount = 0
-            samples = EMPTY_SAMPLES
-        }
-    }
+    /** What [stopAudioRecord] left behind: the session duration and the generation it ended on. */
+    private data class StopResult(
+        val durationMs: Long,
+        val endedGeneration: Long,
+    )
 
-    private fun stopAudioRecord(): Long =
+    private fun stopAudioRecord(): StopResult =
         synchronized(sampleLock) {
-            // Invalidate stale collectors and aborts for the ending session.
-            sessionGeneration.incrementAndGet()
+            // Invalidate stale collectors and aborts for the ending session. The
+            // bumped generation is returned so callers' follow-up lock blocks can
+            // no-op when a concurrent start() published a newer session between
+            // the two blocks (mirrors failCollect's discipline).
+            val endedGeneration = sessionGeneration.incrementAndGet()
             isRecording.set(false)
             val durationMs = SystemClock.elapsedRealtime() - recordingStartTimeMs
-            runCatching { audioRecord?.stop() }
-            audioRecord?.release()
+            audioRecord?.let { record ->
+                // Routing-listener removal must precede release() so the
+                // selector's per-record entry never leaks.
+                inputDeviceSelector?.stopObservingRouting(record)
+                runCatching { record.stop() }
+                record.release()
+            }
             audioRecord = null
-            durationMs
+            // Token-aware clear: every VoiceRecorder surface (IME + recognition)
+            // clears the selector's published device exactly once, and a newer
+            // session's publication always survives a late teardown.
+            selectorSessionToken?.let { token -> inputDeviceSelector?.clearActiveDevice(token) }
+            selectorSessionToken = null
+            StopResult(durationMs = durationMs, endedGeneration = endedGeneration)
         }
 
     /**

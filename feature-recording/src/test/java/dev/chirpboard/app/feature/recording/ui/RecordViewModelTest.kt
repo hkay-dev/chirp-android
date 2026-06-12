@@ -534,6 +534,16 @@ class RecordViewModelTest {
         advanceUntilIdle()
         assertEquals(RecordingSessionAdvisory.SILENCED, viewModel.sessionAdvisory.value)
 
+        // MIC-010: a resume-time device change outranks silence but not the focus pause.
+        serviceEvents.setDeviceChangedOnResume(
+            dev.chirpboard.app.feature.recording.service.RecordingDeviceChange(
+                fromDeviceName = "Built-in microphone",
+                toDeviceName = "USB mic",
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(RecordingSessionAdvisory.DEVICE_CHANGED_ON_RESUME, viewModel.sessionAdvisory.value)
+
         serviceEvents.setAutoPauseReason(
             dev.chirpboard.app.feature.recording.service.RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT,
         )
