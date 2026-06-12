@@ -15,6 +15,7 @@ import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RecordVoiceOver
+import androidx.compose.material.icons.rounded.SettingsBackupRestore
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,6 +51,7 @@ fun SettingsScreen(
     onNavigateToAudioSettings: () -> Unit = {},
     onNavigateToObsidianSettings: () -> Unit,
     onNavigateToKeyboardSettings: () -> Unit,
+    onNavigateToBackupRestore: () -> Unit = {},
     onNavigateToProfiles: () -> Unit,
     onNavigateToTags: () -> Unit,
     onNavigateToWordReplacements: () -> Unit,
@@ -188,6 +190,19 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_word_replacements_title),
                     subtitle = stringResource(R.string.settings_word_replacements_subtitle),
                     onClick = onNavigateToWordReplacements,
+                )
+            }
+
+            // Data Section — unified Backup & Restore for user data (chirp-backup v1).
+            item {
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_data))
+            }
+            item {
+                SettingsListItem(
+                    icon = Icons.Rounded.SettingsBackupRestore,
+                    title = stringResource(R.string.settings_backup_title),
+                    subtitle = stringResource(R.string.settings_backup_subtitle),
+                    onClick = onNavigateToBackupRestore,
                 )
             }
 

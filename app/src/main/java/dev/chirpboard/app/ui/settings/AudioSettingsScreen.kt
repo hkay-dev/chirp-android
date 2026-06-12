@@ -31,16 +31,22 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bluetooth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Icon
 import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
+import dev.chirpboard.app.core.ui.R as CoreUiR
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.components.icon
 
 /**
  * Settings screen for audio-related options including microphone gain
@@ -130,8 +136,15 @@ fun AudioSettingsScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .clickable { viewModel.setManualInputDevice(device.selectionKey) },
+                                        .clickable { viewModel.setManualInputDevice(device) },
                                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                leadingContent = {
+                                    Icon(
+                                        imageVector = device.kind.icon(),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
                                 headlineContent = { Text(device.productName) },
                                 supportingContent = { Text(device.typeLabel) },
                                 trailingContent = {
@@ -142,6 +155,44 @@ fun AudioSettingsScreen(
                                             tint = MaterialTheme.colorScheme.primary,
                                         )
                                     }
+                                },
+                            )
+                        }
+
+                        // AUD-09: Bluetooth devices are present but their real names are
+                        // hidden — offer the BLUETOOTH_CONNECT rationale + request right
+                        // here. Denied? Type labels keep working; the row simply stays.
+                        if (availableInputDevices.any { it.bluetoothNameHidden }) {
+                            val bluetoothPermissionLauncher =
+                                rememberLauncherForActivityResult(
+                                    ActivityResultContracts.RequestPermission(),
+                                ) { granted ->
+                                    if (granted) {
+                                        viewModel.onBluetoothPermissionGranted()
+                                    }
+                                }
+                            ListItem(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            bluetoothPermissionLauncher.launch(
+                                                Manifest.permission.BLUETOOTH_CONNECT,
+                                            )
+                                        },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                leadingContent = {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Bluetooth,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                                headlineContent = {
+                                    Text(stringResource(CoreUiR.string.input_device_bt_names_action))
+                                },
+                                supportingContent = {
+                                    Text(stringResource(CoreUiR.string.input_device_bt_names_rationale))
                                 },
                             )
                         }

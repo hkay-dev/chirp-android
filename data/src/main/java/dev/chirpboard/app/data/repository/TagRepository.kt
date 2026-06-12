@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.repository
 
+import dev.chirpboard.app.data.dao.BackupUpsertCounts
 import dev.chirpboard.app.data.dao.RecordingTagRow
 import dev.chirpboard.app.data.dao.TagDao
 import dev.chirpboard.app.data.entity.RecordingTag
@@ -95,6 +96,12 @@ class TagRepository
         suspend fun removeAllTagsFromRecording(recordingId: UUID) = tagDao.removeAllTagsFromRecording(recordingId)
 
         suspend fun getCount(): Int = tagDao.getCount()
+
+        /** Backup restore (REPLACE): atomically clears all tags and inserts [tags]. */
+        suspend fun replaceAllFromBackup(tags: List<Tag>): BackupUpsertCounts = tagDao.replaceAllTags(tags)
+
+        /** Backup restore (MERGE): atomically upserts [tags] by name, keeping existing ids. */
+        suspend fun upsertByNameFromBackup(tags: List<Tag>): BackupUpsertCounts = tagDao.upsertTagsByName(tags)
     }
 
 private fun groupRecordingTagRows(rows: List<RecordingTagRow>): Map<UUID, List<Tag>> =

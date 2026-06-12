@@ -171,7 +171,7 @@ class RecordingService : Service() {
         }
         audioFocusManager.onFocusRegained = { resumeAfterFocusRegained() }
         val serviceRef = WeakReference(this)
-        inputDeviceSelector.setOnActiveDeviceLostListener {
+        inputDeviceSelector.setOnActiveDeviceLostListener { lostDeviceName ->
             serviceRef.get()?.let { service ->
                 service.serviceScope.launch {
                     // The listener now survives for the whole service lifetime (it used to
@@ -182,7 +182,9 @@ class RecordingService : Service() {
                     if (!service.recordingStateManager.state.value.isActive || !service.serviceOwnsCapture()) {
                         return@launch
                     }
-                    service.announceAutoStop(RecordingAutoStopReason.INPUT_DEVICE_LOST)
+                    // Stop-with-save is deliberate (no silent mid-recording device swap);
+                    // the reason names the lost device so the user knows exactly why.
+                    service.announceAutoStop(RecordingAutoStopReason.INPUT_DEVICE_LOST, lostDeviceName)
                     service.stopRecording()
                 }
             }
@@ -195,9 +197,12 @@ class RecordingService : Service() {
      * disappears with the stop, so this is the only surviving system-surface explanation).
      * Advisory only — the stop itself still flows through the unchanged gated stop path.
      */
-    private fun announceAutoStop(reason: RecordingAutoStopReason) {
-        serviceEvents.publishAutoStop(reason)
-        runCatching { notificationFactory.notifyAutoStopped(this, reason) }
+    private fun announceAutoStop(
+        reason: RecordingAutoStopReason,
+        detail: String? = null,
+    ) {
+        serviceEvents.publishAutoStop(reason, detail)
+        runCatching { notificationFactory.notifyAutoStopped(this, reason, detail) }
         ReliabilityEventLogger
             .scoped(
                 stage = ReliabilityStage.RECORDING_STOP,
@@ -717,7 +722,15 @@ class RecordingService : Service() {
         when {
             recordingStateManager.state.value is RecordingState.Paused && pausedByFocusLoss ->
                 getString(R.string.rec_notification_paused_focus)
-            serviceEvents.silenceDetected.value -> getString(R.string.rec_notification_silence)
+            serviceEvents.silenceDetected.value -> {
+                // AUD-02 + device picker: name the silent device and suggest switching.
+                val deviceName = inputDeviceSelector.activeDeviceLabel.value
+                if (deviceName.isNullOrBlank()) {
+                    getString(R.string.rec_notification_silence)
+                } else {
+                    getString(R.string.rec_notification_silence_named, deviceName)
+                }
+            }
             serviceEvents.storageLow.value -> getString(R.string.rec_notification_storage_low)
             else -> null
         }

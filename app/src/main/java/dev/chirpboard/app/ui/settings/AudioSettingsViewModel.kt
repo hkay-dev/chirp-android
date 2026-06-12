@@ -116,12 +116,22 @@ class AudioSettingsViewModel
         /**
          * Persists a manual device selection by its stable [AudioInputDeviceSummary.selectionKey]
          * (address, or a type+name composite for blank-address Bluetooth/wired devices —
-         * the previous transient-id fallback could never be resolved again).
+         * the previous transient-id fallback could never be resolved again) plus its display
+         * name, so the preference can be named even while the device is disconnected.
          */
-        fun setManualInputDevice(selectionKey: String) {
+        fun setManualInputDevice(device: AudioInputDeviceSummary) {
             viewModelScope.launch {
-                audioSettingsStore.setManualDeviceAddress(selectionKey)
+                audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
                 audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
             }
+        }
+
+        /**
+         * Re-enumerates devices after a BLUETOOTH_CONNECT grant so real Bluetooth names
+         * (and addresses) replace the type-label placeholders app-wide.
+         */
+        fun onBluetoothPermissionGranted() {
+            inputDeviceSelector.refreshDevices()
+            refreshInputDevices()
         }
     }

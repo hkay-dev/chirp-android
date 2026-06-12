@@ -1,8 +1,10 @@
 package dev.chirpboard.app.ui.settings
 
 import app.cash.turbine.test
+import dev.chirpboard.app.core.audio.AudioInputDeviceKind
 import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
+import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
@@ -122,13 +124,22 @@ class AudioSettingsViewModelTest {
         }
 
     @Test
-    fun `setManualInputDevice persists the selection key and manual policy`() =
+    fun `setManualInputDevice persists the selection key, display name, and manual policy`() =
         runTest {
             val viewModel = createViewModel()
+            val device =
+                AudioInputDeviceSummary(
+                    id = 7,
+                    productName = "BT Headset",
+                    typeLabel = "Bluetooth",
+                    kind = AudioInputDeviceKind.Bluetooth,
+                    address = "",
+                    selectionKey = "device:7:BT Headset",
+                )
 
-            viewModel.setManualInputDevice("device:7:BT Headset")
+            viewModel.setManualInputDevice(device)
 
-            coVerify { audioSettingsStore.setManualDeviceAddress("device:7:BT Headset") }
+            coVerify { audioSettingsStore.setManualDevice("device:7:BT Headset", "BT Headset") }
             coVerify { audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual) }
         }
 }

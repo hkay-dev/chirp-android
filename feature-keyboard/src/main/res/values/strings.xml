@@ -16,6 +16,8 @@
     <string name="keyboard_status_recording">Recording</string>
     <!-- AUD-02: shown in place of the Recording status while the mic delivers pure silence. -->
     <string name="keyboard_status_no_audio">No audio detected — mic may be in use</string>
+    <!-- Named variant; %1$s is the active input device. -->
+    <string name="keyboard_status_no_audio_device">No audio from %1$s — try another mic</string>
     <string name="keyboard_downloading_model_progress">Downloading model… %1$d%%</string>
     <string name="keyboard_loading_speech_model">Loading voice model…</string>
     <string name="keyboard_model_not_ready">Model not ready</string>

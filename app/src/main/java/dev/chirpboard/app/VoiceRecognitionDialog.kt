@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -84,10 +85,15 @@ import dev.chirpboard.app.R
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModeDefaults
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
+import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpLlmToggle
+import dev.chirpboard.app.core.ui.components.InputDeviceChip
+import dev.chirpboard.app.core.ui.components.InputDeviceFallbackNotice
+import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
+import dev.chirpboard.app.core.ui.components.InputDeviceSheet
 import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.core.ui.components.brandedPulse
@@ -126,6 +132,12 @@ internal fun VoiceRecognitionDialog(
     onDismissComplete: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
+    // AUDIODEV: compact input-device picker in the top bar. Selection applies to the
+    // NEXT capture start; the host activity wires preference + live device list.
+    inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
+    onSelectInputDeviceAutomatic: () -> Unit = {},
+    onSelectInputDevice: (AudioInputDeviceSummary) -> Unit = {},
+    onRequestBluetoothNames: (() -> Unit)? = null,
 ) {
     val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
@@ -245,6 +257,10 @@ internal fun VoiceRecognitionDialog(
                 onOpenApp = onOpenApp,
                 onToggleLlm = onToggleLlm,
                 onModeChange = onModeChange,
+                inputDevicePicker = inputDevicePicker,
+                onSelectInputDeviceAutomatic = onSelectInputDeviceAutomatic,
+                onSelectInputDevice = onSelectInputDevice,
+                onRequestBluetoothNames = onRequestBluetoothNames,
             )
         }
     }
@@ -295,6 +311,10 @@ private fun VoiceRecognitionDialogContent(
     onOpenApp: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
+    inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
+    onSelectInputDeviceAutomatic: () -> Unit = {},
+    onSelectInputDevice: (AudioInputDeviceSummary) -> Unit = {},
+    onRequestBluetoothNames: (() -> Unit)? = null,
 ) {
     val isRecording =
         recordingState is RecordingState.Recording ||
@@ -393,6 +413,17 @@ private fun VoiceRecognitionDialogContent(
                     onToggleLlm = onToggleLlm,
                     onModeChange = onModeChange,
                     onCancel = onCancel,
+                    inputDevicePicker = inputDevicePicker.copy(sessionLive = isRecording),
+                    onSelectInputDeviceAutomatic = onSelectInputDeviceAutomatic,
+                    onSelectInputDevice = onSelectInputDevice,
+                    onRequestBluetoothNames = onRequestBluetoothNames,
+                )
+
+                // AUDIODEV: transient "Using X — Y isn't connected" notice when the
+                // preferred mic was absent at capture start (fallback was used).
+                InputDeviceFallbackNotice(
+                    activeDevice = inputDevicePicker.activeDevice,
+                    modifier = Modifier.padding(horizontal = ChirpSpacing.Small),
                 )
 
                 // PIPE-08: the bundled model transcribes English only; say so when the caller
@@ -488,20 +519,39 @@ private fun VoiceRecognitionTopBar(
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
     onCancel: () -> Unit,
+    inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
+    onSelectInputDeviceAutomatic: () -> Unit = {},
+    onSelectInputDevice: (AudioInputDeviceSummary) -> Unit = {},
+    onRequestBluetoothNames: (() -> Unit)? = null,
 ) {
+    var deviceSheetOpen by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        VoiceRecognitionAiControl(
-            llmEnabled = llmEnabled,
-            currentMode = currentMode,
-            selectableModes = selectableModes,
-            enabled = settingsEnabled,
-            onToggleLlm = onToggleLlm,
-            onModeChange = onModeChange,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
+        ) {
+            VoiceRecognitionAiControl(
+                llmEnabled = llmEnabled,
+                currentMode = currentMode,
+                selectableModes = selectableModes,
+                enabled = settingsEnabled,
+                onToggleLlm = onToggleLlm,
+                onModeChange = onModeChange,
+            )
+
+            // AUDIODEV: the compact device chip — shows the mic this capture is using
+            // (or the one the next capture will use) and opens the shared device sheet.
+            InputDeviceChip(
+                state = inputDevicePicker,
+                onClick = { deviceSheetOpen = true },
+                modifier = Modifier.widthIn(max = DialogDeviceChipMaxWidth),
+            )
+        }
 
         IconButton(
             onClick = onCancel,
@@ -513,6 +563,16 @@ private fun VoiceRecognitionTopBar(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+
+    if (deviceSheetOpen) {
+        InputDeviceSheet(
+            state = inputDevicePicker,
+            onSelectAutomatic = onSelectInputDeviceAutomatic,
+            onSelectDevice = onSelectInputDevice,
+            onRequestBluetoothNames = onRequestBluetoothNames,
+            onDismiss = { deviceSheetOpen = false },
+        )
     }
 }
 
@@ -716,6 +776,9 @@ private val MicSize = 64.dp
 
 /** Footprint reserved for the mic affordance so error states keep the sheet's layout stable. */
 private val MicControlAreaSize = 96.dp
+
+/** Max width of the top-bar device chip so long Bluetooth names ellipsize, not push the close X. */
+private val DialogDeviceChipMaxWidth = 168.dp
 
 /** Minimum sheet bottom inset so content never sits flush against the edge when Good Lock zeroes it. */
 private val DialogNavInsetFloor = 16.dp

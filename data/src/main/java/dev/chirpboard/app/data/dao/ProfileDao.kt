@@ -27,6 +27,9 @@ interface ProfileDao {
     @Query("SELECT * FROM profiles WHERE id = :id")
     fun getProfileFlow(id: UUID): Flow<Profile?>
 
+    @Query("SELECT * FROM profiles WHERE name = :name LIMIT 1")
+    suspend fun getProfileByName(name: String): Profile?
+
     @Insert
     suspend fun insert(profile: Profile)
 
@@ -38,6 +41,9 @@ interface ProfileDao {
 
     @Query("DELETE FROM profiles WHERE id = :id")
     suspend fun deleteById(id: UUID)
+
+    @Query("DELETE FROM profiles")
+    suspend fun deleteAllProfiles()
 
     @Query("SELECT MAX(sortOrder) FROM profiles")
     suspend fun getMaxSortOrder(): Int?
@@ -126,6 +132,68 @@ interface ProfileDao {
             insertDefaultTags(uniqueTagIds.map { tagId -> ProfileDefaultTag(profileId, tagId) })
         }
         return true
+    }
+
+    /**
+     * Backup restore, REPLACE semantics: clears every profile, then inserts the backup's
+     * profiles. Deleting a profile relies on the recordings FK (profileId, SET_NULL on
+     * delete), so recordings that referenced a removed profile become unassigned rather
+     * than orphaned; profile_default_tags rows cascade away. Profiles are re-inserted in
+     * backup order, so sortOrder is rewritten to the list position.
+     */
+    @Transaction
+    suspend fun replaceAllProfiles(entries: List<ProfileBackupEntry>): BackupUpsertCounts {
+        deleteAllProfiles()
+        entries.forEachIndexed { index, entry ->
+            insert(entry.profile.copy(sortOrder = index))
+            insertExistingDefaultTags(entry.profile.id, entry.defaultTagIds)
+        }
+        return BackupUpsertCounts(inserted = entries.size, updated = 0)
+    }
+
+    /**
+     * Backup restore, MERGE semantics: upserts by profile name (the natural key). A name
+     * match updates the existing row in place — the existing id AND sortOrder are kept so
+     * recordings stay linked and the user's current ordering is undisturbed. New profiles
+     * are appended at the end and keep their backup id unless it collides.
+     */
+    @Transaction
+    suspend fun upsertProfilesByName(entries: List<ProfileBackupEntry>): BackupUpsertCounts {
+        var inserted = 0
+        var updated = 0
+        for (entry in entries) {
+            val existing = getProfileByName(entry.profile.name)
+            if (existing != null) {
+                update(entry.profile.copy(id = existing.id, sortOrder = existing.sortOrder))
+                deleteDefaultTagsForProfile(existing.id)
+                insertExistingDefaultTags(existing.id, entry.defaultTagIds)
+                updated++
+            } else {
+                val safeId = if (getProfile(entry.profile.id) == null) entry.profile.id else UUID.randomUUID()
+                val sortOrder = (getMaxSortOrder() ?: 0) + 1
+                insert(entry.profile.copy(id = safeId, sortOrder = sortOrder))
+                insertExistingDefaultTags(safeId, entry.defaultTagIds)
+                inserted++
+            }
+        }
+        return BackupUpsertCounts(inserted = inserted, updated = updated)
+    }
+
+    /**
+     * Unlike [validatedDefaultTagIds] (which throws for editor flows), backup restore silently
+     * drops default-tag references whose tag no longer exists: a dangling reference inside an
+     * old backup file must never abort the whole profiles section.
+     */
+    private suspend fun insertExistingDefaultTags(
+        profileId: UUID,
+        tagIds: List<UUID>,
+    ) {
+        val uniqueTagIds = tagIds.distinct()
+        if (uniqueTagIds.isEmpty()) return
+        val existingTagIds = getExistingTagIds(uniqueTagIds)
+        if (existingTagIds.isNotEmpty()) {
+            insertDefaultTags(existingTagIds.map { tagId -> ProfileDefaultTag(profileId, tagId) })
+        }
     }
 
     private suspend fun validatedDefaultTagIds(tagIds: List<UUID>): List<UUID> {

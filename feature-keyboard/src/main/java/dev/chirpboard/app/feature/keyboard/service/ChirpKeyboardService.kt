@@ -32,7 +32,11 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioFocusManager
+import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
+import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
+import dev.chirpboard.app.core.audio.AudioSettings
+import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
@@ -46,6 +50,7 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
@@ -80,6 +85,7 @@ class ChirpKeyboardService :
     @Inject lateinit var recognizerProvider: TranscriberProvider
     @Inject lateinit var modelReadinessGate: SpeechModelReadinessGate
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
+    @Inject lateinit var audioSettingsStore: AudioSettingsStore
     @Inject lateinit var inlineTranscription: InlineTranscriptionPort
     @Inject lateinit var inlineCapturePersistence: InlineCapturePersistence
     @Inject lateinit var keyboardStopBridge: KeyboardRecordingStopBridge
@@ -345,6 +351,12 @@ class ChirpKeyboardService :
                     .collectAsStateWithLifecycle(
                         initialValue = DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR,
                     )
+                // AUDIODEV: live device list + persisted preference + per-session active
+                // device, feeding the compact picker chip beside the AI toggle.
+                val inputDevices by inputDeviceSelector.availableDevices.collectAsStateWithLifecycle()
+                val audioSettings by audioSettingsStore.settings
+                    .collectAsStateWithLifecycle(initialValue = AudioSettings())
+                val activeInputDevice by inputDeviceSelector.activeDevice.collectAsStateWithLifecycle()
                 KeyboardScreen(
                     uiState = uiState,
                     waveformBuffer = coordinator.capture.waveformBuffer,
@@ -367,6 +379,19 @@ class ChirpKeyboardService :
                     },
                     dynamicColor = useDynamicColor,
                     windowShown = windowShownState.value,
+                    inputDevicePicker =
+                        InputDevicePickerUiState(
+                            devices = inputDevices,
+                            policy = audioSettings.inputDevicePolicy,
+                            manualKey = audioSettings.manualDeviceAddress,
+                            manualName = audioSettings.manualDeviceName,
+                            activeDevice = activeInputDevice,
+                        ),
+                    onSelectInputDeviceAutomatic = ::selectInputDeviceAutomatic,
+                    onSelectInputDevice = ::selectInputDevice,
+                    // The IME window cannot host a runtime-permission prompt; route to the
+                    // app (ERR-8 pattern) where the settings picker offers the grant.
+                    onRequestBluetoothNames = ::openMainActivity,
                 )
             }
             composeView = view
@@ -488,6 +513,24 @@ class ChirpKeyboardService :
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             },
         )
+    }
+
+    /**
+     * AUDIODEV picker actions. Persisted via the shared [AudioSettingsStore], so the
+     * choice applies to the NEXT capture start on EVERY surface (keyboard, recorder,
+     * recognition) — never a mid-session swap.
+     */
+    private fun selectInputDeviceAutomatic() {
+        scope.launch {
+            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+        }
+    }
+
+    private fun selectInputDevice(device: AudioInputDeviceSummary) {
+        scope.launch {
+            audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
+            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+        }
     }
 
     private fun onMicTapForCurrentInput() {

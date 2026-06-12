@@ -475,6 +475,17 @@ object Migrations {
     }
 
     /**
+     * Adds the nullable freeform `notes` column to recordings (per-recording user note,
+     * captured live on the record screen and editable in the studio). Purely additive:
+     * existing rows keep all data and read back NULL notes.
+     */
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE recordings ADD COLUMN notes TEXT DEFAULT NULL")
+        }
+    }
+
+    /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
@@ -489,6 +500,7 @@ object Migrations {
             MIGRATION_7_8,
             MIGRATION_8_9,
             MIGRATION_9_10,
+            MIGRATION_10_11,
         )
     // Example migration template (uncomment and modify when needed):
     /*

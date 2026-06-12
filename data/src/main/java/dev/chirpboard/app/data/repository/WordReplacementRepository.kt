@@ -1,5 +1,6 @@
 package dev.chirpboard.app.data.repository
 
+import dev.chirpboard.app.data.dao.BackupUpsertCounts
 import dev.chirpboard.app.data.dao.WordReplacementDao
 import dev.chirpboard.app.data.entity.WordReplacement
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +25,8 @@ class WordReplacementRepository
 
         fun getAllReplacements(): Flow<RepositoryFlowState<List<WordReplacement>>> =
             wordReplacementDao.getAllReplacements().catchRepositoryFlowState(TAG, emptyList())
+
+        suspend fun getAllReplacementsList(): List<WordReplacement> = wordReplacementDao.getAllReplacementsList()
 
         suspend fun getEnabledReplacements(): List<WordReplacement> = wordReplacementDao.getEnabledReplacements()
 
@@ -73,6 +76,14 @@ class WordReplacementRepository
         suspend fun getCount(): Int = wordReplacementDao.getCount()
 
         suspend fun getEnabledCount(): Int = wordReplacementDao.getEnabledCount()
+
+        /** Backup restore (REPLACE): atomically clears all rules and inserts [replacements]. */
+        suspend fun replaceAllFromBackup(replacements: List<WordReplacement>): BackupUpsertCounts =
+            wordReplacementDao.replaceAllReplacements(replacements)
+
+        /** Backup restore (MERGE): atomically upserts [replacements] by original phrase. */
+        suspend fun upsertByOriginalFromBackup(replacements: List<WordReplacement>): BackupUpsertCounts =
+            wordReplacementDao.upsertReplacementsByOriginal(replacements)
 
         /**
          * Apply all enabled word replacements to text.

@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.ui
 import android.content.Context
 import androidx.annotation.StringRes
 import dev.chirpboard.app.feature.recording.R
+import dev.chirpboard.app.feature.recording.service.RecordingAutoStopEvent
 import dev.chirpboard.app.feature.recording.service.RecordingAutoStopReason
 
 /**
@@ -22,3 +23,17 @@ internal fun RecordingAutoStopReason.reasonStringRes(): Int =
 /** Full snackbar message: "Recording stopped and saved — <reason>". */
 internal fun RecordingAutoStopReason.autoStopSnackbarMessage(context: Context): String =
     context.getString(R.string.rec_auto_stop_snackbar, context.getString(reasonStringRes()))
+
+/**
+ * Event-level snackbar message: like [autoStopSnackbarMessage] but a device-lost stop
+ * NAMES the lost device ("Buds disconnected") when the event carries it.
+ */
+internal fun RecordingAutoStopEvent.autoStopSnackbarMessage(context: Context): String {
+    val reasonText =
+        if (reason == RecordingAutoStopReason.INPUT_DEVICE_LOST && !detail.isNullOrBlank()) {
+            context.getString(R.string.rec_auto_stop_device_named, detail)
+        } else {
+            context.getString(reason.reasonStringRes())
+        }
+    return context.getString(R.string.rec_auto_stop_snackbar, reasonText)
+}

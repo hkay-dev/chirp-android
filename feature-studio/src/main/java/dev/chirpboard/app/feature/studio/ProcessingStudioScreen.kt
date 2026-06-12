@@ -26,6 +26,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.rounded.Check
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SelectAll
@@ -74,6 +77,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -170,6 +174,8 @@ fun ProcessingStudioScreen(
     var showDeleteConfirmation by rememberSaveable { mutableStateOf(false) }
     // LIF-11: back gesture in edit mode confirms before discarding an in-progress correction.
     var showDiscardEditDialog by rememberSaveable { mutableStateOf(false) }
+    // NOTES: collapsed/expanded display state for the note card survives rotation.
+    var isNotesExpanded by rememberSaveable { mutableStateOf(false) }
 
     fun requestCloseTranscriptEdit() {
         if (state.transcriptDraft != state.effectiveTranscriptText) {
@@ -223,10 +229,17 @@ fun ProcessingStudioScreen(
 
     // LIF-11: intercept predictive back while a modal edit/selection is active instead of
     // silently popping the screen (and the draft) away.
-    BackHandler(enabled = state.isEditingTranscript || state.isEditingTitle || state.isSelectingTranscript) {
+    BackHandler(
+        enabled =
+            state.isEditingTranscript ||
+                state.isEditingTitle ||
+                state.isSelectingTranscript ||
+                state.isEditingNotes,
+    ) {
         when {
             state.isSelectingTranscript -> viewModel.exitTranscriptSelectionMode()
             state.isEditingTranscript -> requestCloseTranscriptEdit()
+            state.isEditingNotes -> viewModel.cancelEditingNotes()
             else -> viewModel.cancelEditingTitle()
         }
     }
@@ -395,6 +408,23 @@ fun ProcessingStudioScreen(
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = stringResource(CoreR.string.desc_edit)) },
                                 )
+                                // NOTES: the section is hidden while the recording has no note,
+                                // so this is the discoverable way to add one from the studio.
+                                if (state.notes.isBlank() && !state.isEditingNotes) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.rec_add_note)) },
+                                        onClick = {
+                                            showOptionsMenu = false
+                                            viewModel.startEditingNotes()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.AutoMirrored.Rounded.StickyNote2,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                    )
+                                }
                                 // PLH-6: entry point for transcript passage selection + AI tools.
                                 if (state.canEnterTranscriptSelectionMode()) {
                                     DropdownMenuItem(
@@ -603,6 +633,27 @@ fun ProcessingStudioScreen(
                 },
             )
 
+            // NOTES: the capture-time description, hidden entirely unless the recording carries
+            // a note (or one is being written via the options menu). It sits between the player
+            // and the tabs so it frames whichever tab is open.
+            PushDownReveal(visible = state.notes.isNotBlank() || state.isEditingNotes) {
+                StudioNotesSection(
+                    notes = state.notes,
+                    isEditing = state.isEditingNotes,
+                    editedNotes = state.editedNotes,
+                    expanded = isNotesExpanded,
+                    onExpandedChange = { isNotesExpanded = it },
+                    onStartEditing = viewModel::startEditingNotes,
+                    onEditedNotesChange = viewModel::updateEditedNotes,
+                    onSave = viewModel::saveNotes,
+                    onCancel = viewModel::cancelEditingNotes,
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+
             // PIPE-07: a queued/running transcription can be cancelled.
             PushDownReveal(
                 visible =
@@ -774,6 +825,127 @@ fun ProcessingStudioScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * NOTES: per-recording note card. Collapsed it shows the first line of the note; tapping the
+ * card expands the full text in place. The pencil enters edit mode (check saves, close
+ * cancels); clearing all text and saving removes the note, which hides the section again.
+ */
+@Composable
+private fun StudioNotesSection(
+    notes: String,
+    isEditing: Boolean,
+    editedNotes: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onStartEditing: () -> Unit,
+    onEditedNotesChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (isEditing) {
+        Surface(
+            modifier = modifier,
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.rec_note_section_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onCancel) {
+                        Icon(Icons.Rounded.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
+                    }
+                    IconButton(onClick = onSave) {
+                        Icon(Icons.Rounded.Check, contentDescription = stringResource(CoreR.string.desc_save))
+                    }
+                }
+                val noteFieldDescription = stringResource(R.string.rec_note_field_desc)
+                TextField(
+                    value = editedNotes,
+                    onValueChange = onEditedNotesChange,
+                    placeholder = { Text(stringResource(R.string.rec_note_placeholder)) },
+                    minLines = 2,
+                    maxLines = 6,
+                    // A11Y: name the edit box so TalkBack says what is being edited.
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .semantics { contentDescription = noteFieldDescription },
+                    colors =
+                        TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                )
+            }
+        }
+    } else {
+        Surface(
+            onClick = { onExpandedChange(!expanded) },
+            modifier = modifier.animateContentSize(animationSpec = ChirpMotion.layoutSizeSpring),
+            shape = MaterialTheme.shapes.medium,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ) {
+            Row(
+                modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.rec_note_section_title),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = notes,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = if (expanded) Int.MAX_VALUE else 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = onStartEditing) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = stringResource(R.string.rec_edit_note_desc),
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription =
+                        stringResource(
+                            if (expanded) R.string.desc_collapse_note else R.string.desc_expand_note,
+                        ),
+                    modifier = Modifier.padding(top = 10.dp, end = 8.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

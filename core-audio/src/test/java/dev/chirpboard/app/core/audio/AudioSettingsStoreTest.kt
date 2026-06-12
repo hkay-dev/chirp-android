@@ -214,6 +214,44 @@ class AudioSettingsStoreTest {
             assertEquals(AudioInputDevicePolicy.Automatic, settings.inputDevicePolicy)
         }
 
+    @Test
+    fun `manual device selection persists key and display name together`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_manual_device.preferences_pb")
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            store.setManualDevice("device:26:Buds", displayName = "Buds")
+            var settings = store.currentSettings()
+            assertEquals("device:26:Buds", settings.manualDeviceAddress)
+            assertEquals("Buds", settings.manualDeviceName)
+
+            // Clearing the key clears the stored name too.
+            store.setManualDevice(null, displayName = null)
+            settings = store.currentSettings()
+            assertEquals(null, settings.manualDeviceAddress)
+            assertEquals(null, settings.manualDeviceName)
+        }
+
+    @Test
+    fun `setManualDeviceAddress keeps working as a name-less selection`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_manual_addr.preferences_pb")
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            store.setManualDeviceAddress("card=1;device=0")
+            val settings = store.currentSettings()
+            assertEquals("card=1;device=0", settings.manualDeviceAddress)
+            assertEquals(null, settings.manualDeviceName)
+        }
+
     private fun createDataStore(fileName: String) =
         PreferenceDataStoreFactory.create(
             scope = testScope,

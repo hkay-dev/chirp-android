@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import android.content.Context
 import androidx.annotation.StringRes
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.service.RecordingAutoPauseReason
@@ -47,4 +48,20 @@ internal fun RecordingSessionAdvisory.advisoryStringRes(): Int =
         RecordingSessionAdvisory.PAUSED_BY_FOCUS_LOSS -> R.string.rec_notification_paused_focus
         RecordingSessionAdvisory.SILENCED -> R.string.rec_notification_silence
         RecordingSessionAdvisory.STORAGE_LOW -> R.string.rec_notification_storage_low
+    }
+
+/**
+ * Like [advisoryStringRes] but the silence hint NAMES the active input device and
+ * suggests switching ("No audio from Buds — … Try a different microphone."), matching
+ * the live notification's named status line. Pass the device name from
+ * [dev.chirpboard.app.core.audio.AudioInputDeviceSelector.activeDeviceLabel].
+ */
+internal fun RecordingSessionAdvisory.advisoryText(
+    context: Context,
+    activeDeviceName: String?,
+): String =
+    if (this == RecordingSessionAdvisory.SILENCED && !activeDeviceName.isNullOrBlank()) {
+        context.getString(R.string.rec_notification_silence_named, activeDeviceName)
+    } else {
+        context.getString(advisoryStringRes())
     }

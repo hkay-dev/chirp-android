@@ -41,4 +41,15 @@
     <!-- Home processing pill filter state (A11Y: announced toggle state) -->
     <string name="desc_processing_filter_on">Filter on</string>
     <string name="desc_processing_filter_off">Filter off</string>
+    <!-- Shared input-device picker (chip + sheet) -->
+    <string name="input_device_sheet_title">Microphone</string>
+    <string name="input_device_automatic">Automatic (recommended)</string>
+    <string name="input_device_priority_explainer">Automatic picks the best available mic: USB first, then Bluetooth, then wired headset, then built-in. If your chosen mic isn\'t connected, the next best one is used.</string>
+    <string name="input_device_not_connected">Not connected</string>
+    <string name="input_device_session_live_note">Recording in progress — your choice applies to the next capture</string>
+    <string name="input_device_bt_names_action">Show Bluetooth device names</string>
+    <string name="input_device_bt_names_rationale">Allow Bluetooth access so Chirp can show your headset names</string>
+    <string name="input_device_fallback_notice">Using %1$s — %2$s isn\'t connected</string>
+    <string name="desc_input_device_chip">Microphone: %1$s</string>
+    <string name="desc_input_device_selected">Selected microphone</string>
 </resources>

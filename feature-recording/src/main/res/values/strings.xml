@@ -109,10 +109,14 @@
     <string name="rec_notification_paused_focus">Paused — another app interrupted audio. Recording will resume automatically.</string>
     <string name="rec_notification_storage_low">Storage low — recording will stop soon</string>
     <string name="rec_notification_silence">No audio detected — the microphone may be in use by another app</string>
+    <!-- Named variant of the silence hint; %1$s is the active input device. -->
+    <string name="rec_notification_silence_named">No audio from %1$s — it may be in use elsewhere. Try a different microphone.</string>
     <string name="rec_auto_stop_title">Recording stopped and saved</string>
     <string name="rec_auto_stop_storage">Storage was full</string>
     <string name="rec_auto_stop_focus">Another app took control of audio</string>
     <string name="rec_auto_stop_device">The microphone disconnected</string>
+    <!-- Named variant; %1$s is the lost input device ("Buds disconnected"). -->
+    <string name="rec_auto_stop_device_named">%1$s disconnected</string>
     <string name="rec_auto_stop_capture_error">A microphone error occurred</string>
     <!-- In-app snackbar twin of the auto-stop notification; %1$s is one of the rec_auto_stop_* reasons. -->
     <string name="rec_auto_stop_snackbar">Recording stopped and saved — %1$s</string>
@@ -212,6 +216,13 @@
     <string name="rec_msg_stop_in_progress">Recording is already being saved. Start over isn’t available right now.</string>
     <string name="rec_msg_tag_update_failed">Couldn’t update tags. The recording may no longer exist.</string>
     <string name="rec_msg_tag_add_failed">Couldn’t add the tag. The recording may no longer exist.</string>
+    <string name="rec_msg_note_save_failed">Couldn’t save the note. The recording may no longer exist.</string>
+    <string name="rec_add_note_label">Add note</string>
+    <string name="rec_note_label">Note</string>
+    <string name="rec_note_placeholder">What’s this recording about?</string>
+    <string name="rec_note_field_desc">Recording note</string>
+    <string name="desc_collapse_note">Collapse note</string>
+    <string name="desc_has_note">Has note</string>
     <string name="rec_msg_profile_not_found">Profile not found</string>
     <string name="rec_msg_profile_name_required">Name is required</string>
     <string name="rec_msg_profile_save_failed">Couldn’t save the profile. Try again.</string>

@@ -9,14 +9,19 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.audio.AudioFocusManager
+import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
+import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.llm.ProcessingMode
@@ -306,6 +311,20 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 // IME-6: secure sessions never run the cloud LLM path.
                 val effectiveLlmEnabled = llmEnabled && !secure
 
+                // AUDIODEV: live device list + persisted preference + per-session active
+                // device for the top-bar picker chip; BLUETOOTH_CONNECT can be requested
+                // right here (activity surface), then names refresh in place.
+                val inputDevices by inputDeviceSelector.availableDevices.collectAsStateWithLifecycle()
+                val audioSettings by audioSettingsStore.settings
+                    .collectAsStateWithLifecycle(initialValue = AudioSettings())
+                val activeInputDevice by inputDeviceSelector.activeDevice.collectAsStateWithLifecycle()
+                val bluetoothPermissionLauncher =
+                    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                        if (granted) {
+                            inputDeviceSelector.refreshDevices()
+                        }
+                    }
+
                 VoiceRecognitionDialog(
                     waveformBuffer = recorder.waveformBuffer,
                     sampleCountFlow = recorder.sampleCountFlow,
@@ -335,6 +354,28 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             modePort.setModeById(modeId)
                         }
+                    },
+                    inputDevicePicker =
+                        InputDevicePickerUiState(
+                            devices = inputDevices,
+                            policy = audioSettings.inputDevicePolicy,
+                            manualKey = audioSettings.manualDeviceAddress,
+                            manualName = audioSettings.manualDeviceName,
+                            activeDevice = activeInputDevice,
+                        ),
+                    onSelectInputDeviceAutomatic = {
+                        lifecycleScope.launch {
+                            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+                        }
+                    },
+                    onSelectInputDevice = { device ->
+                        lifecycleScope.launch {
+                            audioSettingsStore.setManualDevice(device.selectionKey, device.productName)
+                            audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
+                        }
+                    },
+                    onRequestBluetoothNames = {
+                        bluetoothPermissionLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
                     },
                 )
             }

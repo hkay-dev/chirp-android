@@ -13,14 +13,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -41,12 +46,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,6 +63,7 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
+import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.core.ui.theme.chirpAccents
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
@@ -85,7 +95,11 @@ fun RecordScreen(
     val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
     val availableTags by viewModel.availableTags.collectAsStateWithLifecycle()
     val selectedTagIds by viewModel.selectedTagIds.collectAsStateWithLifecycle()
+    val noteDraft by viewModel.noteDraft.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    // Note affordance expansion survives rotation/process death alongside the draft itself.
+    var isNoteExpanded by rememberSaveable { mutableStateOf(false) }
 
     // LIF-03: dialog decisions survive rotation/resize/process death; these guard destructive
     // actions (discard, start over), so losing them mid-decision is more than cosmetic.
@@ -181,7 +195,7 @@ fun RecordScreen(
             return@LaunchedEffect
         }
         snackbarHostState.showSnackbar(
-            message = event.reason.autoStopSnackbarMessage(context),
+            message = event.autoStopSnackbarMessage(context),
             duration = SnackbarDuration.Short,
         )
         viewModel.consumeAutoStopEvent()
@@ -437,6 +451,20 @@ fun RecordScreen(
                         onCreateTag = viewModel::createTagForRecording,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    // Low-friction live note: describe the recording while making it so you
+                    // know what it is later. Collapsed to a pill next to the tags language;
+                    // expands into a freeform field usable mid-capture.
+                    RecordingNoteSection(
+                        noteDraft = noteDraft,
+                        expanded = isNoteExpanded,
+                        onExpandedChange = { expanded ->
+                            ChirpHaptics.tap(context)
+                            isNoteExpanded = expanded
+                        },
+                        onNoteChange = viewModel::updateNoteDraft,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
@@ -468,14 +496,23 @@ fun RecordScreen(
                 )
             }
 
+            RecordInputDevicePicker(
+                modifier = Modifier.padding(top = 12.dp),
+            )
+
             // AUD-02/AUD-05/ERR-14: live-session advisory banner — why the session is paused
             // (focus loss), why the waveform is flat (mic silenced elsewhere), or that storage
             // is running low. Display-only twin of the notification status line; gated on an
             // active session so it can never linger after the stop resets the flags.
             PushDownReveal(visible = isActive && sessionAdvisory != null) {
+                // Same Hilt-scoped instance as the inserted RecordInputDevicePicker, so the
+                // silence hint names the device the session actually captures from.
+                val devicePicker: InputDevicePickerViewModel = hiltViewModel()
+                val activeInput by devicePicker.activeDevice.collectAsStateWithLifecycle()
                 sessionAdvisory?.let { advisory ->
                     SessionAdvisoryBanner(
                         advisory = advisory,
+                        activeDeviceName = activeInput?.summary?.productName,
                         modifier =
                             Modifier
                                 .fillMaxWidth()
@@ -572,6 +609,7 @@ fun RecordScreen(
 @Composable
 private fun SessionAdvisoryBanner(
     advisory: RecordingSessionAdvisory,
+    activeDeviceName: String?,
     modifier: Modifier = Modifier,
 ) {
     val accents = MaterialTheme.colorScheme.chirpAccents
@@ -581,7 +619,7 @@ private fun SessionAdvisoryBanner(
         color = accents.recordingLiveContainer.copy(alpha = 0.45f),
     ) {
         Text(
-            text = stringResource(advisory.advisoryStringRes()),
+            text = advisory.advisoryText(LocalContext.current, activeDeviceName),
             style = MaterialTheme.typography.bodySmall,
             color = accents.recordingLive,
             modifier =
@@ -641,6 +679,108 @@ private fun ActiveProfileSessionBadge(
     }
 }
 
+
+/**
+ * Live per-recording note ("describe it while you make it"). Collapsed, it reads as one more
+ * chip in the tags row language — "Add note", or the note's first line once one exists — so it
+ * costs no vertical space until the user wants it. Expanded, it is a freeform multiline field
+ * that stays usable while capture continues; the draft itself lives in the ViewModel
+ * (SavedStateHandle + debounced row write-through), so this composable is purely presentational.
+ */
+@Composable
+private fun RecordingNoteSection(
+    noteDraft: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onNoteChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier.animatePushDownLayout()) {
+        if (expanded) {
+            val focusRequester = remember { FocusRequester() }
+            val noteFieldDescription = stringResource(R.string.rec_note_field_desc)
+            OutlinedTextField(
+                value = noteDraft,
+                onValueChange = onNoteChange,
+                label = { Text(stringResource(R.string.rec_note_label)) },
+                placeholder = { Text(stringResource(R.string.rec_note_placeholder)) },
+                trailingIcon = {
+                    IconButton(onClick = { onExpandedChange(false) }) {
+                        Icon(
+                            imageVector = Icons.Rounded.ExpandLess,
+                            contentDescription = stringResource(R.string.desc_collapse_note),
+                        )
+                    }
+                },
+                minLines = 2,
+                maxLines = 4,
+                shape = ChirpShapes.Large,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        // A11Y: name the edit box so TalkBack says what is being edited.
+                        .semantics { contentDescription = noteFieldDescription },
+            )
+            LaunchedEffect(Unit) {
+                // Low friction: opening an empty note goes straight to typing. A note restored
+                // with content skips the grab so rotation never pops the keyboard unasked.
+                if (noteDraft.isBlank()) {
+                    focusRequester.requestFocus()
+                }
+            }
+        } else {
+            CollapsedNotePill(
+                noteDraft = noteDraft,
+                onClick = { onExpandedChange(true) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CollapsedNotePill(
+    noteDraft: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val firstNoteLine =
+        remember(noteDraft) {
+            noteDraft.lineSequence().firstOrNull { it.isNotBlank() }?.trim()
+        }
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        // Mirrors the AddTagChip capsule so note + tags read as one affordance family.
+        shape = ChirpShapes.Large,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector =
+                    if (firstNoteLine != null) {
+                        Icons.AutoMirrored.Rounded.StickyNote2
+                    } else {
+                        Icons.Rounded.EditNote
+                    },
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = firstNoteLine ?: stringResource(R.string.rec_add_note_label),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
 
 @Composable
 private fun RecordingWaveform(

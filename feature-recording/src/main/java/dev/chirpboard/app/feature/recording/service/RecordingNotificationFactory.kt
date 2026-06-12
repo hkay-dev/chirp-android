@@ -172,12 +172,18 @@ class RecordingNotificationFactory
         fun notifyAutoStopped(
             service: Service,
             reason: RecordingAutoStopReason,
+            detail: String? = null,
         ) {
             val reasonText =
                 when (reason) {
                     RecordingAutoStopReason.STORAGE_CRITICAL -> service.getString(R.string.rec_auto_stop_storage)
                     RecordingAutoStopReason.FOCUS_LOST -> service.getString(R.string.rec_auto_stop_focus)
-                    RecordingAutoStopReason.INPUT_DEVICE_LOST -> service.getString(R.string.rec_auto_stop_device)
+                    RecordingAutoStopReason.INPUT_DEVICE_LOST ->
+                        if (detail.isNullOrBlank()) {
+                            service.getString(R.string.rec_auto_stop_device)
+                        } else {
+                            service.getString(R.string.rec_auto_stop_device_named, detail)
+                        }
                     RecordingAutoStopReason.CAPTURE_ERROR -> service.getString(R.string.rec_auto_stop_capture_error)
                 }
             val notification =

@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 
@@ -57,7 +58,15 @@ fun ChirpPill(
                     tint = contentColor,
                 )
             }
-            Text(text = label, color = contentColor, style = MaterialTheme.typography.labelMedium)
+            Text(
+                text = label,
+                color = contentColor,
+                style = MaterialTheme.typography.labelMedium,
+                // Long labels (e.g. Bluetooth device names in the input-device chip)
+                // ellipsize instead of wrapping the capsule onto a second line.
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 

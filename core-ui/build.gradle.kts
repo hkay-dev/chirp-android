@@ -29,6 +29,8 @@ android {
 
 dependencies {
     api(project(":core-contracts"))
+    // Input-device picker component renders core-audio's device summaries directly.
+    implementation(project(":core-audio"))
 
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))
     implementation("androidx.compose.material3:material3")

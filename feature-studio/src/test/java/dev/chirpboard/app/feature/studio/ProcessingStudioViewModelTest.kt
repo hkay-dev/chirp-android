@@ -887,6 +887,130 @@ class ProcessingStudioViewModelTest {
             assertNull(viewModel.uiState.value.transcriptSelectionResult)
         }
 
+    // --- NOTES: studio note editing (load, save, clear, failure, process-death restore) ---
+
+    @Test
+    fun `recording note flows into studio state`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId).copy(notes = "Captured live on the roof")))
+            stubSupportingFlows(recordingId)
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            assertEquals("Captured live on the roof", viewModel.uiState.value.notes)
+            assertFalse(viewModel.uiState.value.isEditingNotes)
+        }
+
+    @Test
+    fun `saveNotes persists the trimmed note and leaves edit mode`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.updateNotes(recordingId, "Standup riff") } returns true
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingNotes()
+            assertTrue(viewModel.uiState.value.isEditingNotes)
+            viewModel.updateEditedNotes("  Standup riff \n")
+            viewModel.saveNotes()
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { repository.updateNotes(recordingId, "Standup riff") }
+            assertEquals("Standup riff", viewModel.uiState.value.notes)
+            assertFalse(viewModel.uiState.value.isEditingNotes)
+        }
+
+    @Test
+    fun `saveNotes with cleared text removes the note so the section hides again`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId).copy(notes = "Old note")))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.updateNotes(recordingId, "") } returns true
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingNotes()
+            viewModel.updateEditedNotes("   ")
+            viewModel.saveNotes()
+            advanceUntilIdle()
+
+            // The repository normalizes blank to NULL; state mirrors the cleared note.
+            coVerify(exactly = 1) { repository.updateNotes(recordingId, "") }
+            assertEquals("", viewModel.uiState.value.notes)
+            assertFalse(viewModel.uiState.value.isEditingNotes)
+        }
+
+    @Test
+    fun `saveNotes failure keeps edit mode and surfaces a friendly message`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            every { context.getString(R.string.rec_msg_note_save_failed) } returns
+                "Couldn't save the note. Try again."
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.updateNotes(recordingId, any()) } throws RuntimeException("disk full")
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingNotes()
+            viewModel.updateEditedNotes("Doomed edit")
+            viewModel.saveNotes()
+            advanceUntilIdle()
+
+            assertEquals("Couldn't save the note. Try again.", viewModel.message.value)
+            assertTrue(viewModel.uiState.value.isEditingNotes)
+            assertEquals("Doomed edit", viewModel.uiState.value.editedNotes)
+        }
+
+    @Test
+    fun `in-progress note edit is restored after process death`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId).copy(notes = "Persisted note")))
+            stubSupportingFlows(recordingId)
+            val savedStateHandle = SavedStateHandle(mapOf("recordingId" to recordingId.toString()))
+
+            val firstViewModel =
+                createViewModel(recordingId = recordingId.toString(), savedStateHandle = savedStateHandle)
+            advanceUntilIdle()
+            firstViewModel.startEditingNotes()
+            firstViewModel.updateEditedNotes("Persisted note, plus a mid-edit thought")
+
+            // A restored ViewModel (same saved state) reopens the editor with the draft intact.
+            val restoredViewModel =
+                createViewModel(recordingId = recordingId.toString(), savedStateHandle = savedStateHandle)
+            advanceUntilIdle()
+
+            assertTrue(restoredViewModel.uiState.value.isEditingNotes)
+            assertEquals(
+                "Persisted note, plus a mid-edit thought",
+                restoredViewModel.uiState.value.editedNotes,
+            )
+        }
+
     private fun stubEmptyRecordingFlows(recordingId: UUID) {
         every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(null))
         stubSupportingFlows(recordingId)

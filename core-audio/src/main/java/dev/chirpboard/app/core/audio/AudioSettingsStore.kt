@@ -70,6 +70,11 @@ data class AudioSettings(
     val outputFormat: RecordingOutputFormat = RecordingOutputFormat.DEFAULT,
     val inputDevicePolicy: AudioInputDevicePolicy = AudioInputDevicePolicy.DEFAULT,
     val manualDeviceAddress: String? = null,
+    /**
+     * Display name persisted alongside [manualDeviceAddress] so a missing preferred
+     * device can be named ("AirPods not connected") even while it is absent.
+     */
+    val manualDeviceName: String? = null,
     val batteryOptimizationPromptShown: Boolean = false,
     val playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED,
 ) {
@@ -95,6 +100,7 @@ class AudioSettingsStore
             val outputFormat = stringPreferencesKey("output_format")
             val inputDevicePolicy = stringPreferencesKey("input_device_policy")
             val manualDeviceAddress = stringPreferencesKey("manual_device_address")
+            val manualDeviceName = stringPreferencesKey("manual_device_name")
             val batteryOptimizationPromptShown = booleanPreferencesKey("battery_optimization_prompt_shown")
             val migrationComplete = booleanPreferencesKey("audio_settings_migration_complete")
             val playbackSpeed = floatPreferencesKey("playback_speed")
@@ -141,13 +147,29 @@ class AudioSettingsStore
             }
         }
 
-        suspend fun setManualDeviceAddress(address: String?) {
+        suspend fun setManualDeviceAddress(address: String?) = setManualDevice(address, displayName = null)
+
+        /**
+         * Persists a manual device selection (stable selection key + display name) so the
+         * preference survives the device disconnecting and the picker can name it while
+         * absent. A blank key clears the selection.
+         */
+        suspend fun setManualDevice(
+            selectionKey: String?,
+            displayName: String?,
+        ) {
             ensureMigrated()
             dataStore.edit { preferences ->
-                if (address.isNullOrBlank()) {
+                if (selectionKey.isNullOrBlank()) {
                     preferences.remove(Keys.manualDeviceAddress)
+                    preferences.remove(Keys.manualDeviceName)
                 } else {
-                    preferences[Keys.manualDeviceAddress] = address
+                    preferences[Keys.manualDeviceAddress] = selectionKey
+                    if (displayName.isNullOrBlank()) {
+                        preferences.remove(Keys.manualDeviceName)
+                    } else {
+                        preferences[Keys.manualDeviceName] = displayName
+                    }
                 }
             }
         }
@@ -226,6 +248,7 @@ class AudioSettingsStore
                 outputFormat = readOutputFormat(),
                 inputDevicePolicy = AudioInputDevicePolicy.fromStorageValue(this[Keys.inputDevicePolicy]),
                 manualDeviceAddress = this[Keys.manualDeviceAddress],
+                manualDeviceName = this[Keys.manualDeviceName],
                 batteryOptimizationPromptShown = this[Keys.batteryOptimizationPromptShown] == true,
                 playbackSpeed = this[Keys.playbackSpeed]?.let(::nearestPlaybackSpeed) ?: DEFAULT_PLAYBACK_SPEED,
             )

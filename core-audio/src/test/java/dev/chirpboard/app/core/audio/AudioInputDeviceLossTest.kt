@@ -134,8 +134,9 @@ class AudioInputDeviceLossTest {
     fun manualPolicyWithMissingRestoredDevice_fallsBackToBestRankedDevice() =
         runBlocking {
             // Backup-restore reality: a manual device key restored from another phone
-            // matches nothing here — selection must degrade to the ranked default
-            // (built-in mic first), never to "no device".
+            // matches nothing here — selection must degrade to the ranked fallback
+            // (USB > Bluetooth > wired > built-in), never to "no device", and must
+            // report the missing preference so surfaces can show the fallback notice.
             coEvery { audioSettingsStore.currentSettings() } returns
                 AudioSettings(
                     inputDevicePolicy = AudioInputDevicePolicy.Manual,
@@ -151,7 +152,33 @@ class AudioInputDeviceLossTest {
             val selector = selector()
             val resolved = selector.resolvePreferredDevice()
 
-            assertEquals(builtIn.id, resolved?.id)
-            assertEquals("Built-in mic", selector.activeDeviceLabel.value)
+            assertEquals(bluetooth.id, resolved?.id)
+            assertEquals("Buds", selector.activeDeviceLabel.value)
+            assertEquals(
+                "Mic from another phone",
+                selector.activeDevice.value?.fallbackFromPreferredName,
+            )
+        }
+
+    @Test
+    fun removingTheActiveDevice_reportsItsNameToTheListener() =
+        runBlocking {
+            // The auto-stop reason must NAME the lost device ("Buds disconnected"),
+            // not just say "the microphone disconnected".
+            coEvery { audioSettingsStore.currentSettings() } returns
+                AudioSettings(inputDevicePolicy = AudioInputDevicePolicy.Automatic)
+            val bluetooth =
+                inputDevice(id = 2, type = AudioDeviceInfo.TYPE_BLE_HEADSET, name = "Buds")
+            every { audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS) } returns
+                arrayOf(bluetooth)
+
+            val selector = selector()
+            selector.resolvePreferredDevice()
+            var lostName: String? = null
+            selector.setOnActiveDeviceLostListener { name -> lostName = name }
+
+            callbackSlot.captured.onAudioDevicesRemoved(arrayOf(bluetooth))
+
+            assertEquals("Buds", lostName)
         }
 }

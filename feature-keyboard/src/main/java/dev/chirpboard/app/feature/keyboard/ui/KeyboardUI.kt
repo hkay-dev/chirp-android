@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -110,8 +111,12 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
+import dev.chirpboard.app.core.audio.AudioInputDeviceSummary
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.ChirpLlmToggle
+import dev.chirpboard.app.core.ui.components.InputDeviceChip
+import dev.chirpboard.app.core.ui.components.InputDeviceListContent
+import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.core.ui.components.brandedPulse
@@ -306,6 +311,12 @@ fun KeyboardScreen(
     dynamicColor: Boolean = false,
     // PRF-3: ambient (infinite) animations compose only while the IME window is actually shown.
     windowShown: Boolean = true,
+    // AUDIODEV: compact input-device picker (chip near the AI toggle). Selection applies to the
+    // NEXT capture start; the host service wires the persisted preference + live device list.
+    inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
+    onSelectInputDeviceAutomatic: () -> Unit = {},
+    onSelectInputDevice: (AudioInputDeviceSummary) -> Unit = {},
+    onRequestBluetoothNames: (() -> Unit)? = null,
 ) {
     KeyboardTheme(dynamicColor = dynamicColor) {
         val outlineColor = MaterialTheme.colorScheme.outlineVariant
@@ -371,6 +382,10 @@ fun KeyboardScreen(
                     uiState = uiState,
                     onToggleLlm = onToggleLlm,
                     onModeChange = onModeChange,
+                    inputDevicePicker = inputDevicePicker,
+                    onSelectInputDeviceAutomatic = onSelectInputDeviceAutomatic,
+                    onSelectInputDevice = onSelectInputDevice,
+                    onRequestBluetoothNames = onRequestBluetoothNames,
                 )
 
                 // KBD-2: only the actionable banners (NotDownloaded / InitFailed) appear as a
@@ -515,6 +530,10 @@ private fun KeyboardTopBar(
     uiState: KeyboardUiState,
     onToggleLlm: () -> Unit,
     onModeChange: (String) -> Unit,
+    inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
+    onSelectInputDeviceAutomatic: () -> Unit = {},
+    onSelectInputDevice: (AudioInputDeviceSummary) -> Unit = {},
+    onRequestBluetoothNames: (() -> Unit)? = null,
 ) {
     val statusLabelRes = uiState.statusLabelRes()
 
@@ -526,7 +545,7 @@ private fun KeyboardTopBar(
         Box(
             // A11Y-5: a minimum (not fixed) height so labelMedium at font scale 2.0 is not
             // vertically clipped.
-            modifier = Modifier.heightIn(min = 20.dp),
+            modifier = Modifier.heightIn(min = 20.dp).weight(1f, fill = false),
             contentAlignment = Alignment.CenterStart,
         ) {
             Crossfade(
@@ -535,8 +554,17 @@ private fun KeyboardTopBar(
                 label = "keyboardStatusLabel",
             ) { labelRes ->
                 if (labelRes != 0) {
+                    val activeDeviceName = inputDevicePicker.activeDevice?.summary?.productName
+                    val statusText =
+                        if (labelRes == R.string.keyboard_status_no_audio && activeDeviceName != null) {
+                            // AUD-02 + device picker: name the silent device and suggest
+                            // switching, mirroring the recorder's named silence hint.
+                            stringResource(R.string.keyboard_status_no_audio_device, activeDeviceName)
+                        } else {
+                            stringResource(labelRes)
+                        }
                     Text(
-                        text = stringResource(labelRes),
+                        text = statusText,
                         style = MaterialTheme.typography.labelMedium,
                         // AUD-02: the "no audio detected" hint is a warning, not a phase —
                         // tint it with the error role so it stands out from the calm labels.
@@ -555,16 +583,100 @@ private fun KeyboardTopBar(
             }
         }
 
-        KeyboardAiSettingsMenu(
-            llmEnabled = uiState.llmEnabled,
-            currentMode = uiState.processingMode,
-            availableModes = uiState.availableModes,
-            enabled = uiState.settingsEnabled,
-            onToggleLlm = onToggleLlm,
-            onModeChange = onModeChange,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            KeyboardInputDeviceMenu(
+                pickerState = inputDevicePicker,
+                sessionLive = uiState.voicePanel == VoicePanelPhase.Recording,
+                onSelectAutomatic = onSelectInputDeviceAutomatic,
+                onSelectDevice = onSelectInputDevice,
+                onRequestBluetoothNames = onRequestBluetoothNames,
+            )
+
+            KeyboardAiSettingsMenu(
+                llmEnabled = uiState.llmEnabled,
+                currentMode = uiState.processingMode,
+                availableModes = uiState.availableModes,
+                enabled = uiState.settingsEnabled,
+                onToggleLlm = onToggleLlm,
+                onModeChange = onModeChange,
+            )
+        }
     }
 }
+
+/**
+ * AUDIODEV: unobtrusive input-device chip beside the AI toggle. Opens the shared device
+ * list as a [DropdownMenu] (popups work inside the IME window where a modal sheet would
+ * not). Selection applies to the NEXT dictation; a live session shows the note inline.
+ * The keyboard cannot request runtime permissions, so the Bluetooth-names affordance
+ * routes to the app via [onRequestBluetoothNames] (Open-app pattern, like ERR-8).
+ */
+@Composable
+private fun KeyboardInputDeviceMenu(
+    pickerState: InputDevicePickerUiState,
+    sessionLive: Boolean,
+    onSelectAutomatic: () -> Unit,
+    onSelectDevice: (AudioInputDeviceSummary) -> Unit,
+    onRequestBluetoothNames: (() -> Unit)?,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val state = pickerState.copy(sessionLive = sessionLive)
+    // The compact surface has no room for the full "Using X — Y isn't connected" notice,
+    // so a preferred-absent fallback tints the chip instead; the open menu names the
+    // missing device on its "Not connected" row.
+    val fallbackActive = sessionLive && state.activeDevice?.fallbackFromPreferredName != null
+
+    Box {
+        InputDeviceChip(
+            state = state,
+            onClick = { expanded = true },
+            modifier = Modifier.widthIn(max = KeyboardDeviceChipMaxWidth),
+            containerColor =
+                if (fallbackActive) {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                },
+            contentColor =
+                if (fallbackActive) {
+                    MaterialTheme.colorScheme.onTertiaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            InputDeviceListContent(
+                state = state,
+                onSelectAutomatic = {
+                    onSelectAutomatic()
+                    expanded = false
+                },
+                onSelectDevice = { device ->
+                    onSelectDevice(device)
+                    expanded = false
+                },
+                onRequestBluetoothNames =
+                    onRequestBluetoothNames?.let { request ->
+                        {
+                            request()
+                            expanded = false
+                        }
+                    },
+                modifier = Modifier.widthIn(min = 220.dp, max = KeyboardDeviceMenuMaxWidth),
+            )
+        }
+    }
+}
+
+private val KeyboardDeviceChipMaxWidth = 148.dp
+private val KeyboardDeviceMenuMaxWidth = 300.dp
 
 @Composable
 private fun KeyboardAiSettingsMenu(

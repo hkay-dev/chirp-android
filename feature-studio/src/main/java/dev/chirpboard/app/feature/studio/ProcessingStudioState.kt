@@ -40,6 +40,10 @@ data class ProcessingStudioState(
     val createdAt: Long = 0L,
     val isEditingTitle: Boolean = false,
     val editedTitle: String = "",
+    /** Freeform user note on the recording; empty when none exists (section stays hidden). */
+    val notes: String = "",
+    val isEditingNotes: Boolean = false,
+    val editedNotes: String = "",
     val audioPath: String = "",
     val source: RecordingSource? = null,
     val recoveryDiagnostics: RecoveryDiagnosticsUi = RecoveryDiagnosticsUi(),

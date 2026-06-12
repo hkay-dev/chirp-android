@@ -40,6 +40,8 @@ sealed class Screen(
 
     object KeyboardSettings : Screen("settings/keyboard")
 
+    object BackupRestore : Screen("settings/backup")
+
     object Profiles : Screen("profiles")
 
     object ProfileEditor : Screen("profiles/edit?profileId={profileId}") {

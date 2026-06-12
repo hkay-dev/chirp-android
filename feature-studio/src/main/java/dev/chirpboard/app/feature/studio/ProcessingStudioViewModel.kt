@@ -108,13 +108,17 @@ class ProcessingStudioViewModel
             val transcriptDraft = savedStateHandle.get<String>(KEY_TRANSCRIPT_DRAFT)
             val isEditingTitle = savedStateHandle.get<Boolean>(KEY_IS_EDITING_TITLE) ?: false
             val editedTitle = savedStateHandle.get<String>(KEY_EDITED_TITLE)
+            val isEditingNotes = savedStateHandle.get<Boolean>(KEY_IS_EDITING_NOTES) ?: false
+            val editedNotes = savedStateHandle.get<String>(KEY_EDITED_NOTES)
             val chatDraft = savedStateHandle.get<String>(KEY_CHAT_DRAFT)
-            if (!isEditingTranscript && !isEditingTitle && chatDraft.isNullOrEmpty()) return null
+            if (!isEditingTranscript && !isEditingTitle && !isEditingNotes && chatDraft.isNullOrEmpty()) return null
             return StudioDraftRestoration(
                 isEditingTranscript = isEditingTranscript,
                 transcriptDraft = transcriptDraft,
                 isEditingTitle = isEditingTitle,
                 editedTitle = editedTitle,
+                isEditingNotes = isEditingNotes,
+                editedNotes = editedNotes,
                 chatDraft = chatDraft,
             )
         }
@@ -135,6 +139,14 @@ class ProcessingStudioViewModel
         ) {
             savedStateHandle[KEY_IS_EDITING_TITLE] = isEditing
             savedStateHandle[KEY_EDITED_TITLE] = editedTitle
+        }
+
+        private fun mirrorNotesEditState(
+            isEditing: Boolean,
+            editedNotes: String?,
+        ) {
+            savedStateHandle[KEY_IS_EDITING_NOTES] = isEditing
+            savedStateHandle[KEY_EDITED_NOTES] = editedNotes?.takeIf { it.length <= MAX_MIRRORED_DRAFT_CHARS }
         }
 
         val playbackState: StateFlow<dev.chirpboard.app.core.playback.RecordingPlaybackState> = playbackController.state
@@ -316,6 +328,7 @@ class ProcessingStudioViewModel
                                     ),
                                 title = recording.title,
                                 createdAt = recording.createdAt.time,
+                                notes = recording.notes.orEmpty(),
                                 audioPath = recording.audioPath,
                                 source = recording.source,
                                 // Seed the duration from the persisted row so the header pill and
@@ -917,6 +930,46 @@ class ProcessingStudioViewModel
             _uiState.value = _uiState.value.copy(isEditingTitle = false)
         }
 
+        // --- NOTES: freeform per-recording note (captured live on the record screen, edited here) ---
+
+        fun startEditingNotes() {
+            val current = _uiState.value
+            mirrorNotesEditState(isEditing = true, editedNotes = current.notes)
+            _uiState.value = current.copy(isEditingNotes = true, editedNotes = current.notes)
+        }
+
+        fun updateEditedNotes(newNotes: String) {
+            mirrorNotesEditState(isEditing = true, editedNotes = newNotes)
+            _uiState.value = _uiState.value.copy(editedNotes = newNotes)
+        }
+
+        fun cancelEditingNotes() {
+            mirrorNotesEditState(isEditing = false, editedNotes = null)
+            _uiState.value = _uiState.value.copy(isEditingNotes = false)
+        }
+
+        /**
+         * Persists the edited note. Clearing all text removes the note (the row's notes column
+         * goes back to NULL via the repository's blank normalization, hiding the section again).
+         */
+        fun saveNotes() {
+            viewModelScope.launch {
+                val id = currentRecordingId ?: return@launch
+                val trimmedNotes = _uiState.value.editedNotes.trim()
+                // ERR-18: surface a full-disk write failure instead of crashing.
+                try {
+                    repository.updateNotes(id, trimmedNotes)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e("ProcessingStudioVM", "Failed to save note", e)
+                    _message.value = context.getString(R.string.rec_msg_note_save_failed)
+                    return@launch
+                }
+                mirrorNotesEditState(isEditing = false, editedNotes = null)
+                _uiState.value = _uiState.value.copy(isEditingNotes = false, notes = trimmedNotes)
+            }
+        }
+
         fun saveTitle() {
             viewModelScope.launch {
                 val id = currentRecordingId ?: return@launch
@@ -1164,6 +1217,8 @@ private const val KEY_IS_EDITING_TRANSCRIPT = "studio.isEditingTranscript"
 private const val KEY_TRANSCRIPT_DRAFT = "studio.transcriptDraft"
 private const val KEY_IS_EDITING_TITLE = "studio.isEditingTitle"
 private const val KEY_EDITED_TITLE = "studio.editedTitle"
+private const val KEY_IS_EDITING_NOTES = "studio.isEditingNotes"
+private const val KEY_EDITED_NOTES = "studio.editedNotes"
 private const val KEY_CHAT_DRAFT = "studio.chatDraft"
 
 /**
@@ -1178,6 +1233,8 @@ internal data class StudioDraftRestoration(
     val transcriptDraft: String?,
     val isEditingTitle: Boolean,
     val editedTitle: String?,
+    val isEditingNotes: Boolean = false,
+    val editedNotes: String? = null,
     val chatDraft: String?,
 )
 
@@ -1195,6 +1252,13 @@ internal fun ProcessingStudioState.applyDraftRestoration(restoration: StudioDraf
             state.copy(
                 isEditingTitle = true,
                 editedTitle = restoration.editedTitle ?: state.title,
+            )
+    }
+    if (restoration.isEditingNotes) {
+        state =
+            state.copy(
+                isEditingNotes = true,
+                editedNotes = restoration.editedNotes ?: state.notes,
             )
     }
     if (!restoration.chatDraft.isNullOrEmpty()) {

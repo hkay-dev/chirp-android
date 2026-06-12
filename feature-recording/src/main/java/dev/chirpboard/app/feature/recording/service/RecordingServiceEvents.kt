@@ -22,6 +22,8 @@ enum class RecordingAutoPauseReason {
 /** A single auto-stop occurrence; [atEpochMs] disambiguates repeats of the same reason. */
 data class RecordingAutoStopEvent(
     val reason: RecordingAutoStopReason,
+    /** Optional human detail for the reason — e.g. the NAME of the lost input device. */
+    val detail: String? = null,
     val atEpochMs: Long = System.currentTimeMillis(),
 ) {
     /**
@@ -65,8 +67,11 @@ class RecordingServiceEvents
         private val _storageLow = MutableStateFlow(false)
         val storageLow: StateFlow<Boolean> = _storageLow.asStateFlow()
 
-        fun publishAutoStop(reason: RecordingAutoStopReason) {
-            _autoStopEvent.value = RecordingAutoStopEvent(reason)
+        fun publishAutoStop(
+            reason: RecordingAutoStopReason,
+            detail: String? = null,
+        ) {
+            _autoStopEvent.value = RecordingAutoStopEvent(reason, detail)
         }
 
         fun clearAutoStopEvent() {

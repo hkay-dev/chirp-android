@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.StickyNote2
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Mic
@@ -180,11 +181,27 @@ internal fun RecordingListItem(
             }
         }
 
-        MetadataPillRow(
-            createdAtMs = item.createdAtMs,
-            durationMs = liveCaptureElapsedMs ?: item.durationMs,
-            source = item.source,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+        ) {
+            MetadataPillRow(
+                createdAtMs = item.createdAtMs,
+                durationMs = liveCaptureElapsedMs ?: item.durationMs,
+                source = item.source,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            // NOTES: a quiet glyph marks rows that carry a user note, so a described recording
+            // is findable at a glance without adding another pill to the metadata row.
+            if (!item.recording.notes.isNullOrBlank()) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.StickyNote2,
+                    contentDescription = stringResource(R.string.desc_has_note),
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
         // Status-driven sections keep PushDownReveal: their visibility can flip while the row is
         // on screen (a live capture stops, transcription progresses), so the height change is

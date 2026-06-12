@@ -529,4 +529,51 @@ class RecordingRepositoryTest {
             coVerify(exactly = 1) { recordingDao.updateExportInfo(id, "vault/Note.md", any()) }
             assertTrue(exportedAt.captured.time in before..after)
         }
+
+    @Test
+    fun `updateNotes stores non-blank text verbatim and reports the row update`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.updateNotes(id, "Standup riff\nabout Q3 roadmap") } returns 1
+
+            assertTrue(repository.updateNotes(id, "Standup riff\nabout Q3 roadmap"))
+
+            coVerify(exactly = 1) { recordingDao.updateNotes(id, "Standup riff\nabout Q3 roadmap") }
+        }
+
+    @Test
+    fun `updateNotes normalizes blank text to null so has-a-note stays a null check`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.updateNotes(id, null) } returns 1
+
+            assertTrue(repository.updateNotes(id, "   \n\t"))
+            assertTrue(repository.updateNotes(id, null))
+
+            coVerify(exactly = 2) { recordingDao.updateNotes(id, null) }
+            coVerify(exactly = 0) { recordingDao.updateNotes(id, match { it != null }) }
+        }
+
+    @Test
+    fun `updateNotes against a missing row is a no-op that reports false`() =
+        runTest {
+            // The record screen flushes the note draft after stop/discard races; a write that
+            // lands after the row was deleted must stay harmless and observable as a no-op.
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.updateNotes(id, "orphan note") } returns 0
+
+            assertFalse(repository.updateNotes(id, "orphan note"))
+        }
+
+    @Test
+    fun `getNotes returns the persisted note through the dao`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getNotes(id) } returns "Persisted note"
+
+            assertEquals("Persisted note", repository.getNotes(id))
+
+            coEvery { recordingDao.getNotes(id) } returns null
+            assertNull(repository.getNotes(id))
+        }
 }

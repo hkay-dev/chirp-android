@@ -168,6 +168,10 @@ dependencies {
     // OkHttp for model download
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Gson — chirp-backup envelope (Backup & Restore). Same version as feature-llm; every
+    // serialized model is @Keep-annotated per the proguard-rules.pro Gson section.
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // Tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")

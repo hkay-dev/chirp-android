@@ -188,6 +188,19 @@ interface RecordingDao {
         durationMs: Long,
     )
 
+    @Query("SELECT notes FROM recordings WHERE id = :id")
+    suspend fun getNotes(id: UUID): String?
+
+    /**
+     * Notes-only column write: never touches status, tokens, or any other finalize-owned
+     * column, so it is always safe to run alongside the stop/finalize pipeline.
+     */
+    @Query("UPDATE recordings SET notes = :notes WHERE id = :id")
+    suspend fun updateNotes(
+        id: UUID,
+        notes: String?,
+    ): Int
+
     @Query("UPDATE recordings SET lastExportedPath = :path, lastExportedAt = :exportedAt WHERE id = :id")
     suspend fun updateExportInfo(
         id: UUID,

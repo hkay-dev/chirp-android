@@ -12,6 +12,12 @@ import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Passphrase-encrypted API-key payload (the CHIRPKEY container) plus its key count. */
+class EncryptedKeyBackup(
+    val bytes: ByteArray,
+    val keyCount: Int,
+)
+
 @Singleton
 class LlmApiKeyBackupManager
     @Inject
@@ -25,11 +31,14 @@ class LlmApiKeyBackupManager
             return "chirp-llm-keys-$date.chirpkeys"
         }
 
-        suspend fun exportToUri(
-            uri: Uri,
-            passphrase: CharArray,
-        ): Result<Int> =
-            withContext(Dispatchers.IO) {
+        /**
+         * Builds the passphrase-encrypted key snapshot in memory — the exact same CHIRPKEY
+         * container [exportToUri] writes to disk. The unified Backup & Restore flow embeds
+         * these bytes (base64) inside the chirp-backup JSON envelope so API keys are NEVER
+         * serialized as plaintext.
+         */
+        suspend fun buildEncryptedSnapshot(passphrase: CharArray): Result<EncryptedKeyBackup> =
+            withContext(Dispatchers.Default) {
                 runCatching {
                     if (!preferences.isSecureStorageAvailable()) {
                         error("Secure storage unavailable on this device")
@@ -40,34 +49,32 @@ class LlmApiKeyBackupManager
                         error("No API keys are saved yet")
                     }
 
-                    val encrypted =
-                        LlmApiKeyBackupCodec.encrypt(
-                            payloadJson = gson.toJson(snapshot),
-                            passphrase = passphrase,
-                        )
-
-                    context.contentResolver.openOutputStream(uri)?.use { output ->
-                        output.write(encrypted)
-                    } ?: error("Could not write backup file")
-
-                    snapshot.apiKeys.size
+                    EncryptedKeyBackup(
+                        bytes =
+                            LlmApiKeyBackupCodec.encrypt(
+                                payloadJson = gson.toJson(snapshot),
+                                passphrase = passphrase,
+                            ),
+                        keyCount = snapshot.apiKeys.size,
+                    )
                 }
             }
 
-        suspend fun importFromUri(
-            uri: Uri,
+        /**
+         * Decrypts and applies a CHIRPKEY snapshot previously produced by
+         * [buildEncryptedSnapshot] or [exportToUri]. Validation happens entirely before any
+         * write: a wrong passphrase or corrupted payload leaves the stored keys untouched.
+         * Returns the number of restored API keys.
+         */
+        suspend fun restoreEncryptedSnapshot(
+            encrypted: ByteArray,
             passphrase: CharArray,
         ): Result<Int> =
-            withContext(Dispatchers.IO) {
+            withContext(Dispatchers.Default) {
                 runCatching {
                     if (!preferences.isSecureStorageAvailable()) {
                         error("Secure storage unavailable on this device")
                     }
-
-                    val encrypted =
-                        context.contentResolver.openInputStream(uri)?.use { input ->
-                            input.readBytes()
-                        } ?: error("Could not read backup file")
 
                     val payloadJson = LlmApiKeyBackupCodec.decrypt(encrypted, passphrase)
                     val snapshot = gson.fromJson(payloadJson, LlmSettingsSnapshot::class.java)
@@ -79,6 +86,35 @@ class LlmApiKeyBackupManager
 
                     preferences.applySettingsSnapshot(snapshot)
                     snapshot.apiKeys.size
+                }
+            }
+
+        suspend fun exportToUri(
+            uri: Uri,
+            passphrase: CharArray,
+        ): Result<Int> =
+            withContext(Dispatchers.IO) {
+                buildEncryptedSnapshot(passphrase).mapCatching { backup ->
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        output.write(backup.bytes)
+                    } ?: error("Could not write backup file")
+
+                    backup.keyCount
+                }
+            }
+
+        suspend fun importFromUri(
+            uri: Uri,
+            passphrase: CharArray,
+        ): Result<Int> =
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val encrypted =
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            input.readBytes()
+                        } ?: error("Could not read backup file")
+
+                    restoreEncryptedSnapshot(encrypted, passphrase).getOrThrow()
                 }
             }
     }

@@ -161,7 +161,7 @@ class MigrationTest {
             close()
         }
 
-        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 10, true, *Migrations.ALL)
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 11, true, *Migrations.ALL)
         migratedDb.query(
             """
             SELECT recordings.title, transcripts.rawText, tags.name
@@ -1103,6 +1103,73 @@ class MigrationTest {
             org.junit.Assert.assertEquals("cleanup", cursor.getString(0))
             org.junit.Assert.assertEquals("PENDING", cursor.getString(1))
             org.junit.Assert.assertEquals("PENDING", cursor.getString(2))
+        }
+
+        migratedDb.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate10To11_addsNullableNotesColumnAndPreservesRows() {
+        val recordingId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+
+        helper.createDatabase(TEST_DB, 10).apply {
+            execSQL(
+                """
+                INSERT INTO recordings(
+                    id,
+                    title,
+                    audioPath,
+                    status,
+                    source,
+                    profileId,
+                    createdAt,
+                    durationMs,
+                    errorMessage,
+                    lastExportedPath,
+                    lastExportedAt,
+                    transcriptionExecutionToken
+                ) VALUES(
+                    '$recordingId',
+                    'Noted later',
+                    '/tmp/audio.m4a',
+                    'COMPLETED',
+                    'APP',
+                    NULL,
+                    $createdAt,
+                    4200,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 11, true, Migrations.MIGRATION_10_11)
+
+        // Existing rows survive the migration and read back a NULL note.
+        migratedDb.query(
+            "SELECT title, status, notes FROM recordings WHERE id = '$recordingId'",
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("Noted later", cursor.getString(0))
+            org.junit.Assert.assertEquals("COMPLETED", cursor.getString(1))
+            org.junit.Assert.assertTrue(cursor.isNull(2))
+        }
+
+        // The new column is writable and reads back exactly what was stored.
+        migratedDb.execSQL(
+            "UPDATE recordings SET notes = 'Standup riff about Q3 roadmap' WHERE id = '$recordingId'",
+        )
+        migratedDb.query(
+            "SELECT notes FROM recordings WHERE id = '$recordingId'",
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("Standup riff about Q3 roadmap", cursor.getString(0))
         }
 
         migratedDb.close()

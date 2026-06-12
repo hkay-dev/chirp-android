@@ -329,6 +329,28 @@ class RecordingRepository
             durationMs: Long,
         ) = recordingDao.updateDuration(id, durationMs)
 
+        /** Freeform user note for a recording, or null when none was written (or the row is gone). */
+        suspend fun getNotes(id: UUID): String? = recordingDao.getNotes(id)
+
+        /**
+         * Writes the freeform user note onto a recording row. Blank text is normalized to NULL so
+         * "has a note" checks stay a simple null test everywhere (home glyph, studio section).
+         *
+         * Touches ONLY the notes column — never status, execution tokens, or finalize-owned
+         * fields — so callers may run it concurrently with the stop/finalize pipeline. A write
+         * against a deleted row is a harmless no-op (returns false).
+         *
+         * Seam for future LLM enrichment: an automatic note generator (e.g. a one-line gist from
+         * the transcript) should populate notes through this same method, ideally only when the
+         * row's notes are still NULL so a user-authored note is never overwritten.
+         *
+         * @return true when a row was updated.
+         */
+        suspend fun updateNotes(
+            id: UUID,
+            notes: String?,
+        ): Boolean = recordingDao.updateNotes(id, notes?.takeUnless { it.isBlank() }) > 0
+
         suspend fun updateExportInfo(
             id: UUID,
             path: String,

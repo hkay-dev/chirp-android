@@ -18,6 +18,7 @@ import dev.chirpboard.app.feature.recording.ui.tag.TagManagementScreen
 import dev.chirpboard.app.feature.transcription.settings.TranscriptionSettingsScreen
 import dev.chirpboard.app.ui.settings.AboutScreen
 import dev.chirpboard.app.ui.settings.AudioSettingsScreen
+import dev.chirpboard.app.ui.settings.BackupRestoreScreen
 import dev.chirpboard.app.ui.settings.KeyboardSettingsScreen
 import dev.chirpboard.app.ui.settings.SettingsScreen
 
@@ -32,6 +33,7 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
             onNavigateToAudioSettings = { navController.navigate(Screen.AudioSettings.route) },
             onNavigateToObsidianSettings = { navController.navigate(Screen.ObsidianSettings.route) },
             onNavigateToKeyboardSettings = { navController.navigate(Screen.KeyboardSettings.route) },
+            onNavigateToBackupRestore = { navController.navigate(Screen.BackupRestore.route) },
             onNavigateToProfiles = { navController.navigate(Screen.Profiles.route) },
             onNavigateToTags = { navController.navigate(Screen.Tags.route) },
             onNavigateToWordReplacements = { navController.navigate(Screen.WordReplacements.route) },
@@ -106,6 +108,12 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
 
     composable(Screen.KeyboardSettings.route) {
         KeyboardSettingsScreen(
+            onNavigateBack = { navController.popBackStack() },
+        )
+    }
+
+    composable(Screen.BackupRestore.route) {
+        BackupRestoreScreen(
             onNavigateBack = { navController.popBackStack() },
         )
     }

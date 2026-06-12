@@ -42,6 +42,9 @@ interface TagDao {
     @Insert
     suspend fun insert(tag: Tag)
 
+    @Insert
+    suspend fun insertTags(tags: List<Tag>)
+
     @Update
     suspend fun update(tag: Tag): Int
 
@@ -50,6 +53,45 @@ interface TagDao {
 
     @Query("DELETE FROM tags WHERE id = :id")
     suspend fun deleteById(id: UUID)
+
+    @Query("DELETE FROM tags")
+    suspend fun deleteAllTags()
+
+    /**
+     * Backup restore, REPLACE semantics: clears every tag, then inserts the backup's tags.
+     * Deleting a tag cascades its recording_tags and profile_default_tags rows, so assignments
+     * to tags that are not re-created are dropped by design (documented in the import UI).
+     */
+    @Transaction
+    suspend fun replaceAllTags(tags: List<Tag>): BackupUpsertCounts {
+        deleteAllTags()
+        insertTags(tags)
+        return BackupUpsertCounts(inserted = tags.size, updated = 0)
+    }
+
+    /**
+     * Backup restore, MERGE semantics: upserts by tag name (the natural key). A name match
+     * updates the existing row in place — the existing id is kept so recording and profile
+     * references stay intact. New tags keep their backup id unless it collides with an
+     * existing tag's id, in which case a fresh id is generated.
+     */
+    @Transaction
+    suspend fun upsertTagsByName(tags: List<Tag>): BackupUpsertCounts {
+        var inserted = 0
+        var updated = 0
+        for (tag in tags) {
+            val existing = getTagByName(tag.name)
+            if (existing != null) {
+                update(existing.copy(color = tag.color))
+                updated++
+            } else {
+                val safeId = if (getTag(tag.id) == null) tag.id else UUID.randomUUID()
+                insert(tag.copy(id = safeId))
+                inserted++
+            }
+        }
+        return BackupUpsertCounts(inserted = inserted, updated = updated)
+    }
 
     // Recording-Tag relationships
 

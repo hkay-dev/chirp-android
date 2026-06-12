@@ -58,4 +58,10 @@ data class Recording(
     val lastExportedAt: Date? = null,
     /** Active queued/running transcription execution token */
     val transcriptionExecutionToken: String? = null,
+    /**
+     * Freeform user note describing the recording (captured live on the record screen or
+     * edited in the studio). Null when the user never wrote one. Written only through
+     * [dev.chirpboard.app.data.repository.RecordingRepository.updateNotes].
+     */
+    val notes: String? = null,
 )

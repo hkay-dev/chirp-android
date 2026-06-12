@@ -14,6 +14,7 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
 import dev.chirpboard.app.feature.recording.RecordingManager
@@ -21,6 +22,9 @@ import dev.chirpboard.app.feature.recording.service.RecordingAutoStopEvent
 import dev.chirpboard.app.feature.recording.service.RecordingServiceEvents
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +58,7 @@ class RecordViewModel
         private val recordingStateManager: RecordingStateManager,
         private val profileRepository: ProfileRepository,
         private val tagRepository: TagRepository,
+        private val recordingRepository: RecordingRepository,
         private val recoveryStore: RecordingRecoveryStore,
         private val serviceEvents: RecordingServiceEvents,
         private val savedStateHandle: SavedStateHandle,
@@ -67,6 +72,22 @@ class RecordViewModel
              * re-fire an unattended microphone start.
              */
             const val KEY_AUTO_START_CONSUMED = "autoStartConsumed"
+
+            /** In-progress note draft, mirrored so rotation/process death never lose typed text. */
+            const val KEY_NOTE_DRAFT = "noteDraft"
+
+            /**
+             * Saved-state Bundles share a ~1MB binder budget; a pathologically long note is not
+             * mirrored (the debounced DB write-through still preserves it) rather than risking a
+             * TransactionTooLargeException on every lifecycle save.
+             */
+            const val MAX_SAVED_NOTE_CHARS = 20_000
+
+            /**
+             * Debounce for the live note write-through. Short enough that Browse Home / an
+             * unexpected stop rarely outruns it, long enough not to write on every keystroke.
+             */
+            const val NOTE_FLUSH_DEBOUNCE_MS = 600L
         }
 
         private val requestedProfileId: UUID? =
@@ -162,6 +183,20 @@ class RecordViewModel
 
         private var tagsInitializedForRecordingId: UUID? = null
 
+        /**
+         * Live note draft for the active recording session ("describe it while you make it").
+         * Restored from SavedStateHandle so rotation/process death keep the typed text, and
+         * written through to the recording row with a short debounce so Browse Home + return
+         * (a brand-new ViewModel) and every stop path see the note without touching the
+         * stop/finalize pipeline.
+         */
+        private val _noteDraft = MutableStateFlow(savedStateHandle.get<String>(KEY_NOTE_DRAFT).orEmpty())
+        val noteDraft: StateFlow<String> = _noteDraft.asStateFlow()
+
+        /** Row the current note draft belongs to; cleared when the session ends or is discarded. */
+        private var noteRecordingId: UUID? = null
+        private var noteFlushJob: Job? = null
+
         init {
             viewModelScope.launch {
                 try {
@@ -202,9 +237,11 @@ class RecordViewModel
                         initializeTagsForRecording(
                             recordingId = recordingId,
                         )
+                        initializeNoteForRecording(recordingId)
                     } else if (recordingId == null && state is RecordingState.Idle) {
                         tagsInitializedForRecordingId = null
                         _selectedTagIds.value = emptySet()
+                        finishNoteSession()
                     }
                 }
             }
@@ -239,6 +276,7 @@ class RecordViewModel
                 return null
             }
             val recordingId = current.activeRecordingId ?: return null
+            flushNoteDraftForStop(recordingId)
             viewModelScope.launch {
                 recordingManager.stopRecording()
             }
@@ -249,6 +287,7 @@ class RecordViewModel
 
         /** Stop the current recording and save it. */
         fun stopRecording() {
+            recordingState.value.activeRecordingId?.let(::flushNoteDraftForStop)
             viewModelScope.launch {
                 recordingManager.stopRecording()
             }
@@ -259,8 +298,9 @@ class RecordViewModel
             recordingStateManager.clearLastCompletedRecordingId()
         }
 
-        /** Cancel the current recording without saving. */
+        /** Cancel the current recording without saving. A discard also drops the note draft. */
         fun cancelRecording() {
+            discardNoteDraft()
             recordingManager.cancelRecording()
         }
 
@@ -277,6 +317,9 @@ class RecordViewModel
                 _entryMessage.value = appContext.getString(R.string.rec_msg_stop_in_progress)
                 return
             }
+            // Start over discards the current capture, and the note draft with it; the fresh
+            // session starts with a clean note (mirroring the tag reset on session change).
+            discardNoteDraft()
             recordingManager.restartRecording(
                 origin = RecordingOrigin.APP,
                 profileId = profileId,
@@ -330,6 +373,127 @@ class RecordViewModel
                     _entryMessage.value = appContext.getString(R.string.rec_msg_tag_add_failed)
                 }
             }
+        }
+
+        /**
+         * Updates the live note draft. The text lands in three places, in increasing durability:
+         * the StateFlow (UI), SavedStateHandle (rotation/process death), and — debounced — the
+         * recording row itself, so the draft survives Browse Home + return and is already on the
+         * row for every stop path. The write touches only the notes column; the stop/finalize
+         * pipeline is never involved.
+         */
+        fun updateNoteDraft(text: String) {
+            setNoteDraftState(text)
+            val recordingId = recordingState.value.activeRecordingId ?: return
+            noteRecordingId = recordingId
+            noteFlushJob?.cancel()
+            noteFlushJob =
+                viewModelScope.launch {
+                    delay(NOTE_FLUSH_DEBOUNCE_MS)
+                    persistNote(recordingId, _noteDraft.value)
+                }
+        }
+
+        private fun setNoteDraftState(text: String) {
+            _noteDraft.value = text
+            savedStateHandle[KEY_NOTE_DRAFT] = text.takeIf { it.length <= MAX_SAVED_NOTE_CHARS }
+        }
+
+        /**
+         * Adopts a note already persisted on the row (Browse Home + return creates a fresh
+         * ViewModel; keep-session recovery resumes an older row). A live in-memory draft wins
+         * over the persisted copy — it is never older.
+         */
+        private suspend fun initializeNoteForRecording(recordingId: UUID) {
+            noteRecordingId = recordingId
+            val persisted = recordingRepository.getNotes(recordingId)
+            if (!persisted.isNullOrBlank() && _noteDraft.value.isBlank()) {
+                setNoteDraftState(persisted)
+            }
+        }
+
+        /**
+         * Session ended through any path (user stop, auto-stop, notification stop): flush the
+         * draft onto the row one final time, then reset for the next session. After a discard
+         * the row is gone, so the flush is a harmless no-op UPDATE.
+         */
+        private fun finishNoteSession() {
+            val recordingId = noteRecordingId ?: return
+            noteRecordingId = null
+            flushNoteDraftIfMeaningful(recordingId)
+            setNoteDraftState("")
+        }
+
+        /** Explicit discard (cancel / start over): drop the draft without persisting it. */
+        private fun discardNoteDraft() {
+            noteFlushJob?.cancel()
+            noteRecordingId = null
+            setNoteDraftState("")
+        }
+
+        /**
+         * Stop requested: persist the draft immediately and non-cancellably. This is a separate
+         * post-persist step on the already-existing row — deliberately decoupled from the
+         * stop/finalize reliability pipeline, which only ever touches its own columns.
+         */
+        private fun flushNoteDraftForStop(recordingId: UUID) {
+            noteRecordingId = recordingId
+            flushNoteDraftIfMeaningful(recordingId)
+        }
+
+        /**
+         * Persists the draft unless it is blank with no edit pending. The blank+untouched case
+         * is skipped both to avoid a pointless write on every stop and because a blank draft
+         * that merely has not HYDRATED yet (stop racing [initializeNoteForRecording]) must never
+         * wipe a note already on the row. A blank draft from an actual user clear always has a
+         * pending debounced flush, so the clear still persists.
+         */
+        private fun flushNoteDraftIfMeaningful(recordingId: UUID) {
+            val hasPendingEdit = noteFlushJob?.isActive == true
+            noteFlushJob?.cancel()
+            val draft = _noteDraft.value
+            if (draft.isNotBlank() || hasPendingEdit) {
+                persistNoteDetached(recordingId, draft)
+            }
+        }
+
+        /**
+         * Persists the note on a NonCancellable job so neither navigation (ViewModel clear) nor
+         * the in-flight stop can drop a captured description.
+         */
+        private fun persistNoteDetached(
+            recordingId: UUID,
+            draft: String,
+        ) {
+            viewModelScope.launch(NonCancellable) {
+                persistNote(recordingId, draft)
+            }
+        }
+
+        private suspend fun persistNote(
+            recordingId: UUID,
+            draft: String,
+        ) {
+            try {
+                recordingRepository.updateNotes(recordingId, draft)
+            } catch (e: SQLiteException) {
+                // ERR-18-style guard: a full disk or a row deleted mid-write must not crash
+                // the bare launch; surface it like the tag failures.
+                Log.e(TAG, "Note save failed for recording $recordingId", e)
+                _entryMessage.value = appContext.getString(R.string.rec_msg_note_save_failed)
+            }
+        }
+
+        override fun onCleared() {
+            // Browse Home (or any navigation) inside the debounce window: the pending flush
+            // would be cancelled with the scope, so run it detached instead. When no flush is
+            // pending the row already holds the latest draft.
+            val recordingId = noteRecordingId
+            if (recordingId != null && noteFlushJob?.isActive == true) {
+                noteFlushJob?.cancel()
+                persistNoteDetached(recordingId, _noteDraft.value)
+            }
+            super.onCleared()
         }
 
         fun recoverInterruptedSession(sessionId: UUID) {

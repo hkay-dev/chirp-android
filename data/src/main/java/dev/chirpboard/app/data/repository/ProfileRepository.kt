@@ -1,5 +1,7 @@
 package dev.chirpboard.app.data.repository
 
+import dev.chirpboard.app.data.dao.BackupUpsertCounts
+import dev.chirpboard.app.data.dao.ProfileBackupEntry
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Tag
@@ -102,4 +104,16 @@ class ProfileRepository
         suspend fun deleteById(id: UUID) = profileDao.deleteById(id)
 
         suspend fun getCount(): Int = profileDao.getCount()
+
+        /**
+         * Backup restore (REPLACE): atomically clears all profiles and inserts [entries].
+         * Recordings that referenced a removed profile become unassigned via the existing
+         * profileId FK (SET_NULL on delete); they are never deleted.
+         */
+        suspend fun replaceAllFromBackup(entries: List<ProfileBackupEntry>): BackupUpsertCounts =
+            profileDao.replaceAllProfiles(entries)
+
+        /** Backup restore (MERGE): atomically upserts [entries] by name, keeping existing ids. */
+        suspend fun upsertByNameFromBackup(entries: List<ProfileBackupEntry>): BackupUpsertCounts =
+            profileDao.upsertProfilesByName(entries)
     }

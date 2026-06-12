@@ -258,7 +258,7 @@ fun HomeScreen(
             return@LaunchedEffect
         }
         snackbarHostState.showSnackbar(
-            message = event.reason.autoStopSnackbarMessage(context),
+            message = event.autoStopSnackbarMessage(context),
             duration = SnackbarDuration.Short,
         )
         viewModel.consumeAutoStopEvent()

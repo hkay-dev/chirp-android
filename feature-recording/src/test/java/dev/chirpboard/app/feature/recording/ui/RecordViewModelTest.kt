@@ -9,6 +9,7 @@ import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.ProfileRepository
+import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.RecordingManager
@@ -59,6 +60,7 @@ class RecordViewModelTest {
     private lateinit var recordingStateManager: RecordingStateManager
     private lateinit var profileRepository: ProfileRepository
     private lateinit var tagRepository: TagRepository
+    private lateinit var recordingRepository: RecordingRepository
     private lateinit var recoveryStore: RecordingRecoveryStore
     private val serviceEvents = RecordingServiceEvents()
     private lateinit var viewModel: RecordViewModel
@@ -79,6 +81,9 @@ class RecordViewModelTest {
         profileRepository = mockk(relaxed = true)
         tagRepository = mockk(relaxed = true)
         every { tagRepository.getAllTags() } returns emptyFlow()
+        recordingRepository = mockk(relaxed = true)
+        coEvery { recordingRepository.getNotes(any()) } returns null
+        coEvery { recordingRepository.updateNotes(any(), any()) } returns true
         recoveryStore = mockk(relaxed = true)
         every { recoveryStore.pendingSessions } returns MutableStateFlow(emptyList())
         every { recoveryStore.actionablePendingSessions } returns MutableStateFlow(emptyList())
@@ -91,6 +96,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -115,6 +121,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(mapOf("profileId" to profileId.toString())),
@@ -154,6 +161,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -249,6 +257,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -281,6 +290,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -313,6 +323,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -352,6 +363,7 @@ class RecordViewModelTest {
                     recordingStateManager = recordingStateManager,
                     profileRepository = profileRepository,
                     tagRepository = tagRepository,
+                    recordingRepository = recordingRepository,
                     recoveryStore = recoveryStore,
                     serviceEvents = serviceEvents,
                     savedStateHandle = SavedStateHandle(),
@@ -380,6 +392,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(mapOf("profileId" to profileId.toString())),
@@ -411,6 +424,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = savedStateHandle,
@@ -428,6 +442,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = savedStateHandle,
@@ -448,6 +463,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -474,6 +490,7 @@ class RecordViewModelTest {
                 recordingStateManager = recordingStateManager,
                 profileRepository = profileRepository,
                 tagRepository = tagRepository,
+                recordingRepository = recordingRepository,
                 recoveryStore = recoveryStore,
                 serviceEvents = serviceEvents,
                 savedStateHandle = SavedStateHandle(),
@@ -526,5 +543,151 @@ class RecordViewModelTest {
         assertNull(viewModel.sessionAdvisory.value)
 
         collector.cancel()
+    }
+
+    // --- NOTES: live per-recording note draft (capture-time description) ---
+
+    private fun recordingStateOf(recordingId: UUID): MutableStateFlow<RecordingState> =
+        MutableStateFlow(
+            RecordingState.Recording(
+                origin = RecordingOrigin.APP,
+                recordingId = recordingId,
+            ),
+        )
+
+    private fun noteViewModel(
+        stateFlow: MutableStateFlow<RecordingState>,
+        savedStateHandle: SavedStateHandle = SavedStateHandle(),
+    ): RecordViewModel {
+        every { recordingStateManager.state } returns stateFlow
+        return RecordViewModel(
+            appContext = appContext,
+            recordingManager = recordingManager,
+            recordingStateManager = recordingStateManager,
+            profileRepository = profileRepository,
+            tagRepository = tagRepository,
+            recordingRepository = recordingRepository,
+            recoveryStore = recoveryStore,
+            serviceEvents = serviceEvents,
+            savedStateHandle = savedStateHandle,
+        )
+    }
+
+    @Test
+    fun `note draft survives process death via saved state`() = runTest(testDispatcher) {
+        val savedStateHandle = SavedStateHandle()
+        val recordingId = UUID.randomUUID()
+        val firstViewModel = noteViewModel(recordingStateOf(recordingId), savedStateHandle)
+        advanceUntilIdle()
+
+        firstViewModel.updateNoteDraft("Rooftop interview with Sam")
+        assertEquals("Rooftop interview with Sam", firstViewModel.noteDraft.value)
+
+        // A restored ViewModel (same saved state) sees the typed draft immediately.
+        val restoredViewModel = noteViewModel(recordingStateOf(recordingId), savedStateHandle)
+        assertEquals("Rooftop interview with Sam", restoredViewModel.noteDraft.value)
+    }
+
+    @Test
+    fun `note draft is written through to the recording row after the debounce`() = runTest(testDispatcher) {
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Standup riff")
+        testDispatcher.scheduler.runCurrent()
+        coVerify(exactly = 0) { recordingRepository.updateNotes(any(), any()) }
+
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { recordingRepository.updateNotes(recordingId, "Standup riff") }
+    }
+
+    @Test
+    fun `stopRecording persists the note draft onto the row`() = runTest(testDispatcher) {
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Q3 roadmap thoughts")
+        notesViewModel.stopRecording()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { recordingRepository.updateNotes(recordingId, "Q3 roadmap thoughts") }
+        coVerify { recordingManager.stopRecording() }
+    }
+
+    @Test
+    fun `stopRecordingWithHandoff persists the note draft onto the handed-off row`() = runTest(testDispatcher) {
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Save-from-back-dialog note")
+        val handoffId = notesViewModel.stopRecordingWithHandoff()
+        advanceUntilIdle()
+
+        assertEquals(recordingId, handoffId)
+        coVerify(atLeast = 1) { recordingRepository.updateNotes(recordingId, "Save-from-back-dialog note") }
+        coVerify { recordingManager.stopRecording() }
+    }
+
+    @Test
+    fun `stop with a blank untouched draft never writes the notes column`() = runTest(testDispatcher) {
+        // Guards the hydration race: a blank draft that simply has not loaded the persisted
+        // note yet must never wipe what is already on the row.
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.stopRecording()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { recordingRepository.updateNotes(any(), any()) }
+    }
+
+    @Test
+    fun `cancelRecording discards the note draft without persisting it`() = runTest(testDispatcher) {
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Doomed note")
+        notesViewModel.cancelRecording()
+        advanceUntilIdle()
+
+        assertEquals("", notesViewModel.noteDraft.value)
+        coVerify(exactly = 0) { recordingRepository.updateNotes(any(), any()) }
+        verify { recordingManager.cancelRecording() }
+    }
+
+    @Test
+    fun `note already on the row hydrates the draft when the session is observed`() = runTest(testDispatcher) {
+        // Browse Home + return rebuilds the ViewModel with an empty saved state; the note
+        // written through earlier must come back from the recording row.
+        val recordingId = UUID.randomUUID()
+        coEvery { recordingRepository.getNotes(recordingId) } returns "Written before browsing home"
+
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        assertEquals("Written before browsing home", notesViewModel.noteDraft.value)
+    }
+
+    @Test
+    fun `session ending through any stop path flushes the draft and resets it`() = runTest(testDispatcher) {
+        // Auto-stops (storage critical, focus loss…) never call stopRecording() on this
+        // ViewModel; the Idle transition is their only flush point.
+        val recordingId = UUID.randomUUID()
+        val stateFlow = recordingStateOf(recordingId)
+        val notesViewModel = noteViewModel(stateFlow)
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Captured before auto-stop")
+        stateFlow.value = RecordingState.Idle
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { recordingRepository.updateNotes(recordingId, "Captured before auto-stop") }
+        assertEquals("", notesViewModel.noteDraft.value)
     }
 }
