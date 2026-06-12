@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.llm.client
 
 import dev.chirpboard.app.feature.llm.model.ChatMessage
-import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -48,64 +47,15 @@ Transcript:
         }
 
         override suspend fun process(
-            text: String,
-            systemPrompt: String,
-        ): Result<String> = process(createTranscriptContext(text), systemPrompt)
-
-        override suspend fun process(
             context: TranscriptLlmContext,
             systemPrompt: String,
-        ): Result<String> = chatService.completePrompt(context.processPrompt(systemPrompt))
-
-        override suspend fun processWithRuntime(
-            text: String,
-            systemPrompt: String,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> = processWithRuntime(createTranscriptContext(text), systemPrompt, providerId, modelId)
-
-        override suspend fun processWithRuntime(
-            context: TranscriptLlmContext,
-            systemPrompt: String,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> = chatService.completePrompt(providerId, modelId, context.processPrompt(systemPrompt))
-
-        override suspend fun generateTitle(transcript: String): Result<String> =
-            generateTitle(createTranscriptContext(transcript))
+        ): Result<String> = context.complete(context.processPrompt(systemPrompt))
 
         override suspend fun generateTitle(context: TranscriptLlmContext): Result<String> =
-            chatService.completePrompt(context.prefixedPrompt(TITLE_PROMPT))
-
-        override suspend fun generateTitleWithRuntime(
-            transcript: String,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> = generateTitleWithRuntime(createTranscriptContext(transcript), providerId, modelId)
-
-        override suspend fun generateTitleWithRuntime(
-            context: TranscriptLlmContext,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> = chatService.completePrompt(providerId, modelId, context.prefixedPrompt(TITLE_PROMPT))
-
-        override suspend fun generateSummary(transcript: String): Result<String> =
-            generateSummary(createTranscriptContext(transcript))
+            context.complete(context.prefixedPrompt(TITLE_PROMPT))
 
         override suspend fun generateSummary(context: TranscriptLlmContext): Result<String> =
-            chatService.completePrompt(context.prefixedPrompt(SUMMARY_PROMPT))
-
-        override suspend fun generateSummaryWithRuntime(
-            transcript: String,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> = generateSummaryWithRuntime(createTranscriptContext(transcript), providerId, modelId)
-
-        override suspend fun generateSummaryWithRuntime(
-            context: TranscriptLlmContext,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> = chatService.completePrompt(providerId, modelId, context.prefixedPrompt(SUMMARY_PROMPT))
+            context.complete(context.prefixedPrompt(SUMMARY_PROMPT))
 
         override suspend fun generateTranscriptPassageResponse(
             action: TranscriptPassageAction,
@@ -132,4 +82,16 @@ Transcript:
                     "Transcript:\n$transcript"
             return chatService.completeChat(systemPrompt, messages)
         }
+
+        /**
+         * Routes a fully-assembled prompt to the chat service. When the context carries no
+         * provider/model the request uses the active provider; otherwise it is pinned to the
+         * provider/model captured in the context (e.g. a queued enhancement's runtime snapshot).
+         */
+        private suspend fun TranscriptLlmContext.complete(prompt: String): Result<String> =
+            if (providerId == null && modelId == null) {
+                chatService.completePrompt(prompt)
+            } else {
+                chatService.completePrompt(providerId, modelId, prompt)
+            }
     }

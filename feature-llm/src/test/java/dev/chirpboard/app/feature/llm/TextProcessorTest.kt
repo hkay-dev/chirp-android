@@ -7,7 +7,6 @@ import dev.chirpboard.app.feature.llm.model.ProcessingModeDefaults
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
@@ -24,7 +23,6 @@ class TextProcessorTest {
     fun setup() {
         llmClient = mockk()
         modeRepository = mockk()
-        every { llmClient.createTranscriptContext(any()) } answers { TranscriptLlmContext(firstArg()) }
         textProcessor = TextProcessor(llmClient, modeRepository)
     }
 

@@ -61,9 +61,7 @@ interface ProcessingModePort {
 }
 
 interface RecordingTextEnhancementPort : RecordingTextEnrichment {
-    suspend fun isEnhancementAvailable(): Boolean
-
-    suspend fun isEnhancementAvailable(providerId: String?): Boolean = isEnhancementAvailable()
+    suspend fun isEnhancementAvailable(providerId: String?): Boolean
 
     suspend fun defaultAutoTitleEnabled(): Boolean
 
@@ -83,58 +81,18 @@ interface RecordingTextEnhancementPort : RecordingTextEnrichment {
             prompt = null,
         )
 
-    fun createContext(
-        text: String,
-        providerId: String? = null,
-        modelId: String? = null,
-    ): RecordingTextEnhancementContext =
-        RecordingTextEnhancementContext(
-            text = text,
-            providerId = providerId,
-            modelId = modelId,
-        )
-
     suspend fun process(
         text: String,
         processingModeId: String,
     ): Result<String>
 
     suspend fun processResolved(
-        text: String,
-        prompt: String?,
-        providerId: String?,
-        modelId: String?,
-        fallbackProcessingModeId: String,
-    ): Result<String> = process(text, fallbackProcessingModeId)
-
-    suspend fun processResolved(
         context: RecordingTextEnhancementContext,
         prompt: String?,
         fallbackProcessingModeId: String,
-    ): Result<String> =
-        processResolved(
-            text = context.text,
-            prompt = prompt,
-            providerId = context.providerId,
-            modelId = context.modelId,
-            fallbackProcessingModeId = fallbackProcessingModeId,
-        )
+    ): Result<String> = process(context.text, fallbackProcessingModeId)
 
-    suspend fun generateTitle(
-        transcript: String,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = generateTitle(transcript)
+    suspend fun generateTitle(context: RecordingTextEnhancementContext): Result<String> = generateTitle(context.text)
 
-    suspend fun generateTitle(context: RecordingTextEnhancementContext): Result<String> =
-        generateTitle(context.text, context.providerId, context.modelId)
-
-    suspend fun generateSummary(
-        transcript: String,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = generateSummary(transcript)
-
-    suspend fun generateSummary(context: RecordingTextEnhancementContext): Result<String> =
-        generateSummary(context.text, context.providerId, context.modelId)
+    suspend fun generateSummary(context: RecordingTextEnhancementContext): Result<String> = generateSummary(context.text)
 }

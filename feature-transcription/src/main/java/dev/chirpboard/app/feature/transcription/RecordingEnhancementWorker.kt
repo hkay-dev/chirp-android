@@ -8,6 +8,7 @@ import androidx.work.Data
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
@@ -148,7 +149,7 @@ class RecordingEnhancementWorker
 
             var textForEnrichment = baseProcessedText
             var enrichmentContext =
-                textEnhancement.createContext(
+                RecordingTextEnhancementContext(
                     text = textForEnrichment,
                     providerId = execution.llmProviderId,
                     modelId = execution.llmModelId,
@@ -174,7 +175,7 @@ class RecordingEnhancementWorker
                 if (transformResult.isSuccess) {
                     textForEnrichment = transformResult.getOrThrow()
                     enrichmentContext =
-                        textEnhancement.createContext(
+                        RecordingTextEnhancementContext(
                             text = textForEnrichment,
                             providerId = execution.llmProviderId,
                             modelId = execution.llmModelId,

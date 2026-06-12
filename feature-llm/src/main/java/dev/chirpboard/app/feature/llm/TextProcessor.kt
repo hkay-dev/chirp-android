@@ -66,7 +66,7 @@ class TextProcessor
             text: String,
             mode: ProcessingMode,
         ): Result<String> {
-            return process(llmClient.createTranscriptContext(text), mode)
+            return process(TranscriptLlmContext(text), mode)
         }
 
         suspend fun process(

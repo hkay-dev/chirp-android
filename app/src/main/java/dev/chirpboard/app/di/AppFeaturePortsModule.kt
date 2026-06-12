@@ -16,6 +16,7 @@ import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
+import dev.chirpboard.app.core.llm.RecordingTextEnrichment
 import dev.chirpboard.app.core.llm.LlmRuntimeSnapshot
 import dev.chirpboard.app.core.llm.ResolvedProcessingModeSnapshot
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
@@ -84,6 +85,12 @@ abstract class AppFeaturePortsModule {
 
     @Binds
     @Singleton
+    abstract fun bindRecordingTextEnrichment(
+        impl: LlmRecordingTextEnhancementPort,
+    ): RecordingTextEnrichment
+
+    @Binds
+    @Singleton
     abstract fun bindTranscriptExportPort(
         impl: ObsidianTranscriptExportPort,
     ): TranscriptExportPort
@@ -127,9 +134,6 @@ class LlmRecordingTextEnhancementPort
         private val llmClient: LlmClient,
         private val llmPreferences: LlmPreferences,
     ) : RecordingTextEnhancementPort {
-        override suspend fun isEnhancementAvailable(): Boolean =
-            llmPreferences.getLlmEnabled() && !llmPreferences.fetchApiKey().isNullOrBlank()
-
         override suspend fun isEnhancementAvailable(providerId: String?): Boolean {
             val provider = LlmProvider.fromId(providerId)
             return llmPreferences.getLlmEnabled() && llmPreferences.hasApiKeyFor(provider)
@@ -165,89 +169,39 @@ class LlmRecordingTextEnhancementPort
             processingModeId: String,
         ): Result<String> {
             val mode = modeRepository.resolveMode(processingModeId)
-            return textProcessor.process(llmClient.createTranscriptContext(text), mode)
+            return textProcessor.process(TranscriptLlmContext(text), mode)
         }
-
-        override suspend fun processResolved(
-            text: String,
-            prompt: String?,
-            providerId: String?,
-            modelId: String?,
-            fallbackProcessingModeId: String,
-        ): Result<String> =
-            processResolved(
-                context = createContext(text, providerId, modelId),
-                prompt = prompt,
-                fallbackProcessingModeId = fallbackProcessingModeId,
-            )
 
         override suspend fun processResolved(
             context: RecordingTextEnhancementContext,
             prompt: String?,
             fallbackProcessingModeId: String,
         ): Result<String> {
-            val transcriptContext = context.toTranscriptLlmContext()
+            val transcriptContext =
+                TranscriptLlmContext(context.text, context.providerId, context.modelId)
             return if (prompt.isNullOrBlank()) {
                 val mode = modeRepository.resolveMode(fallbackProcessingModeId)
                 textProcessor.process(transcriptContext, mode)
             } else {
-                llmClient.processWithRuntime(
-                    context = transcriptContext,
-                    systemPrompt = prompt,
-                    providerId = context.providerId,
-                    modelId = context.modelId,
-                )
+                llmClient.process(transcriptContext, prompt)
             }
         }
 
         override suspend fun generateTitle(transcript: String): Result<String> =
-            llmClient.generateTitle(llmClient.createTranscriptContext(transcript))
+            llmClient.generateTitle(TranscriptLlmContext(transcript))
 
         override suspend fun generateSummary(transcript: String): Result<String> =
-            llmClient.generateSummary(llmClient.createTranscriptContext(transcript))
-
-        override suspend fun generateTitle(
-            transcript: String,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> =
-            generateTitle(
-                createContext(
-                    text = transcript,
-                    providerId = providerId,
-                    modelId = modelId,
-                ),
-            )
+            llmClient.generateSummary(TranscriptLlmContext(transcript))
 
         override suspend fun generateTitle(context: RecordingTextEnhancementContext): Result<String> =
-            llmClient.generateTitleWithRuntime(
-                context = context.toTranscriptLlmContext(),
-                providerId = context.providerId,
-                modelId = context.modelId,
-            )
-
-        override suspend fun generateSummary(
-            transcript: String,
-            providerId: String?,
-            modelId: String?,
-        ): Result<String> =
-            generateSummary(
-                createContext(
-                    text = transcript,
-                    providerId = providerId,
-                    modelId = modelId,
-                ),
+            llmClient.generateTitle(
+                TranscriptLlmContext(context.text, context.providerId, context.modelId),
             )
 
         override suspend fun generateSummary(context: RecordingTextEnhancementContext): Result<String> =
-            llmClient.generateSummaryWithRuntime(
-                context = context.toTranscriptLlmContext(),
-                providerId = context.providerId,
-                modelId = context.modelId,
+            llmClient.generateSummary(
+                TranscriptLlmContext(context.text, context.providerId, context.modelId),
             )
-
-        private fun RecordingTextEnhancementContext.toTranscriptLlmContext(): TranscriptLlmContext =
-            llmClient.createTranscriptContext(text)
     }
 
 @Singleton

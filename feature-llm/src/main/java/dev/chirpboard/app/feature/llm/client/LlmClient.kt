@@ -3,81 +3,36 @@ package dev.chirpboard.app.feature.llm.client
 /**
  * Interface for LLM client operations.
  * Abstracts the underlying LLM provider (Gemini, OpenAI, etc.)
+ *
+ * Each transcript operation takes a [TranscriptLlmContext], which carries the
+ * transcript text plus the optional provider/model to route the request to.
+ * A null provider/model routes through the active provider.
  */
 interface LlmClient {
-    fun createTranscriptContext(transcript: String): TranscriptLlmContext = TranscriptLlmContext(transcript)
-
     /**
-     * Process text with a system prompt.
-     * @param text The input text to process
+     * Process a transcript with a system prompt.
+     * @param context The transcript and optional provider/model routing
      * @param systemPrompt The system/instruction prompt
      * @return Result containing processed text or error
      */
     suspend fun process(
-        text: String,
+        context: TranscriptLlmContext,
         systemPrompt: String,
     ): Result<String>
 
-    suspend fun process(
-        context: TranscriptLlmContext,
-        systemPrompt: String,
-    ): Result<String> = process(context.transcript, systemPrompt)
-
-    suspend fun processWithRuntime(
-        text: String,
-        systemPrompt: String,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = process(text, systemPrompt)
-
-    suspend fun processWithRuntime(
-        context: TranscriptLlmContext,
-        systemPrompt: String,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = processWithRuntime(context.transcript, systemPrompt, providerId, modelId)
-
     /**
      * Generate a title for a transcript.
-     * @param transcript The transcript to generate a title for
+     * @param context The transcript and optional provider/model routing
      * @return Result containing the generated title or error
      */
-    suspend fun generateTitle(transcript: String): Result<String>
-
-    suspend fun generateTitle(context: TranscriptLlmContext): Result<String> = generateTitle(context.transcript)
-
-    suspend fun generateTitleWithRuntime(
-        transcript: String,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = generateTitle(transcript)
-
-    suspend fun generateTitleWithRuntime(
-        context: TranscriptLlmContext,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = generateTitleWithRuntime(context.transcript, providerId, modelId)
+    suspend fun generateTitle(context: TranscriptLlmContext): Result<String>
 
     /**
      * Generate a summary for a transcript.
-     * @param transcript The transcript to summarize
+     * @param context The transcript and optional provider/model routing
      * @return Result containing the generated summary or error
      */
-    suspend fun generateSummary(transcript: String): Result<String>
-
-    suspend fun generateSummary(context: TranscriptLlmContext): Result<String> = generateSummary(context.transcript)
-
-    suspend fun generateSummaryWithRuntime(
-        transcript: String,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = generateSummary(transcript)
-
-    suspend fun generateSummaryWithRuntime(
-        context: TranscriptLlmContext,
-        providerId: String?,
-        modelId: String?,
-    ): Result<String> = generateSummaryWithRuntime(context.transcript, providerId, modelId)
+    suspend fun generateSummary(context: TranscriptLlmContext): Result<String>
 
     /**
      * Generate a scoped response for a selected transcript passage.

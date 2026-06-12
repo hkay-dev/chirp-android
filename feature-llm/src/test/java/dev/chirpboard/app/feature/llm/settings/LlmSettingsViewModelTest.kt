@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.llm.settings
 
 import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -130,7 +131,7 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
             every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any<String>(), any<String>()) } returns Result.success("OK")
+            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.success("OK")
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -144,7 +145,7 @@ class LlmSettingsViewModelTest {
     fun `testConnection failure`() =
         runTest {
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any<String>(), any<String>()) } returns Result.failure(Exception("Network Error"))
+            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.failure(Exception("Network Error"))
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
@@ -160,7 +161,7 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
             every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any<String>(), any<String>()) } returns Result.success("OK")
+            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.success("OK")
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 

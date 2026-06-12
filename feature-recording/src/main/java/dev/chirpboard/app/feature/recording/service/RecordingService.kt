@@ -16,7 +16,6 @@ import dev.chirpboard.app.core.audio.StorageCheckLevel
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.audio.AudioSettingsStore
-import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
@@ -417,8 +416,6 @@ class RecordingService : Service() {
 
                     startGaplessCapture(
                         segmentFile = firstSegment,
-                        format = RecordingOutputFormat.WAV,
-                        bitRate = recordingQualityConfig.bitRate,
                         sampleRate = recordingQualityConfig.sampleRate,
                     )
                 }
@@ -570,9 +567,7 @@ class RecordingService : Service() {
                     withContext(Dispatchers.IO) {
                         segmentCapture =
                             createCaptureEngine(
-                                format = RecordingOutputFormat.WAV,
                                 sampleRate = recordingQualityConfig.sampleRate,
-                                bitRate = recordingQualityConfig.bitRate,
                             )
                         segmentCapture!!.start(nextSegment)
                     }
@@ -1071,13 +1066,11 @@ class RecordingService : Service() {
 
     private suspend fun startGaplessCapture(
         segmentFile: File,
-        format: RecordingOutputFormat,
-        bitRate: Int,
         sampleRate: Int,
     ) {
         segmentCapture?.setCaptureErrorListener(null)
         segmentCapture?.releaseWithoutSave()
-        segmentCapture = createCaptureEngine(format = format, sampleRate = sampleRate, bitRate = bitRate)
+        segmentCapture = createCaptureEngine(sampleRate = sampleRate)
         segmentCapture!!.start(segmentFile)
     }
 
@@ -1088,16 +1081,12 @@ class RecordingService : Service() {
      * callbacks from a discarded engine can be recognized and dropped.
      */
     private fun createCaptureEngine(
-        format: RecordingOutputFormat,
         sampleRate: Int,
-        bitRate: Int,
     ): GaplessSegmentCaptureEngine {
         val engine =
             GaplessSegmentCaptureFactory.create(
-                format = format,
                 inputDeviceSelector = inputDeviceSelector,
                 sampleRate = sampleRate,
-                bitRate = bitRate,
             )
         engine.setCaptureErrorListener(
             GaplessCaptureErrorListener { error -> onCaptureEngineError(engine, error) },

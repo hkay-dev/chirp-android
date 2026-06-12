@@ -9,7 +9,6 @@ import androidx.work.ForegroundUpdater
 import androidx.work.WorkerParameters
 import androidx.work.impl.utils.futures.SettableFuture
 import dev.chirpboard.app.core.llm.LlmRuntimeSnapshot
-import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.llm.ResolvedProcessingModeSnapshot
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
@@ -122,7 +121,7 @@ class RecordingEnhancementWorkerTest {
 
             worker().doWork()
 
-            assertEquals(listOf("processed transcript"), textEnhancement.contextTexts)
+            assertEquals(listOf("processed transcript", "processed transcript"), textEnhancement.contextTexts)
             coVerify(exactly = 1) {
                 recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
             }
@@ -250,8 +249,6 @@ class RecordingEnhancementWorkerTest {
         var summaryCalls = 0
         val contextTexts = mutableListOf<String>()
 
-        override suspend fun isEnhancementAvailable(): Boolean = available
-
         override suspend fun isEnhancementAvailable(providerId: String?): Boolean = available
 
         override suspend fun defaultAutoTitleEnabled(): Boolean = false
@@ -263,25 +260,14 @@ class RecordingEnhancementWorkerTest {
             processingModeId: String,
         ): Result<String> = Result.success(text)
 
-        override fun createContext(
-            text: String,
-            providerId: String?,
-            modelId: String?,
-        ): RecordingTextEnhancementContext {
-            contextTexts += text
-            return RecordingTextEnhancementContext(
-                text = text,
-                providerId = providerId,
-                modelId = modelId,
-            )
-        }
-
         override suspend fun generateTitle(transcript: String): Result<String> {
+            contextTexts += transcript
             titleCalls += 1
             return titleResult
         }
 
         override suspend fun generateSummary(transcript: String): Result<String> {
+            contextTexts += transcript
             summaryCalls += 1
             return summaryResult
         }

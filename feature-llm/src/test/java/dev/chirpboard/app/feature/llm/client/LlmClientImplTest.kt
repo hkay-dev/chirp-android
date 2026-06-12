@@ -23,14 +23,14 @@ class LlmClientImplTest {
     fun `process delegates to chat service`() = runTest {
         coEvery { chatService.completePrompt(any()) } returns Result.success("OK")
 
-        val result = client.process("hello", "system")
+        val result = client.process(TranscriptLlmContext("hello"), "system")
 
         assertTrue(result.isSuccess)
     }
 
     @Test
     fun `transcript context reuses assembled transcript for phases`() = runTest {
-        val context = client.createTranscriptContext("hello")
+        val context = TranscriptLlmContext("hello")
         coEvery { chatService.completePrompt(any()) } returns Result.success("OK")
 
         client.process(context, "system")
@@ -39,6 +39,16 @@ class LlmClientImplTest {
 
         coVerify { chatService.completePrompt("systemhello\n</transcript>") }
         coVerify { chatService.completePrompt(match { it.endsWith("Transcript:\nhello") }) }
+    }
+
+    @Test
+    fun `context with runtime routing pins provider and model`() = runTest {
+        val context = TranscriptLlmContext("hello", providerId = "anthropic", modelId = "model-x")
+        coEvery { chatService.completePrompt(any(), any(), any()) } returns Result.success("OK")
+
+        client.generateTitle(context)
+
+        coVerify { chatService.completePrompt("anthropic", "model-x", match { it.endsWith("Transcript:\nhello") }) }
     }
 
     @Test
