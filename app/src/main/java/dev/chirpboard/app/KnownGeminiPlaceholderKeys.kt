@@ -1,15 +1,18 @@
 package dev.chirpboard.app
 
-import java.security.MessageDigest
-
 /**
- * Detects legacy placeholder Gemini keys without embedding the raw secrets in source.
+ * Detects legacy placeholder Gemini keys that earlier app versions shipped as defaults.
+ *
+ * These are dummy/revoked placeholder values, not live secrets, so they are stored as plain
+ * constants in this single location. Hashing them added no protection (the raw values are
+ * recoverable from git history and were already duplicated verbatim in tests) while obscuring
+ * what the set actually contains.
  */
 internal object KnownGeminiPlaceholderKeys {
-    private val PLACEHOLDER_KEY_SHA256: Set<String> =
+    private val PLACEHOLDER_KEYS: Set<String> =
         setOf(
-            "fe3187ef44aa01ca9f9538e0b6342b46fc06182397baad62cf8ffa3ba7e63fde",
-            "57d326ed60433e08cb728736673c7a5a3549647255dc504d8a15b3b0f37b1e51",
+            "REMOVED_GOOGLE_API_KEY",
+            "REMOVED_GOOGLE_API_KEY",
         )
 
     fun isPlaceholder(key: String): Boolean {
@@ -17,12 +20,6 @@ internal object KnownGeminiPlaceholderKeys {
         if (trimmed.isEmpty()) {
             return true
         }
-        return PLACEHOLDER_KEY_SHA256.contains(sha256(trimmed))
-    }
-
-    private fun sha256(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        return digest.digest(value.toByteArray(Charsets.UTF_8))
-            .joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return PLACEHOLDER_KEYS.contains(trimmed)
     }
 }

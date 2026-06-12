@@ -12,6 +12,7 @@ import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
@@ -30,6 +31,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -335,7 +337,100 @@ class ProcessingStudioViewModelTest {
             }
         }
 
-    private fun createViewModel(
+    @Test
+    fun `playback tick carries active segment index without clobbering it`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val playbackState =
+                MutableStateFlow(
+                    RecordingPlaybackState(
+                        recordingId = recordingId,
+                        title = "Meeting",
+                        audioPath = "/tmp/test.m4a",
+                        positionMs = 0L,
+                        isPlaying = true,
+                    ),
+                )
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns playbackState
+                }
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "hello world again")))
+            every { repository.getTranscriptTimingsFlow(recordingId) } returns
+                flowOf(
+                    RepositoryFlowState(
+                        listOf(
+                            TranscriptTiming(recordingId, 0, "hello", 0L, 100L),
+                            TranscriptTiming(recordingId, 1, "world", 100L, 250L),
+                            TranscriptTiming(recordingId, 2, "again", 250L, 400L),
+                        ),
+                    ),
+                )
+            every { repository.getStructuredOutcomeSnapshotFlow(recordingId) } returns flowOf(RepositoryFlowState(null))
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), playbackController = playbackController)
+            advanceUntilIdle()
+
+            playbackState.value = playbackState.value.copy(positionMs = 150L)
+            advanceUntilIdle()
+
+            assertEquals(150L, viewModel.playbackTick.value.currentPositionMs)
+            assertEquals(1, viewModel.playbackTick.value.activeTranscriptSegmentIndex)
+            assertTrue(viewModel.uiState.value.isPlaying)
+        }
+
+    @Test
+    fun `entering transcript edit mode clears the karaoke highlight in the playback tick`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val playbackState =
+                MutableStateFlow(
+                    RecordingPlaybackState(
+                        recordingId = recordingId,
+                        title = "Meeting",
+                        audioPath = "/tmp/test.m4a",
+                        positionMs = 150L,
+                        isPlaying = false,
+                    ),
+                )
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns playbackState
+                }
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "hello world again")))
+            every { repository.getTranscriptTimingsFlow(recordingId) } returns
+                flowOf(
+                    RepositoryFlowState(
+                        listOf(
+                            TranscriptTiming(recordingId, 0, "hello", 0L, 100L),
+                            TranscriptTiming(recordingId, 1, "world", 100L, 250L),
+                            TranscriptTiming(recordingId, 2, "again", 250L, 400L),
+                        ),
+                    ),
+                )
+            every { repository.getStructuredOutcomeSnapshotFlow(recordingId) } returns flowOf(RepositoryFlowState(null))
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), playbackController = playbackController)
+            advanceUntilIdle()
+            assertEquals(1, viewModel.playbackTick.value.activeTranscriptSegmentIndex)
+
+            viewModel.startEditingTranscript()
+            advanceUntilIdle()
+
+            assertEquals(-1, viewModel.playbackTick.value.activeTranscriptSegmentIndex)
+        }
+
+    private fun TestScope.createViewModel(
         recordingId: String,
         playbackController: RecordingPlaybackController =
             mockk(relaxed = true) {
@@ -356,7 +451,10 @@ class ProcessingStudioViewModelTest {
             wordReplacementRepository = mockk(relaxed = true),
             transcriptionRecovery = transcriptionRecovery,
             playbackController = playbackController,
-        )
+        ).apply {
+            // Keep the off-main transcript build under the test scheduler so advanceUntilIdle waits for it.
+            transcriptBuildDispatcher = StandardTestDispatcher(testScheduler)
+        }
     }
 
     private fun stubEmptyRecordingFlows(recordingId: UUID) {

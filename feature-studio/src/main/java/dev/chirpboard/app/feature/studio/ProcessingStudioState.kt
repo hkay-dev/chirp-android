@@ -28,13 +28,11 @@ data class ProcessingStudioState(
     val transcriptSelectionResult: TranscriptSelectionResult? = null,
     val hasManualCorrection: Boolean = false,
     val canPromoteManualCorrection: Boolean = false,
-    val activeTranscriptSegmentIndex: Int = -1,
     val summary: String = "",
     val structuredOutcomeSection: StructuredOutcomeSectionState = StructuredOutcomeSectionState(),
     val chatMessages: ImmutableList<ChatMessage> = persistentListOf(),
     val chatDraft: String = "",
     val isPlaying: Boolean = false,
-    val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val isTyping: Boolean = false,
     val playerRevealReady: Boolean = false,
@@ -52,4 +50,15 @@ data class ProcessingStudioState(
         showFailedRetry = false,
         actionsEnabled = true,
     ),
+)
+
+/**
+ * High-frequency playback projection hoisted out of [ProcessingStudioState] so the 10 Hz
+ * position ticker only invalidates the timeline and karaoke transcript, not the screen-wide
+ * state object.
+ */
+@Stable
+data class StudioPlaybackTick(
+    val currentPositionMs: Long = 0L,
+    val activeTranscriptSegmentIndex: Int = -1,
 )

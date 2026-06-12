@@ -59,7 +59,9 @@ class VoiceRecognitionCaptureGateTest {
 
         val second = gate.tryAcquire()
 
-        assertEquals(VoiceRecognitionCaptureGateResult.Busy("keyboard"), second)
+        // The recognition surface reports itself as "voice recognition", not "keyboard",
+        // even though it drives the shared KEYBOARD-origin state machine (SLOP-17).
+        assertEquals(VoiceRecognitionCaptureGateResult.Busy("voice recognition"), second)
         assertTrue(gate.isHeld())
 
         gate.releaseCompleted()

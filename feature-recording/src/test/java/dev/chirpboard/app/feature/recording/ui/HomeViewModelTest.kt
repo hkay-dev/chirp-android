@@ -229,6 +229,18 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `isAppBarCollapsed is false below and at the threshold`() {
+        assertFalse(isAppBarCollapsed(0f))
+        assertFalse(isAppBarCollapsed(0.5f))
+    }
+
+    @Test
+    fun `isAppBarCollapsed is true past the threshold`() {
+        assertTrue(isAppBarCollapsed(0.51f))
+        assertTrue(isAppBarCollapsed(1f))
+    }
+
+    @Test
     fun `playback row state ignores progress ticks`() {
         val recordingId = UUID.randomUUID()
         val first =

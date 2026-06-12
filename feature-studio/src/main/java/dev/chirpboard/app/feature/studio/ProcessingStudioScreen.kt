@@ -52,6 +52,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -487,6 +488,10 @@ fun ProcessingStudioScreen(
             ) { page ->
                 when (page) {
                     0 -> {
+                        val playbackTick by viewModel.playbackTick.collectAsStateWithLifecycle()
+                        val activeSegmentIndex by remember {
+                            derivedStateOf { playbackTick.activeTranscriptSegmentIndex }
+                        }
                         TranscriptTab(
                             transcript = state.transcript,
                             effectiveTranscriptText = state.effectiveTranscriptText,
@@ -496,7 +501,7 @@ fun ProcessingStudioScreen(
                             transcriptDraft = state.transcriptDraft,
                             isEditingTranscript = state.isEditingTranscript,
                             hasManualCorrection = state.hasManualCorrection,
-                            activeSegmentIndex = state.activeTranscriptSegmentIndex,
+                            activeSegmentIndex = activeSegmentIndex,
                             status = state.status,
                             onSegmentClicked = if (state.canUseTranscriptInteractions()) viewModel::onWordClicked else null,
                             onTranscriptDraftChange = viewModel::updateTranscriptDraft,

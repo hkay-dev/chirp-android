@@ -60,7 +60,6 @@ internal fun ProcessingStudioState.enterTranscriptEditMode(): ProcessingStudioSt
     exitTranscriptSelectionMode().copy(
         isEditingTranscript = true,
         transcriptDraft = effectiveTranscriptText,
-        activeTranscriptSegmentIndex = -1,
     )
 
 internal fun ProcessingStudioState.exitTranscriptEditMode(): ProcessingStudioState =
@@ -72,7 +71,6 @@ internal fun ProcessingStudioState.exitTranscriptEditMode(): ProcessingStudioSta
 internal fun ProcessingStudioState.enterTranscriptSelectionMode(): ProcessingStudioState =
     copy(
         isSelectingTranscript = true,
-        activeTranscriptSegmentIndex = -1,
         selectedTranscriptPassage = "",
         transcriptSelectionActionInFlight = null,
         transcriptSelectionResult = null,

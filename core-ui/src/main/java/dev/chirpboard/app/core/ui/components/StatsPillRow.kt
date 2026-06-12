@@ -19,11 +19,10 @@ import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import dev.chirpboard.app.core.ui.R
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.util.formatAsDuration
 
@@ -97,6 +96,8 @@ fun StatsPillRow(
         // Processing count pill (with pulse animation when > 0)
         item {
             val isProcessing = processingCount > 0
+            // Keep the animation as State and read .value inside graphicsLayer so the pulse
+            // invalidates only the draw/layer phase, not this chip's composition each vsync.
             val pulseAlpha = if (isProcessing) {
                 val infiniteTransition = rememberInfiniteTransition(label = "processing_pulse")
                 infiniteTransition.animateFloat(
@@ -107,9 +108,9 @@ fun StatsPillRow(
                         repeatMode = RepeatMode.Reverse
                     ),
                     label = "pulse_alpha"
-                ).value
+                )
             } else {
-                1f
+                null
             }
             val showActiveFilter = processingFilterActive || isProcessing
             SuggestionChip(
@@ -147,7 +148,11 @@ fun StatsPillRow(
                 } else {
                     null
                 },
-                modifier = if (isProcessing) Modifier.alpha(pulseAlpha) else Modifier
+                modifier = if (pulseAlpha != null) {
+                    Modifier.graphicsLayer { alpha = pulseAlpha.value }
+                } else {
+                    Modifier
+                }
             )
         }
     }

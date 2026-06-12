@@ -85,7 +85,7 @@ Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 - Hilt for dependency injection.
 - WorkManager for background transcription work.
 - Media3 for recording playback.
-- Optional Gemini-powered processing for summaries, cleanup, chat, and structured outcomes.
+- Optional multi-provider processing (Gemini, OpenAI, Anthropic, Groq, Cerebras) for summaries, cleanup, chat, and structured outcomes.
 
 Local transcription is the heart of the project. AI processing sits on top.
 

@@ -20,6 +20,15 @@ import dev.chirpboard.app.core.ui.theme.recordingTimerStyle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.util.formatAsDuration
 
+private const val MILLIS_PER_SECOND = 1000L
+
+/**
+ * Snaps an elapsed-millisecond value down to whole-second granularity. The timer display formats
+ * whole seconds, so writing the snapped value keeps 9 of every 10 (100 ms) ticks identical, and
+ * Compose skips invalidation for snapshot writes of equal values.
+ */
+internal fun snapToSecond(elapsedMs: Long): Long = elapsedMs - (elapsedMs % MILLIS_PER_SECOND)
+
 @Composable
 fun RecordingTimer(
     recordingState: RecordingState,
@@ -46,7 +55,9 @@ fun RecordingTimer(
             is RecordingState.Recording -> {
                 val segmentStart = state.startTimeMs
                 while (true) {
-                    elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    elapsedMs = snapToSecond(
+                        previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    )
                     delay(ChirpMotion.TIMER_TICK_MS)
                 }
             }

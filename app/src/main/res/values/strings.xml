@@ -3,16 +3,8 @@
     <string name="app_name">Chirp</string>
     <string name="keyboard_name">Chirp Voice</string>
     <string name="subtype_label">Voice Input</string>
-    <string name="tap_to_speak">Tap to speak</string>
-    <string name="tap_to_stop">Tap to stop</string>
-    <string name="processing">Processing…</string>
-    <string name="downloading_model">Downloading model…</string>
-    <string name="model_not_ready">Model not ready</string>
-    <string name="error_occurred">Error occurred</string>
     <string name="enable_keyboard">Enable Keyboard</string>
     <string name="select_keyboard">Select Keyboard</string>
-    <string name="grant_permission">Grant Microphone Permission</string>
-    <string name="setup_complete">Setup Complete</string>
     <string name="discard_recording_title">Discard Recording?</string>
     <string name="discard_recording_text">This recording will be permanently deleted.</string>
     <string name="discard">Discard</string>
@@ -24,7 +16,6 @@
     <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
     <string name="save">Save</string>
     <string name="keyboard_settings_title">Keyboard Settings</string>
-    <string name="voice_recognition_listening">Listening...</string>
     <string name="voice_recognition_llm_enable">Enhance with AI</string>
     <string name="voice_recognition_llm_mode">AI: %1$s</string>
     <string name="keyboard_settings_save_recordings_title">Save Recordings</string>
@@ -104,7 +95,6 @@
     <string name="audio_settings_input_policy_manual">Choose device</string>
     <string name="audio_settings_active_input">Active input</string>
     <string name="audio_settings_active_input_help">Last resolved microphone for recording.</string>
-    <string name="dev_save_key">Save Key</string>
     <string name="dev_clear">Clear</string>
     <string name="dev_add_5">Add 5</string>
     <string name="dev_add_20">Add 20</string>
@@ -130,7 +120,6 @@
     <string name="desc_stop">Stop</string>
 
 
-    <string name="go_to_settings">Go to Settings</string>
     <string name="dismiss">Dismiss</string>
     <string name="shared_audio_handoff_loading">Importing shared audio…</string>
     <string name="shared_audio_handoff_failed_title">Couldn’t import that audio</string>

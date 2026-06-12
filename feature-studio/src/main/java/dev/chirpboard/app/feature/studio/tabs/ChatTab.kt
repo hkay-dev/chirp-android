@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -48,6 +49,9 @@ fun ChatTab(
     contentPadding: PaddingValues = PaddingValues(16.dp),
     isTyping: Boolean = false,
 ) {
+    // asReversed() is a view (no copy); remembered so a per-keystroke draftMessage recomposition
+    // does not rebuild the reversed list or churn the LazyColumn interval (CMP-8).
+    val reversedMessages = remember(messages) { messages.asReversed() }
     Column(
         modifier =
             modifier
@@ -73,7 +77,7 @@ fun ChatTab(
                 }
             }
 
-            items(messages.reversed(), key = { it.id }) { message ->
+            items(reversedMessages, key = { it.id }) { message ->
                 ChatMessageBubble(message = message)
             }
         }

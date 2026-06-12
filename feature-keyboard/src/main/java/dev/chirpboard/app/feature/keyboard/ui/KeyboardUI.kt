@@ -3,7 +3,14 @@ package dev.chirpboard.app.feature.keyboard.ui
 import android.os.SystemClock
 
 import androidx.annotation.StringRes
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -67,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -106,6 +114,7 @@ import kotlin.math.abs
 
 private val KeyboardPanelShape = RoundedCornerShape(20.dp)
 private val RecordingActionsHeight = 64.dp
+private val ModelBannerMinHeight = 44.dp
 private const val VoiceTransitionMs = 280
 private val SpaceCursorDragStep = 10.dp
 
@@ -129,6 +138,49 @@ private enum class ProcessingPhase {
     Transcribing,
     Polishing,
 }
+
+/** What the centered keyboard panel box should show, used to crossfade error <-> panel (UI-3). */
+internal sealed interface KeyboardPanelContent {
+    data class ErrorOverlay(val message: String) : KeyboardPanelContent
+
+    data class LlmError(val message: String) : KeyboardPanelContent
+
+    data class RecognitionError(val message: String) : KeyboardPanelContent
+
+    data object Panel : KeyboardPanelContent
+}
+
+/** Stable discriminator so the crossfade only runs on error<->panel kind changes, not on the */
+/** panel's own internal Idle/Recording/Loading sub-transitions. */
+internal enum class KeyboardPanelContentKind {
+    ErrorOverlay,
+    LlmError,
+    RecognitionError,
+    Panel,
+}
+
+internal fun KeyboardPanelContent.kind(): KeyboardPanelContentKind =
+    when (this) {
+        is KeyboardPanelContent.ErrorOverlay -> KeyboardPanelContentKind.ErrorOverlay
+        is KeyboardPanelContent.LlmError -> KeyboardPanelContentKind.LlmError
+        is KeyboardPanelContent.RecognitionError -> KeyboardPanelContentKind.RecognitionError
+        KeyboardPanelContent.Panel -> KeyboardPanelContentKind.Panel
+    }
+
+internal fun resolveKeyboardPanelContent(
+    errorOverlay: String?,
+    voicePanel: VoicePanelPhase,
+    errorMessage: String?,
+    llmErrorMessage: String?,
+): KeyboardPanelContent =
+    when {
+        errorOverlay != null -> KeyboardPanelContent.ErrorOverlay(errorOverlay)
+        voicePanel == VoicePanelPhase.LlmError && llmErrorMessage != null ->
+            KeyboardPanelContent.LlmError(llmErrorMessage)
+        voicePanel == VoicePanelPhase.Error && errorMessage != null ->
+            KeyboardPanelContent.RecognitionError(errorMessage)
+        else -> KeyboardPanelContent.Panel
+    }
 
 private fun VoicePanelPhase.processingPhase(): ProcessingPhase? =
     when (this) {
@@ -223,14 +275,34 @@ fun KeyboardScreen(
                     onModeChange = onModeChange,
                 )
 
-                if (uiState.modelBanner != ModelBannerState.None && voicePhase == VoicePanelPhase.Idle) {
+                val bannerVisible =
+                    uiState.modelBanner != ModelBannerState.None && voicePhase == VoicePanelPhase.Idle
+                // Latch the last non-None banner so the shrink/fade-out exit still has content to
+                // animate when the banner is cleared, instead of blanking in one frame.
+                var lastBanner by remember { mutableStateOf(uiState.modelBanner) }
+                if (uiState.modelBanner != ModelBannerState.None) {
+                    lastBanner = uiState.modelBanner
+                }
+                AnimatedVisibility(
+                    visible = bannerVisible,
+                    enter = expandVertically(animationSpec = tween(VoiceTransitionMs)) + fadeIn(),
+                    exit = shrinkVertically(animationSpec = tween(VoiceTransitionMs)) + fadeOut(),
+                ) {
                     KeyboardModelBanner(
-                        modelBanner = uiState.modelBanner,
+                        modelBanner = lastBanner,
                         initFailedMessage = uiState.modelInitFailedMessage,
                         onOpenApp = onOpenApp,
                         modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
                     )
                 }
+
+                val panelContent =
+                    resolveKeyboardPanelContent(
+                        errorOverlay = uiState.errorOverlay,
+                        voicePanel = voicePhase,
+                        errorMessage = uiState.errorMessage,
+                        llmErrorMessage = uiState.llmErrorMessage,
+                    )
 
                 Box(
                     modifier =
@@ -240,28 +312,39 @@ fun KeyboardScreen(
                             .clip(RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    when {
-                        uiState.errorOverlay != null -> {
-                            ErrorContent(uiState.errorOverlay, onDismissError)
-                        }
+                    // Crossfade error<->panel so entering/leaving an error animates like every other
+                    // panel state. Keyed on the content kind so the panel's own internal
+                    // Idle/Recording/Loading sub-transitions are not re-crossfaded here (UI-3).
+                    AnimatedContent(
+                        targetState = panelContent,
+                        modifier = Modifier.fillMaxSize(),
+                        transitionSpec = {
+                            fadeIn(tween(VoiceTransitionMs, easing = FastOutSlowInEasing)) togetherWith
+                                fadeOut(tween(VoiceTransitionMs, easing = FastOutSlowInEasing))
+                        },
+                        contentAlignment = Alignment.Center,
+                        contentKey = { it.kind() },
+                        label = "keyboardPanelContent",
+                    ) { content ->
+                        when (content) {
+                            is KeyboardPanelContent.ErrorOverlay ->
+                                ErrorContent(content.message, onDismissError)
 
-                        voicePhase == VoicePanelPhase.LlmError && uiState.llmErrorMessage != null -> {
-                            LlmErrorContent(uiState.llmErrorMessage, onDismissError)
-                        }
+                            is KeyboardPanelContent.LlmError ->
+                                LlmErrorContent(content.message, onDismissError)
 
-                        voicePhase == VoicePanelPhase.Error && uiState.errorMessage != null -> {
-                            ErrorContent(uiState.errorMessage, onMicTap)
-                        }
+                            is KeyboardPanelContent.RecognitionError ->
+                                ErrorContent(content.message, onMicTap)
 
-                        else -> {
-                            UnifiedVoicePanel(
-                                phase = voicePhase,
-                                recordingVisual = recordingVisual,
-                                modelLoadProgress = uiState.modelLoadProgress,
-                                waveformBuffer = waveformBuffer,
-                                sampleCountFlow = sampleCountFlow,
-                                onStart = onMicTap,
-                            )
+                            KeyboardPanelContent.Panel ->
+                                UnifiedVoicePanel(
+                                    phase = voicePhase,
+                                    recordingVisual = recordingVisual,
+                                    modelLoadProgress = uiState.modelLoadProgress,
+                                    waveformBuffer = waveformBuffer,
+                                    sampleCountFlow = sampleCountFlow,
+                                    onStart = onMicTap,
+                                )
                         }
                     }
                 }
@@ -460,19 +543,26 @@ private fun KeyboardModelBanner(
     onOpenApp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    when (modelBanner) {
-        ModelBannerState.None -> Unit
+    if (modelBanner == ModelBannerState.None) {
+        return
+    }
+    // All three banner variants share one container (same background, shape and min-height) so
+    // swapping between Initializing/NotDownloaded/InitFailed only changes the inner content rather
+    // than reflowing or flashing a differently-styled component below the mic FAB (UI-4).
+    Row(
+        modifier =
+            modifier
+                .clip(ChirpShapes.Small)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .heightIn(min = ModelBannerMinHeight)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        when (modelBanner) {
+            ModelBannerState.None -> Unit
 
-        ModelBannerState.Initializing -> {
-            Row(
-                modifier =
-                    modifier
-                        .clip(ChirpShapes.Small)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            ModelBannerState.Initializing -> {
                 LinearProgressIndicator(
                     modifier = Modifier.weight(1f).height(3.dp),
                 )
@@ -482,18 +572,8 @@ private fun KeyboardModelBanner(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-        }
 
-        ModelBannerState.NotDownloaded -> {
-            Row(
-                modifier =
-                    modifier
-                        .clip(ChirpShapes.Small)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            ModelBannerState.NotDownloaded -> {
                 Text(
                     stringResource(R.string.keyboard_model_not_ready),
                     style = MaterialTheme.typography.labelSmall,
@@ -507,15 +587,15 @@ private fun KeyboardModelBanner(
                     )
                 }
             }
-        }
 
-        ModelBannerState.InitFailed -> {
-            Text(
-                initFailedMessage ?: stringResource(R.string.keyboard_model_not_ready),
-                modifier = modifier,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+            ModelBannerState.InitFailed -> {
+                Text(
+                    initFailedMessage ?: stringResource(R.string.keyboard_model_not_ready),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
@@ -547,10 +627,12 @@ private fun UnifiedVoicePanel(
     val waveformVisual = recordingVisual * (1f - processingVisual).coerceIn(0f, 1f) * (1f - loadingVisual).coerceIn(0f, 1f)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        KeyboardRecordingGlow(
-            modifier = Modifier.matchParentSize(),
-            strength = recordingVisual,
-        )
+        if (recordingVisual > 0.01f) {
+            KeyboardRecordingGlow(
+                modifier = Modifier.matchParentSize(),
+                strength = recordingVisual,
+            )
+        }
 
         if (waveformVisual > 0.01f) {
             Box(
@@ -646,17 +728,23 @@ private fun RecordingActionsRow(
     modifier: Modifier = Modifier,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "recordingStopPulse")
-    val stopPulse by infiniteTransition.animateFloat(
+    // Keep the pulse as State (no `by`) and compute the scale inside graphicsLayer so the infinite
+    // transition only invalidates the draw/layer phase rather than recomposing the row (CMP-10).
+    val stopPulse = infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.06f,
         animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
         label = "stopPulse",
     )
-    val stopScale = 1f + (stopPulse - 1f) * visibility
     val touchEnabled = visibility > 0.5f
 
     Box(
-        modifier = modifier.height(RecordingActionsHeight),
+        // Animate the row's reserved height with the same crossfade value so the centered mic/
+        // waveform area glides instead of snapping 64dp on each dictation start/stop (UI-1).
+        modifier =
+            modifier
+                .height(RecordingActionsHeight * visibility.coerceIn(0f, 1f))
+                .clipToBounds(),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -689,6 +777,7 @@ private fun RecordingActionsRow(
                     Modifier
                         .size(56.dp)
                         .graphicsLayer {
+                            val stopScale = 1f + (stopPulse.value - 1f) * visibility
                             scaleX = stopScale
                             scaleY = stopScale
                         },
@@ -942,7 +1031,9 @@ private fun KeyboardRecordingGlow(
     strength: Float = 1f,
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "keyboardRecordingGlow")
-    val pulseAlpha by infiniteTransition.animateFloat(
+    // Keep the animated alpha as State (no `by`) so the infinite transition only invalidates the
+    // draw phase below — never re-runs composition while recording (CMP-9).
+    val pulseAlpha = infiniteTransition.animateFloat(
         initialValue = 0.12f,
         targetValue = 0.32f,
         animationSpec =
@@ -952,11 +1043,11 @@ private fun KeyboardRecordingGlow(
             ),
         label = "keyboardGlowAlpha",
     )
-    val glowAlpha = pulseAlpha * strength
     val errorContainer = MaterialTheme.colorScheme.errorContainer
     val error = MaterialTheme.colorScheme.error
 
     Canvas(modifier = modifier) {
+        val glowAlpha = pulseAlpha.value * strength
         val cornerRadius = CornerRadius(20.dp.toPx(), 20.dp.toPx())
         drawRoundRect(
             brush =

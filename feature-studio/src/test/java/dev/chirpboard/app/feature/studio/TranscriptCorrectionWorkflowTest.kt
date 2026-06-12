@@ -31,10 +31,9 @@ class TranscriptCorrectionWorkflowTest {
     }
 
     @Test
-    fun `enterTranscriptEditMode clears active segment and disables transcript interactions`() {
+    fun `enterTranscriptEditMode disables transcript interactions so karaoke highlight clears`() {
         val state =
             ProcessingStudioState(
-                activeTranscriptSegmentIndex = 4,
                 effectiveTranscriptText = "hello world",
             )
 
@@ -42,22 +41,19 @@ class TranscriptCorrectionWorkflowTest {
 
         assertTrue(editingState.isEditingTranscript)
         assertEquals("hello world", editingState.transcriptDraft)
-        assertEquals(-1, editingState.activeTranscriptSegmentIndex)
         assertFalse(editingState.canUseTranscriptInteractions())
     }
 
     @Test
-    fun `enterTranscriptSelectionMode clears active segment and disables transcript interactions`() {
+    fun `enterTranscriptSelectionMode disables transcript interactions so karaoke highlight clears`() {
         val state =
             ProcessingStudioState(
-                activeTranscriptSegmentIndex = 4,
                 renderedTranscriptText = "hello world",
             )
 
         val selectionState = state.enterTranscriptSelectionMode()
 
         assertTrue(selectionState.isSelectingTranscript)
-        assertEquals(-1, selectionState.activeTranscriptSegmentIndex)
         assertFalse(selectionState.canUseTranscriptInteractions())
     }
 

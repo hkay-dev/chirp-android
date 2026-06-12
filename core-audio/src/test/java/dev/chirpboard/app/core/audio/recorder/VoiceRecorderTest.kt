@@ -18,6 +18,8 @@ import io.mockk.verify
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -262,7 +264,9 @@ class VoiceRecorderTest {
     fun `file backed write failure reports storage unavailable and cleans up`() =
         runBlocking {
             mockkConstructor(BufferedOutputStream::class)
-            every { anyConstructed<BufferedOutputStream>().write(any<ByteArray>()) } throws IOException("disk full")
+            every {
+                anyConstructed<BufferedOutputStream>().write(any<ByteArray>(), any<Int>(), any<Int>())
+            } throws IOException("disk full")
             try {
                 val fileRecorder = fileBackedRecorder()
                 val errors = mutableListOf<RecordingError>()
@@ -313,6 +317,66 @@ class VoiceRecorderTest {
             assertTrue(captureFiles().isEmpty())
         }
 
+    @Test
+    fun `in memory capture grows beyond the initial buffer and returns all samples`() =
+        runBlocking {
+            // One minute of audio is the lazy initial capacity; capture more so
+            // the buffer must grow at least once past it.
+            val readsToExceedInitialBuffer = (VoiceRecorder.SAMPLE_RATE * 60 / READ_BUFFER_SIZE) + 5
+            var reads = 0
+            var captured: FloatArray? = null
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads++
+                if (reads <= readsToExceedInitialBuffer) {
+                    firstArg<FloatArray>().fill(0.5f)
+                    READ_BUFFER_SIZE
+                } else {
+                    captured = recorder.stop()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(recorder.start())
+            recorder.collectSamples()
+
+            assertEquals(readsToExceedInitialBuffer * READ_BUFFER_SIZE, captured?.size)
+            assertEquals(0.5f, captured?.first() ?: 0f, 0.0001f)
+            assertEquals(0.5f, captured?.last() ?: 0f, 0.0001f)
+        }
+
+    @Test
+    fun `file backed capture writes little-endian float pcm`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder()
+            fileRecorder.onRecordingError = {}
+            var reads = 0
+            var result: VoiceRecorder.CapturedPcmFloatFile? = null
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads++
+                if (reads == 1) {
+                    firstArg<FloatArray>().fill(0.5f)
+                    READ_BUFFER_SIZE
+                } else {
+                    result = fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
+
+            val captured = requireNotNull(result)
+            assertEquals(READ_BUFFER_SIZE, captured.sampleCount)
+            val bytes = captured.file.readBytes()
+            assertEquals(READ_BUFFER_SIZE * Float.SIZE_BYTES, bytes.size)
+            val decoded =
+                ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().let { floatBuffer ->
+                    FloatArray(floatBuffer.remaining()).also(floatBuffer::get)
+                }
+            assertEquals(0.5f, decoded.first(), 0.0001f)
+            assertEquals(0.5f, decoded.last(), 0.0001f)
+        }
+
     private fun fileBackedRecorder(): VoiceRecorder {
         every { context.cacheDir } returns cacheDir
         return VoiceRecorder(
@@ -324,4 +388,9 @@ class VoiceRecorderTest {
     }
 
     private fun captureFiles(): List<File> = File(cacheDir, VoiceRecorder.KEYBOARD_CAPTURE_CACHE_DIR).listFiles()?.toList().orEmpty()
+
+    private companion object {
+        /** Float samples returned per simulated [AudioRecord] read, mirroring the recorder's read buffer size. */
+        const val READ_BUFFER_SIZE = 1024
+    }
 }

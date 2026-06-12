@@ -13,6 +13,14 @@ internal sealed class VoiceRecognitionCaptureGateResult {
 internal class VoiceRecognitionCaptureGate(
     private val recordingStateManager: RecordingStateManager,
     private val origin: RecordingOrigin = RecordingOrigin.KEYBOARD,
+    /**
+     * User-facing label other surfaces show when this gate holds the mic. The
+     * RECOGNIZE_SPEECH dialog/service is not the keyboard IME, so it reports
+     * "voice recognition" rather than the misleading "keyboard" the shared
+     * [RecordingOrigin.KEYBOARD] maps to. (Telemetry origin remains KEYBOARD until a
+     * dedicated RECOGNITION origin is added to the shared contract.)
+     */
+    private val sourceLabel: String = RECOGNITION_SOURCE_LABEL,
 ) {
     private var held = false
 
@@ -21,7 +29,7 @@ internal class VoiceRecognitionCaptureGate(
         if (held) {
             // Non-reentrant: a second session must never believe it owns the
             // microphone while an earlier session still holds the gate.
-            return VoiceRecognitionCaptureGateResult.Busy(origin.sourceLabel())
+            return VoiceRecognitionCaptureGateResult.Busy(sourceLabel)
         }
 
         return when (val result = recordingStateManager.tryStartRecording(origin)) {
@@ -65,6 +73,10 @@ internal class VoiceRecognitionCaptureGate(
 
     @Synchronized
     fun isHeld(): Boolean = held
+
+    private companion object {
+        const val RECOGNITION_SOURCE_LABEL = "voice recognition"
+    }
 }
 
 private fun RecordingOrigin.sourceLabel(): String =

@@ -124,13 +124,10 @@ fun HomeScreen(
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showImportMenu by remember { mutableStateOf(false) }
+    // The recovery prompt is presented only when the user taps "Review" on the in-list recovery
+    // banner (below). It is intentionally NOT auto-presented over Home: the modal's destructive
+    // "Discard" button must never materialise asynchronously under an in-flight tap.
     var recoveryPromptSession by remember { mutableStateOf<dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession?>(null) }
-
-    LaunchedEffect(recoverableSessions) {
-        if (recoveryPromptSession == null) {
-            recoveryPromptSession = recoverableSessions.firstOrNull()
-        }
-    }
 
     // FAB expand/collapse based on scroll with hysteresis to avoid flicker at the threshold.
     val fabExpanded by remember {
@@ -225,6 +222,13 @@ fun HomeScreen(
     val hasActiveListFilter = listFilter != ListFilterMode.ALL || searchQuery.isNotBlank()
     val appBarScrollBehavior = if (searchActive) null else scrollBehavior
 
+    // collapsedFraction is backed by mutableFloatStateOf and changes every frame while the
+    // app bar collapses/expands during a fling. Derive the threshold boolean so the topBar
+    // scope invalidates only when the threshold is crossed, not on every frame.
+    val collapsed by remember(appBarScrollBehavior) {
+        derivedStateOf { isAppBarCollapsed(appBarScrollBehavior?.state?.collapsedFraction ?: 0f) }
+    }
+
     Scaffold(
         modifier =
             if (appBarScrollBehavior != null) {
@@ -233,7 +237,6 @@ fun HomeScreen(
                 Modifier
             },
         topBar = {
-            val collapsed = appBarScrollBehavior?.state?.collapsedFraction?.let { it > 0.5f } ?: false
             Column(
                 modifier =
                     Modifier
@@ -597,7 +600,7 @@ fun HomeScreen(
                         key = { it.id },
                         contentType = { "recording" },
                     ) { item ->
-                        Column {
+                        Column(modifier = Modifier.animateItem()) {
                             RecordingListItem(
                                 item = item,
                                 playbackState = playbackRowState,
@@ -696,6 +699,19 @@ fun HomeScreen(
         }
     }
 }
+
+/**
+ * Fraction past which the medium top bar is considered collapsed for title/style selection.
+ */
+private const val APP_BAR_COLLAPSED_THRESHOLD = 0.5f
+
+/**
+ * Whether the medium top app bar is collapsed at [collapsedFraction]. Extracted so the boolean
+ * can be derived via [derivedStateOf]: it only changes when the threshold is crossed, sparing the
+ * topBar scope a per-frame recomposition during scroll.
+ */
+internal fun isAppBarCollapsed(collapsedFraction: Float): Boolean =
+    collapsedFraction > APP_BAR_COLLAPSED_THRESHOLD
 
 internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean =
     status == RecordingStatus.PENDING_TRANSCRIPTION ||

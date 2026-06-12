@@ -20,6 +20,7 @@ import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -28,6 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -48,6 +50,12 @@ class ProcessingStudioViewModel
         private val transcriptionRecovery: TranscriptionRecovery,
         private val playbackController: RecordingPlaybackController,
     ) : ViewModel() {
+        /**
+         * Dispatcher used to build the word-level timed transcript off the main thread (DATA-3).
+         * Overridable from same-module tests so the test scheduler governs the build.
+         */
+        internal var transcriptBuildDispatcher: CoroutineDispatcher = Dispatchers.Default
+
         private var currentRecordingId: UUID? = null
         private var currentTranscript: Transcript? = null
         private var recordingObservationJob: Job? = null
@@ -66,6 +74,12 @@ class ProcessingStudioViewModel
 
         private val _uiState = MutableStateFlow(ProcessingStudioState())
         val uiState: StateFlow<ProcessingStudioState> = _uiState.asStateFlow()
+
+        private val _playbackTick = MutableStateFlow(StudioPlaybackTick())
+        val playbackTick: StateFlow<StudioPlaybackTick> = _playbackTick.asStateFlow()
+
+        private var cachedTranscriptInputs: TranscriptBuildInputs? = null
+        private var cachedTranscript: ProcessingStudioTranscript = ProcessingStudioTranscript.Empty
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
 
@@ -99,20 +113,20 @@ class ProcessingStudioViewModel
                     val screenRecordingId = currentRecordingId ?: return@collect
                     val current = _uiState.value
                     if (playback.recordingId == screenRecordingId) {
+                        // Single uiState write per tick: position + active segment are hoisted into
+                        // the separate playbackTick flow, so a 10 Hz ticker no longer revs the
+                        // screen-wide state object. isPlaying/duration change at transition
+                        // frequency only and copy() dedups identical values.
+                        val nextIsPlaying = playback.isPlaying
+                        val nextDurationMs = if (playback.durationMs > 0) playback.durationMs else current.durationMs
+                        if (current.isPlaying != nextIsPlaying || current.durationMs != nextDurationMs) {
+                            _uiState.value = current.copy(isPlaying = nextIsPlaying, durationMs = nextDurationMs)
+                        }
                         updatePlaybackPosition(playback.positionMs)
-                        _uiState.value =
-                            current.copy(
-                                isPlaying = playback.isPlaying,
-                                currentPositionMs = playback.positionMs,
-                                durationMs =
-                                    if (playback.durationMs > 0) {
-                                        playback.durationMs
-                                    } else {
-                                        current.durationMs
-                                    },
-                            )
                     } else if (playback.isPlaying && playback.recordingId != screenRecordingId) {
-                        _uiState.value = current.copy(isPlaying = false)
+                        if (current.isPlaying) {
+                            _uiState.value = current.copy(isPlaying = false)
+                        }
                     }
                 }
             }
@@ -156,6 +170,9 @@ class ProcessingStudioViewModel
                 viewModelScope.launch {
                 currentRecordingId = id
                 currentTranscript = null
+                cachedTranscriptInputs = null
+                cachedTranscript = ProcessingStudioTranscript.Empty
+                _playbackTick.value = StudioPlaybackTick()
                 var sawRecording = false
 
                 _uiState.value =
@@ -184,7 +201,7 @@ class ProcessingStudioViewModel
                         structuredOutcomeSnapshot = snapshotState.value,
                         isStructuredOutcomeGenerating = isStructuredOutcomeGenerating,
                     )
-                }.collectLatest { loadState ->
+                }.distinctUntilChanged().collectLatest { loadState ->
                     if (_uiState.value.loadState == ProcessingStudioLoadState.NotFound) {
                         return@collectLatest
                     }
@@ -204,7 +221,7 @@ class ProcessingStudioViewModel
                         val transcriptChanged = effectiveTranscriptText != currentState.effectiveTranscriptText
                         val isEditingTranscript = wasEditingTranscript && !transcriptChanged
                         val transcriptState =
-                            buildProcessingStudioTranscript(
+                            buildTimedTranscript(
                                 rawText = effectiveTranscriptText,
                                 timings = timings,
                             )
@@ -366,24 +383,30 @@ class ProcessingStudioViewModel
 
         private fun updatePlaybackPosition(positionMs: Long) {
             val current = _uiState.value
-            val nextActiveIndex =
-                if (current.canUseTranscriptInteractions()) {
-                    findActiveTranscriptSegmentIndex(
-                        transcript = current.transcript,
-                        positionMs = positionMs,
-                    )
-                } else {
-                    -1
-                }
-            if (current.currentPositionMs == positionMs && current.activeTranscriptSegmentIndex == nextActiveIndex) {
+            val nextActiveIndex = activeSegmentIndexFor(current, positionMs)
+            val currentTick = _playbackTick.value
+            if (currentTick.currentPositionMs == positionMs && currentTick.activeTranscriptSegmentIndex == nextActiveIndex) {
                 return
             }
-            _uiState.value =
-                current.copy(
+            _playbackTick.value =
+                currentTick.copy(
                     currentPositionMs = positionMs,
                     activeTranscriptSegmentIndex = nextActiveIndex,
                 )
         }
+
+        private fun activeSegmentIndexFor(
+            state: ProcessingStudioState,
+            positionMs: Long,
+        ): Int =
+            if (state.canUseTranscriptInteractions()) {
+                findActiveTranscriptSegmentIndex(
+                    transcript = state.transcript,
+                    positionMs = positionMs,
+                )
+            } else {
+                -1
+            }
 
         fun onWordClicked(timestamp: Long) {
             if (!_uiState.value.canUseTranscriptInteractions()) return
@@ -922,18 +945,36 @@ class ProcessingStudioViewModel
                 status == RecordingStatus.ENHANCING ||
                 status == RecordingStatus.PENDING_ENHANCEMENT
 
-        private fun refreshTranscriptInteractionState(state: ProcessingStudioState): ProcessingStudioState =
-            state.copy(
-                activeTranscriptSegmentIndex =
-                    if (state.canUseTranscriptInteractions()) {
-                        findActiveTranscriptSegmentIndex(
-                            transcript = state.transcript,
-                            positionMs = state.currentPositionMs,
-                        )
-                    } else {
-                        -1
-                    },
-            )
+        /**
+         * Recomputes the karaoke highlight index in the hoisted [playbackTick] flow whenever the
+         * transcript content or interaction mode changes (edit/selection disables highlighting).
+         * Returns [state] unchanged so call sites keep their `_uiState.value = ...` shape.
+         */
+        private fun refreshTranscriptInteractionState(state: ProcessingStudioState): ProcessingStudioState {
+            val currentTick = _playbackTick.value
+            val nextActiveIndex = activeSegmentIndexFor(state, currentTick.currentPositionMs)
+            if (currentTick.activeTranscriptSegmentIndex != nextActiveIndex) {
+                _playbackTick.value = currentTick.copy(activeTranscriptSegmentIndex = nextActiveIndex)
+            }
+            return state
+        }
+
+        private suspend fun buildTimedTranscript(
+            rawText: String,
+            timings: List<dev.chirpboard.app.data.entity.TranscriptTiming>,
+        ): ProcessingStudioTranscript {
+            val inputs = TranscriptBuildInputs(rawText = rawText, timings = timings)
+            cachedTranscriptInputs?.let { cached ->
+                if (cached == inputs) return cachedTranscript
+            }
+            val built =
+                withContext(transcriptBuildDispatcher) {
+                    buildProcessingStudioTranscript(rawText = rawText, timings = timings)
+                }
+            cachedTranscriptInputs = inputs
+            cachedTranscript = built
+            return built
+        }
     }
 
 
@@ -959,6 +1000,11 @@ private data class RecoveryDiagnosticsResult(
 private data class PlaybackRevealKey(
     val recordingId: UUID,
     val audioPath: String,
+)
+
+private data class TranscriptBuildInputs(
+    val rawText: String,
+    val timings: List<dev.chirpboard.app.data.entity.TranscriptTiming>,
 )
 
 private fun StructuredOutcomeGroup.displayLabel(): String =

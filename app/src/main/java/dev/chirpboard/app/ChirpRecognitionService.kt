@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -27,6 +28,13 @@ class ChirpRecognitionService : RecognitionService() {
     companion object {
         private const val TAG = "ChirpRecognition"
         private const val RMS_SCALE = 100f
+
+        /**
+         * Upper bound the first recognition request waits for an in-flight model load
+         * before surfacing ERROR_SERVER. Generous enough to cover the int8 encoder load
+         * yet bounded so a stuck initialization cannot hang the client indefinitely.
+         */
+        private const val MODEL_READY_DEADLINE_MS = 10_000L
     }
 
     private val recorder by lazy { VoiceRecorder(this, scope, inputDeviceSelector) }
@@ -96,6 +104,17 @@ class ChirpRecognitionService : RecognitionService() {
         }
     }
 
+    /**
+     * Suspends until the recognizer reports ready or the deadline elapses. Re-invokes
+     * [TranscriberProvider.initialize], which the underlying RecognizerManager serializes
+     * behind a mutex — a concurrent call joins the in-flight load rather than starting a
+     * second one. Returns true only if the model is ready within [MODEL_READY_DEADLINE_MS].
+     */
+    private suspend fun awaitModelReady(): Boolean =
+        withTimeoutOrNull(MODEL_READY_DEADLINE_MS) {
+            transcriberProvider.initialize() && transcriberProvider.isReady()
+        } ?: false
+
     private fun saveTranscription(rawText: String) {
         scope.launch(Dispatchers.IO) {
             val persistenceResult =
@@ -119,13 +138,6 @@ class ChirpRecognitionService : RecognitionService() {
     ) {
         Log.d(TAG, "onStartListening")
 
-        // Check if model is ready before allowing recording
-        if (!transcriberProvider.isReady()) {
-            Log.w(TAG, "Recognizer not ready yet (model still loading)")
-            listener.error(SpeechRecognizer.ERROR_SERVER)
-            return
-        }
-
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             Log.w(TAG, "RECORD_AUDIO permission not granted")
             listener.error(SpeechRecognizer.ERROR_CLIENT)
@@ -134,6 +146,17 @@ class ChirpRecognitionService : RecognitionService() {
 
         val generation = sessionCoordinator.issueGeneration()
         scope.launch {
+            // The recognizer is loaded eagerly in onCreate, but a client that binds the
+            // service and immediately starts listening can race that multi-second load.
+            // Await the in-flight initialization (which RecognizerManager serializes) with
+            // a deadline instead of failing the first request outright; only error when the
+            // model genuinely failed or did not become ready within the deadline.
+            if (!transcriberProvider.isReady() && !awaitModelReady()) {
+                Log.w(TAG, "Recognizer not ready within deadline (model still loading)")
+                runCatching { listener.error(SpeechRecognizer.ERROR_SERVER) }
+                return@launch
+            }
+
             val result =
                 sessionCoordinator.start(
                     generation = generation,
@@ -239,7 +262,9 @@ class ChirpRecognitionService : RecognitionService() {
                     }
                 }
 
-            Log.d(TAG, "Transcribed: $text")
+            // Never log transcript content: this is an IME-adjacent surface and the text
+            // can include anything the user dictates into other apps. Log only its length.
+            Log.d(TAG, "Transcribed ${text.length} chars")
 
             // Save to history using data module
             saveTranscription(text)

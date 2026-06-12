@@ -83,11 +83,15 @@ internal fun PlaybackTimelineRow(
         Slider(
             value = progressFraction,
             onValueChange = { fraction ->
+                // Only track the fraction for live display; defer the media seek to
+                // onValueChangeFinished so a scrub does not fire one seekTo per drag frame.
                 isDragging = true
                 dragFraction = fraction
-                onSeek((fraction * durationMs).toLong())
             },
-            onValueChangeFinished = { isDragging = false },
+            onValueChangeFinished = {
+                onSeek((dragFraction * durationMs).toLong())
+                isDragging = false
+            },
             enabled = enabled && durationMs > 0,
             modifier = Modifier.fillMaxWidth(),
             colors = playbackSliderColors(),
@@ -290,11 +294,15 @@ internal fun MiniPlayerSeekTrack(
         Slider(
             value = progressFraction,
             onValueChange = { fraction ->
+                // Only track the fraction for live display; defer the media seek to
+                // onValueChangeFinished so a scrub does not fire one seekTo per drag frame.
                 isDragging = true
                 dragFraction = fraction
-                onSeek((fraction * durationMs).toLong())
             },
-            onValueChangeFinished = { isDragging = false },
+            onValueChangeFinished = {
+                onSeek((dragFraction * durationMs).toLong())
+                isDragging = false
+            },
             enabled = enabled && durationMs > 0,
             modifier = Modifier.fillMaxWidth(),
             colors =

@@ -32,7 +32,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -44,6 +43,8 @@ import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+
+private const val ACTIVE_SEGMENT_BACKGROUND_ALPHA = 0.22f
 
 @Composable
 fun TranscriptTab(
@@ -356,18 +357,22 @@ private fun rememberTimedTranscriptChunk(
     activeSegmentIndex: Int,
     onSegmentClicked: ((Long) -> Unit)?,
 ): androidx.compose.ui.text.AnnotatedString {
-    val activeColor = MaterialTheme.colorScheme.primary
+    val activeColor = MaterialTheme.colorScheme.onPrimaryContainer
+    val activeBackground = MaterialTheme.colorScheme.primary.copy(alpha = ACTIVE_SEGMENT_BACKGROUND_ALPHA)
     val defaultColor = MaterialTheme.colorScheme.onSurface
-    return remember(chunk, chunkStartIndex, activeSegmentIndex, onSegmentClicked, activeColor, defaultColor) {
+    return remember(chunk, chunkStartIndex, activeSegmentIndex, onSegmentClicked, activeColor, activeBackground, defaultColor) {
         buildAnnotatedString {
             chunk.forEachIndexed { index, segment ->
                 val absoluteIndex = chunkStartIndex + index
                 val isActive = absoluteIndex == activeSegmentIndex
+                // Highlight the active karaoke word with color + background only. Changing
+                // fontWeight widens glyphs and reflows the whole paragraph word-by-word during
+                // playback (UI-15), so weight is held constant.
                 val segmentStyle =
                     if (isActive) {
                         SpanStyle(
                             color = activeColor,
-                            fontWeight = FontWeight.SemiBold,
+                            background = activeBackground,
                         )
                     } else {
                         SpanStyle(color = defaultColor)

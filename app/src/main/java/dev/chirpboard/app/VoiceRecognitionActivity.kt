@@ -32,7 +32,6 @@ import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -55,7 +54,48 @@ internal enum class VoiceRecognitionModelState {
 class VoiceRecognitionActivity : ComponentActivity() {
     private val recorder by lazy { VoiceRecorder(this, lifecycleScope, inputDeviceSelector) }
     private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
-    private var recordingJob: Job? = null
+
+    /**
+     * The same hardened start/stop/cancel coordinator the [ChirpRecognitionService] uses, so
+     * both system-recognition surfaces share one serialized lifecycle and one capture-gate
+     * contract (SLOP-18). The activity keeps only its UI, model-readiness gating, and the
+     * inline-transcription/result-intent plumbing on top of this.
+     */
+    private val sessionCoordinator by lazy {
+        VoiceRecognitionSessionCoordinator(
+            scope = lifecycleScope,
+            captureGate = captureGate,
+            recorder = recorderControl,
+            audioPathLabel = ACTIVITY_AUDIO_PATH_LABEL,
+        )
+    }
+
+    private val recorderControl =
+        object : VoiceRecognitionSessionCoordinator.RecorderControl {
+            override suspend fun prepare() {
+                recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
+            }
+
+            override suspend fun start(): Boolean = recorder.start()
+
+            override fun stop(): FloatArray = recorder.stop()
+
+            override fun cancel() = recorder.cancelCapture()
+
+            override suspend fun collectSamples() {
+                try {
+                    recorder.collectSamples()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error collecting samples", e)
+                }
+            }
+
+            // The dialog renders the waveform directly from recorder.sampleCountFlow /
+            // waveformBuffer, so the coordinator's RMS stream is unused on this surface.
+            override suspend fun streamRms(onRms: (Float) -> Unit) = Unit
+        }
 
     /**
      * Survives activity teardown so audio rescued in [onDestroy] is persisted even while
@@ -171,45 +211,40 @@ class VoiceRecognitionActivity : ComponentActivity() {
             returnError(SpeechRecognizer.ERROR_AUDIO)
             return
         }
-        // Mark the session as starting before any suspension so a rapid second tap
-        // during AudioRecord init is ignored instead of tripping the non-reentrant
-        // capture gate against this activity's own in-flight start.
+        // Reflect Starting in the dialog immediately; the coordinator's generation+mutex
+        // (not this flag) is what serializes a rapid second tap against the in-flight start.
         _recordingState.value = RecordingState.Starting(RecordingOrigin.KEYBOARD)
+        val generation = sessionCoordinator.issueGeneration()
         lifecycleScope.launch {
-            try {
-                when (val result = captureGate.tryAcquire()) {
-                    VoiceRecognitionCaptureGateResult.Acquired -> Unit
-                    is VoiceRecognitionCaptureGateResult.Busy -> {
-                        Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
-                        _recordingState.value = RecordingState.Idle
-                        returnError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
-                        return@launch
-                    }
+            val result =
+                sessionCoordinator.start(
+                    generation = generation,
+                    onReadyForSpeech = {},
+                    onBeginningOfSpeech = {
+                        _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
+                    },
+                    onRms = {},
+                )
+            when (result) {
+                VoiceRecognitionSessionCoordinator.StartResult.Started -> Unit
+
+                VoiceRecognitionSessionCoordinator.StartResult.Superseded -> {
+                    // A newer start replaced this one before it ran; the newer session owns
+                    // the recording state, so leave it untouched.
+                    Log.w(TAG, "Start superseded before running")
                 }
 
-                recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
+                is VoiceRecognitionSessionCoordinator.StartResult.Busy -> {
+                    Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
+                    _recordingState.value = RecordingState.Idle
+                    returnError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                }
 
-                if (!recorder.start()) {
-                    Log.e(TAG, "Failed to start recording")
-                    captureGate.releaseError("Failed to start voice recognition")
+                is VoiceRecognitionSessionCoordinator.StartResult.Failed -> {
+                    Log.e(TAG, "Failed to start recording", result.cause)
                     _recordingState.value = RecordingState.Idle
                     returnError(SpeechRecognizer.ERROR_AUDIO)
-                    return@launch
                 }
-                captureGate.onRecorderStarted("voice_recognition_activity_temp_recording")
-                _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
-
-                // Collect samples in background
-                recordingJob =
-                    lifecycleScope.launch {
-                        recorder.collectSamples()
-                    }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Error starting recording", e)
-                captureGate.releaseError("Failed to start voice recognition", e)
-                _recordingState.value = RecordingState.Idle
-                returnError(SpeechRecognizer.ERROR_AUDIO)
             }
         }
     }
@@ -222,13 +257,31 @@ class VoiceRecognitionActivity : ComponentActivity() {
             Log.w(TAG, "Not actively recording, ignoring stop request")
             return
         }
+        val generation = sessionCoordinator.currentGeneration()
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Stop button pressed (LLM: $llmEnabled, Mode: ${processingMode.id})")
                 _recordingState.value = RecordingState.Stopping(RecordingOrigin.KEYBOARD)
-                recordingJob?.cancel()
-                val samples = recorder.stop()
-                captureGate.releaseCompleted()
+
+                // The coordinator serializes the stop against any in-flight start, stops the
+                // recorder, and releases the capture gate; we own only what happens to the
+                // captured samples afterwards.
+                val samples =
+                    when (val stop = sessionCoordinator.stop(generation) {}) {
+                        is VoiceRecognitionSessionCoordinator.StopResult.Captured -> stop.samples
+                        VoiceRecognitionSessionCoordinator.StopResult.Stale -> {
+                            Log.w(TAG, "Stop ignored for inactive session")
+                            _recordingState.value = RecordingState.Idle
+                            returnError(SpeechRecognizer.ERROR_CLIENT)
+                            return@launch
+                        }
+                        is VoiceRecognitionSessionCoordinator.StopResult.Failed -> {
+                            Log.e(TAG, "Failed to stop recording", stop.cause)
+                            _recordingState.value = RecordingState.Idle
+                            returnError(SpeechRecognizer.ERROR_AUDIO)
+                            return@launch
+                        }
+                    }
                 Log.d(TAG, "Got ${samples.size} audio samples")
 
                 if (samples.isEmpty()) {
@@ -266,7 +319,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         if (inlineTranscription.phase.value is InlineTranscriptionPhase.LlmError) {
                             Log.w(TAG, "LLM polish failed; returning raw transcript to caller")
                         }
-                        Log.d(TAG, "Returning result to caller: '${delivery.text}'")
+                        // Never log transcript content: this dialog handles dictation for
+                        // arbitrary apps. Log only its length (SLOP-7).
+                        Log.d(TAG, "Returning result to caller (${delivery.text.length} chars)")
                         dismissWithResult(
                             resultCode = Activity.RESULT_OK,
                             data =
@@ -283,8 +338,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // The coordinator already released the capture gate when it stopped the
+                // recorder above; failures here are in the inline transcription pipeline.
                 Log.e(TAG, "Error during recognition", e)
-                captureGate.releaseError("Failed to stop voice recognition", e)
                 returnError(android.speech.SpeechRecognizer.ERROR_CLIENT)
             }
         }
@@ -298,9 +354,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
             // unmarked cancellation (system kill, task swipe) still rescues the capture.
             inlineTranscription.markUserCancelled()
         }
-        recordingJob?.cancel()
-        recorder.stop()
-        captureGate.releaseCompleted()
+        // Route the capture teardown through the coordinator so the cancel is serialized
+        // against any in-flight start (it stops the recorder and releases the gate). When
+        // the session is already past its active window (Stopping/Idle) cancel is a no-op,
+        // and the pipeline / a prior stop already owns the teardown.
+        val generation = sessionCoordinator.currentGeneration()
+        lifecycleScope.launch {
+            sessionCoordinator.cancel(generation)
+        }
         _recordingState.value = RecordingState.Idle
         dismissWithResult(Activity.RESULT_CANCELED)
     }
@@ -368,6 +429,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "VoiceRecognitionActivity"
+        private const val ACTIVITY_AUDIO_PATH_LABEL = "voice_recognition_activity_temp_recording"
     }
 }
 

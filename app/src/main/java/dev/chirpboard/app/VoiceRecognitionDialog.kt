@@ -92,11 +92,13 @@ internal fun VoiceRecognitionDialog(
 ) {
     val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
-    val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
     val modelState by modelStateFlow.collectAsStateWithLifecycle(VoiceRecognitionModelState.Initializing)
     var isVisible by remember { mutableStateOf(true) }
 
-    val sampleCount by sampleCountFlow.collectAsStateWithLifecycle(0L)
+    // The 10 Hz waveform tick (sampleCountFlow) and the per-token partial transcript are
+    // intentionally NOT collected here: collecting them at the dialog root would re-run the
+    // entire content body on every tick. They are passed down as flows and collected at the
+    // leaf composables that actually render them (CMP-11), matching RecordScreen/KeyboardUI.
 
     // Auto-start only once the transcription model is actually ready.
     LaunchedEffect(modelState) {
@@ -148,8 +150,8 @@ internal fun VoiceRecognitionDialog(
             VoiceRecognitionDialogContent(
                 recordingState = recordingState,
                 waveformBuffer = waveformBuffer,
-                sampleCount = sampleCount,
-                partialTranscript = partialTranscript,
+                sampleCountFlow = sampleCountFlow,
+                partialTranscriptFlow = partialTranscriptFlow,
                 modelState = modelState,
                 llmEnabled = llmEnabled,
                 currentMode = currentMode,
@@ -170,8 +172,8 @@ internal fun VoiceRecognitionDialog(
 private fun VoiceRecognitionDialogContent(
     recordingState: RecordingState,
     waveformBuffer: WaveformBuffer,
-    sampleCount: Long,
-    partialTranscript: String,
+    sampleCountFlow: StateFlow<Long>,
+    partialTranscriptFlow: StateFlow<String>,
     modelState: VoiceRecognitionModelState,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
@@ -248,65 +250,15 @@ private fun VoiceRecognitionDialogContent(
                         ),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // Transcript Area
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(80.dp)
-                            .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    AnimatedContent(
-                        targetState = partialTranscript,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(200)) togetherWith fadeOut(animationSpec = tween(200))
-                        },
-                        label = "transcript_animation",
-                    ) { text ->
-                        when {
-                            text.isNotBlank() -> {
-                                Text(
-                                    text = text,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 3,
-                                )
-                            }
-
-                            modelState == VoiceRecognitionModelState.Initializing -> {
-                                Text(
-                                    text = stringResource(R.string.voice_recognition_model_loading),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-
-                            modelState == VoiceRecognitionModelState.Unavailable -> {
-                                Text(
-                                    text = stringResource(R.string.voice_recognition_model_unavailable),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.error,
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-
-                            isRecording && !isProcessing -> {
-                                RecordingTimer(
-                                    recordingState = recordingState,
-                                    isRecording = true,
-                                    textStyle = MaterialTheme.typography.displaySmall.copy(
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Light,
-                                        letterSpacing = 2.sp,
-                                    )
-                                )
-                            }
-                        }
-                    }
-                }
+                // Transcript Area. partialTranscriptFlow is collected inside this leaf so a
+                // per-token partial update recomposes only the transcript scope (CMP-11).
+                VoiceRecognitionTranscriptArea(
+                    partialTranscriptFlow = partialTranscriptFlow,
+                    recordingState = recordingState,
+                    modelState = modelState,
+                    isRecording = isRecording,
+                    isProcessing = isProcessing,
+                )
 
                 AnimatedVisibility(
                     visible = showRecordingVisuals,
@@ -317,13 +269,9 @@ private fun VoiceRecognitionDialogContent(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        AudioWaveform(
+                        VoiceRecognitionWaveform(
                             waveformBuffer = waveformBuffer,
-                            sampleCount = sampleCount,
-                            isActive = true,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                            maxBarHeight = 64.dp,
+                            sampleCountFlow = sampleCountFlow,
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -406,6 +354,134 @@ private fun VoiceRecognitionDialogContent(
 }
 
 private const val VOICE_RECOGNITION_EXIT_MS = 250L
+private const val TRANSCRIPT_CROSSFADE_MS = 200
+
+/** The kind of content shown in the transcript area; the crossfade keys on this, not the text. */
+internal enum class TranscriptAreaKind {
+    Transcript,
+    ModelLoading,
+    ModelUnavailable,
+    Timer,
+    Empty,
+}
+
+internal fun transcriptAreaKind(
+    hasText: Boolean,
+    modelState: VoiceRecognitionModelState,
+    isRecording: Boolean,
+    isProcessing: Boolean,
+): TranscriptAreaKind =
+    when {
+        hasText -> TranscriptAreaKind.Transcript
+        modelState == VoiceRecognitionModelState.Initializing -> TranscriptAreaKind.ModelLoading
+        modelState == VoiceRecognitionModelState.Unavailable -> TranscriptAreaKind.ModelUnavailable
+        isRecording && !isProcessing -> TranscriptAreaKind.Timer
+        else -> TranscriptAreaKind.Empty
+    }
+
+/**
+ * Transcript / status area. Collects the streaming partial transcript at this leaf so a
+ * per-token update recomposes only here (CMP-11), and keys the crossfade on the content
+ * *kind* so streamed words update a plain [Text] in place instead of ghost-crossfading the
+ * whole paragraph against itself on every token (UI-16).
+ */
+@Composable
+private fun VoiceRecognitionTranscriptArea(
+    partialTranscriptFlow: StateFlow<String>,
+    recordingState: RecordingState,
+    modelState: VoiceRecognitionModelState,
+    isRecording: Boolean,
+    isProcessing: Boolean,
+) {
+    val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
+    val kind =
+        transcriptAreaKind(
+            hasText = partialTranscript.isNotBlank(),
+            modelState = modelState,
+            isRecording = isRecording,
+            isProcessing = isProcessing,
+        )
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(80.dp)
+                .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        AnimatedContent(
+            targetState = kind,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(TRANSCRIPT_CROSSFADE_MS)) togetherWith
+                    fadeOut(animationSpec = tween(TRANSCRIPT_CROSSFADE_MS))
+            },
+            label = "transcript_animation",
+        ) { targetKind ->
+            when (targetKind) {
+                TranscriptAreaKind.Transcript ->
+                    Text(
+                        // Read the live value so words stream in place within this kind
+                        // without restarting the crossfade.
+                        text = partialTranscript,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        maxLines = 3,
+                    )
+
+                TranscriptAreaKind.ModelLoading ->
+                    Text(
+                        text = stringResource(R.string.voice_recognition_model_loading),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+
+                TranscriptAreaKind.ModelUnavailable ->
+                    Text(
+                        text = stringResource(R.string.voice_recognition_model_unavailable),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center,
+                    )
+
+                TranscriptAreaKind.Timer ->
+                    RecordingTimer(
+                        recordingState = recordingState,
+                        isRecording = true,
+                        textStyle =
+                            MaterialTheme.typography.displaySmall.copy(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Light,
+                                letterSpacing = 2.sp,
+                            ),
+                    )
+
+                TranscriptAreaKind.Empty -> Unit
+            }
+        }
+    }
+}
+
+/**
+ * Waveform leaf. Collects the 10 Hz sample-count tick here so amplitude updates recompose
+ * only the waveform scope, not the whole dialog content (CMP-11).
+ */
+@Composable
+private fun VoiceRecognitionWaveform(
+    waveformBuffer: WaveformBuffer,
+    sampleCountFlow: StateFlow<Long>,
+) {
+    val sampleCount by sampleCountFlow.collectAsStateWithLifecycle(0L)
+    AudioWaveform(
+        waveformBuffer = waveformBuffer,
+        sampleCount = sampleCount,
+        isActive = true,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+        maxBarHeight = 64.dp,
+    )
+}
 
 @Composable
 private fun VoiceRecognitionLlmControlSection(

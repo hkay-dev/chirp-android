@@ -58,6 +58,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
@@ -157,27 +158,19 @@ internal fun RecordingListItem(
             source = item.source,
         )
 
+        // Status-driven sections keep PushDownReveal: their visibility can flip while the row is
+        // on screen (a live capture stops, transcription progresses), so the height change is
+        // worth animating.
         PushDownReveal(visible = item.isLiveCapture) {
             LiveCaptureHomeBanner(isPaused = isLiveCapturePaused)
         }
 
-        PushDownReveal(visible = !item.isLiveCapture && item.status.transcriptionProgressCopy() != null) {
-            item.status.transcriptionProgressCopy()?.let { copy ->
+        val transcriptionProgressCopy = if (item.isLiveCapture) null else item.status.transcriptionProgressCopy()
+        PushDownReveal(visible = transcriptionProgressCopy != null) {
+            transcriptionProgressCopy?.let { copy ->
                 TranscriptionProgressBanner(
                     copy = copy,
                     kind = item.status.transcriptionProgressKind(),
-                )
-            }
-        }
-
-        PushDownReveal(visible = item.summary != null) {
-            item.summary?.let { summary ->
-                Text(
-                    text = summary,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -199,17 +192,31 @@ internal fun RecordingListItem(
             )
         }
 
-        PushDownReveal(visible = item.tags.isNotEmpty()) {
+        // Summary and tags are immutable while the row is visible (they are only produced by a
+        // status transition that re-keys the item), so a plain `if` avoids instantiating a
+        // Transition state machine per row in the scroll hot path. The Column's
+        // animatePushDownLayout() still animates the height change if they appear in place.
+        item.summary?.let { summary ->
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (item.tags.isNotEmpty()) {
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                item.tags.take(3).forEach { tag ->
+                item.tags.take(MAX_VISIBLE_TAGS).forEach { tag ->
                     CompactTagChip(name = tag.name, colorHex = tag.color)
                 }
-                if (item.tags.size > 3) {
+                if (item.tags.size > MAX_VISIBLE_TAGS) {
                     Text(
-                        text = "+${item.tags.size - 3}",
+                        text = "+${item.tags.size - MAX_VISIBLE_TAGS}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -218,6 +225,9 @@ internal fun RecordingListItem(
         }
     }
 }
+
+/** Maximum number of tag chips rendered inline on a recording row before collapsing to a count. */
+private const val MAX_VISIBLE_TAGS = 3
 
 @Composable
 private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
@@ -253,9 +263,12 @@ private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
 
 @Composable
 private fun LiveCaptureHomeBanner(isPaused: Boolean) {
+    // Keep the pulse as State<Float> and read it inside drawBehind so the infinite transition
+    // invalidates only the draw phase. Reading `.value` here in composition would re-run the
+    // whole banner scope every vsync for the entire live capture.
     val pulseAlpha =
         if (isPaused) {
-            1f
+            null
         } else {
             val infiniteTransition = rememberInfiniteTransition(label = "live_capture_pulse")
             infiniteTransition.animateFloat(
@@ -267,8 +280,9 @@ private fun LiveCaptureHomeBanner(isPaused: Boolean) {
                         repeatMode = RepeatMode.Reverse,
                     ),
                 label = "live_capture_pulse_alpha",
-            ).value
+            )
         }
+    val dotColor = MaterialTheme.colorScheme.error
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -287,8 +301,10 @@ private fun LiveCaptureHomeBanner(isPaused: Boolean) {
                 modifier =
                     Modifier
                         .size(10.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.error.copy(alpha = pulseAlpha)),
+                        .drawBehind {
+                            val alpha = pulseAlpha?.value ?: 1f
+                            drawCircle(color = dotColor.copy(alpha = alpha))
+                        },
             )
             Column(
                 verticalArrangement = Arrangement.spacedBy(2.dp),

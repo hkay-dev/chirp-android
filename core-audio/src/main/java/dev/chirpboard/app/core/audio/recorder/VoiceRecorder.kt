@@ -16,8 +16,6 @@ import java.io.BufferedOutputStream
 import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
@@ -29,15 +27,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.sample
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 
@@ -80,10 +73,19 @@ class VoiceRecorder(
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_FLOAT
 
-        /** Amplitude debounce interval - ~60fps is sufficient for visual smoothness on 120Hz displays */
-        private const val AMPLITUDE_DEBOUNCE_MS = 16L
         const val MAX_SAMPLE_CAPACITY = SAMPLE_RATE * 60 * 10 // 10 minutes
+
+        /** Growth capacity for the lazily-allocated in-memory sample buffer (1 minute at [SAMPLE_RATE]). */
         private const val INITIAL_SAMPLE_CAPACITY = SAMPLE_RATE * 60
+
+        /** Sentinel empty buffer used when no in-memory capture is resident, so FileBacked mode never allocates. */
+        private val EMPTY_SAMPLES = FloatArray(0)
+
+        /** Number of float samples read from [AudioRecord] per blocking read. */
+        private const val CAPTURE_READ_BUFFER_SIZE = 1024
+
+        /** Low-byte mask for splitting an int into little-endian bytes. */
+        private const val BYTE_MASK = 0xFF
 
         /** Cache subdirectory where file-backed dictation captures are written. */
         const val KEYBOARD_CAPTURE_CACHE_DIR = "keyboard-capture"
@@ -108,10 +110,26 @@ class VoiceRecorder(
 
     private var audioRecord: AudioRecord? = null
     private val isRecording = AtomicBoolean(false)
-    private var samples = FloatArray(INITIAL_SAMPLE_CAPACITY) // Pre-allocate 1 min
+
+    /**
+     * In-memory PCM sample buffer. Starts as an empty sentinel and is only
+     * allocated lazily on first InMemory capture, grown on demand, and trimmed
+     * back to the sentinel after stop/cancel/close so the multi-MB working set
+     * does not sit resident in the IME/recognition processes between dictations.
+     * FileBacked mode never allocates it.
+     */
+    private var samples = EMPTY_SAMPLES
     private var sampleCount = 0
     private var sampleFile: File? = null
     private var sampleOutput: BufferedOutputStream? = null
+
+    /**
+     * Reusable little-endian scratch buffer for file-backed PCM writes, sized to
+     * one full read ([CAPTURE_READ_BUFFER_SIZE] floats). Allocated lazily on the
+     * first FileBacked write so a fresh ByteBuffer is not allocated per read, and
+     * never touched in InMemory mode. Only accessed under [sampleLock].
+     */
+    private var captureWriteBuffer: ByteArray? = null
     private val sampleLock = Any()
 
     /**
@@ -158,9 +176,6 @@ class VoiceRecorder(
 
     /** Whether an error occurred during the current recording session */
     private var hasError = false
-
-    // Coroutine scope for debounced flow
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val waveformBuffer = WaveformBuffer(42)
     private val _sampleCountFlow = MutableStateFlow(0L)
@@ -350,7 +365,7 @@ class VoiceRecorder(
                 collectGeneration = sessionGeneration.get()
             }
             if (record == null) return@withContext
-            val buffer = FloatArray(1024)
+            val buffer = FloatArray(CAPTURE_READ_BUFFER_SIZE)
             hasError = false
 
             while (isActive && isRecording.get() && sessionGeneration.get() == collectGeneration) {
@@ -394,18 +409,7 @@ class VoiceRecorder(
                             if (toProcess > 0) {
                                 when (captureStorageMode) {
                                     CaptureStorageMode.InMemory -> {
-                                        if (sampleCount + toProcess > samples.size) {
-                                            if (samples.size < MAX_SAMPLE_CAPACITY) {
-                                                samples =
-                                                    samples.copyOf(
-                                                        minOf(
-                                                            MAX_SAMPLE_CAPACITY,
-                                                            maxOf(samples.size * 2, sampleCount + toProcess),
-                                                        ),
-                                                    )
-                                            }
-                                        }
-
+                                        ensureInMemoryCapacityLocked(sampleCount + toProcess)
                                         for (i in 0 until toProcess) {
                                             samples[sampleCount + i] = boostedSample(buffer[i])
                                         }
@@ -481,9 +485,9 @@ class VoiceRecorder(
         return synchronized(sampleLock) {
             val capturedSamples = samples.copyOf(sampleCount)
             sampleCount = 0
-            if (samples.size != INITIAL_SAMPLE_CAPACITY) {
-                samples = FloatArray(INITIAL_SAMPLE_CAPACITY)
-            }
+            // Release the multi-MB buffer instead of re-allocating a 1-minute
+            // one that may never be used again; the next start allocates lazily.
+            samples = EMPTY_SAMPLES
             capturedSamples
         }
     }
@@ -526,9 +530,7 @@ class VoiceRecorder(
         synchronized(sampleLock) {
             sampleCount = 0
             resetFileBackedCaptureLocked(deleteExisting = true)
-            if (samples.size != INITIAL_SAMPLE_CAPACITY) {
-                samples = FloatArray(INITIAL_SAMPLE_CAPACITY)
-            }
+            samples = EMPTY_SAMPLES
         }
     }
 
@@ -536,19 +538,17 @@ class VoiceRecorder(
 
     override fun close() {
         stopAudioRecord()
-        scope.cancel()
         synchronized(sampleLock) {
             sampleCount = 0
             resetFileBackedCaptureLocked(deleteExisting = true)
+            samples = EMPTY_SAMPLES
         }
     }
 
     private fun clearInMemoryCapture() {
         synchronized(sampleLock) {
             sampleCount = 0
-            if (samples.size != INITIAL_SAMPLE_CAPACITY) {
-                samples = FloatArray(INITIAL_SAMPLE_CAPACITY)
-            }
+            samples = EMPTY_SAMPLES
         }
     }
 
@@ -607,6 +607,20 @@ class VoiceRecorder(
 
     private fun boostedSample(sample: Float): Float = (sample * gainMultiplier).coerceIn(-1f, 1f)
 
+    /**
+     * Ensures the in-memory [samples] buffer can hold [requiredSize] floats,
+     * allocating it lazily on first use (seeded at [INITIAL_SAMPLE_CAPACITY])
+     * and doubling on demand, capped at [MAX_SAMPLE_CAPACITY]. Must be called
+     * under [sampleLock].
+     */
+    private fun ensureInMemoryCapacityLocked(requiredSize: Int) {
+        if (requiredSize <= samples.size || samples.size >= MAX_SAMPLE_CAPACITY) {
+            return
+        }
+        val grown = maxOf(samples.size * 2, INITIAL_SAMPLE_CAPACITY, requiredSize)
+        samples = samples.copyOf(minOf(MAX_SAMPLE_CAPACITY, grown))
+    }
+
     private fun createCaptureFile(): File {
         val dir = File(context.cacheDir, KEYBOARD_CAPTURE_CACHE_DIR).apply { mkdirs() }
         return File.createTempFile(DICTATION_CAPTURE_FILE_PREFIX, DICTATION_CAPTURE_FILE_SUFFIX, dir)
@@ -617,11 +631,32 @@ class VoiceRecorder(
         count: Int,
     ) {
         val output = sampleOutput ?: return
-        val byteBuffer = ByteBuffer.allocate(count * java.lang.Float.BYTES).order(ByteOrder.LITTLE_ENDIAN)
+        val byteCount = count * java.lang.Float.BYTES
+        val scratch = captureWriteBufferOfAtLeast(byteCount)
+        var byteIndex = 0
         for (index in 0 until count) {
-            byteBuffer.putFloat(boostedSample(buffer[index]))
+            val bits = java.lang.Float.floatToIntBits(boostedSample(buffer[index]))
+            scratch[byteIndex] = (bits and BYTE_MASK).toByte()
+            scratch[byteIndex + 1] = ((bits ushr Byte.SIZE_BITS) and BYTE_MASK).toByte()
+            scratch[byteIndex + 2] = ((bits ushr (Byte.SIZE_BITS * 2)) and BYTE_MASK).toByte()
+            scratch[byteIndex + 3] = ((bits ushr (Byte.SIZE_BITS * 3)) and BYTE_MASK).toByte()
+            byteIndex += java.lang.Float.BYTES
         }
-        output.write(byteBuffer.array())
+        output.write(scratch, 0, byteCount)
+    }
+
+    /**
+     * Returns the reusable [captureWriteBuffer], allocating it lazily and growing
+     * it only if a read ever exceeds the expected [CAPTURE_READ_BUFFER_SIZE].
+     * Must be called under [sampleLock].
+     */
+    private fun captureWriteBufferOfAtLeast(byteCount: Int): ByteArray {
+        val existing = captureWriteBuffer
+        if (existing != null && existing.size >= byteCount) {
+            return existing
+        }
+        val size = maxOf(byteCount, CAPTURE_READ_BUFFER_SIZE * java.lang.Float.BYTES)
+        return ByteArray(size).also { captureWriteBuffer = it }
     }
 
     private fun resetFileBackedCaptureLocked(deleteExisting: Boolean) {
@@ -636,5 +671,8 @@ class VoiceRecorder(
         runCatching { sampleOutput?.flush() }
         runCatching { sampleOutput?.close() }
         sampleOutput = null
+        // Release the per-session write scratch so it does not stay resident
+        // between dictations in the always-on IME/recognition processes.
+        captureWriteBuffer = null
     }
 }

@@ -45,6 +45,8 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.playback.RecordingPlaybackController
+import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.ChirpMotion.layoutSizeSpring
@@ -53,7 +55,9 @@ import dev.chirpboard.app.core.ui.motion.ChirpMotion.miniPlayerRevealTransition
 import dev.chirpboard.app.core.ui.playback.RecordingMiniPlayerBar
 import dev.chirpboard.app.core.ui.playback.rememberRecordingPlaybackController
 import dev.chirpboard.app.core.ui.playback.shouldShowGlobalMiniPlayer
-import kotlinx.coroutines.flow.collect
+import java.util.UUID
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * Material 3 motion: shared axis forward/backward transitions.
@@ -82,17 +86,22 @@ internal fun AppNavHost(
     val currentRoute = currentBackStackEntry?.destination?.route
     val studioRecordingId = currentBackStackEntry?.arguments?.getString("recordingId")
     val playbackController = rememberRecordingPlaybackController()
-    val playbackState by playbackController.state.collectAsStateWithLifecycle()
+    // Project the high-frequency playback state down to only the fields the mini-player
+    // *visibility* decision depends on (recordingId/active/loading/error), deduped, so the
+    // 10 Hz position tick no longer recomposes the navigation root (the parent of every
+    // screen). The full state — and its last-active latching — is collected inside the
+    // mini-player scope below (CMP-12).
+    val visibilityState by remember(playbackController) {
+        playbackController.state
+            .map { it.toVisibilityProjection() }
+            .distinctUntilChanged()
+    }.collectAsStateWithLifecycle(RecordingPlaybackState().toVisibilityProjection())
     val showGlobalMiniPlayer =
         shouldShowGlobalMiniPlayer(
-            playbackState = playbackState,
+            playbackState = visibilityState,
             currentRoute = currentRoute,
             studioRecordingId = studioRecordingId,
         )
-    var miniPlayerDisplayState by remember { mutableStateOf(playbackState) }
-    if (playbackState.isActive || playbackState.isLoading) {
-        miniPlayerDisplayState = playbackState
-    }
     val showSharedAudioOverlay =
         sharedAudioState is SharedAudioIntakeState.Loading ||
             sharedAudioState is SharedAudioIntakeState.Failure
@@ -210,17 +219,12 @@ internal fun AppNavHost(
                 enter = miniPlayerRevealTransition,
                 exit = miniPlayerHideTransition,
             ) {
-                RecordingMiniPlayerBar(
-                    state = miniPlayerDisplayState,
-                    onPlayPause = playbackController::togglePlayPause,
-                    onSeek = playbackController::seekTo,
-                    onStop = playbackController::stop,
-                    onOpenRecording = {
-                        playbackState.recordingId?.let { id ->
-                            navController.navigateToStudio(id)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
+                // The full (10 Hz) playback state — including position ticks — is collected
+                // here, inside the mini-player scope, so those ticks recompose only the bar
+                // and never the navigation root above (CMP-12).
+                GlobalMiniPlayer(
+                    playbackController = playbackController,
+                    onOpenRecording = { id -> navController.navigateToStudio(id) },
                 )
             }
         }
@@ -237,6 +241,45 @@ internal fun AppNavHost(
             )
         }
     }
+}
+
+/**
+ * Reduces [RecordingPlaybackState] to only the fields [shouldShowGlobalMiniPlayer] reads,
+ * zeroing the high-frequency position/duration so a deduped projection ignores 10 Hz ticks
+ * while preserving the exact visibility decision (CMP-12).
+ */
+internal fun RecordingPlaybackState.toVisibilityProjection(): RecordingPlaybackState =
+    RecordingPlaybackState(
+        recordingId = recordingId,
+        isLoading = isLoading,
+        errorMessage = errorMessage,
+    )
+
+/**
+ * Owns the full (position-ticking) playback state inside the mini-player's own scope so the
+ * 10 Hz tick recomposes only the bar, not the navigation root (CMP-12). The last active
+ * state is latched so the bar keeps its content during the fade-out instead of blanking.
+ */
+@Composable
+private fun GlobalMiniPlayer(
+    playbackController: RecordingPlaybackController,
+    onOpenRecording: (UUID) -> Unit,
+) {
+    val playbackState by playbackController.state.collectAsStateWithLifecycle()
+    var displayState by remember { mutableStateOf(playbackState) }
+    if (playbackState.isActive || playbackState.isLoading) {
+        displayState = playbackState
+    }
+    RecordingMiniPlayerBar(
+        state = displayState,
+        onPlayPause = playbackController::togglePlayPause,
+        onSeek = playbackController::seekTo,
+        onStop = playbackController::stop,
+        onOpenRecording = {
+            displayState.recordingId?.let(onOpenRecording)
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
