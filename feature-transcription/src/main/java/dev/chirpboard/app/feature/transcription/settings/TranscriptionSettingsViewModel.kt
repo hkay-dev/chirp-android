@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
-import dev.chirpboard.app.feature.transcription.WhisperModelManager
+import dev.chirpboard.app.feature.transcription.SpeechModelManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,12 +18,12 @@ import javax.inject.Inject
 class TranscriptionSettingsViewModel
     @Inject
     constructor(
-        private val modelManager: WhisperModelManager,
+        private val modelManager: SpeechModelManager,
         private val transcriptionRecovery: TranscriptionRecovery,
     ) : ViewModel() {
         data class UiState(
-            val modelName: String = WhisperModelManager.MODEL_DISPLAY_NAME,
-            val modelSizeMb: Int = WhisperModelManager.MODEL_SIZE_MB,
+            val modelName: String = SpeechModelManager.MODEL_DISPLAY_NAME,
+            val modelSizeMb: Int = SpeechModelManager.MODEL_SIZE_MB,
             val isDownloaded: Boolean = false,
             val isLoading: Boolean = false,
             val downloadProgress: Float = 0f,
@@ -39,7 +39,7 @@ class TranscriptionSettingsViewModel
             viewModelScope.launch {
                 modelManager.modelStatus.collect { status ->
                     when (status) {
-                        is WhisperModelManager.ModelStatus.Ready -> {
+                        is SpeechModelManager.ModelStatus.Ready -> {
                             _uiState.update {
                                 it.copy(
                                     isDownloaded = true,
@@ -50,7 +50,7 @@ class TranscriptionSettingsViewModel
                             }
                         }
 
-                        is WhisperModelManager.ModelStatus.NotDownloaded -> {
+                        is SpeechModelManager.ModelStatus.NotDownloaded -> {
                             _uiState.update {
                                 it.copy(
                                     isDownloaded = false,
@@ -60,7 +60,7 @@ class TranscriptionSettingsViewModel
                             }
                         }
 
-                        is WhisperModelManager.ModelStatus.Downloading -> {
+                        is SpeechModelManager.ModelStatus.Downloading -> {
                             _uiState.update {
                                 it.copy(
                                     isLoading = true,
@@ -69,7 +69,7 @@ class TranscriptionSettingsViewModel
                             }
                         }
 
-                        is WhisperModelManager.ModelStatus.Error -> {
+                        is SpeechModelManager.ModelStatus.Error -> {
                             _uiState.update {
                                 it.copy(
                                     isLoading = false,

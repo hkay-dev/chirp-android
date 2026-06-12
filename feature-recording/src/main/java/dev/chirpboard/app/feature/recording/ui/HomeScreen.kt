@@ -4,13 +4,12 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import dev.chirpboard.app.core.ui.motion.ChirpMotion.layoutSizeSpring
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
@@ -108,6 +107,7 @@ fun HomeScreen(
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
     val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
     val playbackRowState by viewModel.playbackRowState.collectAsStateWithLifecycle()
@@ -129,11 +129,23 @@ fun HomeScreen(
     // "Discard" button must never materialise asynchronously under an in-flight tap.
     var recoveryPromptSession by remember { mutableStateOf<dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession?>(null) }
 
-    // FAB expand/collapse based on scroll with hysteresis to avoid flicker at the threshold.
+    // UI-7: FAB expand/collapse with REAL hysteresis (the previous code documented hysteresis but
+    // used a single hard threshold, so a list resting near 48px toggled the extended FAB open/shut
+    // repeatedly). We collapse only once scrolled well past the first row and re-expand only once
+    // scrolled back near the very top, holding the prior decision in the dead band between. The
+    // previous decision is held in a non-snapshot box so the derivedStateOf only depends on the
+    // scroll position (no write-during-read of observed state).
+    val fabExpandedHysteresis = remember { intArrayOf(1) }
     val fabExpanded by remember {
         derivedStateOf {
-            listState.firstVisibleItemIndex == 0 &&
-                listState.firstVisibleItemScrollOffset < 48
+            val next =
+                nextFabExpandedState(
+                    previousExpanded = fabExpandedHysteresis[0] == 1,
+                    firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                    firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
+                )
+            fabExpandedHysteresis[0] = if (next) 1 else 0
+            next
         }
     }
     val isListScrolling by remember {
@@ -150,6 +162,13 @@ fun HomeScreen(
         errorMessage = errorMessage,
         snackbarHostState = snackbarHostState,
         onDismiss = viewModel::clearError,
+    )
+
+    // SLOP-23: progress/success notices use their own channel so they are never styled as errors.
+    RepositoryErrorSnackbarEffect(
+        errorMessage = statusMessage,
+        snackbarHostState = snackbarHostState,
+        onDismiss = viewModel::clearStatus,
     )
 
     LaunchedEffect(recordingState) {
@@ -237,29 +256,38 @@ fun HomeScreen(
                 Modifier
             },
         topBar = {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .animateContentSize(animationSpec = layoutSizeSpring),
-            ) {
+            // UI-5: no animateContentSize here. The collapsing MediumTopAppBar resizes itself every
+            // frame via exitUntilCollapsedScrollBehavior; wrapping it in a spring made the bar (and
+            // the content offset below it) rubber-band behind the finger. The only sibling whose
+            // appearance needs animating is the search field, and PushDownReveal already animates
+            // its own expand/collapse.
+            Column(modifier = Modifier.fillMaxWidth()) {
                 MediumTopAppBar(
                     title = {
-                        Text(
-                            text =
-                                if (collapsed) {
-                                    stringResource(R.string.rec_recordings_title_collapsed)
-                                } else {
-                                    stringResource(R.string.rec_recordings_title_expanded)
-                                },
-                            style =
-                                if (collapsed) {
-                                    MaterialTheme.typography.titleLarge
-                                } else {
-                                    MaterialTheme.typography.headlineMedium
-                                },
-                            fontWeight = FontWeight.Bold,
-                        )
+                        // UI-6: crossfade the title across the collapse threshold instead of swapping
+                        // text + typography in a single frame (a visible mid-scroll pop, and a
+                        // flicker when the scroll rests near the threshold).
+                        Crossfade(
+                            targetState = collapsed,
+                            animationSpec = ChirpMotion.studioAlphaTween,
+                            label = "home_title_collapse",
+                        ) { isCollapsed ->
+                            Text(
+                                text =
+                                    if (isCollapsed) {
+                                        stringResource(R.string.rec_recordings_title_collapsed)
+                                    } else {
+                                        stringResource(R.string.rec_recordings_title_expanded)
+                                    },
+                                style =
+                                    if (isCollapsed) {
+                                        MaterialTheme.typography.titleLarge
+                                    } else {
+                                        MaterialTheme.typography.headlineMedium
+                                    },
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     },
                     actions = {
                         if (!searchActive) {
@@ -712,6 +740,33 @@ private const val APP_BAR_COLLAPSED_THRESHOLD = 0.5f
  */
 internal fun isAppBarCollapsed(collapsedFraction: Float): Boolean =
     collapsedFraction > APP_BAR_COLLAPSED_THRESHOLD
+
+/** Scroll offset (px) past the first row at which the record FAB collapses to its compact form. */
+private const val FAB_COLLAPSE_OFFSET_PX = 64
+
+/** Scroll offset (px) at or below which the record FAB re-expands to its labelled form. */
+private const val FAB_EXPAND_OFFSET_PX = 32
+
+/**
+ * Next expanded state for the record FAB given the current scroll position and the [previousExpanded]
+ * decision. Uses separate collapse (>64px) and expand (<=32px) thresholds so the FAB does not toggle
+ * back and forth when the list comes to rest in the 32-64px band — the hysteresis the old single
+ * threshold only claimed to have. Extracted as a pure function so the threshold logic is unit-tested.
+ */
+internal fun nextFabExpandedState(
+    previousExpanded: Boolean,
+    firstVisibleItemIndex: Int,
+    firstVisibleItemScrollOffset: Int,
+): Boolean {
+    if (firstVisibleItemIndex != 0) {
+        return false
+    }
+    return when {
+        firstVisibleItemScrollOffset <= FAB_EXPAND_OFFSET_PX -> true
+        firstVisibleItemScrollOffset > FAB_COLLAPSE_OFFSET_PX -> false
+        else -> previousExpanded
+    }
+}
 
 internal fun shouldShowStuckRecoveryAction(status: RecordingStatus): Boolean =
     status == RecordingStatus.PENDING_TRANSCRIPTION ||

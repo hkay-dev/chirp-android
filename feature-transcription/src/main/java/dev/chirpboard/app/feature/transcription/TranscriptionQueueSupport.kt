@@ -4,6 +4,7 @@ import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 import dev.chirpboard.app.data.entity.Recording
+import java.util.UUID
 
 internal const val MANUAL_RECOVERY_PREFIX = "manual_recovery:"
 internal const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = "recoverable_queue_handoff:"
@@ -109,3 +110,41 @@ internal fun mergePendingRecordings(
 ): List<Recording> =
     (pendingTranscription + pendingEnhancement)
         .sortedByDescending { it.createdAt }
+
+/**
+ * Change-detection key for the set of non-terminal recordings. Two passes with the same
+ * signature describe the same queue, so reconciliation can be skipped between them and a
+ * fixed poll replaced by observing this value. [isEmpty] is the gate for stopping the idle
+ * safety-net timer. Equality is over the id set per status, so a status transition
+ * (PENDING_TRANSCRIPTION -> TRANSCRIBING), an add, or a removal all produce a distinct value
+ * — but a row sitting unchanged in TRANSCRIBING does not (that staleness is the safety-net's
+ * job to catch).
+ */
+internal data class QueueWorkSignature(
+    val pendingTranscription: Set<UUID>,
+    val pendingEnhancement: Set<UUID>,
+    val transcribing: Set<UUID>,
+    val enhancing: Set<UUID>,
+) {
+    val isEmpty: Boolean
+        get() =
+            pendingTranscription.isEmpty() &&
+                pendingEnhancement.isEmpty() &&
+                transcribing.isEmpty() &&
+                enhancing.isEmpty()
+
+    companion object {
+        fun of(
+            pendingTranscription: List<Recording>,
+            pendingEnhancement: List<Recording>,
+            transcribing: List<Recording>,
+            enhancing: List<Recording>,
+        ): QueueWorkSignature =
+            QueueWorkSignature(
+                pendingTranscription = pendingTranscription.mapTo(mutableSetOf()) { it.id },
+                pendingEnhancement = pendingEnhancement.mapTo(mutableSetOf()) { it.id },
+                transcribing = transcribing.mapTo(mutableSetOf()) { it.id },
+                enhancing = enhancing.mapTo(mutableSetOf()) { it.id },
+            )
+    }
+}

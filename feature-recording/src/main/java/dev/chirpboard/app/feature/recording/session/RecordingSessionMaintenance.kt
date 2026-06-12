@@ -27,9 +27,17 @@ class RecordingSessionHeartbeat
             scope.launch {
                 while (isActive) {
                     delay(30_000)
-                    val sessionId = sessionIdProvider() ?: continue
-                    val bytes = activeFileProvider()?.takeIf { it.exists() }?.length() ?: 0L
-                    sessionJournal.updateHeartbeat(sessionId, bytes)
+                    // Hop the File.exists/length stat plus the journal read-modify-write
+                    // off the caller's dispatcher (the service runs this on Main): the
+                    // journal mutation takes journalLock, which directory scans on IO
+                    // threads also hold, so doing it on Main would block the recording UI
+                    // for the duration of a reconcile/cleanup pass. Mirrors the sibling
+                    // RecordingCheckpointScheduler.
+                    withContext(Dispatchers.IO) {
+                        val sessionId = sessionIdProvider() ?: return@withContext
+                        val bytes = activeFileProvider()?.takeIf { it.exists() }?.length() ?: 0L
+                        sessionJournal.updateHeartbeat(sessionId, bytes)
+                    }
                 }
             }
     }

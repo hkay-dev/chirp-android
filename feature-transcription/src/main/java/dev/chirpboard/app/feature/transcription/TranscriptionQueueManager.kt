@@ -68,7 +68,18 @@ class TranscriptionQueueManager
 
         companion object {
             private const val TAG = "TranscriptionQueueMgr"
-            private const val DEFAULT_RECONCILIATION_INTERVAL_MS = 60_000L
+
+            /**
+             * Idle safety-net cadence while non-terminal work exists. Reconciliation is
+             * primarily event-driven (it runs whenever the pending/active status flows
+             * change), so this only has to catch staleness that no DB transition would
+             * otherwise reveal — a row sitting in TRANSCRIBING/ENHANCING past its
+             * 10-15 minute stale threshold. A 5-minute cadence matches that granularity;
+             * the previous 60s poll fired 10-15x finer than any staleness it could detect.
+             * When the queue drains empty this timer stops entirely; the next enqueue
+             * re-triggers reconciliation through the status flows.
+             */
+            private const val ACTIVE_RECONCILIATION_INTERVAL_MS = 5 * 60_000L
         }
 
         private val _activeCount = MutableStateFlow(0)
@@ -100,16 +111,45 @@ class TranscriptionQueueManager
         val activeCount: StateFlow<Int> = _activeCount.asStateFlow()
 
         /**
-         * Start periodic queue reconciliation while the app process is alive.
-         * Safe to call multiple times; only the first call starts the loop.
+         * Identity-and-count signature of every non-terminal recording. A change here means
+         * the queue gained, lost, or transitioned work, which is exactly when reconciliation
+         * has something to do; an unchanged signature means the queue is static (and is empty
+         * when [QueueWorkSignature.isEmpty]). Reconciliation observes this instead of polling.
+         */
+        private val nonTerminalWorkSignature: Flow<QueueWorkSignature> =
+            combine(
+                recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION),
+                recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT),
+                recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING),
+                recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING),
+            ) { pendingTranscription, pendingEnhancement, transcribing, enhancing ->
+                QueueWorkSignature.of(
+                    pendingTranscription.value,
+                    pendingEnhancement.value,
+                    transcribing.value,
+                    enhancing.value,
+                )
+            }.distinctUntilChanged()
+
+        /**
+         * Start event-driven queue reconciliation for the life of [scope].
+         * Safe to call multiple times; only the first call starts the observers.
          */
         override fun startContinuousReconciliation(scope: CoroutineScope) {
-            startContinuousReconciliation(scope, DEFAULT_RECONCILIATION_INTERVAL_MS)
+            startContinuousReconciliation(scope, ACTIVE_RECONCILIATION_INTERVAL_MS)
         }
 
+        /**
+         * Reconciliation is driven by the non-terminal status flows rather than a fixed
+         * poll: a pass runs whenever the queue changes, and an idle safety-net pass runs
+         * every [activeIntervalMs] *only while non-terminal work exists* to catch staleness
+         * that produces no DB transition. When the queue is empty no timer runs at all, so a
+         * process the IME keeps alive all day no longer wakes Room + WorkManager every minute
+         * to confirm an empty queue.
+         */
         fun startContinuousReconciliation(
             scope: CoroutineScope,
-            intervalMs: Long,
+            activeIntervalMs: Long,
         ) {
             synchronized(this) {
                 if (reconciliationStarted) return
@@ -118,16 +158,25 @@ class TranscriptionQueueManager
 
             reconciliationJob =
                 scope.launch {
-                    while (isActive) {
-                        try {
-                            reconciliationMutex.withLock {
-                                queueReconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
-                            }
-                        } catch (e: Exception) {
-                            if (e is kotlinx.coroutines.CancellationException) throw e
-                            Log.e(TAG, "Periodic queue reconciliation failed", e)
+                    var idleSafetyNet: Job? = null
+                    nonTerminalWorkSignature.collect { signature ->
+                        // Every change to the non-terminal set is a reconciliation trigger.
+                        runReconciliationPass()
+
+                        if (signature.isEmpty) {
+                            // Queue drained: stop the safety-net timer. The next enqueue
+                            // re-emits a non-empty signature and reconciliation resumes.
+                            idleSafetyNet?.cancel()
+                            idleSafetyNet = null
+                        } else if (idleSafetyNet?.isActive != true) {
+                            idleSafetyNet =
+                                scope.launch {
+                                    while (isActive) {
+                                        delay(activeIntervalMs)
+                                        runReconciliationPass()
+                                    }
+                                }
                         }
-                        delay(intervalMs)
                     }
                 }
             scope.launch {
@@ -139,6 +188,17 @@ class TranscriptionQueueManager
                             recoverRecordingsWaitingForModel()
                         }
                     }
+            }
+        }
+
+        private suspend fun runReconciliationPass() {
+            try {
+                reconciliationMutex.withLock {
+                    queueReconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Queue reconciliation failed", e)
             }
         }
 

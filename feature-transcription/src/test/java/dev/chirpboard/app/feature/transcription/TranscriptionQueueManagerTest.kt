@@ -19,6 +19,9 @@ import io.mockk.mockkObject
 import io.mockk.runs
 import io.mockk.unmockkObject
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -27,6 +30,7 @@ import org.junit.Rule
 import org.junit.Test
 import java.util.UUID
 
+@kotlinx.coroutines.ExperimentalCoroutinesApi
 class TranscriptionQueueManagerTest {
     @get:Rule
     val androidLog = MockAndroidLogRule()
@@ -232,6 +236,78 @@ class TranscriptionQueueManagerTest {
         assertEquals(listOf(id), workScheduler.cancelledTranscriptions)
         assertEquals(listOf(id), workScheduler.cancelledEnhancements)
         coVerify { recordingRepository.updateStatusWithError(id, RecordingStatus.FAILED, "Cancelled by user") }
+    }
+
+    @Test
+    fun `event-driven reconciliation runs once for an empty queue and does not poll`() = runTest {
+        val repo = freshRepository()
+        val empty = kotlinx.coroutines.flow.MutableStateFlow(RepositoryFlowState(emptyList<Recording>()))
+        every { repo.getRecordingsByStatus(any()) } returns empty
+        val eventManager = newEventDrivenManager(repo)
+
+        eventManager.startContinuousReconciliation(backgroundScope, activeIntervalMs = 60_000L)
+        runCurrent()
+        advanceUntilIdle()
+
+        // One reconciliation pass for the initial empty emission. ENHANCING is queried once
+        // per pass (recoverStaleEnhancing) plus once at construction (building the signature
+        // flow operand), so the baseline after the first pass is 2.
+        coVerify(exactly = 2) { repo.getRecordingsByStatus(RecordingStatus.ENHANCING) }
+
+        // No safety-net timer runs while the queue is empty, so advancing far past the
+        // interval triggers no further passes: the count stays at the baseline.
+        advanceTimeBy(10 * 60_000L)
+        advanceUntilIdle()
+        coVerify(exactly = 2) { repo.getRecordingsByStatus(RecordingStatus.ENHANCING) }
+    }
+
+    @Test
+    fun `event-driven reconciliation reconciles again when work appears`() = runTest {
+        val repo = freshRepository()
+        val transcribing = kotlinx.coroutines.flow.MutableStateFlow(RepositoryFlowState(emptyList<Recording>()))
+        val empty = kotlinx.coroutines.flow.MutableStateFlow(RepositoryFlowState(emptyList<Recording>()))
+        every { repo.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns transcribing
+        every { repo.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns empty
+        every { repo.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns empty
+        every { repo.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns empty
+        val eventManager = newEventDrivenManager(repo)
+
+        eventManager.startContinuousReconciliation(backgroundScope, activeIntervalMs = 60_000L)
+        runCurrent()
+        advanceUntilIdle()
+
+        val recording = mockk<Recording>(relaxed = true)
+        every { recording.id } returns UUID.randomUUID()
+        every { recording.status } returns RecordingStatus.TRANSCRIBING
+        every { recording.createdAt } returns java.util.Date(System.currentTimeMillis())
+        transcribing.value = RepositoryFlowState(listOf(recording))
+        runCurrent()
+        advanceUntilIdle()
+
+        // Construction (1) + initial empty pass (1) + the non-empty transition pass (1) = 3
+        // ENHANCING queries. The third proves the queue change re-triggered reconciliation.
+        coVerify(exactly = 3) { repo.getRecordingsByStatus(RecordingStatus.ENHANCING) }
+    }
+
+    private fun freshRepository(): RecordingRepository {
+        val repo = mockk<RecordingRepository>(relaxed = true)
+        coEvery { repo.claimTranscriptionExecution(any(), any(), any(), any()) } returns true
+        return repo
+    }
+
+    private fun newEventDrivenManager(repo: RecordingRepository): TranscriptionQueueManager {
+        val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
+        every { readinessGate.state } returns
+            kotlinx.coroutines.flow.MutableStateFlow(
+                ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE),
+            )
+        return TranscriptionQueueManager(
+            recordingRepository = repo,
+            constraintChecker = constraintChecker,
+            transcriberProvider = mockk(relaxed = true),
+            readinessGate = readinessGate,
+            workScheduler = workScheduler,
+        )
     }
 
     @Test

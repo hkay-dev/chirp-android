@@ -241,6 +241,63 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `nextFabExpandedState collapses only past the upper threshold`() {
+        // Scrolled well past the first row -> collapse regardless of prior state.
+        assertFalse(
+            nextFabExpandedState(
+                previousExpanded = true,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 65,
+            ),
+        )
+        // Off the first row entirely -> always collapsed.
+        assertFalse(
+            nextFabExpandedState(
+                previousExpanded = true,
+                firstVisibleItemIndex = 1,
+                firstVisibleItemScrollOffset = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun `nextFabExpandedState re-expands only at or below the lower threshold`() {
+        assertTrue(
+            nextFabExpandedState(
+                previousExpanded = false,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 32,
+            ),
+        )
+        assertTrue(
+            nextFabExpandedState(
+                previousExpanded = false,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun `nextFabExpandedState holds prior decision inside the dead band`() {
+        // In the 32-64px band the previous decision is retained (no flicker either way).
+        assertTrue(
+            nextFabExpandedState(
+                previousExpanded = true,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 48,
+            ),
+        )
+        assertFalse(
+            nextFabExpandedState(
+                previousExpanded = false,
+                firstVisibleItemIndex = 0,
+                firstVisibleItemScrollOffset = 48,
+            ),
+        )
+    }
+
+    @Test
     fun `playback row state ignores progress ticks`() {
         val recordingId = UUID.randomUUID()
         val first =

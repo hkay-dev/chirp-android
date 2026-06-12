@@ -190,6 +190,49 @@ class TranscriptionQueueReconciliationPolicyTest {
     }
 
     @Test
+    fun `queue work signature is empty only when all status sets are empty`() {
+        assertTrue(
+            QueueWorkSignature.of(emptyList(), emptyList(), emptyList(), emptyList()).isEmpty
+        )
+        assertFalse(
+            QueueWorkSignature
+                .of(listOf(recordingWithId(UUID.randomUUID())), emptyList(), emptyList(), emptyList())
+                .isEmpty
+        )
+    }
+
+    @Test
+    fun `queue work signature changes when a recording transitions status`() {
+        val id = UUID.randomUUID()
+        val pending = QueueWorkSignature.of(listOf(recordingWithId(id)), emptyList(), emptyList(), emptyList())
+        val transcribing = QueueWorkSignature.of(emptyList(), emptyList(), listOf(recordingWithId(id)), emptyList())
+
+        // Same id, different status bucket -> a distinct signature so reconciliation re-runs.
+        assertFalse(pending == transcribing)
+    }
+
+    @Test
+    fun `queue work signature is stable for the same recording set`() {
+        val id = UUID.randomUUID()
+        val first = QueueWorkSignature.of(emptyList(), emptyList(), listOf(recordingWithId(id)), emptyList())
+        val second = QueueWorkSignature.of(emptyList(), emptyList(), listOf(recordingWithId(id)), emptyList())
+
+        // An unchanged TRANSCRIBING row produces an identical signature, so distinctUntilChanged
+        // suppresses redundant passes; catching its staleness is the safety-net timer's job.
+        assertEquals(first, second)
+    }
+
+    private fun recordingWithId(id: UUID): Recording =
+        Recording(
+            id = id,
+            title = "r",
+            audioPath = "/tmp/r.m4a",
+            status = RecordingStatus.TRANSCRIBING,
+            source = RecordingSource.APP,
+            createdAt = Date(1_000L)
+        )
+
+    @Test
     fun `merge pending recordings keeps both statuses in newest first order`() {
         val pendingTranscription = Recording(
             id = UUID.randomUUID(),

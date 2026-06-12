@@ -1,10 +1,14 @@
 package dev.chirpboard.app
 
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Serializes the start/stop/cancel lifecycle of system speech-recognition capture sessions.
@@ -24,6 +28,17 @@ internal class VoiceRecognitionSessionCoordinator(
     private val captureGate: VoiceRecognitionCaptureGate,
     private val recorder: RecorderControl,
     private val audioPathLabel: String = DEFAULT_AUDIO_PATH_LABEL,
+    /**
+     * Dispatcher for the blocking recorder teardown ([RecorderControl.stop]/[RecorderControl.cancel]).
+     * The service drives this coordinator from a `Dispatchers.Main` scope, but
+     * `recorder.stop()` does an AudioRecord stop/release (binder transactions) plus a multi-MB
+     * `samples.copyOf` for long dictations, and `recorder.cancel()` does stop/release + a file
+     * delete — none of which belong on the IME/service main thread (PERF-5). The teardown is
+     * hopped here while the lifecycle mutex stays held, so serialization, generation, and gate
+     * semantics are unchanged; only the thread the syscalls run on moves. Defaults to
+     * [Dispatchers.IO]; tests inject the test scheduler's dispatcher.
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** Minimal recorder surface the coordinator drives; implemented over [dev.chirpboard.app.core.audio.recorder.VoiceRecorder]. */
     internal interface RecorderControl {
@@ -176,19 +191,24 @@ internal class VoiceRecognitionSessionCoordinator(
             // A cancelled start must leave nothing held. Service teardown already
             // cleans up via shutdown(), but a caller that cancels its start job
             // through any other route must not leak the gate or a hot microphone.
+            // The whole cleanup runs under NonCancellable so that resuming from the
+            // off-main teardown hop does not re-throw the pending cancellation before
+            // the gate is released (which would leak the capture gate).
             cancelSessionJobs()
-            recorder.cancel()
-            captureGate.releaseCompleted()
+            withContext(ioDispatcher + NonCancellable) {
+                recorder.cancel()
+                captureGate.releaseCompleted()
+            }
             throw e
         } catch (e: Exception) {
             cancelSessionJobs()
-            recorder.cancel()
+            cancelRecorderOffMain()
             captureGate.releaseError("Failed to start voice recognition", e)
             StartResult.Failed(e)
         }
     }
 
-    private fun stopLocked(
+    private suspend fun stopLocked(
         generation: Int,
         onEndOfSpeech: () -> Unit,
     ): StopResult {
@@ -199,28 +219,49 @@ internal class VoiceRecognitionSessionCoordinator(
 
         return try {
             cancelSessionJobs()
-            val samples = recorder.stop()
+            // AudioRecord teardown + the samples.copyOf for long dictations hops off the
+            // service main thread; the mutex stays held across the suspend, so this stop is
+            // still fully serialized against any concurrent start/cancel.
+            val samples = stopRecorderOffMain()
             captureGate.releaseCompleted()
             onEndOfSpeech()
             StopResult.Captured(samples)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            recorder.cancel()
+            cancelRecorderOffMain()
             captureGate.releaseError("Failed to stop voice recognition", e)
             StopResult.Failed(e)
         }
     }
 
-    private fun cancelLocked(generation: Int): Boolean {
+    private suspend fun cancelLocked(generation: Int): Boolean {
         if (activeGeneration != generation) {
             return false
         }
         activeGeneration = null
         cancelSessionJobs()
-        recorder.cancel()
+        cancelRecorderOffMain()
         captureGate.releaseCompleted()
         return true
+    }
+
+    /**
+     * Runs the blocking [RecorderControl.stop] on [ioDispatcher]. Wrapped in [NonCancellable] so a
+     * job cancellation racing the stop cannot abort the recorder teardown half-done and leak a hot
+     * microphone / unflushed file — the recorder must always end up stopped once we have committed
+     * to stopping it.
+     */
+    private suspend fun stopRecorderOffMain(): FloatArray =
+        withContext(ioDispatcher + NonCancellable) {
+            recorder.stop()
+        }
+
+    /** Runs the blocking [RecorderControl.cancel] on [ioDispatcher]; see [stopRecorderOffMain] for the NonCancellable rationale. */
+    private suspend fun cancelRecorderOffMain() {
+        withContext(ioDispatcher + NonCancellable) {
+            recorder.cancel()
+        }
     }
 
     private fun cancelSessionJobs() {

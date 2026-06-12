@@ -83,6 +83,29 @@ data class RecordingSessionEntry(
         }
 }
 
+/**
+ * Single-pass view of the session journal for orphan cleanup. Holds every loaded
+ * entry plus quarantined-entry referenced paths captured under one [journalLock]
+ * hold, and derives the three projections (all-referenced, safelisted, started-at)
+ * in memory so the cleaner does not re-scan the directory three times.
+ */
+class CleanupJournalSnapshot internal constructor(
+    private val entries: List<RecordingSessionEntry>,
+    private val quarantinedReferencedPaths: Set<String>,
+    private val referencedPathsOf: (RecordingSessionEntry) -> List<String>,
+) {
+    fun allReferencedAudioPaths(): Set<String> =
+        entries.flatMap(referencedPathsOf).toSet() + quarantinedReferencedPaths
+
+    fun safelistedAudioPaths(): Set<String> =
+        entries.filter { it.isSafelisted }.flatMap(referencedPathsOf).toSet()
+
+    fun startedAtByAudioPath(): Map<String, Long> =
+        entries.flatMap { entry ->
+            referencedPathsOf(entry).map { it to entry.startedAtEpochMs }
+        }.toMap()
+}
+
 @Singleton
 class RecordingSessionJournal
     @Inject
@@ -317,6 +340,22 @@ class RecordingSessionJournal
                 referencedPathsFor(entry).map { it to entry.startedAtEpochMs }
             }.toMap()
 
+        /**
+         * One directory pass that captures every projection orphan cleanup needs
+         * (all entries + quarantined-entry paths), so a single [journalLock] hold
+         * replaces the three independent scans of [getAllReferencedAudioPaths],
+         * [getSafelistedAudioPaths] and [startedAtByAudioPath]. Derive the three
+         * sets from the returned snapshot with [CleanupJournalSnapshot].
+         */
+        fun loadCleanupSnapshot(): CleanupJournalSnapshot =
+            synchronized(journalLock) {
+                CleanupJournalSnapshot(
+                    entries = loadEntriesLocked { true },
+                    quarantinedReferencedPaths = quarantinedReferencedPathsLocked(),
+                    referencedPathsOf = ::referencedPathsFor,
+                )
+            }
+
         fun findBySessionId(sessionId: UUID): RecordingSessionEntry? =
             synchronized(journalLock) {
                 sessionFile(sessionId).takeIf { it.exists() }?.let { file ->
@@ -343,21 +382,25 @@ class RecordingSessionJournal
 
         private fun loadSessions(predicate: (RecordingSessionEntry) -> Boolean): List<RecordingSessionEntry> =
             synchronized(journalLock) {
-                // Reading under the journal lock prevents torn reads of writeEntry's
-                // non-atomic fallback write from being mistaken for corruption.
-                sessionsDir
-                    .listFiles()
-                    ?.filter { it.extension == "json" }
-                    ?.mapNotNull { file ->
-                        runCatching { readEntry(file) }.getOrElse { error ->
-                            // Quarantine instead of silently dropping: the entry stays on disk for
-                            // diagnosis and its referenced audio stays out of orphan cleanup.
-                            quarantineCorruptEntry(file, error)
-                            null
-                        }
-                    }.orEmpty()
-                    .filter(predicate)
+                loadEntriesLocked(predicate)
             }
+
+        private fun loadEntriesLocked(predicate: (RecordingSessionEntry) -> Boolean): List<RecordingSessionEntry> =
+            // Caller must hold journalLock. Reading under the journal lock prevents torn
+            // reads of writeEntry's non-atomic fallback write from being mistaken for
+            // corruption.
+            sessionsDir
+                .listFiles()
+                ?.filter { it.extension == "json" }
+                ?.mapNotNull { file ->
+                    runCatching { readEntry(file) }.getOrElse { error ->
+                        // Quarantine instead of silently dropping: the entry stays on disk for
+                        // diagnosis and its referenced audio stays out of orphan cleanup.
+                        quarantineCorruptEntry(file, error)
+                        null
+                    }
+                }.orEmpty()
+                .filter(predicate)
 
         private fun updateEntry(
             sessionId: UUID,
@@ -421,6 +464,9 @@ class RecordingSessionJournal
          * fully decoded any more.
          */
         private fun quarantinedReferencedPaths(): Set<String> =
+            synchronized(journalLock) { quarantinedReferencedPathsLocked() }
+
+        private fun quarantinedReferencedPathsLocked(): Set<String> =
             sessionsDir
                 .listFiles()
                 ?.filter { it.name.endsWith(CORRUPT_SUFFIX) }

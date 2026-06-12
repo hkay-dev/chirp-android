@@ -141,6 +141,7 @@ class ChirpKeyboardService :
                 keyboardPreferences = keyboardPreferences,
                 modePort = modePort,
                 pendingStopStore = pendingStopStore,
+                modelReadinessGate = modelReadinessGate,
             )
 
         coordinator.commitTextProvider = inputSessionGuard.commitTextProvider(::commitToInputSession)

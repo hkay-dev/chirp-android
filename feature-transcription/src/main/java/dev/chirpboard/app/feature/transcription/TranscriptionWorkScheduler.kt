@@ -6,12 +6,15 @@ import androidx.work.WorkManager
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
+import java.util.concurrent.ExecutionException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 enum class ScheduledWorkState {
     ENQUEUED,
@@ -100,16 +103,54 @@ internal class WorkManagerTranscriptionWorkScheduler
 
         private suspend fun loadWorkInfosWithTimeout(future: ListenableFuture<List<WorkInfo>>): List<ScheduledWorkInfo>? =
             withContext(Dispatchers.IO) {
+                // Suspend on the future's completion listener instead of busy-polling every
+                // 50ms. withTimeoutOrNull still bounds the wait and returns null on timeout
+                // (the reconciler's "fail closed" signal); a future that completes
+                // exceptionally surfaces through await() and is handled by the callers'
+                // catch blocks rather than being silently dropped.
                 withTimeoutOrNull(WORK_INFO_TIMEOUT_MS) {
-                    while (!future.isDone && !future.isCancelled) {
-                        delay(WORK_INFO_POLL_INTERVAL_MS)
-                    }
-                    if (future.isCancelled) {
-                        emptyList()
-                    } else {
-                        future.get().map { ScheduledWorkInfo(it.state.toScheduledWorkState()) }
-                    }
+                    val workInfos =
+                        try {
+                            future.await()
+                        } catch (e: java.util.concurrent.CancellationException) {
+                            emptyList()
+                        }
+                    workInfos.map { ScheduledWorkInfo(it.state.toScheduledWorkState()) }
                 }
+            }
+
+        /**
+         * Suspends until this [ListenableFuture] completes, honouring coroutine cancellation
+         * by cancelling the future. Equivalent to androidx.concurrent.futures' await(), kept
+         * local so the module does not take a new dependency for one call site.
+         */
+        private suspend fun <T> ListenableFuture<T>.await(): T {
+            if (isDone) {
+                return getUninterruptibly()
+            }
+            return suspendCancellableCoroutine { cont ->
+                addListener(
+                    {
+                        try {
+                            cont.resume(getUninterruptibly())
+                        } catch (e: ExecutionException) {
+                            cont.resumeWithException(e.cause ?: e)
+                        } catch (e: Throwable) {
+                            cont.resumeWithException(e)
+                        }
+                    },
+                    Runnable::run,
+                )
+                cont.invokeOnCancellation { cancel(false) }
+            }
+        }
+
+        private fun <T> ListenableFuture<T>.getUninterruptibly(): T =
+            try {
+                get()
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw e
             }
 
         private fun WorkInfo.State.toScheduledWorkState(): ScheduledWorkState =
@@ -124,6 +165,5 @@ internal class WorkManagerTranscriptionWorkScheduler
 
         private companion object {
             private const val WORK_INFO_TIMEOUT_MS = 5_000L
-            private const val WORK_INFO_POLL_INTERVAL_MS = 50L
         }
     }

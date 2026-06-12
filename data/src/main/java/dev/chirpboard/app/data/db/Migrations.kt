@@ -462,6 +462,19 @@ object Migrations {
     }
 
     /**
+     * Drops the orphaned `recording_enhancement_intents` table. It was superseded by
+     * `recording_enhancement_snapshots` in v9, which MIGRATION_8_9 already backfills FROM the
+     * intents table, so by the time this migration runs all live intent data has been migrated
+     * into snapshots. No production code reads or writes the intents table any more, so dropping
+     * it is non-destructive to anything the app actually uses.
+     */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP TABLE IF EXISTS `recording_enhancement_intents`")
+        }
+    }
+
+    /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
@@ -475,6 +488,7 @@ object Migrations {
             MIGRATION_6_7,
             MIGRATION_7_8,
             MIGRATION_8_9,
+            MIGRATION_9_10,
         )
     // Example migration template (uncomment and modify when needed):
     /*

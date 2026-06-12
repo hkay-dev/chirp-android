@@ -24,10 +24,13 @@ internal class TranscriptionQueueReconciler(
 
         recoverStaleTranscribing(trigger)
         recoverStaleEnhancing(trigger)
-        reconcilePendingQueueOwnership()
+        // Load the pending set once per pass and reuse it for both ownership
+        // reconciliation and the constraint-warning check below; loading it twice
+        // was four redundant status queries per pass for no benefit.
+        val pending = loadPendingRecordings()
+        reconcilePendingQueueOwnership(pending)
         updateActiveCount()
 
-        val pending = loadPendingRecordings()
         if (pending.isNotEmpty()) {
             val status = constraintChecker.checkConstraints()
             setConstraintWarning(constraintChecker.getConstraintMessage(status))
@@ -118,8 +121,8 @@ internal class TranscriptionQueueReconciler(
         }
     }
 
-    private suspend fun reconcilePendingQueueOwnership() {
-        loadPendingRecordings().forEach { recording ->
+    private suspend fun reconcilePendingQueueOwnership(pending: List<Recording>) {
+        pending.forEach { recording ->
             val ownership = inspectQueueOwnership(recording)
 
             when {

@@ -8,7 +8,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.data.dao.ProfileDao
-import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
@@ -52,10 +51,6 @@ object DataModule {
     @Provides
     fun provideStructuredOutcomeSnapshotDao(database: AppDatabase): StructuredOutcomeSnapshotDao =
         database.structuredOutcomeSnapshotDao()
-
-    @Provides
-    fun provideRecordingEnhancementIntentDao(database: AppDatabase): RecordingEnhancementIntentDao =
-        database.recordingEnhancementIntentDao()
 
     @Provides
     fun provideRecordingEnhancementSnapshotDao(database: AppDatabase): RecordingEnhancementSnapshotDao =

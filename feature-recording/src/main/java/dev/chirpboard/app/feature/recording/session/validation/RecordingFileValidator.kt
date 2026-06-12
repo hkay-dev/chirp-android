@@ -123,23 +123,52 @@ class RecordingFileValidator
             }.getOrDefault(false)
         }
 
+        /**
+         * Whether the MP4/M4A file contains the `moov` atom signature. Streams the file
+         * in fixed buffers and matches the 4-byte `moov` marker directly against the raw
+         * bytes, retaining a 3-byte overlap window between buffers so a marker straddling
+         * a buffer boundary is still found (the previous per-chunk substring scan missed
+         * those and allocated a ~16KB String per 8KB read). Detection semantics are
+         * otherwise unchanged: the marker is matched wherever it appears in the file.
+         */
         internal fun containsMoovAtom(file: File): Boolean {
             return runCatching {
-                RandomAccessFile(file, "r").use { raf ->
-                    val buffer = ByteArray(8192)
-                    var offset = 0L
-                    while (offset < raf.length()) {
-                        raf.seek(offset)
-                        val read = raf.read(buffer)
+                file.inputStream().use { input ->
+                    val window = ByteArray(MOOV_SCAN_BUFFER_BYTES)
+                    // Carry the last (MOOV_MARKER.size - 1) bytes of the previous buffer
+                    // into the front of the next so a marker split across the boundary is
+                    // not lost.
+                    var carry = 0
+                    while (true) {
+                        val read = input.read(window, carry, window.size - carry)
                         if (read <= 0) break
-                        if (buffer.copyOf(read).toString(Charsets.ISO_8859_1).contains("moov")) {
+                        val filled = carry + read
+                        if (indexOfMarker(window, filled, MOOV_MARKER) >= 0) {
                             return true
                         }
-                        offset += read
+                        carry = minOf(MOOV_MARKER.size - 1, filled)
+                        if (carry > 0) {
+                            System.arraycopy(window, filled - carry, window, 0, carry)
+                        }
                     }
                     false
                 }
             }.getOrDefault(false)
+        }
+
+        private fun indexOfMarker(
+            buffer: ByteArray,
+            length: Int,
+            marker: ByteArray,
+        ): Int {
+            if (length < marker.size) return -1
+            outer@ for (start in 0..length - marker.size) {
+                for (i in marker.indices) {
+                    if (buffer[start + i] != marker[i]) continue@outer
+                }
+                return start
+            }
+            return -1
         }
 
         private fun hasMp3FrameSync(file: File): Boolean {
@@ -158,6 +187,8 @@ class RecordingFileValidator
 
         companion object {
             const val MIN_BYTES = 512L
+            private const val MOOV_SCAN_BUFFER_BYTES = 8192
+            private val MOOV_MARKER = "moov".toByteArray(Charsets.US_ASCII)
 
             fun checkpointPathFor(audioPath: String): String {
                 val format = RecordingOutputFormat.fromExtension(File(audioPath).extension)

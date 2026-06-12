@@ -5,6 +5,9 @@ import android.util.Log
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.llm.ProcessingModePort
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
@@ -20,6 +23,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +50,8 @@ class KeyboardSessionCoordinator(
     private val keyboardPreferences: KeyboardPreferences,
     private val modePort: ProcessingModePort,
     private val pendingStopStore: KeyboardPendingStopStore,
+    private val modelReadinessGate: SpeechModelReadinessGate,
+    private val teardownDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val isRecording = MutableStateFlow(false)
     private val permissionError = MutableStateFlow<String?>(null)
@@ -60,6 +66,13 @@ class KeyboardSessionCoordinator(
     private var startJob: Job? = null
     private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
+
+    /**
+     * The most recent cancel teardown coroutine. [restartRecording] joins it before starting a
+     * new session so the deferred (off-main) recorder teardown of the cancelled session can never
+     * race the next [capture] start on the shared recorder.
+     */
+    private var cancelJob: Job? = null
 
     /**
      * Identifies the stop pipeline currently allowed to drive the recording state machine.
@@ -78,34 +91,33 @@ class KeyboardSessionCoordinator(
      */
     var commitTextProvider: () -> ((String) -> Boolean)? = { null }
 
+    private data class PrefsState(
+        val modelInitFailedMessage: String?,
+        val llmEnabled: Boolean,
+        val processingMode: ProcessingMode,
+        val permissionError: String?,
+    )
+
     val uiState: StateFlow<KeyboardUiState> =
         combine(
             combine(isRecording, transcription.phase, modelBanner) { recording, phase, banner ->
                 Triple(recording, phase, banner)
             },
             combine(modelInitFailedMessage, llmEnabled, currentMode, permissionError) { initFailed, llm, mode, permError ->
-                listOf(initFailed, llm, mode, permError)
+                PrefsState(initFailed, llm, mode, permError)
             },
             availableModes,
         ) { captureState, prefsState, modes ->
             val (recording, phase, banner) = captureState
-            @Suppress("UNCHECKED_CAST")
-            val initFailed = prefsState[0] as String?
-            @Suppress("UNCHECKED_CAST")
-            val llm = prefsState[1] as Boolean
-            @Suppress("UNCHECKED_CAST")
-            val mode = prefsState[2] as ProcessingMode
-            @Suppress("UNCHECKED_CAST")
-            val permError = prefsState[3] as String?
             mapKeyboardUiState(
                 isRecording = recording,
                 transcriptionPhase = phase,
                 modelBanner = banner,
-                modelInitFailedMessage = initFailed,
-                llmEnabled = llm,
-                processingMode = mode,
+                modelInitFailedMessage = prefsState.modelInitFailedMessage,
+                llmEnabled = prefsState.llmEnabled,
+                processingMode = prefsState.processingMode,
                 availableModes = modes,
-                permissionError = permError,
+                permissionError = prefsState.permissionError,
             )
         }.stateIn(
             scope,
@@ -140,6 +152,12 @@ class KeyboardSessionCoordinator(
         }
         scope.launch {
             modePort.selectableModes.collect { availableModes.value = it }
+        }
+        // Drive the banner from the readiness gate's cached, IO-verified StateFlow instead
+        // of stat-ing (worst case SHA-256 hashing) the 652MB model on the IME main thread.
+        // The gate verifies off-main and caches the result; the keyboard only ever reads it.
+        scope.launch {
+            modelReadinessGate.state.collect { recomputeModelBanner() }
         }
 
         capture.onRecordingError = { error ->
@@ -229,19 +247,50 @@ class KeyboardSessionCoordinator(
         }
     }
 
+    /**
+     * Called on the latency-critical IME-show path (onCreate/onStartInputView). Must never
+     * touch the filesystem: it reads the readiness gate's last-known cached state and the
+     * in-memory recognizer/init-job flags, then kicks a background (IO-dispatched) gate
+     * refresh so the cached value catches up without blocking the keyboard from appearing.
+     */
     fun refreshModelStatus() {
+        recomputeModelBanner()
+        modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+    }
+
+    /**
+     * Recomputes the banner from cached, in-memory state only (no disk I/O). The recognizer's
+     * in-memory [TranscriberProvider.isReady] / [modelInitJob] flags take precedence so an
+     * actively loading or already-loaded model never flickers back to a download/error banner
+     * from a stale gate emission; otherwise the gate's cached readiness decides.
+     */
+    private fun recomputeModelBanner() {
         modelBanner.value =
             when {
                 transcriberProvider.isReady() -> ModelBannerState.None
                 modelInitJob?.isActive == true -> ModelBannerState.Initializing
-                !transcriberProvider.isModelDownloaded() -> ModelBannerState.NotDownloaded
-                else -> ModelBannerState.Initializing
+                modelInitFailedMessage.value != null -> ModelBannerState.InitFailed
+                else ->
+                    when (modelReadinessGate.state.value) {
+                        // Model files are verified present but the recognizer is not loaded into
+                        // memory yet: surface the same "initializing" banner as the legacy check.
+                        is ModelReadinessState.Ready -> ModelBannerState.Initializing
+                        // Missing/corrupt files: the user must (re)download the model.
+                        is ModelReadinessState.Unavailable -> ModelBannerState.NotDownloaded
+                        // Unknown / mid-verification / transient verification error: keep the
+                        // neutral initializing banner (the background warmup retries) rather than
+                        // flashing a hard failure, matching the legacy fallthrough behavior.
+                        ModelReadinessState.Unknown,
+                        is ModelReadinessState.Checking,
+                        is ModelReadinessState.Error,
+                        -> ModelBannerState.Initializing
+                    }
             }
     }
 
     fun initializeModel() {
         if (transcriberProvider.isReady()) {
-            refreshModelStatus()
+            recomputeModelBanner()
             return
         }
         if (modelInitJob?.isActive == true) {
@@ -250,9 +299,11 @@ class KeyboardSessionCoordinator(
 
         modelInitJob =
             scope.launch {
-                refreshModelStatus()
-                if (!transcriberProvider.isModelDownloaded()) {
-                    refreshModelStatus()
+                recomputeModelBanner()
+                // isModelDownloaded() stats the model files; keep it off the IME main thread.
+                val downloaded = withContext(teardownDispatcher) { transcriberProvider.isModelDownloaded() }
+                if (!downloaded) {
+                    recomputeModelBanner()
                     return@launch
                 }
                 val initialized =
@@ -262,7 +313,7 @@ class KeyboardSessionCoordinator(
                 if (initialized) {
                     Log.d(tag, "Recognizer ready")
                     modelInitFailedMessage.value = null
-                    refreshModelStatus()
+                    recomputeModelBanner()
                 } else {
                     Log.e(tag, "Failed to initialize recognizer")
                     modelInitFailedMessage.value = "Failed to load model"
@@ -297,7 +348,9 @@ class KeyboardSessionCoordinator(
                         is QuickCaptureStartResult.Success -> {
                             if (stopRequestedDuringStart) {
                                 capture.abandonAudioFocus()
-                                capture.cancelCapture()
+                                // Recorder teardown (stop/release + temp-file delete) off the
+                                // IME main thread, like the stop and cancel paths.
+                                withContext(teardownDispatcher) { capture.cancelCapture() }
                                 recordingStateManager.onRecordingCompleted()
                                 transcription.resetPhase()
                                 // This session is over; a stop enqueued during the
@@ -343,20 +396,41 @@ class KeyboardSessionCoordinator(
         if (!isRecording.value) {
             return requestStopDuringStart()
         }
+        // Flip the UI/cancellation flags synchronously on the caller (IME main) thread so the
+        // panel responds to the tap instantly, then hand the actual recorder teardown off-main.
         isRecording.value = false
-
         capture.abandonAudioFocus()
         HapticFeedback.onRecordStop(context)
         recordingJob?.cancel()
         recordingJob = null
 
-        val audioSource = capture.stopAsAudioSource()
+        scope.launch {
+            // AudioRecord.stop/release plus the buffered-stream flush take sampleLock across a
+            // disk write and a binder transaction (5-50ms). Run them off the main thread. The
+            // teardown + state handoff are NonCancellable so a service destroy landing inside
+            // this window still stages the captured audio (stopAsAudioSource transfers ownership
+            // of the temp PCM away from the recorder, so capture.close cannot delete it) and
+            // launches the transcription pipeline. That pipeline is an ordinary scope child, so
+            // a destroy cancels it unmarked -> it rescues the capture, exactly as before this
+            // teardown moved off the main thread. Stopping-timeout/pending-stop ordering intact.
+            withContext(NonCancellable) {
+                val audioSource = withContext(teardownDispatcher) { capture.stopAsAudioSource() }
+                finishStopAfterTeardown(audioSource, commitText)
+            }
+        }
+        return true
+    }
+
+    private fun finishStopAfterTeardown(
+        audioSource: InlineAudioSource?,
+        commitText: (String) -> Boolean,
+    ) {
         if (audioSource == null) {
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
             clearPendingStop()
-            return true
+            return
         }
 
         persistence.prepareAudioSource(audioSource)
@@ -392,7 +466,6 @@ class KeyboardSessionCoordinator(
             }
         transcriptionJob = newJob
         checkNotNull(newJob).start()
-        return true
     }
 
     private fun onStopPipelineCompleted(stopToken: Any) {
@@ -447,10 +520,16 @@ class KeyboardSessionCoordinator(
                 stopRequestedDuringStart = true
                 startJob?.cancel()
                 capture.abandonAudioFocus()
-                capture.cancelCapture()
-                recordingStateManager.onRecordingCompleted()
-                transcription.resetPhase()
-                clearPendingStop()
+                // capture.cancelCapture() runs AudioRecord.stop/release + temp-file delete under
+                // sampleLock; keep it off the IME main thread. The state completion stays ordered
+                // after the teardown so a follow-up start cannot observe the recorder mid-teardown.
+                cancelJob =
+                    scope.launch {
+                        withContext(teardownDispatcher) { capture.cancelCapture() }
+                        recordingStateManager.onRecordingCompleted()
+                        transcription.resetPhase()
+                        clearPendingStop()
+                    }
             }
             return
         }
@@ -472,16 +551,28 @@ class KeyboardSessionCoordinator(
         HapticFeedback.onRecordStop(context)
         recordingJob?.cancel()
         recordingJob = null
-        capture.cancelCapture()
-        persistence.discardSamples()
-        recordingStateManager.onRecordingCompleted()
-        transcription.resetPhase()
-        clearPendingStop()
+        cancelJob =
+            scope.launch {
+                // Recorder teardown (stop/release + temp-file delete) is off-main; the discard
+                // and state completion stay ordered after it so a follow-up start cannot observe
+                // the recorder mid-teardown.
+                withContext(teardownDispatcher) { capture.cancelCapture() }
+                persistence.discardSamples()
+                recordingStateManager.onRecordingCompleted()
+                transcription.resetPhase()
+                clearPendingStop()
+            }
     }
 
     fun restartRecording() {
         cancelRecording()
-        startRecording()
+        val pendingCancel = cancelJob
+        scope.launch {
+            // Wait out the cancelled session's off-main recorder teardown before starting the
+            // next one; both share a single recorder instance inside [capture].
+            pendingCancel?.join()
+            startRecording()
+        }
     }
 
     fun finalizeActiveRecording(
@@ -494,12 +585,15 @@ class KeyboardSessionCoordinator(
         capture.abandonAudioFocus()
         recordingJob?.cancel()
         recordingJob = null
-        val audioSource = capture.stopAsAudioSource()
+        // Flip the UI flag synchronously, then run the recorder teardown off the IME main thread.
         isRecording.value = false
         transcription.resetPhase()
         scope.launch {
             try {
                 withContext(NonCancellable) {
+                    // stopAsAudioSource() runs AudioRecord.stop/release + a buffered-stream flush
+                    // under sampleLock; keep it off main like the other teardown paths.
+                    val audioSource = withContext(teardownDispatcher) { capture.stopAsAudioSource() }
                     // Swallow persistence failures: rethrowing out of scope.launch would
                     // crash the IME process after the finally block recovers the state.
                     runCatching {

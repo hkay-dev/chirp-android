@@ -10,6 +10,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -34,13 +36,30 @@ class VoiceRecognitionSessionCoordinatorTest {
         unmockkStatic(Log::class)
     }
 
+    /**
+     * Builds a coordinator whose off-main recorder-teardown hop ([VoiceRecognitionSessionCoordinator]'s
+     * ioDispatcher) runs on the SAME virtual-time test scheduler as the coordinator scope, so the
+     * `withContext(ioDispatcher)` introduced for PERF-5 stays deterministic under `runCurrent()`
+     * instead of escaping to a real `Dispatchers.IO` thread.
+     */
+    private fun TestScope.newCoordinator(
+        gate: VoiceRecognitionCaptureGate,
+        recorder: VoiceRecognitionSessionCoordinator.RecorderControl,
+    ): VoiceRecognitionSessionCoordinator =
+        VoiceRecognitionSessionCoordinator(
+            scope = this,
+            captureGate = gate,
+            recorder = recorder,
+            ioDispatcher = StandardTestDispatcher(testScheduler),
+        )
+
     @Test
     fun `stop arriving mid-start waits for the start and stops the recorder cleanly`() =
         runTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             val generation = coordinator.issueGeneration()
             val startResult = async { coordinator.start(generation, {}, {}, {}) }
@@ -71,7 +90,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             val generation = coordinator.issueGeneration()
             val startResult = async { coordinator.start(generation, {}, {}, {}) }
@@ -97,7 +116,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             recorder.startSucceeds = false
             recorder.completeStart()
@@ -120,7 +139,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             val first = coordinator.issueGeneration()
             coordinator.issueGeneration() // a newer start request supersedes the first
@@ -138,7 +157,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             val cancelled = coordinator.issueGeneration()
             coordinator.markCancelRequested(cancelled)
@@ -157,7 +176,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             val first = coordinator.issueGeneration()
             // The client cancels the pending start, then a newer start supersedes it.
@@ -180,7 +199,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             val generation = coordinator.issueGeneration()
             val startJob = launch { coordinator.start(generation, {}, {}, {}) }
@@ -211,7 +230,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             recorder.completeStart()
             val generation = coordinator.issueGeneration()
@@ -233,7 +252,7 @@ class VoiceRecognitionSessionCoordinatorTest {
             val manager = RecordingStateManager()
             val gate = VoiceRecognitionCaptureGate(manager)
             val recorder = FakeRecorderControl()
-            val coordinator = VoiceRecognitionSessionCoordinator(this, gate, recorder)
+            val coordinator = newCoordinator(gate, recorder)
 
             recorder.completeStart()
             val generation = coordinator.issueGeneration()

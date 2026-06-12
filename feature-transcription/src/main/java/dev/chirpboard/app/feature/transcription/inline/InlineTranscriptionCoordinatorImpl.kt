@@ -76,8 +76,12 @@ class InlineTranscriptionCoordinatorImpl
             // same capture a second time.
             val captureResolved = AtomicBoolean(false)
 
+            // Declared before the try so the generic-exception handler reuses the same
+            // id rather than minting a fresh one, keeping STARTED paired with its
+            // terminal FAILURE for stuck-in-STARTED trace analysis.
+            val correlationId = ReliabilityEventLogger.newCorrelationId(request.correlationPrefix)
+
             try {
-                val correlationId = ReliabilityEventLogger.newCorrelationId(request.correlationPrefix)
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.TRANSCRIPTION,
                     outcome = ReliabilityOutcome.STARTED,
@@ -101,17 +105,15 @@ class InlineTranscriptionCoordinatorImpl
                             correlationId = correlationId,
                             reasonCode = "${request.correlationPrefix}_recognizer_not_ready",
                         )
-                        withContext(NonCancellable + Dispatchers.Main) {
-                            persistence?.persistAudioSource(
-                                audioSource = request.audioSource,
-                                rawText = null,
-                                processedText = null,
-                                errorMessage = message,
-                                reason = InlineCapturePersistReason.RESCUE,
-                            )
-                            captureResolved.set(true)
-                            _phase.value = InlineTranscriptionPhase.Error(message)
-                        }
+                        rescueCapture(
+                            persistence = persistence,
+                            audioSource = request.audioSource,
+                            rawText = null,
+                            errorMessage = message,
+                            reason = InlineCapturePersistReason.RESCUE,
+                        )
+                        captureResolved.set(true)
+                        _phase.value = InlineTranscriptionPhase.Error(message)
                         onRecordingError(message)
                         return
                     }
@@ -159,23 +161,23 @@ class InlineTranscriptionCoordinatorImpl
                                 reasonCode = "${request.correlationPrefix}_transcription_failed",
                                 message = mappedOutcome.message,
                             )
-                            withContext(NonCancellable + Dispatchers.Main) {
-                                persistence?.persistAudioSource(
-                                    audioSource = request.audioSource,
-                                    rawText = rawTextForPersistence,
-                                    processedText = null,
-                                    errorMessage = mappedOutcome.message,
-                                    reason = InlineCapturePersistReason.RESCUE,
-                                )
-                                captureResolved.set(true)
-                                _phase.value = InlineTranscriptionPhase.Error(mappedOutcome.message)
-                            }
+                            rescueCapture(
+                                persistence = persistence,
+                                audioSource = request.audioSource,
+                                rawText = rawTextForPersistence,
+                                errorMessage = mappedOutcome.message,
+                                reason = InlineCapturePersistReason.RESCUE,
+                            )
+                            captureResolved.set(true)
+                            _phase.value = InlineTranscriptionPhase.Error(mappedOutcome.message)
                             onRecordingError(mappedOutcome.message)
                             return
                         }
                     }
 
-                Log.d(tag, "Transcribed: $rawText")
+                // Never log the transcript verbatim: this pipeline runs inside the IME, so
+                // the text is whatever the user dictated into another app. Log only its length.
+                Log.d(tag, "Transcribed ${rawText.length} chars")
                 rawTextForPersistence = rawText
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.TRANSCRIPTION,
@@ -307,20 +309,18 @@ class InlineTranscriptionCoordinatorImpl
                 ReliabilityEventLogger.log(
                     stage = ReliabilityStage.TRANSCRIPTION,
                     outcome = ReliabilityOutcome.FAILURE,
-                    correlationId = ReliabilityEventLogger.newCorrelationId(request.correlationPrefix),
+                    correlationId = correlationId,
                     reasonCode = "${request.correlationPrefix}_exception",
                     message = e.message,
                 )
-                withContext(NonCancellable + Dispatchers.Main) {
-                    persistence?.persistAudioSource(
-                        audioSource = request.audioSource,
-                        rawText = rawTextForPersistence,
-                        processedText = null,
-                        errorMessage = errorMessage,
-                        reason = InlineCapturePersistReason.RESCUE,
-                    )
-                    _phase.value = InlineTranscriptionPhase.Error(errorMessage)
-                }
+                rescueCapture(
+                    persistence = persistence,
+                    audioSource = request.audioSource,
+                    rawText = rawTextForPersistence,
+                    errorMessage = errorMessage,
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+                _phase.value = InlineTranscriptionPhase.Error(errorMessage)
                 onRecordingError(errorMessage)
             }
         }
@@ -354,14 +354,56 @@ class InlineTranscriptionCoordinatorImpl
                     CANCELLATION_RESCUE_MESSAGE to InlineCapturePersistReason.RESCUE
                 }
             Log.w(tag, "Transcription cancelled (userInitiated=$userCancelled)", cause)
+            rescueCapture(
+                persistence = persistence,
+                audioSource = request.audioSource,
+                rawText = rawText,
+                errorMessage = errorMessage,
+                reason = reason,
+            )
+        }
+
+        /**
+         * Persists a capture on a failure/cancel/commit-refused path under one consistent
+         * policy: the persist runs [NonCancellable] (the surrounding job is usually being
+         * cancelled or has already failed) on [Dispatchers.Main] (the persistence layer
+         * expects the IME's main thread), and any persist exception is swallowed and logged
+         * rather than allowed to escape.
+         *
+         * Swallowing is deliberate and crash-critical: an exception thrown out of a
+         * [NonCancellable] block on these paths would otherwise propagate into the IME
+         * process and kill it, dropping the very capture this call exists to save. The
+         * caller still owns the phase update and the onRecordingError/onRecordingCompleted
+         * callback so each site keeps its own user-visible outcome; this helper only owns
+         * the "captured speech is never silently dropped, and a rescue can never crash the
+         * process" invariant.
+         */
+        private suspend fun rescueCapture(
+            persistence: InlineCapturePersistence?,
+            audioSource: InlineAudioSource,
+            rawText: String?,
+            processedText: String? = null,
+            errorMessage: String?,
+            reason: InlineCapturePersistReason,
+        ) {
+            if (persistence == null) return
             withContext(NonCancellable + Dispatchers.Main) {
-                persistence?.persistAudioSource(
-                    audioSource = request.audioSource,
-                    rawText = rawText,
-                    processedText = null,
-                    errorMessage = errorMessage,
-                    reason = reason,
-                )
+                try {
+                    persistence.persistAudioSource(
+                        audioSource = audioSource,
+                        rawText = rawText,
+                        processedText = processedText,
+                        errorMessage = errorMessage,
+                        reason = reason,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Never rethrow a real failure: a persist exception here must not escape
+                    // into the IME process. The capture's backing audio file remains on disk
+                    // for the next reconciliation/recovery pass even if this DB write failed.
+                    Log.e(tag, "Rescue persist failed (reason=$reason); capture left for recovery", e)
+                }
             }
         }
 
@@ -403,16 +445,15 @@ class InlineTranscriptionCoordinatorImpl
                 correlationId = delivery.correlationId,
                 reasonCode = "${delivery.request.correlationPrefix}_commit_refused",
             )
-            withContext(NonCancellable) {
-                delivery.persistence?.persistAudioSource(
-                    audioSource = delivery.request.audioSource,
-                    rawText = delivery.rawText,
-                    processedText = delivery.processedText,
-                    errorMessage = COMMIT_REFUSED_MESSAGE,
-                    reason = InlineCapturePersistReason.RESCUE,
-                )
-                delivery.captureResolved.set(true)
-            }
+            rescueCapture(
+                persistence = delivery.persistence,
+                audioSource = delivery.request.audioSource,
+                rawText = delivery.rawText,
+                processedText = delivery.processedText,
+                errorMessage = COMMIT_REFUSED_MESSAGE,
+                reason = InlineCapturePersistReason.RESCUE,
+            )
+            delivery.captureResolved.set(true)
             onRecordingError(COMMIT_REFUSED_MESSAGE)
             _phase.value = InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE)
         }

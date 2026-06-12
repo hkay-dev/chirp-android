@@ -39,11 +39,13 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -120,7 +122,7 @@ internal fun RecordingPlaybackState.toHomeRowState(): RecordingPlaybackRowState 
         errorMessage = errorMessage,
     )
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 @HiltViewModel
 class HomeViewModel
     @Inject
@@ -150,6 +152,11 @@ class HomeViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+        // SLOP-23: progress/success notices ("Generating title...", "Title updated") have their own
+        // channel so they are never painted as errors. errorMessage stays reserved for failures.
+        private val _statusMessage = MutableStateFlow<String?>(null)
+        val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
         private val _openStudioForRecordingId = MutableStateFlow<UUID?>(null)
         val openStudioForRecordingId: StateFlow<UUID?> = _openStudioForRecordingId.asStateFlow()
 
@@ -175,36 +182,51 @@ class HomeViewModel
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         private val filteredRecordings: StateFlow<List<Recording>> =
-            _searchQuery.flatMapLatest { query ->
-                if (query.isBlank()) {
-                    allRecordingsList
-                } else {
-                    combine(
-                        recordingRepository
-                            .searchRecordings(query)
-                            .unwrapRepositoryFlow { _errorMessage.value = it },
-                        allRecordingsRaw,
-                        recordingManager.state,
-                    ) { searchResults, allRecordings, recordingState ->
-                        val finalizingMatches =
-                            allRecordings.filter { recording ->
-                                recording.status == RecordingStatus.RECORDING &&
-                                    shouldShowRecordingOnHomeList(recording, recordingState) &&
-                                    recording.title.contains(query, ignoreCase = true)
-                            }
-                        (searchResults + finalizingMatches)
-                            .distinctBy(Recording::id)
-                            .sortedByDescending { it.createdAt.time }
+            _searchQuery
+                // DATA-7: debounce keystrokes so a 7-character query no longer spawns 7 full
+                // LIKE-scan flows + downstream re-subscriptions; distinctUntilChanged drops
+                // no-op restores (e.g. clearing then retyping the same text).
+                .debounce(SEARCH_DEBOUNCE_MS)
+                .distinctUntilChanged()
+                .flatMapLatest { query ->
+                    if (query.isBlank()) {
+                        allRecordingsList
+                    } else {
+                        combine(
+                            recordingRepository
+                                .searchRecordings(query)
+                                .unwrapRepositoryFlow { _errorMessage.value = it },
+                            allRecordingsRaw,
+                            recordingManager.state,
+                        ) { searchResults, allRecordings, recordingState ->
+                            val finalizingMatches =
+                                allRecordings.filter { recording ->
+                                    recording.status == RecordingStatus.RECORDING &&
+                                        shouldShowRecordingOnHomeList(recording, recordingState) &&
+                                        recording.title.contains(query, ignoreCase = true)
+                                }
+                            (searchResults + finalizingMatches)
+                                .distinctBy(Recording::id)
+                                .sortedByDescending { it.createdAt.time }
+                        }
                     }
-                }
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        private val recordingsWithTagsAndTranscripts: StateFlow<List<RecordingDisplayItem>> =
+        // DATA-1: key the tag + preview Room flows on the stable id-set, not the whole Recording
+        // list. A background pipeline pass produces ~5 status transitions per recording; each one
+        // re-emits filteredRecordings with a structurally different list but an identical id-set.
+        // flatMapLatest on the id-set means those status ticks no longer cancel and recreate the
+        // two inner Room flows (and rebuild their 500-entry maps) — the inner flows survive and
+        // Room's own result dedup applies. The latest recordings list is combined back in below so
+        // pure status updates still flow through to the rendered items.
+        private val tagsAndPreviewsForVisibleRecordings:
+            StateFlow<Pair<Map<UUID, List<Tag>>, Map<UUID, TranscriptPreview>>> =
             filteredRecordings
-                .flatMapLatest { recordings ->
-                    val recordingIds = recordings.map(Recording::id)
+                .map { recordings -> recordings.map(Recording::id) }
+                .distinctUntilChanged()
+                .flatMapLatest { recordingIds ->
                     if (recordingIds.isEmpty()) {
-                        flowOf(emptyList())
+                        flowOf(emptyMap<UUID, List<Tag>>() to emptyMap<UUID, TranscriptPreview>())
                     } else {
                         combine(
                             tagRepository
@@ -214,14 +236,26 @@ class HomeViewModel
                                 .getTranscriptPreviewsFlow(recordingIds, HOME_TRANSCRIPT_PREVIEW_LIMIT)
                                 .unwrapRepositoryFlow { _errorMessage.value = it },
                         ) { tagsByRecordingId, previewsByRecordingId ->
-                            buildRecordingDisplayItems(
-                                recordings = recordings,
-                                tagsByRecordingId = tagsByRecordingId,
-                                previewsByRecordingId = previewsByRecordingId,
-                            )
+                            tagsByRecordingId to previewsByRecordingId
                         }
                     }
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }.stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    emptyMap<UUID, List<Tag>>() to emptyMap(),
+                )
+
+        private val recordingsWithTagsAndTranscripts: StateFlow<List<RecordingDisplayItem>> =
+            combine(
+                filteredRecordings,
+                tagsAndPreviewsForVisibleRecordings,
+            ) { recordings, (tagsByRecordingId, previewsByRecordingId) ->
+                buildRecordingDisplayItems(
+                    recordings = recordings,
+                    tagsByRecordingId = tagsByRecordingId,
+                    previewsByRecordingId = previewsByRecordingId,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         /** All recordings based on search, enriched with tags/summary/profile */
         private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
@@ -459,6 +493,13 @@ class HomeViewModel
         }
 
         /**
+         * Clear the transient status notice once shown.
+         */
+        fun clearStatus() {
+            _statusMessage.value = null
+        }
+
+        /**
          * Share a recording (audio + transcript if available).
          */
         fun shareRecording(
@@ -579,53 +620,62 @@ class HomeViewModel
          * Generate an AI title for a recording.
          */
         fun generateTitle(recording: RecordingDisplayItem) {
-            viewModelScope.launch {
-                val transcript = recordingRepository.getTranscript(recording.id)
-                if (transcript == null) {
-                    _errorMessage.value = "No transcript available for title generation"
-                    return@launch
-                }
-
-                _errorMessage.value = "Generating title..."
-
-                val text = transcript.effectiveText
-                val result = recordingTextEnrichment.generateTitle(text)
-
-                result.fold(
-                    onSuccess = { title ->
-                        recordingRepository.updateTitle(recording.id, title)
-                        _errorMessage.value = "Title updated"
-                    },
-                    onFailure = { error ->
-                        _errorMessage.value = "Failed to generate title: ${error.message}"
-                    },
-                )
-            }
+            enrich(
+                recording = recording,
+                missingTranscriptError = "No transcript available for title generation",
+                inProgressStatus = "Generating title...",
+                successStatus = "Title updated",
+                failurePrefix = "Failed to generate title",
+                generate = { text -> recordingTextEnrichment.generateTitle(text) },
+                persist = { result -> recordingRepository.updateTitle(recording.id, result) },
+            )
         }
 
         /**
          * Generate an AI summary for a recording.
          */
         fun generateSummary(recording: RecordingDisplayItem) {
+            enrich(
+                recording = recording,
+                missingTranscriptError = "No transcript available for summary generation",
+                inProgressStatus = "Generating summary...",
+                successStatus = "Summary updated",
+                failurePrefix = "Failed to generate summary",
+                generate = { text -> recordingTextEnrichment.generateSummary(text) },
+                persist = { result -> recordingRepository.updateSummary(recording.id, result) },
+            )
+        }
+
+        /**
+         * Shared title/summary enrichment flow (SLOP-23). Progress and success notices go through
+         * [_statusMessage]; only genuine failures go through [_errorMessage].
+         */
+        private fun enrich(
+            recording: RecordingDisplayItem,
+            missingTranscriptError: String,
+            inProgressStatus: String,
+            successStatus: String,
+            failurePrefix: String,
+            generate: suspend (String) -> Result<String>,
+            persist: suspend (String) -> Unit,
+        ) {
             viewModelScope.launch {
                 val transcript = recordingRepository.getTranscript(recording.id)
                 if (transcript == null) {
-                    _errorMessage.value = "No transcript available for summary generation"
+                    _errorMessage.value = missingTranscriptError
                     return@launch
                 }
 
-                _errorMessage.value = "Generating summary..."
+                _statusMessage.value = inProgressStatus
 
-                val text = transcript.effectiveText
-                val result = recordingTextEnrichment.generateSummary(text)
-
+                val result = generate(transcript.effectiveText)
                 result.fold(
-                    onSuccess = { summary ->
-                        recordingRepository.updateSummary(recording.id, summary)
-                        _errorMessage.value = "Summary updated"
+                    onSuccess = { value ->
+                        persist(value)
+                        _statusMessage.value = successStatus
                     },
                     onFailure = { error ->
-                        _errorMessage.value = "Failed to generate summary: ${error.message}"
+                        _errorMessage.value = "$failurePrefix: ${error.message}"
                     },
                 )
             }
@@ -661,6 +711,7 @@ class HomeViewModel
 
         companion object {
             private const val TAG = "HomeViewModel"
+            private const val SEARCH_DEBOUNCE_MS = 200L
         }
     }
 

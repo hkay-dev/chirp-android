@@ -35,6 +35,27 @@ class RecordingFileValidatorTest {
     }
 
     @Test
+    fun containsMoovAtom_findsMarkerStraddlingBufferBoundary() {
+        // Place "moov" so two of its bytes fall in the first 8KB read buffer and two in
+        // the next, which the old per-chunk substring scan missed entirely.
+        val file = createFtypOnlyFile()
+        val padToBoundary = 8192 - file.length().toInt() - 2
+        file.appendBytes(ByteArray(padToBoundary))
+        file.appendBytes("moov".encodeToByteArray())
+        assertTrue(validator.containsMoovAtom(file))
+        assertTrue(validator.validateForStop(file).isPlayable)
+        file.delete()
+    }
+
+    @Test
+    fun containsMoovAtom_reportsFalseWhenMarkerAbsent() {
+        val file = createFtypOnlyFile()
+        file.appendBytes(ByteArray(20_000))
+        assertFalse(validator.containsMoovAtom(file))
+        file.delete()
+    }
+
+    @Test
     fun validateForRecovery_acceptsFtypOnly() {
         val file = createFtypOnlyFile()
         assertTrue(validator.validateForRecovery(file).isRecoverableStub)

@@ -2,8 +2,8 @@ package dev.chirpboard.app.feature.transcription.settings
 
 import app.cash.turbine.test
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
-import dev.chirpboard.app.feature.transcription.WhisperModelManager
-import dev.chirpboard.app.feature.transcription.WhisperModelManager.ModelStatus
+import dev.chirpboard.app.feature.transcription.SpeechModelManager
+import dev.chirpboard.app.feature.transcription.SpeechModelManager.ModelStatus
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -28,7 +28,7 @@ import org.junit.Test
 class TranscriptionSettingsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var mockModelManager: WhisperModelManager
+    private lateinit var mockModelManager: SpeechModelManager
     private lateinit var mockStatusFlow: MutableStateFlow<ModelStatus>
     private lateinit var mockTranscriptionRecovery: TranscriptionRecovery
     private lateinit var viewModel: TranscriptionSettingsViewModel

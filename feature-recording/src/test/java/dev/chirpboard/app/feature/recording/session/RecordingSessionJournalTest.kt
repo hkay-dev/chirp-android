@@ -174,6 +174,34 @@ class RecordingSessionJournalTest {
     }
 
     @Test
+    fun loadCleanupSnapshot_derivesSameProjectionsAsLegacyScans() {
+        val activeId = UUID.randomUUID()
+        val activePath = File(context.filesDir, "recordings/active.m4a").absolutePath
+        journal.createSession(activeId, activePath, RecordingOrigin.APP, null, UUID.randomUUID(), "corr-active")
+
+        val abandonedId = UUID.randomUUID()
+        val abandonedPath = File(context.filesDir, "recordings/abandoned.m4a").absolutePath
+        journal.createSession(abandonedId, abandonedPath, RecordingOrigin.APP, null, UUID.randomUUID(), "corr-aband")
+        journal.markAbandoned(abandonedId)
+
+        // A quarantined entry whose audio must still surface in the all-referenced set.
+        val corruptId = UUID.randomUUID()
+        val corruptPath = File(context.filesDir, "recordings/corrupt.m4a").absolutePath
+        journal.createSession(corruptId, corruptPath, RecordingOrigin.APP, null, UUID.randomUUID(), "corr-corrupt")
+        File(context.filesDir, "recordings/.sessions/$corruptId.json").writeText("""{"audioPath":"$corruptPath"}""")
+        assertEquals(null, journal.findBySessionId(corruptId))
+
+        val snapshot = journal.loadCleanupSnapshot()
+
+        assertEquals(journal.getAllReferencedAudioPaths(), snapshot.allReferencedAudioPaths())
+        assertEquals(journal.getSafelistedAudioPaths(), snapshot.safelistedAudioPaths())
+        assertEquals(journal.startedAtByAudioPath(), snapshot.startedAtByAudioPath())
+        assertTrue(snapshot.safelistedAudioPaths().contains(activePath))
+        assertFalse(snapshot.safelistedAudioPaths().contains(abandonedPath))
+        assertTrue(snapshot.allReferencedAudioPaths().contains(corruptPath))
+    }
+
+    @Test
     fun updateEntry_serializesConcurrentSegmentAppends() {
         val sessionId = UUID.randomUUID()
         val finalPath = File(context.filesDir, "recordings/recording_test.m4a").absolutePath

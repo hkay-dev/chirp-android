@@ -21,6 +21,12 @@ android {
 
     buildTypes {
         release {
+            // START-5: R8 is staged but NOT yet enabled. Conservative keep rules for the
+            // sherpa-onnx JNI bridge, Hilt, Room, and WorkManager live in proguard-rules.pro.
+            // Flip isMinifyEnabled (and shrinkResources) to true ONLY after a verified
+            // assembleRelease + on-device smoke test (recognition, recording, IME, Room) — see
+            // the START-5 follow-up note. Until then the shrinker stays off so the release
+            // build keeps working with no signing config in this environment.
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -95,6 +101,12 @@ dependencies {
 
     // Startup (needed to disable default WorkManager initialization for Hilt)
     implementation("androidx.startup:startup-runtime:1.1.1")
+
+    // START-5: installs baseline profiles bundled by Compose (and other AndroidX) libraries on
+    // first launch, so the JIT/AOT does not re-warm Compose composition on every cold keyboard
+    // show after process death. A dedicated baseline-profile generator module (macrobenchmark)
+    // is a separate follow-up.
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")

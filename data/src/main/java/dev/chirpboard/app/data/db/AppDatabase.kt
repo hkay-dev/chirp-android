@@ -4,7 +4,6 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import dev.chirpboard.app.data.dao.ProfileDao
-import dev.chirpboard.app.data.dao.RecordingEnhancementIntentDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
@@ -14,7 +13,6 @@ import dev.chirpboard.app.data.dao.WordReplacementDao
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.ProfileDefaultTag
 import dev.chirpboard.app.data.entity.Recording
-import dev.chirpboard.app.data.entity.RecordingEnhancementIntentEntity
 import dev.chirpboard.app.data.entity.RecordingEnhancementSnapshotEntity
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.StructuredOutcomeSnapshotEntity
@@ -36,8 +34,10 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - Version 7: Added persisted recording enhancement intents
  *   - Version 8: Normalized profile default tag relationships
  *   - Version 9: Added transcription execution tokens and enhancement execution snapshots
+ *   - Version 10: Dropped the orphaned recording_enhancement_intents table (superseded by
+ *     recording_enhancement_snapshots; no production code read or wrote it)
  *
- * Current Schema (v9):
+ * Current Schema (v10):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -85,15 +85,6 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - taskItemsPayload: TEXT (nullable, base64 line list)
  *   - decisionItemsPayload: TEXT (nullable, base64 line list)
  *   - followUpItemsPayload: TEXT (nullable, base64 line list)
- *
- * recording_enhancement_intents:
- *   - recordingId: TEXT (PK/FK -> recordings.id, CASCADE on delete)
- *   - processingModeId: TEXT (nullable)
- *   - autoTitle: INTEGER (boolean)
- *   - autoSummary: INTEGER (boolean)
- *   - createdAt: INTEGER (Date as timestamp)
- *   - lastAttemptedAt: INTEGER (nullable, Date as timestamp)
- *   - lastErrorMessage: TEXT (nullable)
  *
  * recording_enhancement_snapshots:
  *   - recordingId: TEXT (PK/FK -> recordings.id, CASCADE on delete)
@@ -152,7 +143,6 @@ import dev.chirpboard.app.data.entity.WordReplacement
         Transcript::class,
         TranscriptTiming::class,
         StructuredOutcomeSnapshotEntity::class,
-        RecordingEnhancementIntentEntity::class,
         RecordingEnhancementSnapshotEntity::class,
         Profile::class,
         ProfileDefaultTag::class,
@@ -160,7 +150,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
         RecordingTag::class,
         WordReplacement::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -170,8 +160,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transcriptDao(): TranscriptDao
 
     abstract fun structuredOutcomeSnapshotDao(): StructuredOutcomeSnapshotDao
-
-    abstract fun recordingEnhancementIntentDao(): RecordingEnhancementIntentDao
 
     abstract fun recordingEnhancementSnapshotDao(): RecordingEnhancementSnapshotDao
 

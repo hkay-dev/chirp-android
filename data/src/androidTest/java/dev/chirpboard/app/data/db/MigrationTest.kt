@@ -53,7 +53,6 @@ class MigrationTest {
         db.recordingDao()
         db.transcriptDao()
         db.structuredOutcomeSnapshotDao()
-        db.recordingEnhancementIntentDao()
         db.recordingEnhancementSnapshotDao()
         db.profileDao()
         db.tagDao()
@@ -162,7 +161,7 @@ class MigrationTest {
             close()
         }
 
-        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 9, true, *Migrations.ALL)
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 10, true, *Migrations.ALL)
         migratedDb.query(
             """
             SELECT recordings.title, transcripts.rawText, tags.name
@@ -961,6 +960,149 @@ class MigrationTest {
             org.junit.Assert.assertEquals("llm down", cursor.getString(5))
             org.junit.Assert.assertEquals(createdAt + 1000, cursor.getLong(6))
             org.junit.Assert.assertEquals("llm down", cursor.getString(7))
+        }
+
+        migratedDb.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate9To10_dropsOrphanedIntentTableAndPreservesSnapshot() {
+        val recordingId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+
+        helper.createDatabase(TEST_DB, 9).apply {
+            execSQL(
+                """
+                INSERT INTO recordings(
+                    id,
+                    title,
+                    audioPath,
+                    status,
+                    source,
+                    profileId,
+                    createdAt,
+                    durationMs,
+                    errorMessage,
+                    lastExportedPath,
+                    lastExportedAt,
+                    transcriptionExecutionToken
+                ) VALUES(
+                    '$recordingId',
+                    'Snapshot survivor',
+                    '/tmp/audio.m4a',
+                    'PENDING_ENHANCEMENT',
+                    'APP',
+                    NULL,
+                    $createdAt,
+                    1200,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL
+                )
+                """.trimIndent(),
+            )
+            // A leftover row in the orphaned intents table: it must be dropped without affecting
+            // the live snapshot row below.
+            execSQL(
+                """
+                INSERT INTO recording_enhancement_intents(
+                    recordingId,
+                    processingModeId,
+                    autoTitle,
+                    autoSummary,
+                    createdAt,
+                    lastAttemptedAt,
+                    lastErrorMessage
+                ) VALUES(
+                    '$recordingId',
+                    'cleanup',
+                    1,
+                    0,
+                    $createdAt,
+                    NULL,
+                    NULL
+                )
+                """.trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO recording_enhancement_snapshots(
+                    recordingId,
+                    schemaVersion,
+                    sourceTranscriptRevision,
+                    sourceProcessedTextRevision,
+                    processingModeRequested,
+                    processingModeId,
+                    processingModeLabel,
+                    processingModeType,
+                    processingModePrompt,
+                    processingModeStatus,
+                    processingModeErrorMessage,
+                    titleRequested,
+                    titleStatus,
+                    titleErrorMessage,
+                    summaryRequested,
+                    summaryStatus,
+                    summaryErrorMessage,
+                    llmProviderId,
+                    llmModelId,
+                    activeEnhancementExecutionToken,
+                    legacyRequiresResolution,
+                    createdAt,
+                    lastAttemptedAt,
+                    lastErrorMessage
+                ) VALUES(
+                    '$recordingId',
+                    1,
+                    'raw||',
+                    NULL,
+                    1,
+                    'cleanup',
+                    'cleanup',
+                    'LEGACY_INTENT',
+                    NULL,
+                    'PENDING',
+                    NULL,
+                    1,
+                    'PENDING',
+                    NULL,
+                    0,
+                    'SKIPPED',
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    0,
+                    $createdAt,
+                    NULL,
+                    NULL
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 10, true, Migrations.MIGRATION_9_10)
+
+        migratedDb.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'recording_enhancement_intents'",
+        ).use { cursor ->
+            org.junit.Assert.assertFalse(cursor.moveToFirst())
+        }
+
+        migratedDb.query(
+            """
+            SELECT processingModeId, processingModeStatus, titleStatus
+            FROM recording_enhancement_snapshots
+            WHERE recordingId = '$recordingId'
+            """.trimIndent(),
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("cleanup", cursor.getString(0))
+            org.junit.Assert.assertEquals("PENDING", cursor.getString(1))
+            org.junit.Assert.assertEquals("PENDING", cursor.getString(2))
         }
 
         migratedDb.close()

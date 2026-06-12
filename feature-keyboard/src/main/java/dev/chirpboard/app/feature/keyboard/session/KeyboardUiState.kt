@@ -74,10 +74,18 @@ fun mapKeyboardUiState(
     val modelLoadProgress =
         (transcriptionPhase as? InlineTranscriptionPhase.LoadingModel)?.progress
 
+    // Keep the banner tied to the actual model state, not the voice phase: while the model is
+    // warming it must stay present across LoadingModel/Transcribing/Polishing so the panel does
+    // not reflow ("breathe") once per dictation. It clears only when the model state itself
+    // changes (modelBanner becomes None once the model is ready). A permission error replaces the
+    // whole panel with error content, so the banner is suppressed only in that case.
+    val resolvedModelBanner =
+        if (permissionError != null) ModelBannerState.None else modelBanner
+
     return KeyboardUiState(
         voicePanel = voicePanel,
         modelLoadProgress = modelLoadProgress,
-        modelBanner = if (permissionError != null || voicePanel != VoicePanelPhase.Idle) ModelBannerState.None else modelBanner,
+        modelBanner = resolvedModelBanner,
         modelInitFailedMessage = modelInitFailedMessage,
         llmEnabled = llmEnabled,
         processingMode = processingMode,

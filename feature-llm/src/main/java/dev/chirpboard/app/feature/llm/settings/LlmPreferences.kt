@@ -95,11 +95,31 @@ class LlmPreferences
         private val _activeProvider = MutableStateFlow(LlmProvider.GEMINI)
         private val _apiKey = MutableStateFlow<String?>(null)
 
-        init {
-            migrateLegacyGeminiSettingsIfNeeded()
-            migrateStoredModelNamesIfNeeded()
-            _activeProvider.value = getActiveProvider()
-            refreshActiveApiKey()
+        /**
+         * One-time legacy migration + active-provider/api-key priming. Deliberately NOT run from
+         * an `init {}` block: that block dereferences [securePrefs], which builds an Android
+         * Keystore master key and opens [EncryptedSharedPreferences] (commonly 100-500 ms,
+         * occasionally seconds after boot) plus a synchronous SharedPreferences disk load. This
+         * type is constructed during Hilt member injection on the main thread at process start
+         * (every cold keyboard show in the shared IME process), so doing it in the constructor
+         * blocked the app's hottest path. Instead it runs once, lazily, on first access of any
+         * public read/write — by which point the caller is already off the critical onCreate
+         * path. The guard is idempotent and thread-safe.
+         */
+        @Volatile
+        private var initialized = false
+        private val initLock = Any()
+
+        private fun ensureInitialized() {
+            if (initialized) return
+            synchronized(initLock) {
+                if (initialized) return
+                migrateLegacyGeminiSettingsIfNeeded()
+                migrateStoredModelNamesIfNeeded()
+                _activeProvider.value = readActiveProvider()
+                refreshActiveApiKey()
+                initialized = true
+            }
         }
 
         val llmEnabled: Flow<Boolean> =
@@ -112,9 +132,16 @@ class LlmPreferences
         /** API key for the currently selected provider. */
         val apiKey: Flow<String?> = _apiKey.asStateFlow()
 
-        override fun getActiveProvider(): LlmProvider = LlmProvider.fromId(appPrefs.getString(KEY_ACTIVE_PROVIDER, null))
+        override fun getActiveProvider(): LlmProvider {
+            ensureInitialized()
+            return readActiveProvider()
+        }
+
+        /** Reads the stored active provider without triggering [ensureInitialized] (used during init). */
+        private fun readActiveProvider(): LlmProvider = LlmProvider.fromId(appPrefs.getString(KEY_ACTIVE_PROVIDER, null))
 
         override fun setActiveProvider(provider: LlmProvider) {
+            ensureInitialized()
             appPrefs.edit().putString(KEY_ACTIVE_PROVIDER, provider.id).apply()
             _activeProvider.value = provider
             refreshActiveApiKey()
@@ -122,20 +149,29 @@ class LlmPreferences
 
         fun fetchApiKey(): String? = fetchApiKeyFor(getActiveProvider())
 
-        override fun fetchApiKeyFor(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
+        override fun fetchApiKeyFor(provider: LlmProvider): String? {
+            ensureInitialized()
+            return fetchApiKeyForRaw(provider)
+        }
+
+        /** Reads a stored API key without triggering [ensureInitialized] (used during init). */
+        private fun fetchApiKeyForRaw(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
 
         fun getModelName(): String = getModelFor(getActiveProvider())
 
-        override fun getModelFor(provider: LlmProvider): String =
-            resolveModelId(
+        override fun getModelFor(provider: LlmProvider): String {
+            ensureInitialized()
+            return resolveModelId(
                 provider = provider,
                 storedModelId = appPrefs.getString(modelPrefKey(provider), null),
             )
+        }
 
         override fun setModelFor(
             provider: LlmProvider,
             modelId: String,
         ) {
+            ensureInitialized()
             appPrefs
                 .edit()
                 .putString(modelPrefKey(provider), resolveModelId(provider, modelId))
@@ -171,6 +207,7 @@ class LlmPreferences
             provider: LlmProvider,
             key: String,
         ) {
+            ensureInitialized()
             val normalized = key.trim()
             val prefs = securePrefs
             if (prefs == null) {
@@ -193,6 +230,7 @@ class LlmPreferences
         }
 
         override fun clearApiKeyFor(provider: LlmProvider) {
+            ensureInitialized()
             val prefs = securePrefs ?: return
             if (prefs.edit().remove(apiKeyPrefKey(provider)).commit() && provider == getActiveProvider()) {
                 _apiKey.value = null
@@ -203,7 +241,10 @@ class LlmPreferences
 
         override fun hasApiKeyFor(provider: LlmProvider): Boolean = !fetchApiKeyFor(provider).isNullOrBlank()
 
-        override fun isSecureStorageAvailable(): Boolean = securePrefs != null
+        override fun isSecureStorageAvailable(): Boolean {
+            ensureInitialized()
+            return securePrefs != null
+        }
 
         override suspend fun setAutoTitle(enabled: Boolean) {
             context.dataStore.edit { preferences ->
@@ -267,12 +308,14 @@ class LlmPreferences
             LlmProvider.entries.count { hasApiKeyFor(it) }
 
         private fun refreshActiveApiKey() {
-            _apiKey.value = fetchApiKeyFor(getActiveProvider())
+            // Uses raw reads so it is safe to call from inside ensureInitialized() (where the
+            // initialized guard is not yet set) as well as from already-initialized callers.
+            _apiKey.value = fetchApiKeyForRaw(readActiveProvider())
         }
 
         private fun migrateLegacyGeminiSettingsIfNeeded() {
             val legacyKey = securePrefs?.getString(LEGACY_GEMINI_CREDENTIAL_PREF, null)
-            if (!legacyKey.isNullOrBlank() && fetchApiKeyFor(LlmProvider.GEMINI).isNullOrBlank()) {
+            if (!legacyKey.isNullOrBlank() && fetchApiKeyForRaw(LlmProvider.GEMINI).isNullOrBlank()) {
                 securePrefs?.edit()?.putString(apiKeyPrefKey(LlmProvider.GEMINI), legacyKey.trim())?.commit()
                 securePrefs?.edit()?.remove(LEGACY_GEMINI_CREDENTIAL_PREF)?.commit()
             }

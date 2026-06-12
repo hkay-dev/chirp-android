@@ -43,6 +43,63 @@ class KeyboardUiStateTest {
     }
 
     @Test
+    fun `initializing banner stays present across non-idle dictation phases`() {
+        // UI-2 mapping half: the banner must not be force-hidden just because the panel left
+        // Idle, or it would reflow once per dictation while the model is still warming.
+        for (phase in listOf(
+            InlineTranscriptionPhase.LoadingModel(null),
+            InlineTranscriptionPhase.Transcribing,
+            InlineTranscriptionPhase.Polishing,
+        )) {
+            val state =
+                mapKeyboardUiState(
+                    isRecording = false,
+                    transcriptionPhase = phase,
+                    modelBanner = ModelBannerState.Initializing,
+                    modelInitFailedMessage = null,
+                    llmEnabled = true,
+                    processingMode = ProcessingMode.Proofread,
+                    availableModes = emptyList(),
+                    permissionError = null,
+                )
+            assertEquals(ModelBannerState.Initializing, state.modelBanner)
+        }
+    }
+
+    @Test
+    fun `recording keeps warming banner instead of breathing it out`() {
+        val state =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.Initializing,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                permissionError = null,
+            )
+        assertEquals(VoicePanelPhase.Recording, state.voicePanel)
+        assertEquals(ModelBannerState.Initializing, state.modelBanner)
+    }
+
+    @Test
+    fun `permission error suppresses the model banner`() {
+        val state =
+            mapKeyboardUiState(
+                isRecording = false,
+                transcriptionPhase = InlineTranscriptionPhase.Idle,
+                modelBanner = ModelBannerState.Initializing,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                permissionError = "Microphone permission required",
+            )
+        assertEquals(ModelBannerState.None, state.modelBanner)
+    }
+
+    @Test
     fun `loading model phase maps correctly`() {
         val state =
             mapKeyboardUiState(

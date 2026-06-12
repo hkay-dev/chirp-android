@@ -46,13 +46,18 @@ class OrphanedAudioCleaner
                     // and journalReferencedPaths additionally includes quarantined
                     // (unparseable) journal entries' best-effort paths.
                     val validPaths = recordingRepository.getAllAudioPaths().toSet()
-                    val journalReferencedPaths = sessionJournal.getAllReferencedAudioPaths()
-                    val safelistedPaths = sessionJournal.getSafelistedAudioPaths()
+                    // One journal directory scan under journalLock yields all three
+                    // projections; separate getAll/getSafelisted/startedAt calls would
+                    // re-list and re-parse the directory three times, each extending the
+                    // lock window the recording heartbeat contends on.
+                    val journalSnapshot = sessionJournal.loadCleanupSnapshot()
+                    val journalReferencedPaths = journalSnapshot.allReferencedAudioPaths()
+                    val safelistedPaths = journalSnapshot.safelistedAudioPaths()
                     // Active and expired sets come from a single store snapshot so a TTL
                     // lapsing mid-scan can never land a path in both sets; markers are
                     // cleared only after the audio is durably quarantined or deleted.
                     val (protectedPaths, expiredProtectedPaths) = protectedPathsStore.partitionProtectedPaths()
-                    val startedAtByPath = sessionJournal.startedAtByAudioPath()
+                    val startedAtByPath = journalSnapshot.startedAtByAudioPath()
                     val now = System.currentTimeMillis()
 
                     val files = recordingsDir.listFiles() ?: return@withContext

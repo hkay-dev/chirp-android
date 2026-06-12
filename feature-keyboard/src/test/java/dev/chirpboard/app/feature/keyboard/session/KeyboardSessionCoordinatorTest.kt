@@ -3,6 +3,10 @@ package dev.chirpboard.app.feature.keyboard.session
 import android.content.Context
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModePort
+import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
+import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
+import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
+import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.quickcapture.QuickCaptureError
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
@@ -66,6 +70,7 @@ class KeyboardSessionCoordinatorTest {
     private lateinit var keyboardPreferences: KeyboardPreferences
     private lateinit var modePort: ProcessingModePort
     private lateinit var pendingStopStore: KeyboardPendingStopStore
+    private lateinit var modelReadinessGate: FakeModelReadinessGate
 
     private lateinit var captureErrorHandler: CapturingSlot<(QuickCaptureError) -> Unit>
     private lateinit var limitReachedHandler: CapturingSlot<() -> Unit>
@@ -120,6 +125,7 @@ class KeyboardSessionCoordinatorTest {
             mockk {
                 coEvery { clear() } just runs
             }
+        modelReadinessGate = FakeModelReadinessGate()
     }
 
     @After
@@ -580,6 +586,59 @@ class KeyboardSessionCoordinatorTest {
             assertSame(stoppingTimeoutHandler.captured, clearedHandler.captured)
         }
 
+    @Test
+    fun refreshModelStatus_doesNotStatModelFilesAndKicksBackgroundWarmup() =
+        runTest {
+            // The IME-show path must never touch the filesystem: no isModelDownloaded() stat.
+            val coordinator = buildCoordinator()
+
+            coordinator.refreshModelStatus()
+
+            verify(exactly = 0) { transcriberProvider.isModelDownloaded() }
+            assertTrue(modelReadinessGate.warmupCount >= 1)
+        }
+
+    @Test
+    fun banner_followsReadinessGateStateWithoutBlockingIo() =
+        runTest {
+            val coordinator = buildCoordinator()
+
+            // Gate reports the model files are missing -> NotDownloaded banner, no stat call.
+            modelReadinessGate.stateFlow.value =
+                ModelReadinessState.Unavailable(
+                    dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
+                )
+            assertEquals(ModelBannerState.NotDownloaded, coordinator.uiState.value.modelBanner)
+
+            // Gate verifies the model present (but recognizer not yet loaded) -> Initializing.
+            modelReadinessGate.stateFlow.value =
+                ModelReadinessState.Ready(
+                    verifiedAtEpochMs = 0L,
+                    source = dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource.PROCESS_CACHE,
+                )
+            assertEquals(ModelBannerState.Initializing, coordinator.uiState.value.modelBanner)
+
+            verify(exactly = 0) { transcriberProvider.isModelDownloaded() }
+        }
+
+    @Test
+    fun stopAndTranscribe_runsRecorderTeardownOffMainThread() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {}
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+
+            coordinator.stopAndTranscribe { true }
+
+            // The heavy AudioRecord teardown is dispatched off the caller (main) thread via the
+            // injected teardown dispatcher rather than being called inline on the mic-tap thread.
+            verify { capture.stopAsAudioSource() }
+            verify { recordingStateManager.transitionToStopping() }
+        }
+
     private fun stubSuccessfulCapture(sampleCount: Long) {
         coEvery { capture.start() } returns QuickCaptureStartResult.Success
         every { capture.stopAsAudioSource() } returns
@@ -602,9 +661,31 @@ class KeyboardSessionCoordinatorTest {
             keyboardPreferences = keyboardPreferences,
             modePort = modePort,
             pendingStopStore = pendingStopStore,
+            modelReadinessGate = modelReadinessGate,
+            // Run the off-main recorder teardown hop inline so the synchronous stop/cancel
+            // assertions in these tests stay deterministic.
+            teardownDispatcher = dispatcher,
         )
 
     private fun stoppingState(): RecordingState.Stopping = RecordingState.Stopping(origin = RecordingOrigin.KEYBOARD)
+
+    private class FakeModelReadinessGate(
+        initial: ModelReadinessState = ModelReadinessState.Unknown,
+    ) : SpeechModelReadinessGate {
+        val stateFlow = MutableStateFlow(initial)
+        var warmupCount = 0
+
+        override val state get() = stateFlow
+
+        override fun warmupIfNeeded(trigger: VerificationTrigger) {
+            warmupCount++
+        }
+
+        override fun invalidate() = Unit
+
+        override suspend fun ensureReady(trigger: VerificationTrigger): ModelReadyResult =
+            ModelReadyResult.Error("not used in test")
+    }
 
     private class RecordingPersistence : InlineCapturePersistence {
         var persistCalls = 0

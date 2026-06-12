@@ -20,10 +20,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-class WhisperModelManagerTest {
+class SpeechModelManagerTest {
     private lateinit var speechModelStore: SpeechModelStore
     private lateinit var readinessGate: SpeechModelReadinessGate
-    private lateinit var classUnderTest: WhisperModelManager
+    private lateinit var classUnderTest: SpeechModelManager
 
     @Before
     fun setup() {
@@ -34,7 +34,7 @@ class WhisperModelManagerTest {
                 isReady = false,
                 unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
             )
-        classUnderTest = WhisperModelManager(speechModelStore, readinessGate)
+        classUnderTest = SpeechModelManager(speechModelStore, readinessGate)
     }
 
     @Test
@@ -64,7 +64,7 @@ class WhisperModelManagerTest {
 
         classUnderTest.downloadModel()
 
-        assertEquals(WhisperModelManager.ModelStatus.Ready, classUnderTest.modelStatus.value)
+        assertEquals(SpeechModelManager.ModelStatus.Ready, classUnderTest.modelStatus.value)
         verify { readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD) }
     }
 
@@ -76,7 +76,7 @@ class WhisperModelManagerTest {
         classUnderTest.downloadModel()
 
         val status = classUnderTest.modelStatus.value
-        assertTrue(status is WhisperModelManager.ModelStatus.Error)
-        assertEquals("Download failed", (status as WhisperModelManager.ModelStatus.Error).message)
+        assertTrue(status is SpeechModelManager.ModelStatus.Error)
+        assertEquals("Download failed", (status as SpeechModelManager.ModelStatus.Error).message)
     }
 }

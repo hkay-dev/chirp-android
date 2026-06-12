@@ -23,17 +23,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Settings-facing adapter over the shared [SpeechModelStore].
+ * Settings-facing adapter over the shared [SpeechModelStore]. (Formerly WhisperModelManager;
+ * the app ships the Parakeet TDT model, never Whisper.)
  */
 @Singleton
-class WhisperModelManager
+class SpeechModelManager
     @Inject
     constructor(
         private val speechModelStore: SpeechModelStore,
         private val readinessGate: SpeechModelReadinessGate,
     ) {
         companion object {
-            private const val TAG = "WhisperModelManager"
+            private const val TAG = "SpeechModelManager"
             const val MODEL_DISPLAY_NAME = SpeechModelStore.DISPLAY_NAME
             const val MODEL_SIZE_MB = SpeechModelStore.APPROXIMATE_SIZE_MB
         }
