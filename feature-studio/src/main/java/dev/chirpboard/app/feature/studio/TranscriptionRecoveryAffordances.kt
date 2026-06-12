@@ -17,13 +17,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import android.text.format.DateUtils
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.core.util.formatRelative
-import java.util.Date
+import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
 
 @Composable
 fun TranscriptionRecoverySection(
@@ -153,19 +154,32 @@ private fun RecoveryDiagnosticsSection(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        // I18N-12: reliability reason codes and enum constants are developer telemetry; the
+        // user-facing block maps them to plain language.
         Text(
             text =
                 stringResource(
                     R.string.rec_recovery_latest_reason,
-                    diagnostics.latestReason ?: stringResource(R.string.rec_recovery_no_reason),
+                    recoveryReasonDisplayText(diagnostics.latestReason),
                 ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
+        val context = LocalContext.current
         val attempt =
-            diagnostics.lastAttemptEpochMs?.let { Date(it).formatRelative() }
-                ?: stringResource(R.string.rec_recovery_unknown)
+            diagnostics.lastAttemptEpochMs?.let { epochMs ->
+                // Relative date WITH a time of day — "Today" alone can't tell a stuck retry
+                // from a fresh one.
+                DateUtils
+                    .getRelativeDateTimeString(
+                        context,
+                        epochMs,
+                        DateUtils.MINUTE_IN_MILLIS,
+                        DateUtils.WEEK_IN_MILLIS,
+                        0,
+                    ).toString()
+            } ?: stringResource(R.string.rec_recovery_unknown)
         Text(
             text = stringResource(R.string.rec_recovery_last_attempt, attempt),
             style = MaterialTheme.typography.bodySmall,
@@ -173,7 +187,11 @@ private fun RecoveryDiagnosticsSection(
         )
 
         Text(
-            text = stringResource(R.string.rec_recovery_ownership, diagnostics.ownership.name),
+            text =
+                stringResource(
+                    R.string.rec_recovery_ownership,
+                    recoveryOwnershipDisplayText(diagnostics.ownership),
+                ),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -187,3 +205,25 @@ private fun RecoveryDiagnosticsSection(
         }
     }
 }
+
+/** I18N-12: map machine reason codes to short human copy; unknown codes are humanized. */
+@Composable
+private fun recoveryReasonDisplayText(reason: String?): String =
+    when {
+        reason == null -> stringResource(R.string.rec_recovery_no_reason)
+        reason.startsWith("worker_exception") ->
+            stringResource(R.string.rec_recovery_reason_failed_unexpectedly)
+        reason.contains("stale") ->
+            stringResource(R.string.rec_recovery_reason_stalled)
+        reason.contains("queue_handoff") || reason.contains("interrupted") ->
+            stringResource(R.string.rec_recovery_reason_interrupted)
+        else -> reason.replace('_', ' ').replaceFirstChar { it.uppercase() }
+    }
+
+@Composable
+private fun recoveryOwnershipDisplayText(ownership: RecoveryOwnershipState): String =
+    when (ownership) {
+        RecoveryOwnershipState.ACTIVE -> stringResource(R.string.rec_recovery_ownership_active)
+        RecoveryOwnershipState.MISSING_OR_TERMINAL -> stringResource(R.string.rec_recovery_ownership_idle)
+        RecoveryOwnershipState.INSPECTION_TIMEOUT -> stringResource(R.string.rec_recovery_ownership_unknown)
+    }

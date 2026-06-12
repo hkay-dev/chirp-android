@@ -20,6 +20,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
+import dev.chirpboard.app.feature.recording.util.RecordingTitleFormatter
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.runs
@@ -96,6 +97,10 @@ class RecordingSessionRecoveryTest {
                 recordingStateManager = recordingStateManager,
                 protectedPathsStore = mockk(relaxed = true),
                 ownershipLock = RecordingFinalizeOwnershipLock(),
+                titleFormatter =
+                    mockk<RecordingTitleFormatter> {
+                        every { format(any()) } returns "Jun 12, 3:42 PM"
+                    },
             )
     }
 

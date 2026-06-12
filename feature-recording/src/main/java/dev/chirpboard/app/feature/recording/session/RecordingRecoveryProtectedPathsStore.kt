@@ -47,6 +47,11 @@ class RecordingRecoveryProtectedPathsStore
          * the underlying audio has been durably quarantined or deleted, so a crash or a
          * failed rename keeps the marker and the next run retries quarantine instead of
          * hard-deleting kept audio.
+         *
+         * Deliberately NOT wrapped in a defensive catch: a read failure must propagate so
+         * the orphan cleaner aborts (fail closed). Swallowing to an empty set would make
+         * protected audio look unprotected and eligible for deletion. The store-level
+         * corruption handler already converts persistent corruption into safe defaults.
          */
         suspend fun partitionProtectedPaths(): ProtectedPathsPartition {
             val now = System.currentTimeMillis()

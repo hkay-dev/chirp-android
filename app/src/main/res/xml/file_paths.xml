@@ -1,17 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Keep this list minimal: only directories that are actually shared via
+     FileProvider.getUriForFile (audio shares from Home and Studio). In particular,
+     do NOT map the cache root - cacheDir holds keyboard dictation WAV staging
+     (raw captured speech), which must never be addressable through the provider. -->
 <paths>
     <!-- Internal app storage for recordings -->
     <files-path
         name="recordings"
-        path="recordings/" />
-    
-    <!-- Cache directory if needed -->
-    <cache-path
-        name="cache"
-        path="/" />
-    
-    <!-- External files if recordings are stored there -->
-    <external-files-path
-        name="external_recordings"
         path="recordings/" />
 </paths>

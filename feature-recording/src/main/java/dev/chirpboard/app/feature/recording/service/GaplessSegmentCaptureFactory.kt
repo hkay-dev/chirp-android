@@ -12,9 +12,11 @@ object GaplessSegmentCaptureFactory {
     fun create(
         inputDeviceSelector: AudioInputDeviceSelector,
         sampleRate: Int,
+        gainMultiplier: Float = 1f,
     ): GaplessSegmentCaptureEngine =
         GaplessWavSegmentCapture(
             inputDeviceSelector = inputDeviceSelector,
             sampleRate = sampleRate,
+            gainMultiplier = gainMultiplier,
         )
 }

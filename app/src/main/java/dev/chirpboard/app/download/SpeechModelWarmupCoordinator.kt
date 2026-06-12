@@ -48,6 +48,12 @@ enum class SpeechModelWarmupCandidate {
     Recovery,
 }
 
+// I18N-06 WARNING: this classification is keyed off display-string prefixes persisted into
+// Recording.errorMessage by TranscriptionWorker/TranscriptionWorkerSupport ("Speech model
+// unavailable: …" etc.). Do NOT reword those producer strings without updating this matcher
+// in the same change; the durable fix is a typed waiting-for-model reason code on the
+// recording row (data module + worker, owned by the pipeline group) — until then this
+// coupling is load-bearing for model-download recovery.
 internal fun Recording.isWaitingForSpeechModelRecovery(): Boolean =
     errorMessage?.let { message ->
         message.startsWith("Model not downloaded") ||

@@ -28,7 +28,9 @@ internal suspend fun completeStudioChatExchange(
     messagesWithUser: ImmutableList<ChatMessage>,
 ): StudioChatExchangeResult {
     val result = llmClient.generateChatResponse(transcriptText, messagesWithUser)
-    val aiText = result.getOrNull() ?: "Sorry, I encountered an error."
+    // ERR-11/I18N-05: classify the failure into actionable copy instead of a one-size-fits-all
+    // apology; the raw exception detail is for logs, not the chat bubble.
+    val aiText = result.getOrNull() ?: aiFailureDisplayMessage(result.exceptionOrNull())
     val aiMessage = createStudioChatMessage(aiText, isFromUser = false)
 
     return StudioChatExchangeResult(

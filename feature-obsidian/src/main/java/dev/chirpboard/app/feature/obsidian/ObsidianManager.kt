@@ -13,7 +13,8 @@ import java.io.IOException
 import java.time.Instant
 import java.io.SyncFailedException
 import java.time.LocalDateTime
-import java.time.ZoneOffset
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,8 +30,6 @@ class ObsidianManager
     ) {
         companion object {
             private const val TAG = "ObsidianManager"
-            private val InvalidFilenameCharacters = Regex("[\\\\/:*?\"<>|]")
-            private val MultiWhitespace = Regex("\\s+")
         }
 
         /**
@@ -60,15 +59,23 @@ class ObsidianManager
                         throw SecurityException("No write permission for vault directory")
                     }
 
-                    // Generate filename from title (sanitized)
-                    val sanitizedTitle = sanitizeFilename(recording.title)
-                    val filename = "$sanitizedTitle.md"
+                    // Deterministic per-recording filename: the created-at suffix keeps two
+                    // same-titled recordings from mapping to the same note, so an export can
+                    // only ever overwrite this recording's own earlier export — never an
+                    // unrelated vault note.
+                    val filename =
+                        buildObsidianExportFilename(
+                            title = recording.title,
+                            createdAtEpochMs = recording.createdAtEpochMs,
+                            zoneId = ZoneId.systemDefault(),
+                        )
 
-                    // Format the content
+                    // Format the content using the user's local wall-clock time so daily-note
+                    // linking and frontmatter dates match what the rest of the app shows.
                     val date =
                         LocalDateTime.ofInstant(
                             Instant.ofEpochMilli(recording.createdAtEpochMs),
-                            ZoneOffset.UTC,
+                            ZoneId.systemDefault(),
                         )
                     val durationSeconds = recording.durationMs / 1000
 
@@ -157,7 +164,9 @@ class ObsidianManager
                     }
                 } ?: throw IOException("Failed to open temp file for writing")
 
-                // Step 3: Delete existing file if present
+                // Step 3: Delete existing file if present. The filename embeds the
+                // recording's created-at timestamp, so a match here is this recording's
+                // own previous export being refreshed — not another note.
                 vaultDir.findFile(filename)?.delete()
 
                 // Step 4: Rename temp to final
@@ -196,15 +205,38 @@ class ObsidianManager
             }
         }
 
-        /**
-         * Sanitize a string for use as a filename.
-         * Removes or replaces characters that are invalid in filenames.
-         */
-        private fun sanitizeFilename(name: String): String =
-            name
-                .replace(InvalidFilenameCharacters, "_")
-                .replace(MultiWhitespace, " ")
-                .trim()
-                .take(100) // Limit length
-                .ifBlank { "Untitled" }
     }
+
+private val InvalidExportFilenameCharacters = Regex("[\\\\/:*?\"<>|]")
+private val ExportMultiWhitespace = Regex("\\s+")
+private val ExportFilenameTimestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HHmmss")
+
+/**
+ * Builds the deterministic export filename for a recording: sanitized title plus the
+ * recording's local created-at timestamp. Same recording (same title) always maps to the
+ * same file (re-export updates in place); different recordings sharing a title get
+ * distinct names, so exports never destroy unrelated notes.
+ */
+internal fun buildObsidianExportFilename(
+    title: String,
+    createdAtEpochMs: Long,
+    zoneId: ZoneId,
+): String {
+    val timestamp =
+        LocalDateTime
+            .ofInstant(Instant.ofEpochMilli(createdAtEpochMs), zoneId)
+            .format(ExportFilenameTimestampFormatter)
+    return "${sanitizeObsidianFilename(title)} ($timestamp).md"
+}
+
+/**
+ * Sanitize a string for use as a filename.
+ * Removes or replaces characters that are invalid in filenames.
+ */
+internal fun sanitizeObsidianFilename(name: String): String =
+    name
+        .replace(InvalidExportFilenameCharacters, "_")
+        .replace(ExportMultiWhitespace, " ")
+        .trim()
+        .take(100) // Limit length
+        .ifBlank { "Untitled" }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreVert
@@ -116,6 +117,7 @@ internal fun RecordingListItem(
                 .semantics(mergeDescendants = true) {}
                 .combinedClickable(
                     onClick = onClick,
+                    onLongClickLabel = stringResource(R.string.rec_more_actions),
                     onLongClick = onLongClick,
                 ).padding(horizontal = ChirpSpacing.ScreenHorizontal, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
@@ -197,7 +199,7 @@ internal fun RecordingListItem(
         PushDownReveal(visible = shouldShowStuckRecoveryAction(item.status)) {
             Text(
                 text =
-                    item.errorMessage
+                    item.errorMessage.asHomeProcessingNote()
                         ?: stringResource(
                             R.string.rec_stuck_recovery_message,
                             item.status.name
@@ -208,6 +210,16 @@ internal fun RecordingListItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        // PLH-4: a deliberately skipped recording (profile Auto Transcribe off / user cancel)
+        // shows why there is no transcript yet; the actions sheet offers "Transcribe".
+        PushDownReveal(visible = item.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) {
+            Text(
+                text = stringResource(R.string.rec_awaiting_transcription_note),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -413,6 +425,8 @@ internal fun RecordingActionsSheet(
     onGenerateTitle: (() -> Unit)?,
     onGenerateSummary: (() -> Unit)?,
     onRecoverStuck: (() -> Unit)?,
+    onCancelTranscription: (() -> Unit)? = null,
+    onTranscribeNow: (() -> Unit)? = null,
 ) {
     Column(
         modifier =
@@ -473,6 +487,26 @@ internal fun RecordingActionsSheet(
                 icon = Icons.Rounded.Refresh,
                 text = stringResource(R.string.rec_retry_transcription),
                 onClick = onRetryTranscription,
+            )
+        }
+
+        // PLH-4: explicit start for a recording whose profile skipped auto-transcription.
+        if (onTranscribeNow != null) {
+            HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
+            SheetActionItem(
+                icon = Icons.Rounded.Refresh,
+                text = stringResource(R.string.rec_transcribe_now),
+                onClick = onTranscribeNow,
+            )
+        }
+
+        // PIPE-07: cancel a queued/running transcription.
+        if (onCancelTranscription != null) {
+            HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
+            SheetActionItem(
+                icon = Icons.Rounded.Close,
+                text = stringResource(R.string.rec_cancel_transcription),
+                onClick = onCancelTranscription,
             )
         }
 

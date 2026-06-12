@@ -10,6 +10,7 @@ import android.media.MediaRecorder
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import java.io.BufferedOutputStream
@@ -83,6 +84,9 @@ class VoiceRecorder(
 
         /** Number of float samples read from [AudioRecord] per blocking read. */
         private const val CAPTURE_READ_BUFFER_SIZE = 1024
+
+        /** Sustained all-zero input (4s) before [onSilenceStateChanged] reports silence. */
+        const val SILENCE_WARNING_SAMPLES = SAMPLE_RATE * 4L
 
         /** Low-byte mask for splitting an int into little-endian bytes. */
         private const val BYTE_MASK = 0xFF
@@ -174,6 +178,16 @@ class VoiceRecorder(
     /** Callback invoked when recording limit is reached */
     var onLimitReached: (() -> Unit)? = null
 
+    /**
+     * Callback invoked from the collection coroutine when the capture transitions into or
+     * out of sustained digital silence (every sample exactly zero for
+     * [SILENCE_WARNING_SAMPLES]). Pure zeros are the signature of a silenced AudioRecord
+     * client: another app holds the mic under the concurrent-capture policy or the mic
+     * privacy toggle is off. Reads keep succeeding, so without this the session records
+     * nothing while looking live.
+     */
+    var onSilenceStateChanged: ((Boolean) -> Unit)? = null
+
     /** Whether an error occurred during the current recording session */
     private var hasError = false
 
@@ -232,17 +246,20 @@ class VoiceRecorder(
 
             while (retryCount < maxRetries) {
                 try {
+                    // VOICE_RECOGNITION: every VoiceRecorder surface feeds ASR, and this
+                    // source gives recognition-tuned processing (predictable AGC, no
+                    // phoneme-smearing noise suppression) instead of generic MIC defaults.
                     attempt.pendingRecord =
                         inputDeviceSelector?.let { selector ->
                             selector.buildAudioRecord(
-                                audioSource = MediaRecorder.AudioSource.MIC,
+                                audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION,
                                 sampleRate = SAMPLE_RATE,
                                 channelConfig = CHANNEL_CONFIG,
                                 audioFormat = AUDIO_FORMAT,
                                 bufferSize = bufferSize * 2,
                             )
                         } ?: AudioRecord(
-                            MediaRecorder.AudioSource.MIC,
+                            MediaRecorder.AudioSource.VOICE_RECOGNITION,
                             SAMPLE_RATE,
                             CHANNEL_CONFIG,
                             AUDIO_FORMAT,
@@ -367,6 +384,9 @@ class VoiceRecorder(
             if (record == null) return@withContext
             val buffer = FloatArray(CAPTURE_READ_BUFFER_SIZE)
             hasError = false
+            var routingChecked = false
+            var silentSampleRun = 0L
+            var silenceNotified = false
 
             while (isActive && isRecording.get() && sessionGeneration.get() == collectGeneration) {
                 val readResult = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
@@ -445,6 +465,12 @@ class VoiceRecorder(
                             }
                             return@withContext
                         }
+                        if (!routingChecked) {
+                            routingChecked = true
+                            inputDeviceSelector?.let { selector ->
+                                runCatching { selector.refreshActiveDeviceFromRouting(record) }
+                            }
+                        }
                         // Calculate amplitude for visualization (RMS of buffer)
                         var sum = 0f
                         for (i in 0 until readResult) {
@@ -453,6 +479,19 @@ class VoiceRecorder(
                         val amplitude = (sum / readResult).coerceIn(0f, 1f)
                         waveformBuffer.add(amplitude)
                         _sampleCountFlow.value += 1L
+                        if (sum == 0f) {
+                            silentSampleRun += readResult
+                            if (!silenceNotified && silentSampleRun >= SILENCE_WARNING_SAMPLES) {
+                                silenceNotified = true
+                                onSilenceStateChanged?.invoke(true)
+                            }
+                        } else {
+                            silentSampleRun = 0L
+                            if (silenceNotified) {
+                                silenceNotified = false
+                                onSilenceStateChanged?.invoke(false)
+                            }
+                        }
                     }
                 }
             }
@@ -605,7 +644,12 @@ class VoiceRecorder(
         return wasRecording
     }
 
-    private fun boostedSample(sample: Float): Float = (sample * gainMultiplier).coerceIn(-1f, 1f)
+    /**
+     * Applies the gain with a soft-knee limiter instead of hard clipping: boosted speech
+     * peaks are compressed smoothly toward full scale rather than squared off, which kept
+     * distortion out of both the recognizer input and the rescued audio.
+     */
+    private fun boostedSample(sample: Float): Float = AudioGain.boost(sample, gainMultiplier)
 
     /**
      * Ensures the in-memory [samples] buffer can hold [requiredSize] floats,

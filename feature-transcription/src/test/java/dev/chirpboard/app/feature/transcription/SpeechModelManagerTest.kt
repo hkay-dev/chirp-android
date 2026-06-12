@@ -1,52 +1,63 @@
 package dev.chirpboard.app.feature.transcription
 
-import app.cash.turbine.test
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
-import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
-import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
-import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * The download itself moved into app-scoped WorkManager work behind
+ * [SpeechModelDownloadGateway] (ERR-1); these tests pin the manager's role as a pure
+ * observer/mapper of that work. The old suspend `downloadModel` collect tests were
+ * intentionally replaced: starting a download is now fire-and-observe.
+ */
 class SpeechModelManagerTest {
     private lateinit var speechModelStore: SpeechModelStore
     private lateinit var readinessGate: SpeechModelReadinessGate
-    private lateinit var classUnderTest: SpeechModelManager
+    private lateinit var downloadGateway: SpeechModelDownloadGateway
+    private lateinit var gatewayWork: MutableStateFlow<SpeechModelDownloadWork>
+
+    private val notReadyEvaluation =
+        ModelReadinessEvaluation(
+            isReady = false,
+            unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
+        )
 
     @Before
     fun setup() {
         speechModelStore = mockk(relaxed = true)
         readinessGate = mockk(relaxed = true)
-        coEvery { speechModelStore.evaluateReadiness() } returns
-            ModelReadinessEvaluation(
-                isReady = false,
-                unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
-            )
-        classUnderTest = SpeechModelManager(speechModelStore, readinessGate)
+        downloadGateway = mockk(relaxed = true)
+        gatewayWork = MutableStateFlow(SpeechModelDownloadWork.Idle)
+        every { downloadGateway.work } returns gatewayWork
+        coEvery { speechModelStore.evaluateReadiness() } returns notReadyEvaluation
     }
+
+    // The manager's background work (gateway collection + init refresh) runs on the test's
+    // backgroundScope so each test stays deterministic: queued init work only executes when
+    // the test explicitly advances the scheduler.
+    private fun TestScope.createManager(): SpeechModelManager =
+        SpeechModelManager(speechModelStore, readinessGate, downloadGateway, backgroundScope)
 
     @Test
     fun `deleteModel invalidates cache without warming deleted model`() = runTest {
+        val manager = createManager()
         coEvery { speechModelStore.deleteModel() } returns true
-        coEvery { speechModelStore.evaluateReadiness() } returns
-            ModelReadinessEvaluation(
-                isReady = false,
-                unavailableReason = ModelReadinessUnavailableReason.MISSING_MODEL_FILES,
-            )
 
-        val result = classUnderTest.deleteModel()
+        val result = manager.deleteModel()
 
         assertTrue(result)
         verify { speechModelStore.invalidateVerificationCache() }
@@ -55,45 +66,142 @@ class SpeechModelManagerTest {
     }
 
     @Test
-    fun `downloadModel forwards progress and completion`() = runTest {
-        coEvery { speechModelStore.downloadModel() } returns
-            flowOf(
-                SpeechModelDownloadState.Progress("encoder.int8.onnx", 0.5f),
-                SpeechModelDownloadState.Complete,
+    fun `requestDownload delegates to the gateway with the storage choice`() = runTest {
+        val manager = createManager()
+
+        manager.requestDownload(preferInternalStorage = true)
+
+        verify { downloadGateway.startDownload(preferInternalStorage = true) }
+        assertEquals(
+            SpeechModelManager.ModelStatus.Downloading(0f),
+            manager.modelStatus.value,
+        )
+    }
+
+    @Test
+    fun `cancelDownload delegates to the gateway`() = runTest {
+        val manager = createManager()
+
+        manager.cancelDownload()
+
+        verify { downloadGateway.cancelDownload() }
+    }
+
+    @Test
+    fun `running work maps to Downloading with file and progress`() = runTest {
+        val manager = createManager()
+
+        manager.applyDownloadWork(
+            work = SpeechModelDownloadWork.Running(file = "encoder.int8.onnx", progress = 0.5f),
+            previous = SpeechModelDownloadWork.Waiting,
+        )
+
+        assertEquals(
+            SpeechModelManager.ModelStatus.Downloading(0.5f, "encoder.int8.onnx"),
+            manager.modelStatus.value,
+        )
+        assertEquals(0.5f, manager.downloadProgress.value, 0.001f)
+    }
+
+    @Test
+    fun `waiting work maps to WaitingForNetwork`() = runTest {
+        val manager = createManager()
+
+        manager.applyDownloadWork(
+            work = SpeechModelDownloadWork.Waiting,
+            previous = SpeechModelDownloadWork.Idle,
+        )
+
+        assertEquals(SpeechModelManager.ModelStatus.WaitingForNetwork, manager.modelStatus.value)
+    }
+
+    @Test
+    fun `failed work surfaces a persistent error`() = runTest {
+        val manager = createManager()
+
+        manager.applyDownloadWork(
+            work = SpeechModelDownloadWork.Failed("No internet connection. Check your network and try again."),
+            previous = SpeechModelDownloadWork.Running("encoder.int8.onnx", 0.8f),
+        )
+
+        assertEquals(
+            SpeechModelManager.ModelStatus.Error("No internet connection. Check your network and try again."),
+            manager.modelStatus.value,
+        )
+    }
+
+    @Test
+    fun `succeeded work re-evaluates readiness and reports Ready`() = runTest {
+        val manager = createManager()
+        coEvery { speechModelStore.evaluateReadiness() } returns ModelReadinessEvaluation(isReady = true)
+
+        manager.applyDownloadWork(
+            work = SpeechModelDownloadWork.Succeeded,
+            previous = SpeechModelDownloadWork.Running("tokens.txt", 0.99f),
+        )
+
+        assertEquals(SpeechModelManager.ModelStatus.Ready, manager.modelStatus.value)
+        assertEquals(0f, manager.downloadProgress.value, 0.001f)
+    }
+
+    @Test
+    fun `cancelled work re-derives the status from disk`() = runTest {
+        val manager = createManager()
+
+        manager.applyDownloadWork(
+            work = SpeechModelDownloadWork.Running("encoder.int8.onnx", 0.3f),
+            previous = SpeechModelDownloadWork.Waiting,
+        )
+        manager.applyDownloadWork(
+            work = SpeechModelDownloadWork.Idle,
+            previous = SpeechModelDownloadWork.Running("encoder.int8.onnx", 0.3f),
+        )
+
+        assertEquals(SpeechModelManager.ModelStatus.NotDownloaded, manager.modelStatus.value)
+    }
+
+    @Test
+    fun `statusFor never resets an interrupted download to NotDownloaded`() = runTest {
+        val manager = createManager()
+
+        // ERR-1: a stale FAILED work item must keep the honest error visible after a
+        // process restart instead of silently showing "Not downloaded".
+        val status =
+            manager.statusFor(
+                evaluation = notReadyEvaluation,
+                work = SpeechModelDownloadWork.Failed("The download was interrupted. Retrying will resume where it left off."),
             )
 
-        classUnderTest.downloadModel()
-
-        assertEquals(SpeechModelManager.ModelStatus.Ready, classUnderTest.modelStatus.value)
-        verify { readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD) }
-    }
-
-    @Test
-    fun `downloadModel invalidates the gate before warming so a stale Unavailable re-verifies`() = runTest {
-        coEvery { speechModelStore.downloadModel() } returns
-            flowOf(SpeechModelDownloadState.Complete)
-
-        classUnderTest.downloadModel()
-
-        // The gate caches readiness and warmupIfNeeded no-ops unless state==Unknown; a prior
-        // open-keyboard-before-download warmup pins it to Unavailable. Invalidating before the
-        // post-download warmup is what makes the warmup actually re-verify the now-present model
-        // (otherwise the cached-gate keyboard banner sticks on NotDownloaded).
-        verify(ordering = io.mockk.Ordering.ORDERED) {
-            readinessGate.invalidate()
-            readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
-        }
-    }
-
-    @Test
-    fun `downloadModel surfaces store errors`() = runTest {
-        coEvery { speechModelStore.downloadModel() } returns
-            flowOf(SpeechModelDownloadState.Error("Download failed"))
-
-        classUnderTest.downloadModel()
-
-        val status = classUnderTest.modelStatus.value
         assertTrue(status is SpeechModelManager.ModelStatus.Error)
-        assertEquals("Download failed", (status as SpeechModelManager.ModelStatus.Error).message)
+    }
+
+    @Test
+    fun `statusFor prefers a ready model over stale terminal work`() = runTest {
+        val manager = createManager()
+
+        val status =
+            manager.statusFor(
+                evaluation = ModelReadinessEvaluation(isReady = true),
+                work = SpeechModelDownloadWork.Failed("stale"),
+            )
+
+        assertEquals(SpeechModelManager.ModelStatus.Ready, status)
+    }
+
+    @Test
+    fun `statusFor maps integrity mismatch to an error when no work is active`() = runTest {
+        val manager = createManager()
+
+        val status =
+            manager.statusFor(
+                evaluation =
+                    ModelReadinessEvaluation(
+                        isReady = false,
+                        unavailableReason = ModelReadinessUnavailableReason.INTEGRITY_MISMATCH,
+                    ),
+                work = SpeechModelDownloadWork.Idle,
+            )
+
+        assertEquals(SpeechModelManager.ModelStatus.Error("Model integrity check failed"), status)
     }
 }

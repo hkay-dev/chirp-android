@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.keyboard.session
 
 import androidx.annotation.StringRes
 import dev.chirpboard.app.core.llm.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingModeDefaults
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.feature.keyboard.R
@@ -24,6 +25,17 @@ enum class ModelBannerState {
 }
 
 /**
+ * A full-panel error overlay (IME-4 / ERR-8). [showOpenApp] distinguishes the mic-permission
+ * case — where the only real fix is opening the app to grant RECORD_AUDIO, so the overlay offers
+ * an "Open Chirp" action — from session errors (e.g. "input field changed") whose affordance is a
+ * plain dismiss.
+ */
+data class KeyboardOverlayError(
+    val message: String,
+    val showOpenApp: Boolean = false,
+)
+
+/**
  * Whether this banner is an actionable state the user must SEE as a banner (KBD-2).
  *
  * Only [ModelBannerState.NotDownloaded] (user must open the app to download) and
@@ -41,6 +53,31 @@ fun ModelBannerState.requiresActionBanner(): Boolean =
  */
 fun ModelBannerState.isWarming(): Boolean = this == ModelBannerState.Initializing
 
+/**
+ * Resolves the mode an inline keyboard dictation actually uses (PLH-1): the keyboard-scoped
+ * default mode preference wins when set and resolvable, otherwise the global processing mode.
+ * Custom presets resolve through [availableModes]; the built-in ids resolve even before the
+ * selectable-modes flow has emitted.
+ */
+fun resolveKeyboardSessionMode(
+    keyboardDefaultModeId: String?,
+    globalMode: ProcessingMode,
+    availableModes: List<ProcessingModeListItem>,
+): ProcessingMode {
+    if (keyboardDefaultModeId.isNullOrBlank()) return globalMode
+    val listed = availableModes.firstOrNull { it.id == keyboardDefaultModeId }
+    if (listed != null) {
+        return ProcessingMode(id = listed.id, displayName = listed.name)
+    }
+    if (keyboardDefaultModeId in ProcessingModeDefaults.builtInSelectableIds) {
+        return ProcessingMode(
+            id = keyboardDefaultModeId,
+            displayName = ProcessingModeDefaults.displayName(keyboardDefaultModeId),
+        )
+    }
+    return globalMode
+}
+
 data class KeyboardUiState(
     val voicePanel: VoicePanelPhase,
     val modelLoadProgress: Float?,
@@ -49,12 +86,18 @@ data class KeyboardUiState(
     val llmEnabled: Boolean,
     val processingMode: ProcessingMode,
     val availableModes: List<ProcessingModeListItem> = emptyList(),
-    val errorOverlay: String? = null,
+    val errorOverlay: KeyboardOverlayError? = null,
     val errorMessage: String? = null,
     val llmErrorMessage: String? = null,
+    /**
+     * Typing aids (backspace, space, cursor drag, action key) stay available in every state —
+     * including password fields and mic-permission errors, where only DICTATION is off (IME-4).
+     */
     val showTypingControls: Boolean = true,
     val showRecordingActions: Boolean = false,
     val settingsEnabled: Boolean = true,
+    /** Password/blocked field: the center panel shows a neutral "dictation off" notice (IME-4). */
+    val sensitiveInputNotice: Boolean = false,
 ) {
     @StringRes
     fun statusLabelRes(): Int? =
@@ -75,11 +118,12 @@ fun mapKeyboardUiState(
     llmEnabled: Boolean,
     processingMode: ProcessingMode,
     availableModes: List<ProcessingModeListItem>,
-    permissionError: String?,
+    overlayError: KeyboardOverlayError?,
+    sensitiveInput: Boolean = false,
 ): KeyboardUiState {
     val voicePanel =
         when {
-            permissionError != null -> VoicePanelPhase.Error
+            overlayError != null -> VoicePanelPhase.Error
             isRecording -> VoicePanelPhase.Recording
             transcriptionPhase is InlineTranscriptionPhase.LoadingModel -> VoicePanelPhase.LoadingModel
             transcriptionPhase is InlineTranscriptionPhase.Transcribing -> VoicePanelPhase.Transcribing
@@ -95,10 +139,11 @@ fun mapKeyboardUiState(
     // Keep the banner tied to the actual model state, not the voice phase: while the model is
     // warming it must stay present across LoadingModel/Transcribing/Polishing so the panel does
     // not reflow ("breathe") once per dictation. It clears only when the model state itself
-    // changes (modelBanner becomes None once the model is ready). A permission error replaces the
-    // whole panel with error content, so the banner is suppressed only in that case.
+    // changes (modelBanner becomes None once the model is ready). An error overlay replaces the
+    // whole panel with error content, and a sensitive field shows only the dictation-off notice,
+    // so the banner is suppressed in those cases.
     val resolvedModelBanner =
-        if (permissionError != null) ModelBannerState.None else modelBanner
+        if (overlayError != null || sensitiveInput) ModelBannerState.None else modelBanner
 
     return KeyboardUiState(
         voicePanel = voicePanel,
@@ -108,11 +153,14 @@ fun mapKeyboardUiState(
         llmEnabled = llmEnabled,
         processingMode = processingMode,
         availableModes = availableModes,
-        errorOverlay = permissionError,
+        errorOverlay = overlayError,
         errorMessage = (transcriptionPhase as? InlineTranscriptionPhase.Error)?.message,
         llmErrorMessage = (transcriptionPhase as? InlineTranscriptionPhase.LlmError)?.message,
-        showTypingControls = permissionError == null,
+        showTypingControls = true,
         showRecordingActions = isRecording,
-        settingsEnabled = permissionError == null,
+        // AI enhancement settings are dictation-scoped: pointless while dictation itself is
+        // unavailable (error overlay or a sensitive field).
+        settingsEnabled = overlayError == null && !sensitiveInput,
+        sensitiveInputNotice = sensitiveInput,
     )
 }

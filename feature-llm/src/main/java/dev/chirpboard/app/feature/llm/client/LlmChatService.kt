@@ -157,8 +157,8 @@ class LlmChatService
             prompt: String,
         ): Result<String> {
             val requestBody = gson.toJson(GeminiRequest.of(prompt))
-            val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent?key=$apiKey"
-            return postJson(url, requestBody, emptyMap()).mapCatching { body ->
+            val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent"
+            return postJson(url, requestBody, geminiHeaders(apiKey)).mapCatching { body ->
                 val response = gson.fromJson(body, GeminiResponse::class.java)
                 if (response.error != null) {
                     throw Exception(response.error.message ?: "Gemini API error")
@@ -194,8 +194,8 @@ class LlmChatService
             }
 
             val requestBody = gson.toJson(GeminiRequest(contents = contents))
-            val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent?key=$apiKey"
-            return postJson(url, requestBody, emptyMap()).mapCatching { body ->
+            val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent"
+            return postJson(url, requestBody, geminiHeaders(apiKey)).mapCatching { body ->
                 val response = gson.fromJson(body, GeminiResponse::class.java)
                 if (response.error != null) {
                     throw Exception(response.error.message ?: "Gemini API error")
@@ -356,6 +356,11 @@ class LlmChatService
 
         private fun bearerHeaders(apiKey: String): Map<String, String> =
             mapOf("Authorization" to "Bearer $apiKey")
+
+        // The key goes in a header, never the URL: URLs leak into server/proxy logs and
+        // exception traces, while headers stay out of them (SEC-3).
+        private fun geminiHeaders(apiKey: String): Map<String, String> =
+            mapOf("x-goog-api-key" to apiKey)
 
         private fun anthropicHeaders(apiKey: String): Map<String, String> =
             mapOf(

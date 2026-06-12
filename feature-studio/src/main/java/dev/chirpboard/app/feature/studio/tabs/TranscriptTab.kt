@@ -13,28 +13,44 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
+import dev.chirpboard.app.feature.studio.TranscriptSelectionResult
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.ProcessingStudioTranscript
 import dev.chirpboard.app.feature.studio.R
@@ -46,6 +62,7 @@ import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 
 private const val ACTIVE_SEGMENT_BACKGROUND_ALPHA = 0.22f
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptTab(
     transcript: ProcessingStudioTranscript,
@@ -58,6 +75,15 @@ fun TranscriptTab(
     hasManualCorrection: Boolean,
     activeSegmentIndex: Int,
     status: RecordingStatus?,
+    isSelectingTranscript: Boolean,
+    renderedTranscriptText: String,
+    selectedTranscriptPassage: String,
+    transcriptSelectionActionInFlight: TranscriptPassageAction?,
+    transcriptSelectionResult: TranscriptSelectionResult?,
+    onTranscriptSelectionChanged: (String) -> Unit,
+    onRunTranscriptSelectionAction: (TranscriptPassageAction) -> Unit,
+    onCopySelectionResult: (String) -> Unit,
+    onStartTranscription: (() -> Unit)?,
     onSegmentClicked: ((Long) -> Unit)?,
     onTranscriptDraftChange: (String) -> Unit,
     onCopyTranscript: () -> Unit,
@@ -68,8 +94,10 @@ fun TranscriptTab(
 ) {
     val isProcessing = status.transcriptionProgressKind() != null
     val isFailed = status == RecordingStatus.FAILED
+    val isAwaitingManual = status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION
     val hasTranscriptContent = transcript != ProcessingStudioTranscript.Empty
-    val showTranscriptChrome = hasTranscriptContent && !isEditingTranscript && !isProcessing
+    val showTranscriptChrome =
+        hasTranscriptContent && !isEditingTranscript && !isSelectingTranscript && !isProcessing
     val showEmptyCompleted =
         transcript == ProcessingStudioTranscript.Empty &&
             status == RecordingStatus.COMPLETED &&
@@ -114,6 +142,12 @@ fun TranscriptTab(
         val bodyMode =
             when {
                 isFailed && !isEditingTranscript -> TranscriptBodyMode.Failed
+                // PLH-6: passage selection replaces the karaoke body with a selectable text view
+                // plus the three AI passage actions.
+                isSelectingTranscript && !isEditingTranscript -> TranscriptBodyMode.Selecting
+                // PLH-4: a deliberately skipped recording is not "processing"; it waits for an
+                // explicit start instead of showing an endless skeleton.
+                isAwaitingManual && !isEditingTranscript -> TranscriptBodyMode.AwaitingManual
                 isProcessing && !isEditingTranscript -> TranscriptBodyMode.Processing
                 showTranscriptChrome -> TranscriptBodyMode.Chrome
                 showEmptyCompleted -> TranscriptBodyMode.EmptyCompleted
@@ -137,6 +171,20 @@ fun TranscriptTab(
                     TranscriptBodyMode.Processing -> TranscriptProcessingSkeleton()
 
                     TranscriptBodyMode.Failed -> Unit
+
+                    TranscriptBodyMode.Selecting ->
+                        TranscriptSelectionContent(
+                            transcriptText = renderedTranscriptText,
+                            selectedPassage = selectedTranscriptPassage,
+                            actionInFlight = transcriptSelectionActionInFlight,
+                            result = transcriptSelectionResult,
+                            onSelectionChanged = onTranscriptSelectionChanged,
+                            onRunAction = onRunTranscriptSelectionAction,
+                            onCopyResult = onCopySelectionResult,
+                        )
+
+                    TranscriptBodyMode.AwaitingManual ->
+                        AwaitingManualTranscriptionContent(onStartTranscription = onStartTranscription)
 
                     TranscriptBodyMode.Chrome -> {
                         Box(modifier = Modifier.fillMaxSize()) {
@@ -175,10 +223,15 @@ fun TranscriptTab(
                     }
 
                     TranscriptBodyMode.Editing -> {
+                        // A11Y: name the edit box so TalkBack says what is being edited.
+                        val transcriptFieldDescription = stringResource(R.string.rec_transcript_field_desc)
                         OutlinedTextField(
                             value = transcriptDraft,
                             onValueChange = onTranscriptDraftChange,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .semantics { contentDescription = transcriptFieldDescription },
                             minLines = 12,
                         )
                     }
@@ -191,6 +244,8 @@ fun TranscriptTab(
 private enum class TranscriptBodyMode {
     Processing,
     Failed,
+    Selecting,
+    AwaitingManual,
     Chrome,
     EmptyCompleted,
     Editing,
@@ -198,11 +253,14 @@ private enum class TranscriptBodyMode {
 
 @Composable
 private fun TranscriptProcessingSkeleton() {
+    // A11Y: announce the load instead of reading as an empty tab to TalkBack.
+    val processingDescription = stringResource(R.string.rec_transcript_processing_desc)
     Column(
         modifier =
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 24.dp),
+                .padding(horizontal = 16.dp, vertical = 24.dp)
+                .semantics { contentDescription = processingDescription },
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         repeat(6) { index ->
@@ -214,6 +272,148 @@ private fun TranscriptProcessingSkeleton() {
                 shape = MaterialTheme.shapes.small,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
             ) {}
+        }
+    }
+}
+
+/**
+ * PLH-6: passage-selection body — the transcript in a selectable read-only field, the three AI
+ * passage actions, and the latest action result.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun TranscriptSelectionContent(
+    transcriptText: String,
+    selectedPassage: String,
+    actionInFlight: TranscriptPassageAction?,
+    result: TranscriptSelectionResult?,
+    onSelectionChanged: (String) -> Unit,
+    onRunAction: (TranscriptPassageAction) -> Unit,
+    onCopyResult: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.rec_transcript_selection_prompt),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TranscriptPassageAction.entries.forEach { action ->
+                OutlinedButton(
+                    onClick = { onRunAction(action) },
+                    enabled = selectedPassage.isNotBlank() && actionInFlight == null,
+                ) {
+                    if (actionInFlight == action) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(passageActionLabel(action))
+                }
+            }
+        }
+
+        result?.let { selectionResult ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = passageActionLabel(selectionResult.action),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { onCopyResult(selectionResult.text) }) {
+                            Icon(
+                                imageVector = Icons.Rounded.ContentCopy,
+                                contentDescription = stringResource(R.string.rec_copy),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                    Text(
+                        text = selectionResult.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        }
+
+        // A read-only BasicTextField is the one Compose surface that reports selection changes
+        // (SelectionContainer never exposes its selection), which the passage actions need.
+        var selectionValue by remember(transcriptText) { mutableStateOf(TextFieldValue(transcriptText)) }
+        BasicTextField(
+            value = selectionValue,
+            onValueChange = { next ->
+                selectionValue = next.copy(text = transcriptText)
+                val selection = next.selection
+                onSelectionChanged(
+                    if (selection.collapsed) {
+                        ""
+                    } else {
+                        transcriptText.substring(selection.min, selection.max)
+                    },
+                )
+            },
+            readOnly = true,
+            textStyle =
+                MaterialTheme.typography.bodyLarge.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+        )
+    }
+}
+
+@Composable
+private fun passageActionLabel(action: TranscriptPassageAction): String =
+    when (action) {
+        TranscriptPassageAction.SUMMARIZE -> stringResource(R.string.rec_passage_summarize)
+        TranscriptPassageAction.EXPLAIN -> stringResource(R.string.rec_passage_explain)
+        TranscriptPassageAction.EXTRACT_ITEMS -> stringResource(R.string.rec_passage_extract_items)
+    }
+
+/**
+ * PLH-4: body for AWAITING_MANUAL_TRANSCRIPTION — the recording was deliberately not queued
+ * (profile Auto Transcribe off, or the user cancelled), so explain and offer an explicit start.
+ */
+@Composable
+private fun AwaitingManualTranscriptionContent(onStartTranscription: (() -> Unit)?) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.rec_awaiting_transcription_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = stringResource(R.string.rec_awaiting_transcription_message),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (onStartTranscription != null) {
+            FilledTonalButton(onClick = onStartTranscription) {
+                Text(stringResource(R.string.rec_transcribe_now_studio))
+            }
         }
     }
 }

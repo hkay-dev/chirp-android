@@ -73,4 +73,16 @@ class StraySwitchCharacterCleanupTest {
     fun `null connection is a no-op`() {
         assertFalse(removeStraySwitchCharacter(null))
     }
+
+    @Test
+    fun `cleanup is attempted only within the post-create freshness window`() {
+        // IME-5: a bind right after service creation can be an IME switch; later binds are
+        // ordinary app switches where a trailing z/Z is legitimate text.
+        assertTrue(shouldAttemptStraySwitchCleanup(0L))
+        assertTrue(shouldAttemptStraySwitchCleanup(2_999L))
+        assertTrue(shouldAttemptStraySwitchCleanup(STRAY_SWITCH_CLEANUP_FRESHNESS_MS))
+        assertFalse(shouldAttemptStraySwitchCleanup(STRAY_SWITCH_CLEANUP_FRESHNESS_MS + 1))
+        assertFalse(shouldAttemptStraySwitchCleanup(60_000L))
+        assertFalse(shouldAttemptStraySwitchCleanup(-1L))
+    }
 }

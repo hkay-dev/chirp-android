@@ -21,6 +21,10 @@ const val SAVED_RECORDING_FORMAT_LABEL = "M4A (AAC)"
 const val DEFAULT_MICROPHONE_GAIN = 1.0f
 const val MIN_MICROPHONE_GAIN = 1.0f
 const val MAX_MICROPHONE_GAIN = 5.0f
+const val DEFAULT_PLAYBACK_SPEED = 1.0f
+
+/** Supported recording playback speeds, in cycle order. */
+val PLAYBACK_SPEED_OPTIONS = listOf(0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 
 data class AppRecordingQualityConfig(
     val bitRate: Int,
@@ -67,6 +71,7 @@ data class AudioSettings(
     val inputDevicePolicy: AudioInputDevicePolicy = AudioInputDevicePolicy.DEFAULT,
     val manualDeviceAddress: String? = null,
     val batteryOptimizationPromptShown: Boolean = false,
+    val playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED,
 ) {
     val savedFormatLabel: String get() = outputFormat.displayLabel
 }
@@ -92,6 +97,7 @@ class AudioSettingsStore
             val manualDeviceAddress = stringPreferencesKey("manual_device_address")
             val batteryOptimizationPromptShown = booleanPreferencesKey("battery_optimization_prompt_shown")
             val migrationComplete = booleanPreferencesKey("audio_settings_migration_complete")
+            val playbackSpeed = floatPreferencesKey("playback_speed")
         }
 
         private val migrationMutex = Mutex()
@@ -146,6 +152,13 @@ class AudioSettingsStore
             }
         }
 
+        suspend fun setPlaybackSpeed(speed: Float) {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                preferences[Keys.playbackSpeed] = nearestPlaybackSpeed(speed)
+            }
+        }
+
         suspend fun markBatteryOptimizationPromptShown() {
             ensureMigrated()
             dataStore.edit { preferences ->
@@ -163,6 +176,8 @@ class AudioSettingsStore
         suspend fun currentRecordingQualityPreset(): RecordingQualityPreset = currentSettings().recordingQualityPreset
 
         suspend fun currentOutputFormat(): RecordingOutputFormat = currentSettings().outputFormat
+
+        suspend fun currentPlaybackSpeed(): Float = currentSettings().playbackSpeed
 
         private fun dataFlow(transform: (Preferences) -> AudioSettings): Flow<AudioSettings> =
             flow {
@@ -212,6 +227,7 @@ class AudioSettingsStore
                 inputDevicePolicy = AudioInputDevicePolicy.fromStorageValue(this[Keys.inputDevicePolicy]),
                 manualDeviceAddress = this[Keys.manualDeviceAddress],
                 batteryOptimizationPromptShown = this[Keys.batteryOptimizationPromptShown] == true,
+                playbackSpeed = this[Keys.playbackSpeed]?.let(::nearestPlaybackSpeed) ?: DEFAULT_PLAYBACK_SPEED,
             )
 
         private fun Preferences.readMicrophoneGain(): Float =
@@ -223,4 +239,10 @@ class AudioSettingsStore
         private fun Preferences.readOutputFormat(): RecordingOutputFormat =
             RecordingOutputFormat.fromStorageValue(this[Keys.outputFormat])
 
+        companion object {
+            /** Snaps an arbitrary stored/requested value to the closest supported speed. */
+            fun nearestPlaybackSpeed(speed: Float): Float =
+                PLAYBACK_SPEED_OPTIONS.minByOrNull { option -> kotlin.math.abs(option - speed) }
+                    ?: DEFAULT_PLAYBACK_SPEED
+        }
     }

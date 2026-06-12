@@ -66,23 +66,8 @@ data class ModelReadinessEvaluation(
     val unavailableReason: ModelReadinessUnavailableReason? = null,
 )
 
-sealed interface SpeechModelDownloadState {
-    data class Progress(
-        val file: String,
-        val progress: Float,
-    ) : SpeechModelDownloadState
-
-    data object Complete : SpeechModelDownloadState
-
-    data class Error(
-        val message: String,
-    ) : SpeechModelDownloadState
-}
-
 interface SpeechModelStore {
     suspend fun evaluateReadiness(): ModelReadinessEvaluation
-
-    fun downloadModel(): kotlinx.coroutines.flow.Flow<SpeechModelDownloadState>
 
     suspend fun deleteModel(): Boolean
 

@@ -154,4 +154,29 @@ class TranscriptionWorkerSupportTest {
 
         assertTrue(caught is ActiveRecordingWaitTimeoutException)
     }
+
+    @Test
+    fun `sanitizeGeneratedTitle strips wrapping quotes and collapses newlines`() {
+        assertEquals("Weekly Sync Notes", sanitizeGeneratedTitle("\"Weekly Sync\nNotes\""))
+        assertEquals("Budget review", sanitizeGeneratedTitle("`Budget review`"))
+        assertEquals("Plan for launch", sanitizeGeneratedTitle("- Plan for launch"))
+        assertEquals("Quarterly recap", sanitizeGeneratedTitle("  Quarterly   recap  "))
+    }
+
+    @Test
+    fun `sanitizeGeneratedTitle caps length and can yield empty for unusable output`() {
+        val longTitle = "word ".repeat(40).trim()
+        assertTrue(sanitizeGeneratedTitle(longTitle).length <= GENERATED_TITLE_MAX_LENGTH)
+        assertEquals("", sanitizeGeneratedTitle("\"\""))
+        assertEquals("", sanitizeGeneratedTitle("   "))
+    }
+
+    @Test
+    fun `sanitizeGeneratedSummary trims wrapping and caps length`() {
+        assertEquals("A short summary.", sanitizeGeneratedSummary("  \"A short summary.\"  "))
+        val longSummary = "s".repeat(GENERATED_SUMMARY_MAX_LENGTH + 100)
+        assertEquals(GENERATED_SUMMARY_MAX_LENGTH, sanitizeGeneratedSummary(longSummary).length)
+        // Multi-sentence summaries keep their internal newlines; only the edges normalize.
+        assertEquals("Line one.\nLine two.", sanitizeGeneratedSummary("Line one.\nLine two.\n"))
+    }
 }

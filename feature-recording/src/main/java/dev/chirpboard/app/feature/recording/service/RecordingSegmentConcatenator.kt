@@ -37,6 +37,19 @@ class RecordingSegmentConcatenator
                 return SegmentConcatResult.Failed("No segment files to merge")
             }
 
+            // Finalize transiently needs roughly the segments' size again (temp concat +
+            // output) while the originals still exist. Fail fast with a clear reason
+            // instead of dying mid-encode on a full disk; the segments are kept, so the
+            // recording stays recoverable after space is freed.
+            val totalSegmentBytes = existingSegments.sumOf { it.length() }
+            val requiredBytes = requiredFinalizeHeadroomBytes(totalSegmentBytes, existingSegments.size)
+            val usableBytes = runCatching { outputFile.parentFile?.usableSpace }.getOrNull() ?: Long.MAX_VALUE
+            if (usableBytes in 1 until requiredBytes) {
+                return SegmentConcatResult.Failed(
+                    "Not enough storage to finalize the recording — free up space and try again",
+                )
+            }
+
             outputFile.parentFile?.mkdirs()
             if (outputFile.exists()) {
                 outputFile.delete()
@@ -259,5 +272,23 @@ class RecordingSegmentConcatenator
             private const val BUFFER_SIZE = 256 * 1024
             private const val MIN_PLAUSIBLE_SAMPLE_RATE = 8_000
             private const val MAX_PLAUSIBLE_SAMPLE_RATE = 192_000
+
+            /** Headroom multiplier (x1.2 as fixed-point) for multi-segment finalize. */
+            private const val HEADROOM_NUMERATOR = 6L
+            private const val HEADROOM_DENOMINATOR = 5L
+
+            /**
+             * Multi-segment finalize stages a temp concat plus the encoded output, so it
+             * needs ~1.2x the segment bytes free; a single-segment copy needs ~1x.
+             */
+            fun requiredFinalizeHeadroomBytes(
+                totalSegmentBytes: Long,
+                segmentCount: Int,
+            ): Long =
+                if (segmentCount > 1) {
+                    totalSegmentBytes * HEADROOM_NUMERATOR / HEADROOM_DENOMINATOR
+                } else {
+                    totalSegmentBytes
+                }
         }
     }

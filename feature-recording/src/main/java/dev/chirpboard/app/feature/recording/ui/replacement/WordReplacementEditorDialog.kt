@@ -16,7 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,9 +33,10 @@ fun WordReplacementEditorDialog(
     onDismiss: () -> Unit,
     onSave: (original: String, replacement: String, caseSensitive: Boolean) -> Unit,
 ) {
-    var original by remember { mutableStateOf(replacement?.original ?: "") }
-    var replacementText by remember { mutableStateOf(replacement?.replacement ?: "") }
-    var caseSensitive by remember { mutableStateOf(replacement?.caseSensitive ?: false) }
+    // LIF-12: typed content survives rotation/resize/process death.
+    var original by rememberSaveable { mutableStateOf(replacement?.original ?: "") }
+    var replacementText by rememberSaveable { mutableStateOf(replacement?.replacement ?: "") }
+    var caseSensitive by rememberSaveable { mutableStateOf(replacement?.caseSensitive ?: false) }
 
     val isEditing = replacement != null
     val title = if (isEditing) stringResource(R.string.rec_edit_replacement) else stringResource(R.string.rec_add_replacement_title)

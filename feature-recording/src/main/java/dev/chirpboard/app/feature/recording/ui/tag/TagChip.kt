@@ -5,7 +5,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -25,7 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
@@ -76,8 +77,16 @@ fun TagChip(
             modifier
                 .minimumInteractiveComponentSize()
                 .clip(shape)
-                .semantics(mergeDescendants = onRemove == null) {}
                 .then(
+                    // A11Y-10: clickable chips are selection toggles (TagPicker); expose the
+                    // checked state + Checkbox role so TalkBack announces whether the tag is
+                    // applied and announces each toggle. toggleable merges the name in.
+                    if (onClick == null) {
+                        Modifier.semantics(mergeDescendants = onRemove == null) {}
+                    } else {
+                        Modifier
+                    },
+                ).then(
                     if (selected) {
                         Modifier.background(backgroundColor)
                     } else {
@@ -85,7 +94,11 @@ fun TagChip(
                     },
                 ).then(
                     if (onClick != null) {
-                        Modifier.clickable(onClick = onClick)
+                        Modifier.toggleable(
+                            value = selected,
+                            role = Role.Checkbox,
+                            onValueChange = { onClick() },
+                        )
                     } else {
                         Modifier
                     },

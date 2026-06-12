@@ -11,6 +11,7 @@ import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.model.RecordingSource
+import dev.chirpboard.app.data.model.RecordingLibraryStats
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.TranscriptPreview
 import dev.chirpboard.app.data.repository.ProfileRepository
@@ -20,6 +21,7 @@ import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
+import dev.chirpboard.app.feature.recording.service.RecordingServiceEvents
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import io.mockk.coEvery
@@ -56,6 +58,7 @@ class HomeViewModelTest {
     private lateinit var audioImportOrchestrator: AudioImportOrchestrator
     private lateinit var sessionRecovery: RecordingRecoveryStore
     private lateinit var savedStateHandle: SavedStateHandle
+    private val serviceEvents = RecordingServiceEvents()
 
     private lateinit var viewModel: HomeViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -110,6 +113,7 @@ class HomeViewModelTest {
                 // Share the test scheduler so flowOn transforms stay on the single dispatcher
                 // that advanceUntilIdle drives — keeps the existing tests deterministic.
                 testDispatcher,
+                serviceEvents,
             )
     }
 
@@ -414,6 +418,101 @@ class HomeViewModelTest {
             )
         }
 
+    @Test
+    fun `cancelTranscription cancels processing and posts a status notice`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            coEvery { transcriptionQueueManager.cancelProcessing(recordingId) } returns Unit
+
+            viewModel.cancelTranscription(failedDisplayItem(recordingId))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { transcriptionQueueManager.cancelProcessing(recordingId) }
+            assertEquals("Transcription cancelled", viewModel.statusMessage.value)
+            assertNull(viewModel.errorMessage.value)
+        }
+
+    @Test
+    fun `startManualTranscription queues a deliberately skipped recording`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            coEvery { transcriptionQueueManager.retranscribe(recordingId) } returns ManualRecoveryResult.ENQUEUED
+
+            viewModel.startManualTranscription(failedDisplayItem(recordingId))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { transcriptionQueueManager.retranscribe(recordingId) }
+            assertEquals("Queued for transcription", viewModel.statusMessage.value)
+        }
+
+    @Test
+    fun `stats derive from the full-table library aggregate not the capped list`() =
+        runTest {
+            // DAT-006: 750 recordings in the table while the capped list flow carries none.
+            every { recordingRepository.getLibraryStats() } returns
+                flowOf(
+                    RepositoryFlowState(
+                        RecordingLibraryStats(
+                            totalCount = 750,
+                            totalDurationMs = 12_345L,
+                            completedCount = 700,
+                        ),
+                    ),
+                )
+            val statsViewModel = createHomeViewModel()
+
+            val collector = launch { statsViewModel.stats.collect {} }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(750, statsViewModel.stats.value.totalRecordings)
+            assertEquals(12_345L, statsViewModel.stats.value.totalDurationMs)
+            assertEquals(700, statsViewModel.stats.value.completedCount)
+            collector.cancel()
+        }
+
+    @Test
+    fun `isHomeListCapped flips only past the home list row cap`() =
+        runTest {
+            val statsFlow =
+                MutableStateFlow(
+                    RepositoryFlowState(RecordingLibraryStats(totalCount = 500)),
+                )
+            every { recordingRepository.getLibraryStats() } returns statsFlow
+            val cappedViewModel = createHomeViewModel()
+
+            val collector = launch { cappedViewModel.isHomeListCapped.collect {} }
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(false, cappedViewModel.isHomeListCapped.value)
+
+            statsFlow.value = RepositoryFlowState(RecordingLibraryStats(totalCount = 501))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(true, cappedViewModel.isHomeListCapped.value)
+            collector.cancel()
+        }
+
+    @Test
+    fun `enrichmentFailureHint classifies network failures`() {
+        assertEquals(
+            "Check your internet connection and try again.",
+            enrichmentFailureHint(java.io.IOException("Unable to resolve host")),
+        )
+        assertEquals(
+            "Try again, or check your AI Processing settings.",
+            enrichmentFailureHint(IllegalStateException("HTTP 500")),
+        )
+    }
+
+    @Test
+    fun `asHomeProcessingNote strips machine prefixes and attempt suffix`() {
+        assertEquals(
+            "Transcription was interrupted",
+            "recoverable_queue_handoff:Transcription was interrupted|attemptAt=123".asHomeProcessingNote(),
+        )
+        assertEquals("Plain message", "Plain message".asHomeProcessingNote())
+        assertNull("recoverable_stale_transcribing:|attemptAt=9".asHomeProcessingNote())
+        assertNull((null as String?).asHomeProcessingNote())
+    }
+
     private fun failedDisplayItem(recordingId: UUID): RecordingDisplayItem {
         val recording =
             mockk<Recording>(relaxed = true) {
@@ -564,6 +663,7 @@ class HomeViewModelTest {
                         },
                     savedStateHandle = SavedStateHandle(),
                     defaultDispatcher = Dispatchers.Unconfined,
+                    serviceEvents = serviceEvents,
                 )
             val collector = launch { localViewModel.displayItems.collect { } }
 
@@ -667,6 +767,7 @@ class HomeViewModelTest {
                         },
                     savedStateHandle = SavedStateHandle(),
                     defaultDispatcher = Dispatchers.Unconfined,
+                    serviceEvents = serviceEvents,
                 )
 
             val collector = launch { localViewModel.displayItems.collect { } }
@@ -720,6 +821,7 @@ class HomeViewModelTest {
                         },
                     savedStateHandle = SavedStateHandle(),
                     defaultDispatcher = Dispatchers.Unconfined,
+                    serviceEvents = serviceEvents,
                 )
 
             val collector = launch { localViewModel.displayItems.collect { } }
@@ -886,6 +988,7 @@ class HomeViewModelTest {
                 },
             savedStateHandle = savedStateHandle,
             defaultDispatcher = testDispatcher,
+            serviceEvents = serviceEvents,
         )
 
     private fun samplePreview(

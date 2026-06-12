@@ -36,7 +36,6 @@ class ProfileEditorViewModel
             val autoTitle: Boolean = false,
             val autoSummary: Boolean = false,
             val autoExportToObsidian: Boolean = false,
-            val obsidianVaultPath: String = "",
             val defaultProcessingMode: String? = null,
             val quickStartPinned: Boolean = false,
             val isLoading: Boolean = false,
@@ -59,7 +58,6 @@ class ProfileEditorViewModel
                         autoTitle = savedStateHandle.get<Boolean>("autoTitle") ?: false,
                         autoSummary = savedStateHandle.get<Boolean>("autoSummary") ?: false,
                         autoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian") ?: false,
-                        obsidianVaultPath = savedStateHandle.get<String>("obsidianVaultPath") ?: "",
                         defaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode"),
                         quickStartPinned = savedStateHandle.get<Boolean>("quickStartPinned") ?: false,
                     )
@@ -79,7 +77,6 @@ class ProfileEditorViewModel
                         val savedAutoTitle = savedStateHandle.get<Boolean>("autoTitle")
                         val savedAutoSummary = savedStateHandle.get<Boolean>("autoSummary")
                         val savedAutoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian")
-                        val savedObsidianVaultPath = savedStateHandle.get<String>("obsidianVaultPath")
                         val savedDefaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode")
                         val savedQuickStartPinned = savedStateHandle.get<Boolean>("quickStartPinned")
                         it.copy(
@@ -89,7 +86,6 @@ class ProfileEditorViewModel
                             autoTitle = savedAutoTitle ?: profile.autoTitle,
                             autoSummary = savedAutoSummary ?: profile.autoSummary,
                             autoExportToObsidian = savedAutoExportToObsidian ?: profile.autoExportToObsidian,
-                            obsidianVaultPath = savedObsidianVaultPath ?: profile.obsidianVaultPath.orEmpty(),
                             defaultProcessingMode = savedDefaultProcessingMode ?: profile.defaultProcessingMode,
                             quickStartPinned = savedQuickStartPinned ?: profile.isQuickStartPinned,
                             isLoading = false,
@@ -131,11 +127,6 @@ class ProfileEditorViewModel
             _uiState.update { it.copy(autoExportToObsidian = enabled) }
         }
 
-        fun updateObsidianVaultPath(path: String) {
-            savedStateHandle["obsidianVaultPath"] = path
-            _uiState.update { it.copy(obsidianVaultPath = path) }
-        }
-
         fun updateDefaultProcessingMode(mode: String?) {
             savedStateHandle["defaultProcessingMode"] = mode
             _uiState.update { it.copy(defaultProcessingMode = mode) }
@@ -169,7 +160,6 @@ class ProfileEditorViewModel
                                     autoTitle = state.autoTitle,
                                     autoSummary = state.autoSummary,
                                     autoExportToObsidian = state.autoExportToObsidian,
-                                    obsidianVaultPath = state.obsidianVaultPath.ifBlank { null },
                                     defaultProcessingMode = state.defaultProcessingMode,
                                     isQuickStartPinned = state.quickStartPinned,
                                 )
@@ -183,7 +173,6 @@ class ProfileEditorViewModel
                                 autoTranscribe = state.autoTranscribe,
                                 autoTitle = state.autoTitle,
                                 autoSummary = state.autoSummary,
-                                obsidianVaultPath = state.obsidianVaultPath.ifBlank { null },
                                 autoExportToObsidian = state.autoExportToObsidian,
                                 defaultProcessingMode = state.defaultProcessingMode,
                                 quickStartPinned = state.quickStartPinned,
@@ -194,7 +183,9 @@ class ProfileEditorViewModel
                     _uiState.update { it.copy(isLoading = false, isSaved = true) }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    _uiState.update { it.copy(isLoading = false, error = e.message ?: "Failed to save") }
+                    // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                    android.util.Log.e("ProfileEditorVM", "Failed to save profile", e)
+                    _uiState.update { it.copy(isLoading = false, error = "Couldn't save the profile. Try again.") }
                 }
             }
         }

@@ -32,6 +32,10 @@ android {
 dependencies {
     api(project(":core-contracts"))
     implementation(project(":core-ui"))
+    // Recording-state guard (playback must never steal the recorder's audio focus) and
+    // persisted playback-speed setting.
+    implementation(project(":core-audio"))
+    implementation(project(":core-recording-runtime"))
 
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))
     implementation("androidx.compose.material3:material3")

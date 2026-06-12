@@ -1,10 +1,12 @@
 package dev.chirpboard.app.feature.recording.session
 
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chirpboard.app.feature.recording.di.RecordingRecoveryDataStore
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -17,7 +19,17 @@ class RecordingRecoveryDeferStore
         @RecordingRecoveryDataStore private val dataStore: DataStore<Preferences>,
     ) {
         suspend fun loadDeferredSessionIds(): Set<UUID> {
-            val raw = dataStore.data.first()[DEFERRED_SESSION_IDS_KEY].orEmpty()
+            // Defensive: an IO failure reading the recovery store must never take the
+            // recovery flow down with it. Treating nothing as deferred is the safe
+            // direction — every pending session becomes actionable again, so the user
+            // sees recovery prompts rather than silently losing them.
+            val raw =
+                try {
+                    dataStore.data.first()[DEFERRED_SESSION_IDS_KEY].orEmpty()
+                } catch (e: IOException) {
+                    Log.e(TAG, "Failed to read deferred session ids; treating none as deferred", e)
+                    return emptySet()
+                }
             return decode(raw)
         }
 
@@ -45,6 +57,7 @@ class RecordingRecoveryDeferStore
                 }.toSet()
 
         companion object {
+            private const val TAG = "RecoveryDeferStore"
             private val DEFERRED_SESSION_IDS_KEY = stringPreferencesKey("deferred_session_ids")
         }
     }

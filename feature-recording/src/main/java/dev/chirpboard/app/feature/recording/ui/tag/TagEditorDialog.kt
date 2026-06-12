@@ -24,7 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,8 +74,10 @@ fun TagEditorDialog(
     onDismiss: () -> Unit,
     onSave: (name: String, color: String?) -> Unit,
 ) {
-    var name by remember { mutableStateOf(tag?.name ?: "") }
-    var selectedColor by remember { mutableStateOf(tag?.color) }
+    // LIF-12: typed name + picked color survive rotation/resize/process death ("" = no color,
+    // because rememberSaveable round-trips non-null Bundle values most predictably).
+    var name by rememberSaveable { mutableStateOf(tag?.name ?: "") }
+    var selectedColor by rememberSaveable { mutableStateOf(tag?.color.orEmpty()) }
 
     val isEditing = tag != null
     val title = if (isEditing) stringResource(R.string.rec_edit_tag_title) else stringResource(R.string.rec_create_tag_title)
@@ -113,7 +115,7 @@ fun TagEditorDialog(
                             colorHex = colorHex,
                             isSelected = selectedColor == colorHex,
                             onClick = {
-                                selectedColor = if (selectedColor == colorHex) null else colorHex
+                                selectedColor = if (selectedColor == colorHex) "" else colorHex
                             },
                         )
                     }
@@ -124,7 +126,7 @@ fun TagEditorDialog(
             TextButton(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onSave(name.trim(), selectedColor)
+                        onSave(name.trim(), selectedColor.ifBlank { null })
                     }
                 },
                 enabled = name.isNotBlank(),

@@ -18,6 +18,7 @@ import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
+import java.io.IOException
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineDispatcher
@@ -82,6 +83,58 @@ class ProcessingStudioViewModel
         private var cachedTranscript: ProcessingStudioTranscript = ProcessingStudioTranscript.Empty
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
+
+        /**
+         * PLH-7: after a saved manual correction reduces to a single word/phrase replacement,
+         * the screen offers to promote it to a global Word Replacement via an actionable
+         * snackbar. Null when no offer is pending.
+         */
+        private val _promotionPrompt = MutableStateFlow<TranscriptCorrectionPromotionPrompt?>(null)
+        val promotionPrompt: StateFlow<TranscriptCorrectionPromotionPrompt?> = _promotionPrompt.asStateFlow()
+
+        fun clearPromotionPrompt() {
+            _promotionPrompt.value = null
+        }
+
+        /**
+         * LIF-05: mid-edit state captured before process death, applied once after the first
+         * recording emission so a restored screen reopens in edit mode with the draft intact.
+         */
+        private var pendingDraftRestoration: StudioDraftRestoration? = readDraftRestoration()
+
+        private fun readDraftRestoration(): StudioDraftRestoration? {
+            val isEditingTranscript = savedStateHandle.get<Boolean>(KEY_IS_EDITING_TRANSCRIPT) ?: false
+            val transcriptDraft = savedStateHandle.get<String>(KEY_TRANSCRIPT_DRAFT)
+            val isEditingTitle = savedStateHandle.get<Boolean>(KEY_IS_EDITING_TITLE) ?: false
+            val editedTitle = savedStateHandle.get<String>(KEY_EDITED_TITLE)
+            val chatDraft = savedStateHandle.get<String>(KEY_CHAT_DRAFT)
+            if (!isEditingTranscript && !isEditingTitle && chatDraft.isNullOrEmpty()) return null
+            return StudioDraftRestoration(
+                isEditingTranscript = isEditingTranscript,
+                transcriptDraft = transcriptDraft,
+                isEditingTitle = isEditingTitle,
+                editedTitle = editedTitle,
+                chatDraft = chatDraft,
+            )
+        }
+
+        private fun mirrorTranscriptEditState(
+            isEditing: Boolean,
+            draft: String?,
+        ) {
+            savedStateHandle[KEY_IS_EDITING_TRANSCRIPT] = isEditing
+            // Bundles have a hard size budget; very large drafts are not mirrored rather than
+            // risking a TransactionTooLargeException on every lifecycle save.
+            savedStateHandle[KEY_TRANSCRIPT_DRAFT] = draft?.takeIf { it.length <= MAX_MIRRORED_DRAFT_CHARS }
+        }
+
+        private fun mirrorTitleEditState(
+            isEditing: Boolean,
+            editedTitle: String?,
+        ) {
+            savedStateHandle[KEY_IS_EDITING_TITLE] = isEditing
+            savedStateHandle[KEY_EDITED_TITLE] = editedTitle
+        }
 
         val playbackState: StateFlow<dev.chirpboard.app.core.playback.RecordingPlaybackState> = playbackController.state
 
@@ -270,6 +323,12 @@ class ProcessingStudioViewModel
                             nextState = nextState.exitTranscriptSelectionMode()
                         }
 
+                        // LIF-05: re-enter the interrupted edit exactly once, after the first load.
+                        pendingDraftRestoration?.let { restoration ->
+                            pendingDraftRestoration = null
+                            nextState = nextState.applyDraftRestoration(restoration)
+                        }
+
                         val recoveryKey =
                             RecoveryDiagnosticsRefreshKey(
                                 recordingId = recording.id,
@@ -419,6 +478,7 @@ class ProcessingStudioViewModel
         }
 
         fun updateChatDraft(newText: String) {
+            savedStateHandle[KEY_CHAT_DRAFT] = newText.takeIf { it.length <= MAX_MIRRORED_DRAFT_CHARS }
             _uiState.value = _uiState.value.copy(chatDraft = newText)
         }
 
@@ -427,6 +487,7 @@ class ProcessingStudioViewModel
             if (trimmedText.isBlank()) return
 
             val userMsg = createStudioChatMessage(trimmedText, isFromUser = true)
+            savedStateHandle[KEY_CHAT_DRAFT] = null
             _uiState.value =
                 _uiState.value.copy(
                     chatMessages = (_uiState.value.chatMessages + userMsg).toImmutableList(),
@@ -481,10 +542,12 @@ class ProcessingStudioViewModel
                             followUps = extraction.followUps,
                         )
                     } else {
+                        // I18N-05: persist friendly, actionable copy; the raw error goes to logs.
+                        Log.e("ProcessingStudioVM", "Structured outcome generation failed", result.exceptionOrNull())
                         repository.saveStructuredOutcomeFailure(
                             recordingId = recordingId,
                             sourceTranscriptRevision = transcriptRevision,
-                            failureMessage = result.exceptionOrNull()?.message ?: "Couldn't generate structured outcomes",
+                            failureMessage = aiFailureDisplayMessage(result.exceptionOrNull()),
                         )
                     }
                 } catch (error: Exception) {
@@ -493,7 +556,7 @@ class ProcessingStudioViewModel
                     repository.saveStructuredOutcomeFailure(
                         recordingId = recordingId,
                         sourceTranscriptRevision = transcriptRevision,
-                        failureMessage = error.message ?: "Couldn't generate structured outcomes",
+                        failureMessage = aiFailureDisplayMessage(error),
                     )
                 } finally {
                     structuredOutcomeGenerationInFlight.value = false
@@ -514,6 +577,7 @@ class ProcessingStudioViewModel
         }
 
         fun startEditingTitle() {
+            mirrorTitleEditState(isEditing = true, editedTitle = _uiState.value.title)
             _uiState.value =
                 _uiState.value.copy(
                     isEditingTitle = true,
@@ -522,6 +586,7 @@ class ProcessingStudioViewModel
         }
 
         fun updateEditedTitle(newTitle: String) {
+            mirrorTitleEditState(isEditing = true, editedTitle = newTitle)
             _uiState.value = _uiState.value.copy(editedTitle = newTitle)
         }
 
@@ -537,14 +602,18 @@ class ProcessingStudioViewModel
                 return
             }
 
-            _uiState.value = refreshTranscriptInteractionState(state.enterTranscriptEditMode())
+            val nextState = state.enterTranscriptEditMode()
+            mirrorTranscriptEditState(isEditing = true, draft = nextState.transcriptDraft)
+            _uiState.value = refreshTranscriptInteractionState(nextState)
         }
 
         fun updateTranscriptDraft(newText: String) {
+            mirrorTranscriptEditState(isEditing = true, draft = newText)
             _uiState.value = _uiState.value.copy(transcriptDraft = newText)
         }
 
         fun cancelEditingTranscript() {
+            mirrorTranscriptEditState(isEditing = false, draft = null)
             _uiState.value = refreshTranscriptInteractionState(_uiState.value.exitTranscriptEditMode())
         }
 
@@ -600,7 +669,9 @@ class ProcessingStudioViewModel
                     }
 
                 if (result.isFailure) {
-                    _message.value = result.exceptionOrNull()?.message ?: "Couldn't run transcript tool"
+                    // I18N-05: friendly classified copy; raw detail stays in logs.
+                    Log.e("ProcessingStudioVM", "Transcript passage action failed", result.exceptionOrNull())
+                    _message.value = aiFailureDisplayMessage(result.exceptionOrNull())
                 }
             }
         }
@@ -617,22 +688,46 @@ class ProcessingStudioViewModel
 
                 val sourceText = transcript.effectiveText
                 if (correctedText == sourceText) {
+                    mirrorTranscriptEditState(isEditing = false, draft = null)
                     _uiState.value = refreshTranscriptInteractionState(_uiState.value.exitTranscriptEditMode())
                     return@launch
                 }
 
-                if (correctedText == transcript.pipelineText) {
-                    repository.clearManualCorrection(recordingId)
-                    _message.value = "Manual transcript correction cleared"
-                } else {
-                    repository.saveManualCorrection(
-                        recordingId = recordingId,
-                        correctedText = correctedText,
-                        sourceText = sourceText,
-                    )
-                    _message.value = "Transcript correction saved"
+                // ERR-18: one-shot Room writes throw on a full disk; surface instead of crashing.
+                try {
+                    if (correctedText == transcript.pipelineText) {
+                        repository.clearManualCorrection(recordingId)
+                        _message.value = "Manual transcript correction cleared"
+                    } else {
+                        repository.saveManualCorrection(
+                            recordingId = recordingId,
+                            correctedText = correctedText,
+                            sourceText = sourceText,
+                        )
+                        _message.value = "Transcript correction saved"
+                        // PLH-7: a single-word/phrase correction can be promoted to a global
+                        // Word Replacement; offer it via an actionable snackbar. Large contiguous
+                        // rewrites also produce a "diff", but they are not word replacements, so
+                        // the offer is capped to short phrases.
+                        analyzeTranscriptCorrectionPromotion(
+                            sourceText = sourceText,
+                            correctedText = correctedText,
+                        )?.takeIf(::isPromotableAsWordReplacement)?.let { promotion ->
+                            _promotionPrompt.value =
+                                TranscriptCorrectionPromotionPrompt(
+                                    original = promotion.original,
+                                    replacement = promotion.replacement,
+                                )
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e("ProcessingStudioVM", "Failed to save transcript correction", e)
+                    _message.value = "Couldn't save the correction. Your device storage may be full."
+                    return@launch
                 }
 
+                mirrorTranscriptEditState(isEditing = false, draft = null)
                 _uiState.value =
                     refreshTranscriptInteractionState(
                         _uiState.value.copy(
@@ -659,21 +754,47 @@ class ProcessingStudioViewModel
                     return@launch
                 }
 
-                val existing =
-                    wordReplacementRepository.getEquivalentReplacement(
+                // ERR-18: one-shot Room writes throw on a full disk; surface instead of crashing.
+                try {
+                    val existing =
+                        wordReplacementRepository.getEquivalentReplacement(
+                            original = promotion.original,
+                            replacement = promotion.replacement,
+                        )
+                    if (existing != null) {
+                        _message.value = "Matching word replacement already exists"
+                        return@launch
+                    }
+
+                    wordReplacementRepository.createReplacement(
                         original = promotion.original,
                         replacement = promotion.replacement,
                     )
-                if (existing != null) {
-                    _message.value = "Matching word replacement already exists"
-                    return@launch
+                    _message.value = "Word replacement added"
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e("ProcessingStudioVM", "Failed to promote transcript correction", e)
+                    _message.value = "Couldn't add the word replacement. Your device storage may be full."
                 }
+            }
+        }
 
-                wordReplacementRepository.createReplacement(
-                    original = promotion.original,
-                    replacement = promotion.replacement,
-                )
-                _message.value = "Word replacement added"
+        /**
+         * PIPE-07: user-facing cancel for a queued/running transcription. The recovery port
+         * resolves the row to a neutral awaiting/completed state rather than FAILED.
+         */
+        fun cancelTranscription() {
+            viewModelScope.launch {
+                val recordingId = currentRecordingId ?: return@launch
+                try {
+                    transcriptionRecovery.cancelProcessing(recordingId)
+                    _message.value = "Transcription cancelled"
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e("ProcessingStudioVM", "Failed to cancel processing for $recordingId", e)
+                    _message.value = "Couldn't cancel transcription. Try again."
+                }
+                refreshRecoveryForCurrentRecording()
             }
         }
 
@@ -779,6 +900,7 @@ class ProcessingStudioViewModel
         }
 
         fun cancelEditingTitle() {
+            mirrorTitleEditState(isEditing = false, editedTitle = null)
             _uiState.value = _uiState.value.copy(isEditingTitle = false)
         }
 
@@ -787,9 +909,18 @@ class ProcessingStudioViewModel
                 val id = currentRecordingId ?: return@launch
                 val trimmedTitle = _uiState.value.editedTitle.trim()
                 if (trimmedTitle.isNotEmpty()) {
-                    repository.updateTitle(id, trimmedTitle)
+                    // ERR-18: surface a full-disk write failure instead of crashing.
+                    try {
+                        repository.updateTitle(id, trimmedTitle)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.e("ProcessingStudioVM", "Failed to save title", e)
+                        _message.value = "Couldn't save the title. Your device storage may be full."
+                        return@launch
+                    }
                     _uiState.value = _uiState.value.copy(title = trimmedTitle)
                 }
+                mirrorTitleEditState(isEditing = false, editedTitle = null)
                 _uiState.value = _uiState.value.copy(isEditingTitle = false)
             }
         }
@@ -1006,6 +1137,71 @@ private data class TranscriptBuildInputs(
     val rawText: String,
     val timings: List<dev.chirpboard.app.data.entity.TranscriptTiming>,
 )
+
+/** LIF-05: SavedStateHandle keys for mid-edit state that must survive process death. */
+private const val KEY_IS_EDITING_TRANSCRIPT = "studio.isEditingTranscript"
+private const val KEY_TRANSCRIPT_DRAFT = "studio.transcriptDraft"
+private const val KEY_IS_EDITING_TITLE = "studio.isEditingTitle"
+private const val KEY_EDITED_TITLE = "studio.editedTitle"
+private const val KEY_CHAT_DRAFT = "studio.chatDraft"
+
+/**
+ * Saved-state Bundles share a ~1MB binder budget; drafts beyond this length are not mirrored
+ * (LIF-05) rather than risking a TransactionTooLargeException on every lifecycle save.
+ */
+private const val MAX_MIRRORED_DRAFT_CHARS = 100_000
+
+/** LIF-05: mid-edit state recovered from SavedStateHandle after process death. */
+internal data class StudioDraftRestoration(
+    val isEditingTranscript: Boolean,
+    val transcriptDraft: String?,
+    val isEditingTitle: Boolean,
+    val editedTitle: String?,
+    val chatDraft: String?,
+)
+
+internal fun ProcessingStudioState.applyDraftRestoration(restoration: StudioDraftRestoration): ProcessingStudioState {
+    var state = this
+    if (restoration.isEditingTranscript && restoration.transcriptDraft != null) {
+        state =
+            state.copy(
+                isEditingTranscript = true,
+                transcriptDraft = restoration.transcriptDraft,
+            )
+    }
+    if (restoration.isEditingTitle) {
+        state =
+            state.copy(
+                isEditingTitle = true,
+                editedTitle = restoration.editedTitle ?: state.title,
+            )
+    }
+    if (!restoration.chatDraft.isNullOrEmpty()) {
+        state = state.copy(chatDraft = restoration.chatDraft)
+    }
+    return state
+}
+
+/** PLH-7: only short phrases are sensible Word Replacements (and fit a snackbar offer). */
+private const val MAX_PROMOTION_WORDS = 3
+private const val MAX_PROMOTION_CHARS = 60
+
+internal fun isPromotableAsWordReplacement(promotion: TranscriptCorrectionPromotion): Boolean {
+    fun sideFits(side: String): Boolean =
+        side.length <= MAX_PROMOTION_CHARS && side.split(' ').size <= MAX_PROMOTION_WORDS
+    return sideFits(promotion.original) && sideFits(promotion.replacement)
+}
+
+/**
+ * I18N-05: classify an AI-path failure into short actionable copy. Raw exception messages are
+ * developer diagnostics and stay in logs.
+ */
+internal fun aiFailureDisplayMessage(error: Throwable?): String =
+    if (error is IOException) {
+        "Couldn't reach the AI service. Check your internet connection and try again."
+    } else {
+        "The AI request failed. Try again, or check your AI Processing settings."
+    }
 
 private fun StructuredOutcomeGroup.displayLabel(): String =
     when (this) {

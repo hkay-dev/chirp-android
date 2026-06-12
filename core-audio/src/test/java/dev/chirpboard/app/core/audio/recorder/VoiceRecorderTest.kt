@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkConstructor
@@ -375,6 +376,49 @@ class VoiceRecorderTest {
                 }
             assertEquals(0.5f, decoded.first(), 0.0001f)
             assertEquals(0.5f, decoded.last(), 0.0001f)
+        }
+
+    @Test
+    fun `start captures with the recognition-tuned audio source`() =
+        runBlocking {
+            assertTrue(recorder.start())
+            recorder.stop()
+
+            coVerify {
+                selector.buildAudioRecord(
+                    android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    any(),
+                    any(),
+                    any(),
+                    any(),
+                )
+            }
+        }
+
+    @Test
+    fun `sustained zero input reports silence and recovers when signal returns`() =
+        runBlocking {
+            val deliverSilence = java.util.concurrent.atomic.AtomicBoolean(true)
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                val buffer = firstArg<FloatArray>()
+                buffer.fill(if (deliverSilence.get()) 0f else 0.1f)
+                buffer.size
+            }
+            val transitions = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+            recorder.onSilenceStateChanged = { silenced ->
+                transitions.add(silenced)
+                if (silenced) {
+                    // Un-silence the source so the recovery transition fires next.
+                    deliverSilence.set(false)
+                } else {
+                    recorder.stop()
+                }
+            }
+
+            assertTrue(recorder.start())
+            recorder.collectSamples()
+
+            assertEquals(listOf(true, false), transitions.toList())
         }
 
     private fun fileBackedRecorder(): VoiceRecorder {

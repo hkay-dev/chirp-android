@@ -77,6 +77,15 @@ interface TranscriptionRecovery {
 
     suspend fun recoverRecordingsWaitingForModel()
 
+    /**
+     * Cancels queued or running processing for a recording: cancels the scheduled
+     * transcription/enhancement work and resolves the row to a neutral state
+     * (AWAITING_MANUAL_TRANSCRIPTION before a transcript exists, COMPLETED once one
+     * does) instead of FAILED-with-error. Also safe to call before deleting a
+     * recording so orphaned workers never spin up for a deleted row.
+     */
+    suspend fun cancelProcessing(recordingId: UUID)
+
     suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics
 }
 

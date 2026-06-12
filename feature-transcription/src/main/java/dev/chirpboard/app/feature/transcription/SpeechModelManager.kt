@@ -1,23 +1,21 @@
 package dev.chirpboard.app.feature.transcription
 
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
-import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
-import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -25,14 +23,33 @@ import javax.inject.Singleton
 /**
  * Settings-facing adapter over the shared [SpeechModelStore]. (Formerly WhisperModelManager;
  * the app ships the Parakeet TDT model, never Whisper.)
+ *
+ * The model download itself is app-scoped WorkManager unique work behind
+ * [SpeechModelDownloadGateway] (ERR-1): this manager only mirrors that work into
+ * [modelStatus] in its OWN scope, so the status can never go stale when a collecting UI
+ * scope dies mid-download (ERR-26) and leaving the settings screen never cancels the
+ * transfer.
  */
 @Singleton
 class SpeechModelManager
-    @Inject
-    constructor(
+    internal constructor(
         private val speechModelStore: SpeechModelStore,
         private val readinessGate: SpeechModelReadinessGate,
+        private val downloadGateway: SpeechModelDownloadGateway,
+        private val scope: CoroutineScope,
     ) {
+        @Inject
+        constructor(
+            speechModelStore: SpeechModelStore,
+            readinessGate: SpeechModelReadinessGate,
+            downloadGateway: SpeechModelDownloadGateway,
+        ) : this(
+            speechModelStore = speechModelStore,
+            readinessGate = readinessGate,
+            downloadGateway = downloadGateway,
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+        )
+
         companion object {
             private const val TAG = "SpeechModelManager"
             const val MODEL_DISPLAY_NAME = SpeechModelStore.DISPLAY_NAME
@@ -46,15 +63,16 @@ class SpeechModelManager
 
             data class Downloading(
                 val progress: Float,
+                val file: String = "",
             ) : ModelStatus
+
+            /** Download work is scheduled but parked: no network, or retry backoff. */
+            data object WaitingForNetwork : ModelStatus
 
             data class Error(
                 val message: String,
             ) : ModelStatus
         }
-
-        private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val downloadMutex = Mutex()
 
         private val _modelStatus = MutableStateFlow<ModelStatus>(ModelStatus.NotDownloaded)
         val modelStatus: StateFlow<ModelStatus> = _modelStatus.asStateFlow()
@@ -63,7 +81,29 @@ class SpeechModelManager
         val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
 
         init {
+            scope.launch {
+                var previous: SpeechModelDownloadWork = SpeechModelDownloadWork.Idle
+                downloadGateway.work.collect { work ->
+                    applyDownloadWork(work, previous)
+                    previous = work
+                }
+            }
             refreshStatus()
+        }
+
+        /** Start (or keep) the app-scoped download work; status updates arrive via [modelStatus]. */
+        fun requestDownload(preferInternalStorage: Boolean = false) {
+            // Optimistic flip so the UI reacts before WorkManager reports RUNNING.
+            if (_modelStatus.value !is ModelStatus.Ready) {
+                _modelStatus.value = ModelStatus.Downloading(0f)
+                _downloadProgress.value = 0f
+            }
+            downloadGateway.startDownload(preferInternalStorage)
+        }
+
+        /** Cancel scheduled/running download work; partial files are kept for a later resume. */
+        fun cancelDownload() {
+            downloadGateway.cancelDownload()
         }
 
         fun refreshStatus() {
@@ -75,8 +115,9 @@ class SpeechModelManager
                 } catch (e: Exception) {
                     // This scope lives in the IME-shared process; an evaluation failure
                     // (e.g. storage access revoked) must degrade, never crash the process.
+                    // The raw exception stays in the log only (I18N-05).
                     Log.e(TAG, "Model readiness evaluation failed", e)
-                    _modelStatus.value = ModelStatus.Error("Could not check model status: ${e.message}")
+                    _modelStatus.value = ModelStatus.Error("Couldn't check the speech model")
                 }
             }
         }
@@ -96,54 +137,84 @@ class SpeechModelManager
                 success
             }
 
-        suspend fun downloadModel(onComplete: suspend () -> Unit = {}) {
-            downloadMutex.withLock {
-                _modelStatus.value = ModelStatus.Downloading(0f)
-                _downloadProgress.value = 0f
-                speechModelStore.downloadModel().collect { state ->
-                    when (state) {
-                        is SpeechModelDownloadState.Progress -> updateDownloadProgress(state.progress)
-                        SpeechModelDownloadState.Complete -> {
-                            markDownloadComplete()
-                            // The gate caches readiness and only re-verifies from Unknown; a prior
-                            // open-keyboard-before-download warmup already pinned it to Unavailable,
-                            // where warmupIfNeeded is a no-op. Invalidate first (like deleteModel)
-                            // so the post-download warmup actually re-verifies the now-present model
-                            // and the cached-gate keyboard banner clears instead of sticking on
-                            // NotDownloaded.
-                            readinessGate.invalidate()
-                            readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
-                            onComplete()
-                        }
+        @VisibleForTesting
+        internal suspend fun applyDownloadWork(
+            work: SpeechModelDownloadWork,
+            previous: SpeechModelDownloadWork,
+        ) {
+            when (work) {
+                SpeechModelDownloadWork.Idle -> {
+                    // CANCELLED (or pruned) work: re-derive the status from disk so a
+                    // cancelled download honestly shows NotDownloaded again.
+                    if (previous != SpeechModelDownloadWork.Idle) {
+                        refreshFromStore()
+                    }
+                }
 
-                        is SpeechModelDownloadState.Error -> markDownloadError(state.message)
+                SpeechModelDownloadWork.Waiting -> {
+                    if (_modelStatus.value !is ModelStatus.Ready) {
+                        _modelStatus.value = ModelStatus.WaitingForNetwork
+                    }
+                }
+
+                is SpeechModelDownloadWork.Running -> {
+                    _downloadProgress.value = work.progress
+                    if (_modelStatus.value !is ModelStatus.Ready) {
+                        _modelStatus.update { ModelStatus.Downloading(work.progress, work.file) }
+                    }
+                }
+
+                SpeechModelDownloadWork.Succeeded -> {
+                    _downloadProgress.value = 0f
+                    // The worker already invalidated + warmed the readiness gate; verifying
+                    // through the store here is idempotent and also covers the stale
+                    // SUCCEEDED emission WorkManager replays after a process restart.
+                    refreshFromStore()
+                }
+
+                is SpeechModelDownloadWork.Failed -> {
+                    _downloadProgress.value = 0f
+                    if (_modelStatus.value !is ModelStatus.Ready) {
+                        _modelStatus.update { ModelStatus.Error(work.message) }
                     }
                 }
             }
         }
 
-        fun updateDownloadProgress(progress: Float) {
-            _downloadProgress.value = progress
-            _modelStatus.update { ModelStatus.Downloading(progress) }
+        private suspend fun refreshFromStore() {
+            try {
+                applyEvaluation(speechModelStore.evaluateReadiness())
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Model readiness evaluation failed", e)
+                _modelStatus.value = ModelStatus.Error("Couldn't check the speech model")
+            }
         }
 
-        fun markDownloadComplete() {
-            _modelStatus.update { ModelStatus.Ready }
-            _downloadProgress.value = 0f
+        private fun applyEvaluation(evaluation: ModelReadinessEvaluation) {
+            _modelStatus.value = statusFor(evaluation, downloadGateway.work.value)
         }
 
-        fun markDownloadError(message: String) {
-            _modelStatus.update { ModelStatus.Error(message) }
-            _downloadProgress.value = 0f
-        }
+        /**
+         * Derives the surfaced status from the on-disk evaluation and the live download
+         * work. Active/failed download work outranks a bare "not downloaded" so an
+         * interrupted download is never silently reset to "Not downloaded" (ERR-1), while a
+         * ready model always wins over stale terminal work.
+         */
+        @VisibleForTesting
+        internal fun statusFor(
+            evaluation: ModelReadinessEvaluation,
+            work: SpeechModelDownloadWork,
+        ): ModelStatus =
+            when {
+                evaluation.isReady -> ModelStatus.Ready
+                work is SpeechModelDownloadWork.Running -> ModelStatus.Downloading(work.progress, work.file)
+                work is SpeechModelDownloadWork.Waiting -> ModelStatus.WaitingForNetwork
+                work is SpeechModelDownloadWork.Failed -> ModelStatus.Error(work.message)
+                evaluation.unavailableReason == ModelReadinessUnavailableReason.INTEGRITY_MISMATCH ->
+                    ModelStatus.Error("Model integrity check failed")
 
-        private suspend fun applyEvaluation(evaluation: ModelReadinessEvaluation) {
-            _modelStatus.value =
-                when {
-                    evaluation.isReady -> ModelStatus.Ready
-                    evaluation.unavailableReason == ModelReadinessUnavailableReason.INTEGRITY_MISMATCH ->
-                        ModelStatus.Error("Model integrity check failed")
-                    else -> ModelStatus.NotDownloaded
-                }
-        }
+                else -> ModelStatus.NotDownloaded
+            }
     }

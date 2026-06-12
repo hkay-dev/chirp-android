@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.transcription
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -35,6 +36,14 @@ import java.util.UUID
  *
  * Uses AudioDecoder to convert M4A audio to PCM samples at 16kHz,
  * then TranscriberProvider (backed by Sherpa-ONNX) to transcribe to text.
+ *
+ * Long-audio execution (PIPE-01): the worker promotes itself to dataSync foreground work
+ * so multi-hour decodes are not killed at the ~10-minute background job window. When the
+ * platform refuses the foreground start the run continues in the background; if it is then
+ * stopped at the window, decoding restarts from sample 0 on the next attempt (resume
+ * design note: per-chunk transcript checkpointing keyed on the execution token would allow
+ * a restart to resume mid-recording — the chunked processor already exposes chunk start
+ * offsets — but is deliberately not implemented yet to keep the commit path single-shot).
  */
 @HiltWorker
 class TranscriptionWorker
@@ -51,12 +60,15 @@ class TranscriptionWorker
         private val audioDecoder: AudioDecoder,
         private val recordingStateManager: dev.chirpboard.app.core.recording.RecordingStateManager,
         private val workScheduler: TranscriptionWorkScheduler,
+        private val completionExporter: TranscriptionCompletionExporter,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "TranscriptionWorker"
             const val INPUT_RECORDING_ID = "recording_id"
             const val OUTPUT_TRANSCRIPT_ID = "transcript_id"
             const val OUTPUT_ERROR = "error"
+            private const val TRANSCRIPTION_ERROR_GROUP = "transcription_error_group"
+            private const val TRANSCRIPTION_ERROR_SUMMARY_NOTIFICATION_ID = 2003
         }
 
         override suspend fun doWork(): Result {
@@ -96,6 +108,10 @@ class TranscriptionWorker
                 recordingRepository.getRecording(recordingId)
                     ?: return buildTranscriptionFailureResult("Recording not found: $recordingId")
 
+            // PIPE-01: promote to dataSync foreground before the active-recording wait and the
+            // decode, both of which can legitimately exceed the background execution window.
+            trySetWorkerForeground(buildTranscriptionForegroundInfo(applicationContext), TAG)
+
             // Defer work if a recording is currently active to prevent memory pressure from model loading
             if (recordingStateManager.state.value.isActive) {
                 Log.w(TAG, "Recording is currently active. Waiting for it to finish before transcribing...")
@@ -132,6 +148,7 @@ class TranscriptionWorker
                     "Audio file not found: ${ownedRecording.audioPath}",
                 )
                 transcriptionLog.failure("audio_missing")
+                showTranscriptionErrorNotification(recordingId, "Audio file not found")
                 return buildTranscriptionFailureResult("Audio file not found")
             }
 
@@ -144,6 +161,10 @@ class TranscriptionWorker
                     "Model not downloaded. Please download the speech recognition model in Settings.",
                 )
                 transcriptionLog.failure("model_not_downloaded")
+                showTranscriptionErrorNotification(
+                    recordingId,
+                    "Model not downloaded. Please download the speech recognition model in Settings.",
+                )
                 return buildTranscriptionFailureResult("Model not downloaded")
             }
 
@@ -164,6 +185,7 @@ class TranscriptionWorker
                         RecordingStatus.FAILED,
                         "Failed to initialize speech recognition model",
                     )
+                    showTranscriptionErrorNotification(recordingId, "Failed to initialize speech recognition model")
                     return buildTranscriptionFailureResult("Failed to initialize model")
                 }
             }
@@ -216,6 +238,7 @@ class TranscriptionWorker
                     RecordingStatus.FAILED,
                     "Out of memory during transcription. Recording may be too long.",
                 )
+                showTranscriptionErrorNotification(recordingId, "Out of memory during transcription")
                 return buildTranscriptionFailureResult("Out of memory during transcription")
             } catch (e: java.io.IOException) {
                 Log.e(TAG, "I/O error during decode/transcription (may be retried)", e)
@@ -280,6 +303,13 @@ class TranscriptionWorker
                 },
             )
 
+            if (enhancementIntent == null) {
+                // Terminal COMPLETED transition for recordings without enhancement work:
+                // auto-export now. Recordings with enhancement export when the enhancement
+                // worker resolves, so each pipeline run exports exactly once (PLH-3/ERR-5).
+                completionExporter.exportIfCompleted(recordingId)
+            }
+
             return buildTranscriptionSuccessResult(transcript.id)
         }
 
@@ -343,26 +373,56 @@ class TranscriptionWorker
                 true
             }
 
+        /**
+         * PIPE-04: terminal-failure notification with a branded small icon, a tap action into
+         * the app, and a group summary so a backlog failing on a shared root cause collapses
+         * into one stack instead of dozens of loose notifications. Posted for every terminal
+         * FAILED path so coverage is consistent; silently no-ops if POST_NOTIFICATIONS was
+         * denied (the recording row still surfaces the FAILED state in-app).
+         */
         private fun showTranscriptionErrorNotification(recordingId: UUID, errorMessage: String) {
-            val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val context = applicationContext
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channelId = "transcription_errors"
             if (notificationManager.getNotificationChannel(channelId) == null) {
                 val channel = NotificationChannel(
                     channelId,
-                    "Transcription Errors",
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    context.getString(R.string.transcription_error_channel_name),
+                    NotificationManager.IMPORTANCE_DEFAULT,
                 )
                 notificationManager.createNotificationChannel(channel)
             }
-            
-            val notification = NotificationCompat.Builder(applicationContext, channelId)
-                .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setContentTitle("Transcription Failed")
+
+            val contentIntent =
+                context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+                    PendingIntent.getActivity(
+                        context,
+                        recordingId.hashCode(),
+                        launchIntent,
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    )
+                }
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_notif_transcription)
+                .setContentTitle(context.getString(R.string.transcription_error_notification_title))
                 .setContentText(errorMessage)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(errorMessage))
+                .setGroup(TRANSCRIPTION_ERROR_GROUP)
                 .setAutoCancel(true)
+                .apply { contentIntent?.let(::setContentIntent) }
                 .build()
-                
             notificationManager.notify(recordingId.hashCode(), notification)
+
+            val groupSummary = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_notif_transcription)
+                .setContentTitle(context.getString(R.string.transcription_error_group_summary))
+                .setGroup(TRANSCRIPTION_ERROR_GROUP)
+                .setGroupSummary(true)
+                .setAutoCancel(true)
+                .apply { contentIntent?.let(::setContentIntent) }
+                .build()
+            notificationManager.notify(TRANSCRIPTION_ERROR_SUMMARY_NOTIFICATION_ID, groupSummary)
         }
 
         private fun logStaleTranscription(

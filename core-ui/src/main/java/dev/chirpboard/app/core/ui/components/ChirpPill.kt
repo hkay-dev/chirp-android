@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
 
@@ -71,7 +72,9 @@ fun ChirpPill(
         )
     } else {
         Surface(
-            modifier = modifier,
+            // A11Y-10: merge the icon description + label into one TalkBack stop ("Duration,
+            // 03:42") for display-only pills; clickable pills already merge via their click node.
+            modifier = modifier.semantics(mergeDescendants = true) {},
             color = containerColor,
             contentColor = contentColor,
             shape = ChirpShapes.Full,

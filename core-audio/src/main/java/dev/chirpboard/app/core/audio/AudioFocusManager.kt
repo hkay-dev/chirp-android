@@ -25,6 +25,13 @@ class AudioFocusManager(
 
     var onFocusLost: ((FocusLossKind) -> Unit)? = null
 
+    /**
+     * Invoked when focus returns after a transient loss (AUDIOFOCUS_GAIN while this
+     * manager still owns an outstanding request). Never fires after a permanent loss,
+     * which already cleared ownership.
+     */
+    var onFocusRegained: (() -> Unit)? = null
+
     private var focusRequest: AudioFocusRequest? = null
     private var hasFocus = false
 
@@ -86,6 +93,7 @@ class AudioFocusManager(
             AudioManager.AUDIOFOCUS_GAIN -> {
                 hasFocus = true
                 Log.d(TAG, "Audio focus gained")
+                onFocusRegained?.invoke()
             }
         }
     }

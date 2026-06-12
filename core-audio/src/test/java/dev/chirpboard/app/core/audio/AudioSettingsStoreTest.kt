@@ -129,6 +129,33 @@ class AudioSettingsStoreTest {
         assertEquals(96_000, RecordingQualityPreset.High.keyboardRecordingConfig.bitRate)
     }
 
+    @Test
+    fun `playback speed defaults to 1x and persists snapped values`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_speed.preferences_pb")
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            assertEquals(1.0f, store.currentPlaybackSpeed())
+
+            store.setPlaybackSpeed(1.3f)
+            assertEquals(1.25f, store.currentPlaybackSpeed())
+
+            store.setPlaybackSpeed(2.0f)
+            assertEquals(2.0f, store.currentPlaybackSpeed())
+        }
+
+    @Test
+    fun `nearestPlaybackSpeed snaps arbitrary values to supported options`() {
+        assertEquals(0.75f, AudioSettingsStore.nearestPlaybackSpeed(0.1f))
+        assertEquals(1.0f, AudioSettingsStore.nearestPlaybackSpeed(1.05f))
+        assertEquals(1.5f, AudioSettingsStore.nearestPlaybackSpeed(1.6f))
+        assertEquals(2.0f, AudioSettingsStore.nearestPlaybackSpeed(99f))
+    }
+
     private fun createDataStore(fileName: String) =
         PreferenceDataStoreFactory.create(
             scope = testScope,

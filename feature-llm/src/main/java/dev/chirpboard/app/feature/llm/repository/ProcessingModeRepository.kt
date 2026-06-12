@@ -1,9 +1,12 @@
 package dev.chirpboard.app.feature.llm.repository
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
@@ -22,6 +25,17 @@ import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "processing_mode_preferences",
+    // A corrupted preferences file would otherwise throw CorruptionException on every
+    // read forever; resetting to defaults is strictly better.
+    corruptionHandler =
+        ReplaceFileCorruptionHandler { corruption ->
+            Log.e(
+                "ProcessingModeRepo",
+                "processing_mode_preferences corrupted; resetting to defaults",
+                corruption,
+            )
+            emptyPreferences()
+        },
 )
 
 internal data class StoredCustomPreset(

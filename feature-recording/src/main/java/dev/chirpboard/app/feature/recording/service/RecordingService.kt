@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
@@ -22,7 +23,9 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.session.RecordingCapturePaths
+import dev.chirpboard.app.feature.recording.util.RecordingTitleFormatter
 import dev.chirpboard.app.feature.recording.session.RecordingSegmentRotator
 import dev.chirpboard.app.feature.recording.session.RecordingSessionHeartbeat
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
@@ -93,6 +96,12 @@ class RecordingService : Service() {
     @Inject
     lateinit var notificationFactory: RecordingNotificationFactory
 
+    @Inject
+    lateinit var serviceEvents: RecordingServiceEvents
+
+    @Inject
+    lateinit var titleFormatter: RecordingTitleFormatter
+
     private lateinit var audioFocusManager: AudioFocusManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -105,7 +114,6 @@ class RecordingService : Service() {
     private var currentInProgressRecordingId: UUID? = null
     private var currentFinalAudioPath: File? = null
 
-    private var durationUpdateJob: Job? = null
     private var amplitudeJob: Job? = null
     private var heartbeatJob: Job? = null
     private var storageCheckJob: Job? = null
@@ -128,6 +136,23 @@ class RecordingService : Service() {
     @Volatile
     private var destroyed = false
 
+    /**
+     * True while the current Paused state was entered because of a transient audio focus
+     * loss (call/alarm/assistant), so focus regain may auto-resume. Manual pause always
+     * clears it. Advisory only — never feeds stop/finalize decisions.
+     */
+    @Volatile
+    private var pausedByFocusLoss = false
+
+    /**
+     * Timed partial wakelock held across the stop->finalize handoff (PRF-6). Capture
+     * itself needs none (audioserver holds one for live AudioRecord streams), but the
+     * moment the mic closes a lock-screen stop could be CPU-suspended mid-handoff.
+     * Acquired when a gated stop starts, released in [finishStopLifecycle]; the timeout
+     * guarantees release even if a release path is missed.
+     */
+    private var stopWakeLock: PowerManager.WakeLock? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -136,18 +161,64 @@ class RecordingService : Service() {
         audioFocusManager = AudioFocusManager(getSystemService(AudioManager::class.java))
         audioFocusManager.onFocusLost = { lossKind ->
             when (lossKind) {
-                AudioFocusManager.FocusLossKind.TRANSIENT -> pauseRecording()
-                AudioFocusManager.FocusLossKind.PERMANENT -> stopRecording()
+                AudioFocusManager.FocusLossKind.TRANSIENT ->
+                    pauseRecording(autoPauseReason = RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT)
+                AudioFocusManager.FocusLossKind.PERMANENT -> {
+                    announceAutoStop(RecordingAutoStopReason.FOCUS_LOST)
+                    stopRecording()
+                }
             }
         }
+        audioFocusManager.onFocusRegained = { resumeAfterFocusRegained() }
         val serviceRef = WeakReference(this)
         inputDeviceSelector.setOnActiveDeviceLostListener {
             serviceRef.get()?.let { service ->
                 service.serviceScope.launch {
+                    // The listener now survives for the whole service lifetime (it used to
+                    // be silently dropped by clearActiveDevice after the first session), so
+                    // it must only ever stop captures this service instance owns. In-process
+                    // keyboard/recognition captures detect device death through their own
+                    // AudioRecord read errors.
+                    if (!service.recordingStateManager.state.value.isActive || !service.serviceOwnsCapture()) {
+                        return@launch
+                    }
+                    service.announceAutoStop(RecordingAutoStopReason.INPUT_DEVICE_LOST)
                     service.stopRecording()
                 }
             }
         }
+    }
+
+    /**
+     * Records why the service is ending a session on its own: a persistent event for the
+     * recording screens plus a transient system notification (the foreground notification
+     * disappears with the stop, so this is the only surviving system-surface explanation).
+     * Advisory only — the stop itself still flows through the unchanged gated stop path.
+     */
+    private fun announceAutoStop(reason: RecordingAutoStopReason) {
+        serviceEvents.publishAutoStop(reason)
+        runCatching { notificationFactory.notifyAutoStopped(this, reason) }
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.RECORDING_STOP,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            ).started("auto_stop_${reason.name.lowercase()}")
+    }
+
+    /**
+     * Auto-resume after a transient focus interruption ends (AUD-05): only when the
+     * session is still Paused and that pause was focus-initiated — never over a manual
+     * pause or after a permanent loss (which already stopped with save).
+     */
+    private fun resumeAfterFocusRegained() {
+        if (!pausedByFocusLoss) return
+        if (recordingStateManager.state.value !is RecordingState.Paused) return
+        ReliabilityEventLogger
+            .scoped(
+                stage = ReliabilityStage.RECORDING_START,
+                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+            ).started("auto_resume_after_focus_regain")
+        resumeRecording()
     }
 
     override fun onStartCommand(
@@ -211,7 +282,6 @@ class RecordingService : Service() {
                 stopInProgress = stopRequestGate.isInProgress(),
                 serviceOwnsCapture = serviceOwnsCapture(),
                 cancelPeriodicJobs = {
-                    durationUpdateJob?.cancel()
                     amplitudeJob?.cancel()
                     heartbeatJob?.cancel()
                     storageCheckJob?.cancel()
@@ -220,7 +290,9 @@ class RecordingService : Service() {
                 detachCallbacks = {
                     inputDeviceSelector.setOnActiveDeviceLostListener(null)
                     audioFocusManager.onFocusLost = null
+                    audioFocusManager.onFocusRegained = null
                     segmentCapture?.setCaptureErrorListener(null)
+                    segmentCapture?.setSilenceListener(null)
                 },
             )
 
@@ -320,7 +392,7 @@ class RecordingService : Service() {
                 correlationId = currentCorrelationId!!,
             )
 
-        val storageCheck = storageMonitor.checkAvailableStorage()
+        val storageCheck = withContext(Dispatchers.IO) { storageMonitor.checkAvailableStorage() }
         if (storageCheck.level == StorageCheckLevel.CRITICAL) {
             recordingStateManager.onRecordingError("Not enough storage to start recording")
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -359,6 +431,7 @@ class RecordingService : Service() {
                     val recordingQualityConfig =
                         audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
                     val outputFormat = audioSettingsStore.currentOutputFormat()
+                    val microphoneGain = audioSettingsStore.currentMicrophoneGain()
 
                     val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                     // Second-granularity timestamps collide when two stops land in the same
@@ -385,8 +458,7 @@ class RecordingService : Service() {
                             // the KEYBOARD source for consistency with recognition history.
                             RecordingOrigin.RECOGNITION -> RecordingSource.KEYBOARD
                         }
-                    val provisionalTitle =
-                        SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date())
+                    val provisionalTitle = titleFormatter.format(System.currentTimeMillis())
                     val inProgressRecording =
                         recordingRepository.createInProgressRecording(
                             title = provisionalTitle,
@@ -412,6 +484,7 @@ class RecordingService : Service() {
                     startGaplessCapture(
                         segmentFile = firstSegment,
                         sampleRate = recordingQualityConfig.sampleRate,
+                        gainMultiplier = microphoneGain,
                     )
                 }
             }
@@ -431,7 +504,9 @@ class RecordingService : Service() {
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
             )
 
-            startDurationUpdates()
+            // No per-second notification loop: the chronometer in the notification ticks
+            // the timer in SystemUI with zero app work; re-posts happen only on state
+            // transitions and warning changes (PRF-5).
             startAmplitudeCollection()
             startSessionHeartbeat()
             startStorageMonitoring()
@@ -453,6 +528,7 @@ class RecordingService : Service() {
             audioFocusManager.abandonFocus()
             inputDeviceSelector.clearActiveDevice()
             segmentCapture?.setCaptureErrorListener(null)
+            segmentCapture?.setSilenceListener(null)
             segmentCapture?.releaseWithoutSave()
             segmentCapture = null
             currentRecordingFile?.let { file ->
@@ -475,6 +551,7 @@ class RecordingService : Service() {
             audioFocusManager.abandonFocus()
             inputDeviceSelector.clearActiveDevice()
             segmentCapture?.setCaptureErrorListener(null)
+            segmentCapture?.setSilenceListener(null)
             segmentCapture?.releaseWithoutSave()
             segmentCapture = null
             ReliabilityEventLogger
@@ -497,7 +574,7 @@ class RecordingService : Service() {
         }
     }
 
-    private fun pauseRecording() {
+    private fun pauseRecording(autoPauseReason: RecordingAutoPauseReason? = null) {
         serviceScope.launch {
             try {
                 segmentTransitionMutex.withLock {
@@ -507,11 +584,17 @@ class RecordingService : Service() {
                     amplitudeJob = null
                     recordingStateManager.pauseRecording()
                     recordingStateManager.updateAmplitude(0f)
+                    // Set inside the mutex, after the pause actually landed, so a manual
+                    // pause racing a focus loss can never be auto-resumed later.
+                    pausedByFocusLoss = autoPauseReason == RecordingAutoPauseReason.FOCUS_LOST_TRANSIENT
+                    serviceEvents.setAutoPauseReason(autoPauseReason)
+                    serviceEvents.setSilenceDetected(false)
 
                     val sessionId = currentSessionId ?: return@withLock
                     val completedFile =
                         withContext(Dispatchers.IO) {
                             segmentCapture?.setCaptureErrorListener(null)
+                            segmentCapture?.setSilenceListener(null)
                             segmentCapture?.cancelPendingRotation()
                             segmentCapture?.pauseAndFinalizeSegment()
                         }
@@ -530,7 +613,7 @@ class RecordingService : Service() {
                             correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                         ).success("segment_saved_on_pause")
                 }
-                notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
+                refreshRecordingNotification()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -541,6 +624,8 @@ class RecordingService : Service() {
     }
 
     private fun resumeRecording() {
+        pausedByFocusLoss = false
+        serviceEvents.setAutoPauseReason(null)
         serviceScope.launch {
             try {
                 segmentTransitionMutex.withLock {
@@ -549,11 +634,13 @@ class RecordingService : Service() {
                     val nextSegment = capturePaths.durableSegmentFile(sessionId, entry.segmentPaths.size)
                     val recordingQualityConfig =
                         audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
+                    val microphoneGain = audioSettingsStore.currentMicrophoneGain()
 
                     withContext(Dispatchers.IO) {
                         segmentCapture =
                             createCaptureEngine(
                                 sampleRate = recordingQualityConfig.sampleRate,
+                                gainMultiplier = microphoneGain,
                             )
                         segmentCapture!!.start(nextSegment)
                     }
@@ -569,13 +656,33 @@ class RecordingService : Service() {
                 }
                 startAmplitudeCollection()
                 startSegmentRotation()
-                notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
+                refreshRecordingNotification()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 recordingStateManager.onRecordingError("Failed to resume recording: ${e.message}", e)
             }
         }
     }
+
+    /**
+     * Re-posts the live notification with the current transient status line (focus-pause
+     * reason, silence warning, low-storage warning). Only posts while a session is live so
+     * a late refresh can never resurrect a notification after stop removed it.
+     */
+    private fun refreshRecordingNotification() {
+        val state = recordingStateManager.state.value
+        if (state !is RecordingState.Recording && state !is RecordingState.Paused) return
+        notificationFactory.updateRecordingNotification(this, recordingStateManager, currentRecordingStatusText())
+    }
+
+    private fun currentRecordingStatusText(): String? =
+        when {
+            recordingStateManager.state.value is RecordingState.Paused && pausedByFocusLoss ->
+                getString(R.string.rec_notification_paused_focus)
+            serviceEvents.silenceDetected.value -> getString(R.string.rec_notification_silence)
+            serviceEvents.storageLow.value -> getString(R.string.rec_notification_storage_low)
+            else -> null
+        }
 
     /**
      * Cancel the current recording — release MediaRecorder, delete the audio file,
@@ -586,7 +693,6 @@ class RecordingService : Service() {
         stopGeneration.incrementAndGet()
         startRecordingJob?.cancel()
         startRecordingJob = null
-        durationUpdateJob?.cancel()
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
@@ -610,6 +716,7 @@ class RecordingService : Service() {
 
                 try {
                     segmentCapture?.setCaptureErrorListener(null)
+                    segmentCapture?.setSilenceListener(null)
                     withContext(Dispatchers.IO) {
                         segmentCapture?.releaseWithoutSave()
                     }
@@ -624,6 +731,8 @@ class RecordingService : Service() {
                     }
                     currentRecordingFile = null
                     currentFinalAudioPath = null
+                    pausedByFocusLoss = false
+                    serviceEvents.resetSessionState()
                     audioFocusManager.abandonFocus()
                     inputDeviceSelector.clearActiveDevice()
                     recordingStateManager.forceCancel()
@@ -665,7 +774,6 @@ class RecordingService : Service() {
         stopGeneration.incrementAndGet()
         startRecordingJob?.cancel()
         startRecordingJob = null
-        durationUpdateJob?.cancel()
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
@@ -723,6 +831,7 @@ class RecordingService : Service() {
 
         try {
             segmentCapture?.setCaptureErrorListener(null)
+            segmentCapture?.setSilenceListener(null)
             // NonCancellable so a destroy-triggered scope cancellation mid-restart can
             // never leave the engine's audio resources held while the reference is
             // dropped by detachSegmentCapture below.
@@ -740,6 +849,8 @@ class RecordingService : Service() {
                 oldFile?.takeIf { it.exists() }?.delete()
                 oldFinalFile?.takeIf { it.exists() }?.delete()
             }
+            pausedByFocusLoss = false
+            serviceEvents.resetSessionState()
             recordingStateManager.forceCancel()
         }
     }
@@ -783,6 +894,10 @@ class RecordingService : Service() {
      * stop-with-save semantics should claim the gate and reuse this path.
      */
     private fun launchGatedStop() {
+        // PRF-6: keep the CPU awake across the stop->handoff window (lock-screen stops
+        // would otherwise suspend mid-save until the next screen-on). Timed + released in
+        // finishStopLifecycle; never alters any stop-gate or journal decision.
+        acquireStopWakeLock()
         val stateAtStop = recordingStateManager.state.value
         val pendingStartJob = if (stateAtStop is RecordingState.Starting) startRecordingJob else null
         if (pendingStartJob != null) {
@@ -790,7 +905,6 @@ class RecordingService : Service() {
             pendingStartJob.cancel()
         }
 
-        durationUpdateJob?.cancel()
         amplitudeJob?.cancel()
         heartbeatJob?.cancel()
         storageCheckJob?.cancel()
@@ -948,6 +1062,7 @@ class RecordingService : Service() {
             return
         }
 
+        acquireStopWakeLock()
         val sessionId = currentSessionId
         val generation = stopGeneration.incrementAndGet()
 
@@ -969,6 +1084,7 @@ class RecordingService : Service() {
             // Releasing the gate is the only thing left to do for this stop claim; clearing
             // the session fields here could wipe a newer session that started afterwards.
             stopRequestGate.reset()
+            releaseStopWakeLock()
             return
         }
         currentRecordingFile = null
@@ -978,26 +1094,32 @@ class RecordingService : Service() {
         currentInProgressRecordingId = null
         currentCorrelationId = null
         stopRequestGate.reset()
+        pausedByFocusLoss = false
+        serviceEvents.resetSessionState()
         audioFocusManager.abandonFocus()
         inputDeviceSelector.clearActiveDevice()
+        releaseStopWakeLock()
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun startDurationUpdates() {
-        durationUpdateJob?.cancel()
-        durationUpdateJob =
-            serviceScope.launch {
-                while (isActive) {
-                    val state = recordingStateManager.state.value
-                    if (state is RecordingState.Recording) {
-                        notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
+    private fun acquireStopWakeLock() {
+        if (stopWakeLock?.isHeld == true) return
+        stopWakeLock =
+            runCatching {
+                getSystemService(PowerManager::class.java)
+                    ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, STOP_WAKELOCK_TAG)
+                    ?.apply {
+                        setReferenceCounted(false)
+                        acquire(STOP_WAKELOCK_TIMEOUT_MS)
                     }
-                    // Don't update while paused — timer is frozen and notification already set
-                    delay(1000)
-                }
-            }
+            }.getOrNull()
+    }
+
+    private fun releaseStopWakeLock() {
+        runCatching { stopWakeLock?.takeIf { it.isHeld }?.release() }
+        stopWakeLock = null
     }
 
     /**
@@ -1035,10 +1157,12 @@ class RecordingService : Service() {
     private suspend fun startGaplessCapture(
         segmentFile: File,
         sampleRate: Int,
+        gainMultiplier: Float,
     ) {
         segmentCapture?.setCaptureErrorListener(null)
+        segmentCapture?.setSilenceListener(null)
         segmentCapture?.releaseWithoutSave()
-        segmentCapture = createCaptureEngine(sampleRate = sampleRate)
+        segmentCapture = createCaptureEngine(sampleRate = sampleRate, gainMultiplier = gainMultiplier)
         segmentCapture!!.start(segmentFile)
     }
 
@@ -1050,16 +1174,52 @@ class RecordingService : Service() {
      */
     private fun createCaptureEngine(
         sampleRate: Int,
+        gainMultiplier: Float,
     ): GaplessSegmentCaptureEngine {
         val engine =
             GaplessSegmentCaptureFactory.create(
                 inputDeviceSelector = inputDeviceSelector,
                 sampleRate = sampleRate,
+                gainMultiplier = gainMultiplier,
             )
         engine.setCaptureErrorListener(
             GaplessCaptureErrorListener { error -> onCaptureEngineError(engine, error) },
         )
+        engine.setSilenceListener(
+            GaplessSilenceListener { silenced -> onCaptureSilenceChanged(engine, silenced) },
+        )
         return engine
+    }
+
+    /**
+     * Sustained-silence transitions from the capture thread (AUD-02). Pure-zero input
+     * means the platform silenced this client (another app owns the mic, or the mic
+     * privacy toggle is off) while reads keep succeeding — the session would record
+     * nothing while looking live. Advisory only: surfaces a warning on the notification
+     * and the recording screens; capture is never stopped or paused by it.
+     */
+    private fun onCaptureSilenceChanged(
+        engine: GaplessSegmentCaptureEngine,
+        silenced: Boolean,
+    ) {
+        if (destroyed) return
+        serviceScope.launch {
+            if (segmentCapture !== engine) return@launch
+            if (serviceEvents.silenceDetected.value == silenced) return@launch
+            serviceEvents.setSilenceDetected(silenced)
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.RECORDING_START,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                ).let { log ->
+                    if (silenced) {
+                        log.failure("capture_silence_detected", message = "Mic delivering pure silence — possibly in use elsewhere")
+                    } else {
+                        log.success("capture_silence_recovered")
+                    }
+                }
+            refreshRecordingNotification()
+        }
     }
 
     /**
@@ -1124,6 +1284,7 @@ class RecordingService : Service() {
                         stage = ReliabilityStage.RECORDING_STOP,
                         correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
                     ).failure("capture_engine_error", message = detail)
+                announceAutoStop(RecordingAutoStopReason.CAPTURE_ERROR)
                 launchGatedStop()
             }
         }
@@ -1141,6 +1302,7 @@ class RecordingService : Service() {
      */
     private fun detachSegmentCapture() {
         segmentCapture?.setCaptureErrorListener(null)
+        segmentCapture?.setSilenceListener(null)
         segmentCapture = null
     }
 
@@ -1179,14 +1341,24 @@ class RecordingService : Service() {
             serviceScope.launch {
                 while (isActive) {
                     delay(15_000)
-                    when (storageMonitor.checkAvailableStorage().level) {
+                    // StatFs is disk-class work; keep it off the Main-dispatcher service scope.
+                    val level = withContext(Dispatchers.IO) { storageMonitor.checkAvailableStorage() }.level
+                    when (level) {
                         StorageCheckLevel.LOW ->
-                            notificationFactory.updateRecordingNotification(this@RecordingService, recordingStateManager)
+                            if (!serviceEvents.storageLow.value) {
+                                serviceEvents.setStorageLow(true)
+                                refreshRecordingNotification()
+                            }
                         StorageCheckLevel.CRITICAL -> {
+                            announceAutoStop(RecordingAutoStopReason.STORAGE_CRITICAL)
                             stopRecording()
                             break
                         }
-                        StorageCheckLevel.OK -> Unit
+                        StorageCheckLevel.OK ->
+                            if (serviceEvents.storageLow.value) {
+                                serviceEvents.setStorageLow(false)
+                                refreshRecordingNotification()
+                            }
                     }
                 }
             }
@@ -1196,5 +1368,9 @@ class RecordingService : Service() {
         private const val TAG = "RecordingService"
         private const val CAPTURE_STOP_TIMEOUT_MS = 30_000L
         private const val FILENAME_UNIQUE_SUFFIX_LENGTH = 8
+        private const val STOP_WAKELOCK_TAG = "chirpboard:stop-finalize"
+
+        /** Capture-stop budget plus margin; the timed acquire guarantees release. */
+        private const val STOP_WAKELOCK_TIMEOUT_MS = CAPTURE_STOP_TIMEOUT_MS + 30_000L
     }
 }

@@ -46,7 +46,9 @@ class KeyboardPreferences @Inject constructor(
     }
 
     /**
-     * Whether LLM post-processing is enabled for keyboard transcriptions.
+     * Whether LLM post-processing is enabled for keyboard transcriptions. PLH-8: the
+     * system voice-recognition dialog shares this key too, so both quick-dictation
+     * surfaces follow the same toggle.
      */
     val llmEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[Keys.llmEnabled] ?: true

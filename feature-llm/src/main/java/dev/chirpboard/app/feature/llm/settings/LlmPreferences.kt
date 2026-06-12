@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -19,7 +21,17 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "llm_settings")
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "llm_settings",
+    // A corrupted preferences file would otherwise throw CorruptionException on every
+    // read forever; resetting to defaults is strictly better. API keys live in
+    // EncryptedSharedPreferences, not here, so nothing sensitive is lost.
+    corruptionHandler =
+        ReplaceFileCorruptionHandler { corruption ->
+            Log.e("LlmPreferences", "llm_settings corrupted; resetting to defaults", corruption)
+            emptyPreferences()
+        },
+)
 
 interface LlmSettingsStore {
     suspend fun getLlmEnabled(): Boolean

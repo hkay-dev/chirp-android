@@ -225,6 +225,19 @@ class TranscriptionQueueManager
 
             queueLog.started("enqueue_requested")
 
+            // PLH-4: honor the profile's Auto Transcribe opt-out at the post-finalize
+            // enqueue. The recording is parked in the deliberate AWAITING manual state
+            // instead of the queue; automatic recovery never loads that status (see
+            // RecordingRepository.getPendingRecordings), so only an explicit user
+            // retranscribe starts it. When marking fails the row has already moved on
+            // (e.g. the user manually claimed it), so fall through to a normal enqueue.
+            if (!recordingRepository.isAutoTranscribeEnabled(recordingId) &&
+                recordingRepository.markAwaitingManualTranscription(recordingId)
+            ) {
+                queueLog.skipped("enqueue_skipped_auto_transcribe_disabled")
+                return TranscriptionWorkRequest.workName(recordingId)
+            }
+
             // Check constraints and warn user (but still enqueue - WorkManager will wait)
             val status = constraintChecker.checkConstraints()
             _constraintWarning.value = constraintChecker.getConstraintMessage(status)
@@ -531,31 +544,40 @@ class TranscriptionQueueManager
         }
 
         /**
-         * Cancel pending transcription.
-         * Cancels WorkManager work and updates status.
+         * PIPE-07: user-facing cancel for queued/running processing, also called before
+         * deleting a recording so an orphaned worker never spins up for a deleted row.
          *
-         * @param recordingId The UUID of the recording to cancel
+         * Work is cancelled first, then the row resolves to a *neutral* state instead of
+         * FAILED-with-error: a not-yet-transcribed recording becomes
+         * AWAITING_MANUAL_TRANSCRIPTION (re-startable via retranscribe), a recording whose
+         * transcript already committed keeps it and becomes COMPLETED. Both transitions
+         * clear the execution token, so a worker that races the cancel sees its commit
+         * rejected as stale — the execution-token contract stays intact.
          */
-        suspend fun cancel(recordingId: UUID) {
-            val recording = recordingRepository.getRecording(recordingId)
+        override suspend fun cancelProcessing(recordingId: UUID) {
+            workScheduler.cancelTranscription(recordingId)
+            workScheduler.cancelEnhancement(recordingId)
 
-            if (recording != null) {
-                workScheduler.cancelTranscription(recordingId)
-                workScheduler.cancelEnhancement(recordingId)
-
-                // Mark as FAILED so it doesn't get automatically restarted by the reconciler
+            val recording = recordingRepository.getRecording(recordingId) ?: return
+            val resolved =
                 when (recording.status) {
-                    RecordingStatus.TRANSCRIBING,
                     RecordingStatus.PENDING_TRANSCRIPTION,
-                    RecordingStatus.ENHANCING,
-                    RecordingStatus.PENDING_ENHANCEMENT -> {
-                        recordingRepository.updateStatusWithError(recordingId, RecordingStatus.FAILED, "Cancelled by user")
-                    }
+                    RecordingStatus.TRANSCRIBING,
+                    -> recordingRepository.markAwaitingManualTranscription(recordingId)
 
-                    else -> {
-                        // For other statuses, don't change
-                    }
+                    RecordingStatus.PENDING_ENHANCEMENT,
+                    RecordingStatus.ENHANCING,
+                    -> recordingRepository.resolveCancelledEnhancement(recordingId)
+
+                    else -> false
                 }
+            if (resolved) {
+                ReliabilityEventLogger
+                    .scoped(
+                        stage = ReliabilityStage.QUEUE_ENQUEUE,
+                        correlationId = ReliabilityEventLogger.newCorrelationId("queue-cancel"),
+                        recordingId = recordingId,
+                    ).success("processing_cancelled_by_user")
             }
         }
 

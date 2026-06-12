@@ -30,6 +30,7 @@ class RecordingEnhancementWorker
         private val wordReplacementRepository: WordReplacementRepository,
         private val wordReplacer: WordReplacer,
         private val textEnhancement: RecordingTextEnhancementPort,
+        private val completionExporter: TranscriptionCompletionExporter,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "RecordingEnhancement"
@@ -99,7 +100,11 @@ class RecordingEnhancementWorker
                     execution.summary.requested
             if (!hasExecutableSubwork && !execution.legacyRequiresResolution) {
                 enhancementLog.skipped("enhancement_not_requested")
-                recordingRepository.skipEnhancement(recordingId, executionToken)
+                if (recordingRepository.skipEnhancement(recordingId, executionToken)) {
+                    // Skip resolves the row to terminal COMPLETED; this recording never
+                    // passed the transcription worker's export site, so export here.
+                    completionExporter.exportIfCompleted(recordingId)
+                }
                 return Result.success()
             }
             if (!hasExecutableSubwork && execution.legacyRequiresResolution) {
@@ -115,7 +120,12 @@ class RecordingEnhancementWorker
                 return buildEnhancementFailureResult(errorMessage)
             }
 
-            setForeground(buildEnhancementForegroundInfo(applicationContext))
+            // PIPE-02: enhancement is usually enqueued by TranscriptionWorker minutes after
+            // the user backgrounded the app, where an unguarded setForeground throws
+            // ForegroundServiceStartNotAllowedException and would park the recording in
+            // FAILED until next launch. An LLM call fits the normal window, so continue
+            // without foreground on that path.
+            trySetWorkerForeground(buildEnhancementForegroundInfo(applicationContext), TAG)
             enhancementLog.started("enhancement_started")
 
             val baseProcessedText =
@@ -173,8 +183,18 @@ class RecordingEnhancementWorker
                 val titleResult =
                     textEnhancement.generateTitle(enrichmentContext)
                 if (titleResult.isSuccess) {
-                    generatedTitle = titleResult.getOrThrow()
-                    titleStatus = EnhancementSubworkStatus.SUCCEEDED
+                    // A model that ignores instructions can return paragraphs, wrapping
+                    // quotes, or markdown; the title becomes the export filename and the
+                    // share subject, so normalize before persisting.
+                    val sanitizedTitle = sanitizeGeneratedTitle(titleResult.getOrThrow())
+                    if (sanitizedTitle.isNotBlank()) {
+                        generatedTitle = sanitizedTitle
+                        titleStatus = EnhancementSubworkStatus.SUCCEEDED
+                    } else {
+                        titleStatus = EnhancementSubworkStatus.FAILED
+                        titleError = "Generated title was empty"
+                        Log.w(TAG, "Skipping title generation: sanitized title was empty")
+                    }
                 } else {
                     val message = titleResult.exceptionOrNull()?.message ?: "Title generation failed"
                     titleStatus = EnhancementSubworkStatus.FAILED
@@ -187,8 +207,15 @@ class RecordingEnhancementWorker
                 val summaryResult =
                     textEnhancement.generateSummary(enrichmentContext)
                 if (summaryResult.isSuccess) {
-                    generatedSummary = summaryResult.getOrThrow()
-                    summaryStatus = EnhancementSubworkStatus.SUCCEEDED
+                    val sanitizedSummary = sanitizeGeneratedSummary(summaryResult.getOrThrow())
+                    if (sanitizedSummary.isNotBlank()) {
+                        generatedSummary = sanitizedSummary
+                        summaryStatus = EnhancementSubworkStatus.SUCCEEDED
+                    } else {
+                        summaryStatus = EnhancementSubworkStatus.FAILED
+                        summaryError = "Generated summary was empty"
+                        Log.w(TAG, "Skipping summary generation: sanitized summary was empty")
+                    }
                 } else {
                     val message = summaryResult.exceptionOrNull()?.message ?: "Summary generation failed"
                     summaryStatus = EnhancementSubworkStatus.FAILED
@@ -228,6 +255,11 @@ class RecordingEnhancementWorker
                 )
             if (!committed) {
                 enhancementLog.skipped("enhancement_commit_stale")
+            } else {
+                // Export only at the terminal COMPLETED transition: the exporter re-checks
+                // the row status, so an unresolved-subwork commit that landed in FAILED is
+                // never exported (PLH-3/ERR-5).
+                completionExporter.exportIfCompleted(recordingId)
             }
             return Result.success()
         }

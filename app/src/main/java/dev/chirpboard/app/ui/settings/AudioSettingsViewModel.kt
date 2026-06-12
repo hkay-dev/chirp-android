@@ -62,8 +62,25 @@ class AudioSettingsViewModel
 
         val activeInputDeviceLabel: StateFlow<String?> = inputDeviceSelector.activeDeviceLabel
 
+        /** Persisted manual selection key so the picker can mark the chosen device. */
+        val manualDeviceKey: StateFlow<String?> =
+            audioSettingsStore.settings
+                .map { it.manualDeviceAddress }
+                .stateIn(
+                    scope = viewModelScope,
+                    started = SharingStarted.WhileSubscribed(5_000),
+                    initialValue = null,
+                )
+
         init {
             refreshInputDevices()
+            // Hot-plug refresh: without this the device list is a one-shot snapshot and a
+            // mic plugged in while the screen is open never appears.
+            viewModelScope.launch {
+                inputDeviceSelector.devicesChangedTick.collect {
+                    refreshInputDevices()
+                }
+            }
         }
 
         fun refreshInputDevices() {
@@ -96,9 +113,14 @@ class AudioSettingsViewModel
             }
         }
 
-        fun setManualInputDevice(address: String?) {
+        /**
+         * Persists a manual device selection by its stable [AudioInputDeviceSummary.selectionKey]
+         * (address, or a type+name composite for blank-address Bluetooth/wired devices —
+         * the previous transient-id fallback could never be resolved again).
+         */
+        fun setManualInputDevice(selectionKey: String) {
             viewModelScope.launch {
-                audioSettingsStore.setManualDeviceAddress(address)
+                audioSettingsStore.setManualDeviceAddress(selectionKey)
                 audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual)
             }
         }

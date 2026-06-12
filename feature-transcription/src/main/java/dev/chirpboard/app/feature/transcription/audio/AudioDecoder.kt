@@ -141,6 +141,14 @@ class AudioDecoder @Inject constructor() {
 
         /** Maximum value for 16-bit PCM normalization */
         private const val MAX_16BIT = 32768f
+
+        private const val WAVE_FORMAT_PCM = 0x0001
+        private const val WAVE_FORMAT_EXTENSIBLE = 0xFFFE
+        private const val FMT_CHUNK_MIN_BYTES = 16L
+        private const val FMT_EXTENSIBLE_MIN_BYTES = 40L
+        private const val UINT32_MASK = 0xFFFFFFFFL
+        private const val USHORT_MASK = 0xFFFF
+        private val PRINTABLE_ASCII_RANGE = 0x20..0x7E
     }
 
     /**
@@ -161,8 +169,10 @@ class AudioDecoder @Inject constructor() {
             throw AudioDecoderException("Audio file not found: $filePath")
         }
 
-        if (file.extension.equals("wav", ignoreCase = true) && WavFileWriter.hasValidHeader(file)) {
-            return@withContext decodeWavPcmDirect(file, onChunk)
+        val wavLayout =
+            if (file.extension.equals("wav", ignoreCase = true)) parseWavPcm16Layout(file) else null
+        if (wavLayout != null) {
+            return@withContext decodeWavPcmDirect(file, wavLayout, onChunk)
         }
 
         var extractor: MediaExtractor? = null
@@ -296,9 +306,21 @@ class AudioDecoder @Inject constructor() {
             throw e
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            if (file.extension.equals("wav", ignoreCase = true) && WavFileWriter.hasValidHeader(file)) {
+            val retryLayout =
+                if (file.extension.equals("wav", ignoreCase = true)) parseWavPcm16Layout(file) else null
+            if (retryLayout != null) {
                 Log.w(TAG, "MediaCodec WAV decode failed; retrying with direct PCM reader", e)
-                return@withContext decodeWavPcmDirect(file, onChunk)
+                return@withContext decodeWavPcmDirect(file, retryLayout, onChunk)
+            }
+            if (file.extension.equals("wav", ignoreCase = true) && WavFileWriter.hasValidHeader(file)) {
+                // RIFF/WAVE but not canonical 16-bit PCM (24/32-bit, float, ADPCM…) and
+                // MediaCodec could not decode it either: reject clearly instead of ever
+                // reading the payload with wrong assumptions.
+                Log.e(TAG, "Unsupported WAV variant: ${e.message}", e)
+                throw AudioDecoderException(
+                    "This WAV file uses an unsupported encoding and can't be transcribed",
+                    e,
+                )
             }
             Log.e(TAG, "Failed to decode audio: ${e.message}", e)
             throw AudioDecoderException("Failed to decode audio: ${e.message}", e)
@@ -358,31 +380,126 @@ class AudioDecoder @Inject constructor() {
     }
 
     /**
-     * Decode 16-bit PCM WAV without MediaCodec. Used for app-produced WAV and as an OEM fallback.
+     * Where the verified 16-bit PCM payload of a WAV file lives.
+     */
+    internal data class WavPcm16Layout(
+        val channelCount: Int,
+        val sampleRate: Int,
+        val dataOffset: Long,
+        val dataBytes: Long,
+    )
+
+    /**
+     * Walks the RIFF chunks and returns the PCM layout only when the file is canonical
+     * 16-bit integer PCM (format tag 1, or EXTENSIBLE with a PCM subformat). Returns null
+     * for everything else — 24/32-bit, float, ADPCM, compressed payloads — which must go
+     * through MediaCodec instead of being misread as 16-bit samples at a fixed offset
+     * (previously the reader hardcoded the canonical 44-byte header and decoded garbage
+     * for foreign WAVs with extended fmt chunks or LIST metadata before 'data').
+     */
+    internal fun parseWavPcm16Layout(file: File): WavPcm16Layout? =
+        runCatching {
+            RandomAccessFile(file, "r").use { raf ->
+                if (raf.length() <= WavFileWriter.WAV_HEADER_BYTES) return@use null
+                val tag = ByteArray(4)
+                raf.seek(0)
+                raf.readFully(tag)
+                if (String(tag, Charsets.US_ASCII) != "RIFF") return@use null
+                raf.seek(8)
+                raf.readFully(tag)
+                if (String(tag, Charsets.US_ASCII) != "WAVE") return@use null
+
+                var formatTag = -1
+                var channelCount = 0
+                var sampleRate = 0
+                var bitsPerSample = 0
+                var pcmSubFormat = false
+                var dataOffset = -1L
+                var dataBytes = -1L
+
+                var offset = 12L
+                while (offset + 8 <= raf.length()) {
+                    raf.seek(offset)
+                    raf.readFully(tag)
+                    if (tag.any { it.toInt() !in PRINTABLE_ASCII_RANGE }) {
+                        // Garbage where a chunk id should be: stop scanning rather than
+                        // walking megabytes of non-chunk data 8 bytes at a time.
+                        break
+                    }
+                    val chunkId = String(tag, Charsets.US_ASCII)
+                    val declaredSize = raf.readIntLe().toLong() and UINT32_MASK
+                    val payloadOffset = offset + 8
+                    when (chunkId) {
+                        "fmt " -> {
+                            if (declaredSize < FMT_CHUNK_MIN_BYTES) return@use null
+                            formatTag = raf.readShortLe().toInt() and USHORT_MASK
+                            channelCount = raf.readShortLe().toInt() and USHORT_MASK
+                            sampleRate = raf.readIntLe()
+                            raf.skipBytes(6) // byte rate (4) + block align (2)
+                            bitsPerSample = raf.readShortLe().toInt() and USHORT_MASK
+                            if (formatTag == WAVE_FORMAT_EXTENSIBLE && declaredSize >= FMT_EXTENSIBLE_MIN_BYTES) {
+                                raf.skipBytes(2 + 2 + 4) // cbSize + valid bits + channel mask
+                                pcmSubFormat = (raf.readShortLe().toInt() and USHORT_MASK) == WAVE_FORMAT_PCM
+                            }
+                        }
+                        "data" -> {
+                            dataOffset = payloadOffset
+                            dataBytes =
+                                if (declaredSize == 0L) {
+                                    // Crash-stale placeholder size from the app's own
+                                    // writer: data is always the final chunk, so the rest
+                                    // of the file is the payload (mirrors repairHeader).
+                                    raf.length() - payloadOffset
+                                } else {
+                                    minOf(declaredSize, raf.length() - payloadOffset)
+                                }
+                            if (declaredSize == 0L) {
+                                break
+                            }
+                        }
+                    }
+                    offset = payloadOffset + declaredSize + (declaredSize and 1L)
+                }
+
+                val isPcm16 =
+                    bitsPerSample == 16 &&
+                        (formatTag == WAVE_FORMAT_PCM || (formatTag == WAVE_FORMAT_EXTENSIBLE && pcmSubFormat))
+                if (!isPcm16 || channelCount < 1 || sampleRate < 1 || dataOffset < 0 || dataBytes <= 0) {
+                    null
+                } else {
+                    WavPcm16Layout(
+                        channelCount = channelCount,
+                        sampleRate = sampleRate,
+                        dataOffset = dataOffset,
+                        dataBytes = dataBytes,
+                    )
+                }
+            }
+        }.getOrNull()
+
+    /**
+     * Decode 16-bit PCM WAV without MediaCodec. Used for app-produced WAV and as an OEM
+     * fallback. [layout] is the verified fmt/data location, so trailing metadata chunks
+     * are never misread as audio.
      */
     private suspend fun decodeWavPcmDirect(
         file: File,
+        layout: WavPcm16Layout,
         onChunk: suspend (FloatArray) -> Unit,
     ): Long = withContext(Dispatchers.IO) {
         RandomAccessFile(file, "r").use { raf ->
-            if (raf.length() <= WavFileWriter.WAV_HEADER_BYTES) {
-                throw AudioDecoderException("Invalid WAV file: missing PCM data")
-            }
-
-            raf.seek(22)
-            val channelCount = raf.readShortLe().toInt().coerceAtLeast(1)
-            raf.seek(24)
-            val sourceSampleRate = raf.readIntLe().coerceAtLeast(1)
-
-            val resampler = Resampler(sourceSampleRate, TARGET_SAMPLE_RATE, channelCount)
+            val resampler = Resampler(layout.sampleRate, TARGET_SAMPLE_RATE, layout.channelCount)
             val chunkBuffer = ChunkBuffer(CHUNK_SIZE)
             var totalSamples = 0L
+            var remaining = layout.dataBytes
 
-            raf.seek(WavFileWriter.WAV_HEADER_BYTES.toLong())
-            val readBuffer = ByteArray(CHUNK_SIZE * channelCount * 2)
-            while (true) {
-                val bytesRead = raf.read(readBuffer)
+            raf.seek(layout.dataOffset)
+            val readBuffer = ByteArray(CHUNK_SIZE * layout.channelCount * 2)
+            while (remaining > 0) {
+                val toRead = minOf(readBuffer.size.toLong(), remaining).toInt()
+                val bytesRead = raf.read(readBuffer, 0, toRead)
                 if (bytesRead <= 0) break
+                remaining -= bytesRead
 
                 val pcmData = readBuffer.copyOf(bytesRead)
                 val samples = resampler.process(pcmData)

@@ -1,17 +1,17 @@
 package dev.chirpboard.app.feature.transcription.settings
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 
 @HiltViewModel
@@ -19,17 +19,26 @@ class TranscriptionSettingsViewModel
     @Inject
     constructor(
         private val modelManager: SpeechModelManager,
-        private val transcriptionRecovery: TranscriptionRecovery,
+        private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
+        companion object {
+            internal const val KEY_AUTO_DOWNLOAD = "autoDownload"
+            internal const val KEY_AUTO_DOWNLOAD_CONSUMED = "autoDownloadConsumed"
+            internal const val KEY_AWAITING_ALL_FILES_GRANT = "awaitingAllFilesGrant"
+        }
+
         data class UiState(
             val modelName: String = SpeechModelManager.MODEL_DISPLAY_NAME,
             val modelSizeMb: Int = SpeechModelManager.MODEL_SIZE_MB,
+            val downloadedSizeMb: Int? = null,
             val isDownloaded: Boolean = false,
             val isLoading: Boolean = false,
+            val isWaitingForNetwork: Boolean = false,
             val downloadProgress: Float = 0f,
             val currentFile: String = "",
             val errorMessage: String? = null,
             val showDeleteConfirmation: Boolean = false,
+            val showStorageChoice: Boolean = false,
         )
 
         private val _uiState = MutableStateFlow(UiState())
@@ -44,10 +53,13 @@ class TranscriptionSettingsViewModel
                                 it.copy(
                                     isDownloaded = true,
                                     isLoading = false,
+                                    isWaitingForNetwork = false,
                                     downloadProgress = 0f,
+                                    currentFile = "",
                                     errorMessage = null,
                                 )
                             }
+                            loadDownloadedSize()
                         }
 
                         is SpeechModelManager.ModelStatus.NotDownloaded -> {
@@ -55,7 +67,10 @@ class TranscriptionSettingsViewModel
                                 it.copy(
                                     isDownloaded = false,
                                     isLoading = false,
+                                    isWaitingForNetwork = false,
                                     downloadProgress = 0f,
+                                    currentFile = "",
+                                    downloadedSizeMb = null,
                                 )
                             }
                         }
@@ -63,8 +78,24 @@ class TranscriptionSettingsViewModel
                         is SpeechModelManager.ModelStatus.Downloading -> {
                             _uiState.update {
                                 it.copy(
+                                    isDownloaded = false,
                                     isLoading = true,
+                                    isWaitingForNetwork = false,
                                     downloadProgress = status.progress,
+                                    currentFile = status.file,
+                                    errorMessage = null,
+                                )
+                            }
+                        }
+
+                        is SpeechModelManager.ModelStatus.WaitingForNetwork -> {
+                            _uiState.update {
+                                it.copy(
+                                    isDownloaded = false,
+                                    isLoading = true,
+                                    isWaitingForNetwork = true,
+                                    currentFile = "",
+                                    errorMessage = null,
                                 )
                             }
                         }
@@ -73,6 +104,7 @@ class TranscriptionSettingsViewModel
                             _uiState.update {
                                 it.copy(
                                     isLoading = false,
+                                    isWaitingForNetwork = false,
                                     errorMessage = status.message,
                                 )
                             }
@@ -84,22 +116,63 @@ class TranscriptionSettingsViewModel
             modelManager.refreshStatus()
         }
 
-        fun downloadModel() {
-            if (_uiState.value.isLoading) return
+        /**
+         * One-shot consumption of the `autoDownload` navigation argument (LIF-06/ERR-3):
+         * returns true exactly once per navigation, never again after rotation, process
+         * death + restore, or an error — auto-retry after a failed download is forbidden.
+         */
+        fun consumePendingAutoDownload(): Boolean {
+            if (savedStateHandle.get<Boolean>(KEY_AUTO_DOWNLOAD) != true) return false
+            if (savedStateHandle.get<Boolean>(KEY_AUTO_DOWNLOAD_CONSUMED) == true) return false
+            savedStateHandle[KEY_AUTO_DOWNLOAD_CONSUMED] = true
+            return true
+        }
 
-            viewModelScope.launch {
-                _uiState.update { it.copy(isLoading = true, errorMessage = null, downloadProgress = 0f) }
-                try {
-                    modelManager.downloadModel {
-                        transcriptionRecovery.recoverRecordingsWaitingForModel()
-                    }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    val message = e.message ?: "Download failed"
-                    modelManager.markDownloadError(message)
-                    _uiState.update { it.copy(errorMessage = message) }
-                }
+        /** PLT-07: rationale dialog before bouncing the user to the All-files-access toggle. */
+        fun showStorageChoice() {
+            _uiState.update { it.copy(showStorageChoice = true) }
+        }
+
+        fun dismissStorageChoice() {
+            _uiState.update { it.copy(showStorageChoice = false) }
+        }
+
+        /**
+         * The user chose "Allow access" and is being sent to system settings; remember that
+         * across process death so the download auto-starts when they come back with the
+         * grant (PLT-07).
+         */
+        fun onAllFilesAccessRequested() {
+            _uiState.update { it.copy(showStorageChoice = false) }
+            savedStateHandle[KEY_AWAITING_ALL_FILES_GRANT] = true
+        }
+
+        /**
+         * Called on every screen resume. If the user just returned from the
+         * All-files-access settings page with the grant, start the download they asked for;
+         * if they declined, do nothing (no nagging — the choice dialog reappears on the
+         * next explicit Download tap).
+         */
+        fun onResumed(hasAllFilesAccess: Boolean) {
+            if (savedStateHandle.get<Boolean>(KEY_AWAITING_ALL_FILES_GRANT) != true) return
+            savedStateHandle[KEY_AWAITING_ALL_FILES_GRANT] = false
+            val state = _uiState.value
+            if (hasAllFilesAccess && !state.isDownloaded && !state.isLoading) {
+                downloadModel()
             }
+        }
+
+        fun downloadModel(preferInternalStorage: Boolean = false) {
+            val state = _uiState.value
+            if (state.isLoading || state.isDownloaded) return
+            _uiState.update {
+                it.copy(errorMessage = null, downloadProgress = 0f, showStorageChoice = false)
+            }
+            modelManager.requestDownload(preferInternalStorage)
+        }
+
+        fun cancelDownload() {
+            modelManager.cancelDownload()
         }
 
         fun showDeleteConfirmation() {
@@ -127,5 +200,19 @@ class TranscriptionSettingsViewModel
 
         fun dismissError() {
             _uiState.update { it.copy(errorMessage = null) }
+        }
+
+        private fun loadDownloadedSize() {
+            viewModelScope.launch {
+                val sizeMb =
+                    try {
+                        (modelManager.getDownloadedSize() / (1024L * 1024L)).toInt()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        null
+                    }
+                _uiState.update { it.copy(downloadedSizeMb = sizeMb?.takeIf { mb -> mb > 0 }) }
+            }
         }
     }

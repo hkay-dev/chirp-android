@@ -430,12 +430,158 @@ class ProcessingStudioViewModelTest {
             assertEquals(-1, viewModel.playbackTick.value.activeTranscriptSegmentIndex)
         }
 
+    @Test
+    fun `saved transcript correction offers word replacement promotion`() =
+        runTest {
+            // PLH-7: a single-word correction triggers the promotion snackbar offer.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "hello wrold there")))
+            every { repository.getTranscriptTimingsFlow(recordingId) } returns flowOf(RepositoryFlowState(emptyList()))
+            every { repository.getStructuredOutcomeSnapshotFlow(recordingId) } returns flowOf(RepositoryFlowState(null))
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingTranscript()
+            viewModel.updateTranscriptDraft("hello world there")
+            viewModel.saveTranscriptCorrection()
+            advanceUntilIdle()
+
+            coVerify {
+                repository.saveManualCorrection(
+                    recordingId = recordingId,
+                    correctedText = "hello world there",
+                    sourceText = "hello wrold there",
+                )
+            }
+            assertEquals(
+                TranscriptCorrectionPromotionPrompt(original = "wrold", replacement = "world"),
+                viewModel.promotionPrompt.value,
+            )
+
+            viewModel.clearPromotionPrompt()
+            assertEquals(null, viewModel.promotionPrompt.value)
+        }
+
+    @Test
+    fun `multi sentence rewrite does not offer promotion`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "alpha beta gamma")))
+            every { repository.getTranscriptTimingsFlow(recordingId) } returns flowOf(RepositoryFlowState(emptyList()))
+            every { repository.getStructuredOutcomeSnapshotFlow(recordingId) } returns flowOf(RepositoryFlowState(null))
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingTranscript()
+            viewModel.updateTranscriptDraft("totally different text entirely now")
+            viewModel.saveTranscriptCorrection()
+            advanceUntilIdle()
+
+            assertEquals(null, viewModel.promotionPrompt.value)
+        }
+
+    @Test
+    fun `mid-edit transcript draft is restored after process death`() =
+        runTest {
+            // LIF-05: saved-state mirrored edit state reopens edit mode with the draft intact.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+
+            val restoredHandle =
+                SavedStateHandle(
+                    mapOf(
+                        "recordingId" to recordingId.toString(),
+                        "studio.isEditingTranscript" to true,
+                        "studio.transcriptDraft" to "my half-typed correction",
+                        "studio.chatDraft" to "pending chat question",
+                    ),
+                )
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = restoredHandle)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isEditingTranscript)
+            assertEquals("my half-typed correction", viewModel.uiState.value.transcriptDraft)
+            assertEquals("pending chat question", viewModel.uiState.value.chatDraft)
+        }
+
+    @Test
+    fun `transcript draft mirrors into saved state while editing`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+
+            val handle = SavedStateHandle(mapOf("recordingId" to recordingId.toString()))
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = handle)
+            advanceUntilIdle()
+
+            viewModel.startEditingTranscript()
+            viewModel.updateTranscriptDraft("typed so far")
+
+            assertEquals(true, handle.get<Boolean>("studio.isEditingTranscript"))
+            assertEquals("typed so far", handle.get<String>("studio.transcriptDraft"))
+
+            viewModel.cancelEditingTranscript()
+            assertEquals(false, handle.get<Boolean>("studio.isEditingTranscript"))
+            assertEquals(null, handle.get<String>("studio.transcriptDraft"))
+        }
+
+    @Test
+    fun `cancelTranscription cancels processing and reports it`() =
+        runTest {
+            // PIPE-07: studio cancel affordance routes through the recovery port.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(
+                    RepositoryFlowState(
+                        sampleRecording(recordingId).copy(status = RecordingStatus.PENDING_TRANSCRIPTION),
+                    ),
+                )
+            stubSupportingFlows(recordingId)
+            coEvery { transcriptionRecovery.cancelProcessing(recordingId) } returns Unit
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.cancelTranscription()
+            advanceUntilIdle()
+
+            coVerify { transcriptionRecovery.cancelProcessing(recordingId) }
+            assertEquals("Transcription cancelled", viewModel.message.value)
+        }
+
     private fun TestScope.createViewModel(
         recordingId: String,
         playbackController: RecordingPlaybackController =
             mockk(relaxed = true) {
                 every { state } returns MutableStateFlow(RecordingPlaybackState())
             },
+        savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("recordingId" to recordingId)),
     ): ProcessingStudioViewModel {
         val llmPreferences =
             mockk<LlmPreferences>(relaxed = true) {
@@ -444,7 +590,7 @@ class ProcessingStudioViewModelTest {
             }
         return ProcessingStudioViewModel(
             context = context,
-            savedStateHandle = SavedStateHandle(mapOf("recordingId" to recordingId)),
+            savedStateHandle = savedStateHandle,
             repository = repository,
             llmClient = mockk(relaxed = true),
             llmPreferences = llmPreferences,

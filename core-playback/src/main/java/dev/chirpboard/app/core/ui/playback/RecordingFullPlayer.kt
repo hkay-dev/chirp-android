@@ -1,13 +1,20 @@
 package dev.chirpboard.app.core.ui.playback
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.playback.R as PlaybackR
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
+import dev.chirpboard.app.core.ui.components.ChirpPill
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import java.util.UUID
@@ -24,6 +31,9 @@ fun RecordingFullPlayer(
     onSkipForward: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The speed control talks to the singleton controller directly so existing call
+    // sites keep their state-and-callbacks contract unchanged.
+    val playbackController = rememberRecordingPlaybackController()
     val displayState =
         if (state.recordingId == screenRecordingId) {
             state
@@ -31,6 +41,7 @@ fun RecordingFullPlayer(
             RecordingPlaybackState(
                 recordingId = screenRecordingId,
                 title = screenTitle,
+                playbackSpeed = state.playbackSpeed,
             )
         }
 
@@ -53,16 +64,29 @@ fun RecordingFullPlayer(
             }
         }
 
-        PlaybackTransportRow(
-            isLoading = isLoading,
-            isError = isError,
-            isPlaying = isPlaying,
-            controlsEnabled = controlsEnabled,
-            onPlayPause = onPlayPause,
-            onSkipBackward = onSkipBackward,
-            onSkipForward = onSkipForward,
-            playButtonSize = 44.dp,
-        )
+        PushDownReveal(visible = displayState.noticeMessage != null) {
+            displayState.noticeMessage?.let { message ->
+                PlaybackNoticeBanner(message = message)
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            PlaybackTransportRow(
+                isLoading = isLoading,
+                isError = isError,
+                isPlaying = isPlaying,
+                controlsEnabled = controlsEnabled,
+                onPlayPause = onPlayPause,
+                onSkipBackward = onSkipBackward,
+                onSkipForward = onSkipForward,
+                playButtonSize = 44.dp,
+            )
+            PlaybackSpeedChip(
+                playbackSpeed = displayState.playbackSpeed,
+                onCycleSpeed = playbackController::cyclePlaybackSpeed,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        }
 
         PlaybackTimelineRow(
             positionMs = displayState.positionMs,
@@ -73,12 +97,37 @@ fun RecordingFullPlayer(
     }
 }
 
+@Composable
+private fun PlaybackSpeedChip(
+    playbackSpeed: Float,
+    onCycleSpeed: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val speedText = formatPlaybackSpeed(playbackSpeed)
+    val description = stringResource(PlaybackR.string.playback_speed_description, speedText)
+    ChirpPill(
+        label = stringResource(PlaybackR.string.playback_speed_label, speedText),
+        onClick = onCycleSpeed,
+        modifier = modifier.semantics { contentDescription = description },
+    )
+}
+
+/** "1", "1.25", "0.75" — no trailing zeros so the chip stays compact. */
+internal fun formatPlaybackSpeed(speed: Float): String =
+    if (speed == speed.toInt().toFloat()) {
+        speed.toInt().toString()
+    } else {
+        speed.toString().trimEnd('0').trimEnd('.')
+    }
+
 fun shouldShowGlobalMiniPlayer(
     playbackState: RecordingPlaybackState,
     currentRoute: String?,
     studioRecordingId: String?,
 ): Boolean {
-    if (!playbackState.isActive && !playbackState.isLoading) return false
+    // Error states stay visible until dismissed (close = stop()); without this a
+    // playback failure would silently hide the bar mid-message (AUD-12).
+    if (!playbackState.isActive && !playbackState.isLoading && playbackState.errorMessage == null) return false
     if (studioRecordingId == null || currentRoute?.contains("processing_studio") != true) return true
     return playbackState.recordingId?.toString() != studioRecordingId
 }

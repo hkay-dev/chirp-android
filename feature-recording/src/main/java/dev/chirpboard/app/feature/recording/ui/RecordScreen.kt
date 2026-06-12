@@ -1,6 +1,9 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import android.Manifest
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +22,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -32,12 +36,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,6 +76,7 @@ fun RecordScreen(
     viewModel: RecordViewModel = hiltViewModel(),
 ) {
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
+    val autoStopEvent by viewModel.autoStopEvent.collectAsStateWithLifecycle()
     val lastCompletedRecordingId by viewModel.lastCompletedRecordingId.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val isProfileHandoffResolved by viewModel.isProfileHandoffResolved.collectAsStateWithLifecycle()
@@ -76,13 +86,40 @@ fun RecordScreen(
     val selectedTagIds by viewModel.selectedTagIds.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    var showCancelDialog by remember { mutableStateOf(false) }
-    var showRestartDialog by remember { mutableStateOf(false) }
-    var showBackDialog by remember { mutableStateOf(false) }
+    // LIF-03: dialog decisions survive rotation/resize/process death; these guard destructive
+    // actions (discard, start over), so losing them mid-decision is more than cosmetic.
+    var showCancelDialog by rememberSaveable { mutableStateOf(false) }
+    var showRestartDialog by rememberSaveable { mutableStateOf(false) }
+    var showBackDialog by rememberSaveable { mutableStateOf(false) }
     var recoveryPromptSession by remember { mutableStateOf<RecoverableRecordingSession?>(null) }
-    var hasNavigatedToComplete by remember { mutableStateOf(false) }
+    var hasNavigatedToComplete by rememberSaveable { mutableStateOf(false) }
+    // ERR-7: permanent-denial affordance — deep link into the app's settings page.
+    var showMicSettingsDialog by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+
+    val micPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                viewModel.startRecording()
+            } else if (isMicPermissionPermanentlyDenied(context)) {
+                showMicSettingsDialog = true
+            } else {
+                coroutineScope.launch {
+                    snackbarHostState.showSnackbar(context.getString(R.string.rec_mic_permission_denied))
+                }
+            }
+        }
+
+    // ERR-7: every start path checks the permission in the UI layer first; a missing grant
+    // re-requests instead of letting the service fail into a dead-end snackbar.
+    fun startRecordingWithPermissionCheck() {
+        if (isMicPermissionGranted(context)) {
+            viewModel.startRecording()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     val isRecording =
         recordingState is RecordingState.Recording ||
@@ -97,15 +134,50 @@ fun RecordScreen(
         }
     }
 
-    LaunchedEffect(autoStart, isProfileHandoffResolved, recoverableSessions) {
+    // LIF-02: the autoStart nav-argument is part of the restored back stack, so it must be
+    // consumed exactly once (via SavedStateHandle) — never re-fired after process-death
+    // restoration — and the decision waits for the recovery store's first refresh so the
+    // empty-before-refresh window can't start the mic over a pending recovery prompt.
+    val isAutoStartConsumed by viewModel.isAutoStartConsumed.collectAsStateWithLifecycle()
+    val isRecoverableSessionsRefreshed by viewModel.isRecoverableSessionsRefreshed.collectAsStateWithLifecycle()
+    LaunchedEffect(autoStart, isProfileHandoffResolved, isRecoverableSessionsRefreshed, isAutoStartConsumed) {
         if (
             autoStart &&
+            !isAutoStartConsumed &&
             isProfileHandoffResolved &&
-            recoverableSessions.isEmpty() &&
-            recordingState is RecordingState.Idle
+            isRecoverableSessionsRefreshed
         ) {
-            viewModel.startRecording()
+            // Decide exactly once: either start now or yield to the recovery prompt. The flag is
+            // consumed either way so dismissing a recovery prompt never auto-starts the mic later.
+            viewModel.consumeAutoStart()
+            if (recoverableSessions.isEmpty() && recordingState is RecordingState.Idle) {
+                startRecordingWithPermissionCheck()
+            }
         }
+    }
+
+    // ERR-7/ERR-13: surface service-reported recording failures and reasoned auto-stops on the
+    // record screen itself (previously only Home rendered RecordingState.Error).
+    LaunchedEffect(recordingState) {
+        val error = recordingState as? RecordingState.Error ?: return@LaunchedEffect
+        viewModel.clearRecordingError()
+        snackbarHostState.showSnackbar(
+            message = error.message,
+            duration = SnackbarDuration.Short,
+        )
+    }
+
+    // ERR-13/ERR-14: reasoned auto-stops (storage critical, focus loss, device loss, capture
+    // death) save through the normal stop path, so they never arrive as RecordingState.Error;
+    // they surface through the service's dedicated event channel instead. Acknowledge only
+    // after the snackbar ran so a navigation mid-display re-surfaces it on the next screen.
+    LaunchedEffect(autoStopEvent) {
+        val event = autoStopEvent ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(
+            message = event.reason.autoStopSnackbarMessage(context),
+            duration = SnackbarDuration.Short,
+        )
+        viewModel.consumeAutoStopEvent()
     }
 
     LaunchedEffect(lastCompletedRecordingId) {
@@ -157,8 +229,9 @@ fun RecordScreen(
             text = {
                 Text(
                     if (session.hasPotentialLoss) {
-                        stringResource(
-                            R.string.rec_recovery_message_with_loss,
+                        pluralStringResource(
+                            R.plurals.rec_recovery_message_with_loss,
+                            session.estimatedLostMinutes(),
                             session.estimatedLostMinutes(),
                         )
                     } else {
@@ -195,6 +268,16 @@ fun RecordScreen(
                         Text(stringResource(R.string.rec_recovery_discard))
                     }
                 }
+            },
+        )
+    }
+
+    if (showMicSettingsDialog) {
+        MicPermissionSettingsDialog(
+            onDismiss = { showMicSettingsDialog = false },
+            onOpenSettings = {
+                showMicSettingsDialog = false
+                openAppSettingsForPermission(context)
             },
         )
     }
@@ -356,6 +439,28 @@ fun RecordScreen(
                 isRecording = isRecording,
             )
 
+            // A11Y: a textual Recording/Paused/Saving status with a polite live region — the
+            // screen previously communicated capture state only via icon swaps and timer color,
+            // which TalkBack never announces.
+            val recordStatusText =
+                when {
+                    recordingState is RecordingState.Stopping -> stringResource(R.string.rec_record_status_saving)
+                    isPaused -> stringResource(R.string.rec_record_status_paused)
+                    isRecording -> stringResource(R.string.rec_record_status_recording)
+                    else -> null
+                }
+            if (recordStatusText != null) {
+                Text(
+                    text = recordStatusText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier =
+                        Modifier
+                            .padding(top = 4.dp)
+                            .semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+
             Spacer(modifier = Modifier.height(32.dp))
 
             Surface(
@@ -405,7 +510,7 @@ fun RecordScreen(
                             viewModel.resumeRecording()
                         } else if (isProfileHandoffResolved) {
                             ChirpHaptics.recordStart(context)
-                            viewModel.startRecording()
+                            startRecordingWithPermissionCheck()
                         }
                     } else {
                         // Pausing is a light tap, distinct from the start tick.
@@ -438,7 +543,12 @@ private fun ActiveProfileSessionBadge(
         color = MaterialTheme.colorScheme.secondaryContainer,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            // A11Y: one TalkBack stop ("Recording with profile, <emoji>, <name>") instead of
+            // three unrelated nodes.
+            modifier =
+                Modifier
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .semantics(mergeDescendants = true) {},
         ) {
             Text(
                 text = stringResource(R.string.rec_active_profile_label),

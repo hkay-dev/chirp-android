@@ -8,6 +8,11 @@ import io.mockk.verify
 import org.junit.Test
 
 class KeyboardInputConnectionActionsTest {
+    private companion object {
+        // Mirrors the grapheme context window used by deletePreviousCharacter.
+        const val GRAPHEME_WINDOW = 64
+    }
+
     @Test
     fun `deletePreviousCharacter deletes selected text`() {
         val connection = mockk<InputConnection>(relaxed = true)
@@ -22,7 +27,7 @@ class KeyboardInputConnectionActionsTest {
     fun `deletePreviousCharacter deletes one code unit`() {
         val connection = mockk<InputConnection>(relaxed = true)
         every { connection.getSelectedText(0) } returns ""
-        every { connection.getTextBeforeCursor(2, 0) } returns "a"
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "a"
         every { connection.deleteSurroundingText(1, 0) } returns true
 
         deletePreviousCharacter(connection)
@@ -34,7 +39,56 @@ class KeyboardInputConnectionActionsTest {
     fun `deletePreviousCharacter deletes surrogate pair`() {
         val connection = mockk<InputConnection>(relaxed = true)
         every { connection.getSelectedText(0) } returns ""
-        every { connection.getTextBeforeCursor(2, 0) } returns "😀"
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "😀"
+        every { connection.deleteSurroundingText(2, 0) } returns true
+
+        deletePreviousCharacter(connection)
+
+        verify { connection.deleteSurroundingText(2, 0) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter deletes whole flag emoji`() {
+        // IME-8: one backspace removes both regional indicators, never leaving a lone "🇺".
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "go 🇺🇸"
+        every { connection.deleteSurroundingText(4, 0) } returns true
+
+        deletePreviousCharacter(connection)
+
+        verify { connection.deleteSurroundingText(4, 0) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter deletes whole zwj family`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "we 👨‍👩‍👧‍👦"
+        every { connection.deleteSurroundingText(11, 0) } returns true
+
+        deletePreviousCharacter(connection)
+
+        verify { connection.deleteSurroundingText(11, 0) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter deletes skin tone emoji wholly`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "👍🏽"
+        every { connection.deleteSurroundingText(4, 0) } returns true
+
+        deletePreviousCharacter(connection)
+
+        verify { connection.deleteSurroundingText(4, 0) }
+    }
+
+    @Test
+    fun `deletePreviousCharacter deletes variation selector heart wholly`() {
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "❤️"
         every { connection.deleteSurroundingText(2, 0) } returns true
 
         deletePreviousCharacter(connection)
@@ -46,7 +100,7 @@ class KeyboardInputConnectionActionsTest {
     fun `deletePreviousCharacter sends delete key when buffer empty`() {
         val connection = mockk<InputConnection>(relaxed = true)
         every { connection.getSelectedText(0) } returns null
-        every { connection.getTextBeforeCursor(2, 0) } returns ""
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns ""
 
         deletePreviousCharacter(connection)
 
@@ -95,6 +149,20 @@ class KeyboardInputConnectionActionsTest {
         deletePreviousWord(connection)
 
         verify { connection.deleteSurroundingText(5, 0) }
+    }
+
+    @Test
+    fun `deletePreviousWord keeps combining marks inside the word`() {
+        // IME-8: NFD "café" (e + combining acute) deletes as one word, not just the accent.
+        val decomposed = "café"
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(512, 0) } returns decomposed
+        every { connection.deleteSurroundingText(decomposed.length, 0) } returns true
+
+        deletePreviousWord(connection)
+
+        verify { connection.deleteSurroundingText(decomposed.length, 0) }
     }
 
     @Test
@@ -175,6 +243,58 @@ class KeyboardInputConnectionActionsTest {
     }
 
     @Test
+    fun `moveCursor steps over whole grapheme clusters`() {
+        // IME-8: a cursor step never parks inside a flag's regional-indicator pair.
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "a🇺🇸b"
+                selectionStart = 1
+                selectionEnd = 1
+            }
+        every { connection.setSelection(5, 5) } returns true
+
+        moveCursor(connection, 1)
+
+        verify { connection.setSelection(5, 5) }
+    }
+
+    @Test
+    fun `moveCursor honors extract startOffset`() {
+        // IME-17: extract offsets are window-relative; setSelection must add startOffset back.
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "hello"
+                startOffset = 100
+                selectionStart = 2
+                selectionEnd = 2
+            }
+        every { connection.setSelection(103, 103) } returns true
+
+        moveCursor(connection, 1)
+
+        verify { connection.setSelection(103, 103) }
+    }
+
+    @Test
+    fun `moveCursor falls back to key events when no selection is reported`() {
+        // IME-17: selectionStart == -1 means "no selection reported", not "cursor at 0".
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns
+            ExtractedText().apply {
+                text = "hello"
+                selectionStart = -1
+                selectionEnd = -1
+            }
+
+        moveCursor(connection, 1)
+
+        verify(exactly = 0) { connection.setSelection(any(), any()) }
+        verify(exactly = 2) { connection.sendKeyEvent(any()) }
+    }
+
+    @Test
     fun `moveCursor repairs out of bounds selection before moving`() {
         val connection = mockk<InputConnection>(relaxed = true)
         every { connection.getExtractedText(any(), any()) } returns
@@ -199,5 +319,21 @@ class KeyboardInputConnectionActionsTest {
         moveCursor(connection, 2)
 
         verify(exactly = 4) { connection.sendKeyEvent(any()) }
+    }
+
+    @Test
+    fun `moveCursor never requests the extract monitor flag`() {
+        // IME-18: a one-shot read must not subscribe this IME to every later editor change.
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getExtractedText(any(), any()) } returns null
+
+        moveCursor(connection, 1)
+
+        verify {
+            connection.getExtractedText(
+                match { request -> request.flags == 0 && request.hintMaxChars > 0 },
+                0,
+            )
+        }
     }
 }

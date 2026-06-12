@@ -27,6 +27,18 @@ fun interface GaplessCaptureErrorListener {
     fun onCaptureError(error: GaplessCaptureError)
 }
 
+/**
+ * Notified (on the engine's capture thread) when capture transitions into or out of
+ * sustained digital silence — every sample exactly zero. Pure zeros are the signature of
+ * a silenced AudioRecord client: another app holds the microphone under the
+ * concurrent-capture policy, or the mic privacy toggle is off. Reads keep succeeding in
+ * that state, so without this signal a session can record minutes of nothing while
+ * looking perfectly live.
+ */
+fun interface GaplessSilenceListener {
+    fun onSilenceStateChanged(silenced: Boolean)
+}
+
 interface GaplessSegmentCaptureEngine {
     suspend fun start(segmentFile: File)
 
@@ -52,6 +64,13 @@ interface GaplessSegmentCaptureEngine {
      * Default is a no-op for implementations without a capture thread.
      */
     fun setCaptureErrorListener(listener: GaplessCaptureErrorListener?) {}
+
+    /**
+     * Registers [listener] for sustained-silence transitions (see [GaplessSilenceListener]
+     * for the threading contract). Pass null to clear. Default is a no-op for
+     * implementations without a capture thread.
+     */
+    fun setSilenceListener(listener: GaplessSilenceListener?) {}
 
     /**
      * Best-effort, non-destructive resource release after a bounded stop timed out, threw,

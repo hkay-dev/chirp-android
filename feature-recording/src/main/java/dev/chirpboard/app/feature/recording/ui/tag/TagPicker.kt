@@ -15,7 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,7 +44,8 @@ fun TagPicker(
     onCreateTag: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var showCreateDialog by remember { mutableStateOf(false) }
+    // LIF-12: dialog (and its typed content) survives rotation/process death.
+    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
 
     FlowRow(
         modifier = modifier,

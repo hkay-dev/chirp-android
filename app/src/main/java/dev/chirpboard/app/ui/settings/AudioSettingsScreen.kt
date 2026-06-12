@@ -31,7 +31,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.Icon
 import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
+import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
@@ -54,6 +58,7 @@ fun AudioSettingsScreen(
     val inputDevicePolicy by viewModel.inputDevicePolicy.collectAsStateWithLifecycle()
     val availableInputDevices by viewModel.availableInputDevices.collectAsStateWithLifecycle()
     val activeInputDeviceLabel by viewModel.activeInputDeviceLabel.collectAsStateWithLifecycle()
+    val manualDeviceKey by viewModel.manualDeviceKey.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     ChirpSettingsDetailScaffold(
@@ -119,14 +124,25 @@ fun AudioSettingsScreen(
                 PushDownReveal(visible = inputDevicePolicy == AudioInputDevicePolicy.Manual) {
                     Column(modifier = Modifier.animatePushDownLayout()) {
                         availableInputDevices.forEach { device ->
+                            val selected =
+                                AudioInputDeviceSelector.summaryMatchesSelectionKey(device, manualDeviceKey)
                             ListItem(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .clickable { viewModel.setManualInputDevice(device.address ?: device.id.toString()) },
+                                        .clickable { viewModel.setManualInputDevice(device.selectionKey) },
                                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                 headlineContent = { Text(device.productName) },
                                 supportingContent = { Text(device.typeLabel) },
+                                trailingContent = {
+                                    if (selected) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = stringResource(R.string.audio_settings_device_selected),
+                                            tint = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                },
                             )
                         }
                     }

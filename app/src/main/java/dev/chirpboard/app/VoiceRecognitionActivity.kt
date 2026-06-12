@@ -2,6 +2,7 @@ package dev.chirpboard.app
 
 import android.app.Activity
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -12,11 +13,14 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
+import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModePort
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingState
@@ -30,11 +34,12 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
-import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -45,6 +50,45 @@ internal enum class VoiceRecognitionModelState {
     Initializing,
     Ready,
     Unavailable,
+}
+
+/**
+ * Terminal error surfaced inside the recognition dialog before the result is returned, so
+ * failures are explained instead of the sheet silently vanishing (ERR-9/ERR-23/ERR-27).
+ * [speechErrorCode] is the SpeechRecognizer.ERROR_* the caller ultimately receives
+ * (mapped to a RecognizerIntent result code by [recognizerIntentResultCodeFor]).
+ */
+internal sealed interface VoiceRecognitionUiError {
+    val speechErrorCode: Int
+
+    /** RECORD_AUDIO is not granted; persistent until the user acts or dismisses (ERR-9). */
+    data object PermissionMissing : VoiceRecognitionUiError {
+        override val speechErrorCode: Int = SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
+    }
+
+    /** Another surface holds the microphone (ERR-23). */
+    data class MicBusy(
+        val sourceLabel: String,
+    ) : VoiceRecognitionUiError {
+        override val speechErrorCode: Int = SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+    }
+
+    /** The recorder failed to start or stopped unexpectedly mid-capture (ERR-23/IME-2). */
+    data object CaptureFailed : VoiceRecognitionUiError {
+        override val speechErrorCode: Int = SpeechRecognizer.ERROR_AUDIO
+    }
+
+    /** Transcription failed after the user spoke (ERR-27). */
+    data class TranscriptionFailed(
+        override val speechErrorCode: Int,
+        /** True when the inline pipeline's rescue persisted the captured audio. */
+        val audioRescued: Boolean,
+    ) : VoiceRecognitionUiError
+
+    /** The capture contained no recognizable speech. */
+    data object NoSpeech : VoiceRecognitionUiError {
+        override val speechErrorCode: Int = SpeechRecognizer.ERROR_NO_MATCH
+    }
 }
 
 /**
@@ -71,17 +115,34 @@ class VoiceRecognitionActivity : ComponentActivity() {
         )
     }
 
+    /**
+     * Transient-exclusive audio focus for the capture session (AUD-14): pauses other
+     * playback so music is not blasted into the microphone, matching the keyboard and
+     * RecordingService capture surfaces. A denied request degrades gracefully.
+     */
+    private val audioFocus by lazy { AudioFocusManager(getSystemService(AudioManager::class.java)) }
+
     private val recorderControl =
         object : VoiceRecognitionSessionCoordinator.RecorderControl {
             override suspend fun prepare() {
                 recorder.gainMultiplier = audioSettingsStore.currentMicrophoneGain()
+                if (audioFocus.requestFocus() == AudioFocusManager.FocusResult.Denied) {
+                    Log.w(TAG, "Audio focus denied; capturing without focus")
+                }
             }
 
             override suspend fun start(): Boolean = recorder.start()
 
-            override fun stop(): FloatArray = recorder.stop()
+            override fun stop(): FloatArray {
+                val samples = recorder.stop()
+                audioFocus.abandonFocus()
+                return samples
+            }
 
-            override fun cancel() = recorder.cancelCapture()
+            override fun cancel() {
+                recorder.cancelCapture()
+                audioFocus.abandonFocus()
+            }
 
             override suspend fun collectSamples() {
                 try {
@@ -118,13 +179,22 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var modePort: ProcessingModePort
 
-    @Inject lateinit var llmPreferences: LlmPreferences
+    @Inject lateinit var keyboardPreferences: KeyboardPreferences
 
     @Inject lateinit var dynamicColorPreference: DynamicColorPreference
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     private val _shouldDismiss = MutableStateFlow(false)
     private val _partialTranscript = MutableStateFlow("")
     private val _modelState = MutableStateFlow(VoiceRecognitionModelState.Initializing)
+    private val _uiError = MutableStateFlow<VoiceRecognitionUiError?>(null)
+
+    /**
+     * IME-6: a caller that sets [RecognizerIntent.EXTRA_SECURE] (keyguard/secure contexts)
+     * signals the session must not be stored or sent to cloud post-processing; the whole
+     * session runs without persistence and without the LLM path.
+     */
+    private val secureSession: Boolean
+        get() = intent?.getBooleanExtra(RecognizerIntent.EXTRA_SECURE, false) == true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,13 +210,27 @@ class VoiceRecognitionActivity : ComponentActivity() {
         // the sheet to the bottom via Alignment.BottomCenter, so the visible sheet keeps its height.
         params.height = android.view.WindowManager.LayoutParams.MATCH_PARENT
         // Dim the host app behind the sheet with the Material modal scrim (~32%) so the dialog reads
-        // as a focused modal rather than a leaky overlay, while still watching for outside touches so
-        // a tap on the dimmed area cancels (DLG-5/DLG-6/INS-2).
+        // as a focused modal rather than a leaky overlay. Outside taps are handled by the Compose
+        // scrim layer's tap-to-cancel; the old FLAG_WATCH_OUTSIDE_TOUCH path never fires with a
+        // full-screen window and was removed (IME-24).
         params.flags = params.flags or
-            android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
             android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
         params.dimAmount = DIALOG_DIM_AMOUNT
         window.attributes = params
+
+        // IME-2/AUD-17: the recorder's 10-minute cap and mid-capture failures must end the
+        // session like a user action instead of leaving a frozen "listening" dialog.
+        recorder.onLimitReached = {
+            Log.w(TAG, "Recording limit reached; stopping recognition capture")
+            stopFromSystemInterrupt()
+        }
+        recorder.onRecordingError = { error -> onCaptureError(error) }
+        audioFocus.onFocusLost = { kind ->
+            if (kind == AudioFocusManager.FocusLossKind.PERMANENT) {
+                Log.w(TAG, "Permanent audio focus loss; stopping recognition capture")
+                stopFromSystemInterrupt()
+            }
+        }
 
         // Ensure transcriber is initialized; surface a model-not-ready state instead of
         // failing silently when initialization does not complete.
@@ -170,16 +254,29 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 }
         }
 
+        // IME-15/SEC-1: honor the caller's instructional prompt; PIPE-08: surface that the
+        // engine is English-only when the caller asked for another language.
+        val callerPrompt =
+            intent?.getStringExtra(RecognizerIntent.EXTRA_PROMPT)?.takeIf { it.isNotBlank() }
+        val englishOnlyHint =
+            !isRecognitionLanguageSupported(intent?.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE))
+        val secure = secureSession
+
         setContent {
             val useDynamicColor by dynamicColorPreference.useDynamicColor
                 .collectAsStateWithLifecycle(initialValue = DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR)
             ChirpTheme(dynamicColor = useDynamicColor) {
-                val llmEnabled by llmPreferences.llmEnabled.collectAsStateWithLifecycle(initialValue = true)
+                // PLH-8: the dialog's AI toggle is scoped to the keyboard-prefs llm_enabled
+                // key — the same per-dictation scope the keyboard's pill uses — never the
+                // global "Enable Processing" master switch in LLM Settings.
+                val llmEnabled by keyboardPreferences.llmEnabled.collectAsStateWithLifecycle(initialValue = true)
                 val currentMode by modePort.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
                 // Selectable modes for the dialog's mode picker — the same source the keyboard's
                 // mode selector reads (DLG-1/VIS-2). Defaults to empty so the dialog falls back to
                 // the built-in mode list until the port emits.
                 val selectableModes by modePort.selectableModes.collectAsStateWithLifecycle(initialValue = emptyList())
+                // IME-6: secure sessions never run the cloud LLM path.
+                val effectiveLlmEnabled = llmEnabled && !secure
 
                 VoiceRecognitionDialog(
                     waveformBuffer = recorder.waveformBuffer,
@@ -188,16 +285,21 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     shouldDismissFlow = _shouldDismiss,
                     partialTranscriptFlow = _partialTranscript,
                     modelStateFlow = _modelState,
-                    llmEnabled = llmEnabled,
+                    uiErrorFlow = _uiError,
+                    llmEnabled = effectiveLlmEnabled,
+                    aiControlEnabled = !secure,
                     currentMode = currentMode,
                     selectableModes = selectableModes,
+                    callerPrompt = callerPrompt,
+                    englishOnlyHint = englishOnlyHint,
                     onStart = ::startRecording,
-                    onStop = { stopRecording(llmEnabled, currentMode) },
+                    onStop = { stopRecording(effectiveLlmEnabled, currentMode) },
                     onCancel = ::cancelRecording,
+                    onOpenApp = ::openAppAndDismiss,
                     onDismissComplete = { finish() },
                     onToggleLlm = { enabled ->
                         lifecycleScope.launch {
-                            llmPreferences.setLlmEnabled(enabled)
+                            keyboardPreferences.setLlmEnabled(enabled)
                         }
                     },
                     onModeChange = { modeId ->
@@ -208,15 +310,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    override fun onTouchEvent(event: android.view.MotionEvent?): Boolean {
-        if (event?.action == android.view.MotionEvent.ACTION_OUTSIDE) {
-            Log.d(TAG, "Touched outside, cancelling recording")
-            cancelRecording()
-            return true
-        }
-        return super.onTouchEvent(event)
     }
 
     private fun startRecording() {
@@ -230,7 +323,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
         }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             Log.e(TAG, "Recording permission missing")
-            returnError(SpeechRecognizer.ERROR_AUDIO)
+            // ERR-9: explain in-dialog with an affordance to open the app instead of
+            // instantly vanishing; the error code is returned when the user dismisses.
+            _uiError.value = VoiceRecognitionUiError.PermissionMissing
             return
         }
         // Reflect Starting in the dialog immediately; the coordinator's generation+mutex
@@ -267,13 +362,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 is VoiceRecognitionSessionCoordinator.StartResult.Busy -> {
                     Log.w(TAG, "Microphone in use by ${result.sourceLabel}")
                     _recordingState.value = RecordingState.Idle
-                    returnError(SpeechRecognizer.ERROR_RECOGNIZER_BUSY)
+                    showErrorThenReturn(VoiceRecognitionUiError.MicBusy(result.sourceLabel))
                 }
 
                 is VoiceRecognitionSessionCoordinator.StartResult.Failed -> {
                     Log.e(TAG, "Failed to start recording", result.cause)
                     _recordingState.value = RecordingState.Idle
-                    returnError(SpeechRecognizer.ERROR_AUDIO)
+                    showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
                 }
             }
         }
@@ -288,6 +383,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
             return
         }
         val generation = sessionCoordinator.currentGeneration()
+        val secure = secureSession
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Stop button pressed (LLM: $llmEnabled, Mode: ${processingMode.id})")
@@ -308,32 +404,40 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         is VoiceRecognitionSessionCoordinator.StopResult.Failed -> {
                             Log.e(TAG, "Failed to stop recording", stop.cause)
                             _recordingState.value = RecordingState.Idle
-                            returnError(SpeechRecognizer.ERROR_AUDIO)
+                            showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
                             return@launch
                         }
                     }
                 Log.d(TAG, "Got ${samples.size} audio samples")
 
                 if (samples.isEmpty()) {
-                    returnError(SpeechRecognizer.ERROR_NO_MATCH)
+                    showErrorThenReturn(VoiceRecognitionUiError.NoSpeech)
                     return@launch
                 }
 
                 // Guard the pipeline's persistence so a cancellation racing the final
-                // persist cannot write a duplicate entry for the same capture.
-                val persistenceGuard = DictationCapturePersistenceGuard(capturePersistence)
+                // persist cannot write a duplicate entry for the same capture. Secure
+                // sessions persist nothing at all (IME-6).
+                val persistence =
+                    if (secure) {
+                        SecureRecognitionCapturePersistence
+                    } else {
+                        DictationCapturePersistenceGuard(capturePersistence)
+                    }
                 var resultText = ""
                 inlineTranscription.transcribe(
                     request =
                         InlineTranscriptionRequest.inMemory(
                             samples = samples,
-                            llmEnabled = llmEnabled,
+                            llmEnabled = llmEnabled && !secure,
                             processingModeId = processingMode.id,
                             correlationPrefix = "voice",
                         ),
-                    persistence = persistenceGuard,
+                    persistence = persistence,
                     commitText = { text ->
-                        resultText = text
+                        // IME-10: the pipeline's keyboard-oriented trailing space must not
+                        // leak into the EXTRA_RESULTS payload.
+                        resultText = text.trim()
                         _partialTranscript.value = text.trim()
                     },
                     onRecordingCompleted = {
@@ -360,23 +464,107 @@ class VoiceRecognitionActivity : ComponentActivity() {
                                         RecognizerIntent.EXTRA_RESULTS,
                                         arrayListOf(delivery.text),
                                     )
+                                    // IME-15: single offline hypothesis, full confidence.
+                                    putExtra(
+                                        RecognizerIntent.EXTRA_CONFIDENCE_SCORES,
+                                        floatArrayOf(1f),
+                                    )
                                 },
                         )
                     }
 
-                    is RecognitionDelivery.Failure -> returnError(delivery.errorCode)
+                    is RecognitionDelivery.Failure -> {
+                        // ERR-27: the user already spoke — explain the failure (and that the
+                        // audio was rescued) instead of silently closing the sheet.
+                        val failurePhase = inlineTranscription.phase.value
+                        val error =
+                            if (failurePhase is InlineTranscriptionPhase.Error) {
+                                VoiceRecognitionUiError.TranscriptionFailed(
+                                    speechErrorCode = delivery.errorCode,
+                                    // The inline pipeline rescues the capture on transcription
+                                    // failure; secure sessions persist nothing by design.
+                                    audioRescued = !secure,
+                                )
+                            } else {
+                                VoiceRecognitionUiError.NoSpeech
+                            }
+                        showErrorThenReturn(error)
+                    }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 // The coordinator already released the capture gate when it stopped the
                 // recorder above; failures here are in the inline transcription pipeline.
                 Log.e(TAG, "Error during recognition", e)
-                returnError(android.speech.SpeechRecognizer.ERROR_CLIENT)
+                showErrorThenReturn(
+                    VoiceRecognitionUiError.TranscriptionFailed(
+                        speechErrorCode = SpeechRecognizer.ERROR_CLIENT,
+                        audioRescued = false,
+                    ),
+                )
             }
         }
     }
 
+    /**
+     * Shared terminal path for system-initiated session ends (recorder cap, permanent
+     * audio-focus loss): commit the capture exactly like a user stop, using the session's
+     * effective AI settings.
+     */
+    private fun stopFromSystemInterrupt() {
+        lifecycleScope.launch {
+            val llmEnabled = !secureSession && keyboardPreferences.llmEnabled.first()
+            val mode = modePort.currentMode.first()
+            stopRecording(llmEnabled, mode)
+        }
+    }
+
+    /**
+     * Mid-capture recorder failure (IME-2): tear the session down and explain it in-dialog.
+     * TooShort surfaces from the stop path itself and is handled there as an empty capture.
+     */
+    private fun onCaptureError(error: RecordingError) {
+        if (error == RecordingError.TooShort) {
+            return
+        }
+        lifecycleScope.launch {
+            val state = _recordingState.value
+            if (state !is RecordingState.Recording && state !is RecordingState.Starting) {
+                return@launch
+            }
+            Log.e(TAG, "Recorder failed mid-session: ${error.userMessage}")
+            sessionCoordinator.cancel(sessionCoordinator.currentGeneration())
+            _recordingState.value = RecordingState.Idle
+            showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
+        }
+    }
+
+    /**
+     * Shows a terminal error inside the dialog for a beat, then dismisses with the mapped
+     * RecognizerIntent result code — failures must be explained, never a silent close
+     * (ERR-23/ERR-27). [VoiceRecognitionUiError.PermissionMissing] is persistent instead:
+     * it carries an affordance and returns its error only when the user dismisses.
+     */
+    private fun showErrorThenReturn(error: VoiceRecognitionUiError) {
+        _uiError.value = error
+        lifecycleScope.launch {
+            delay(ERROR_DISPLAY_MS)
+            returnError(error.speechErrorCode)
+        }
+    }
+
     private fun cancelRecording() {
+        // A result is already committed and the dismiss animation is in flight; a late
+        // cancel must never downgrade it to RESULT_CANCELED.
+        if (_shouldDismiss.value) {
+            return
+        }
+        // A pending terminal error means the session already failed; dismissing now must
+        // report that failure, not a misleading "user cancelled" (LIF-09).
+        _uiError.value?.let { pendingError ->
+            returnError(pendingError.speechErrorCode)
+            return
+        }
         if (_recordingState.value is RecordingState.Stopping) {
             // The inline pipeline is mid-transcription; finishing this activity cancels
             // it via lifecycleScope. Mark the cancellation as user-initiated so the
@@ -396,18 +584,41 @@ class VoiceRecognitionActivity : ComponentActivity() {
         dismissWithResult(Activity.RESULT_CANCELED)
     }
 
+    /**
+     * ERR-9/ERR-10: "Open Chirp" affordance for the permission-missing and model-unavailable
+     * states. Opens the app, then resolves the dialog: a pending error returns its mapped
+     * code, otherwise the recognition is reported as cancelled.
+     */
+    private fun openAppAndDismiss() {
+        runCatching {
+            startActivity(
+                Intent().setClassName(this, MAIN_ACTIVITY_CLASS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+        }.onFailure { e -> Log.e(TAG, "Failed to open the app", e) }
+        val pendingError = _uiError.value
+        if (pendingError != null) {
+            returnError(pendingError.speechErrorCode)
+        } else {
+            dismissWithResult(Activity.RESULT_CANCELED)
+        }
+    }
+
     override fun onDestroy() {
         if (captureGate.isHeld()) {
             val samples = recorder.stop()
             captureGate.releaseCompleted()
             // Once stopRecording hands samples to the inline pipeline the state is
             // Stopping and the pipeline owns persistence (it rescues on cancellation
-            // itself); rescuing here too would duplicate the same capture.
-            if (_recordingState.value !is RecordingState.Stopping) {
+            // itself); rescuing here too would duplicate the same capture. Secure
+            // sessions persist nothing, ever (IME-6).
+            if (_recordingState.value !is RecordingState.Stopping && !secureSession) {
                 rescueInterruptedCapture(samples)
             }
         }
         recorder.close()
+        audioFocus.abandonFocus()
         super.onDestroy()
     }
 
@@ -439,13 +650,19 @@ class VoiceRecognitionActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * LIF-09/IME-9: failures are returned with the RecognizerIntent result code the
+     * RECOGNIZE_SPEECH contract defines, so callers can tell no-match from audio failure
+     * from server trouble. RESULT_CANCELED is reserved for genuine user cancels.
+     */
     private fun returnError(errorCode: Int) {
-        Log.w(TAG, "Returning canceled result with error code: $errorCode")
+        val resultCode = recognizerIntentResultCodeFor(errorCode)
+        Log.w(TAG, "Returning result code $resultCode (speech error code: $errorCode)")
         val results =
             Intent().apply {
                 putExtra(RecognizerIntent.EXTRA_RESULTS, ArrayList<String>())
             }
-        dismissWithResult(Activity.RESULT_CANCELED, results)
+        dismissWithResult(resultCode, results)
     }
 
     private fun dismissWithResult(
@@ -460,10 +677,41 @@ class VoiceRecognitionActivity : ComponentActivity() {
     companion object {
         private const val TAG = "VoiceRecognitionActivity"
         private const val ACTIVITY_AUDIO_PATH_LABEL = "voice_recognition_activity_temp_recording"
+        private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
 
         /** Material modal-scrim dim level for the host app behind the sheet (DLG-5/INS-2). */
         private const val DIALOG_DIM_AMOUNT = 0.32f
+
+        /** How long a terminal in-dialog error stays readable before the result is returned. */
+        private const val ERROR_DISPLAY_MS = 2_400L
     }
+}
+
+/**
+ * IME-6: persistence used for [RecognizerIntent.EXTRA_SECURE] sessions — nothing is ever
+ * written, including rescue artifacts: the caller explicitly demanded no storage, which
+ * overrides the app's own keep-captured-speech preference for this session.
+ */
+internal object SecureRecognitionCapturePersistence : InlineCapturePersistence {
+    override suspend fun persist(
+        samples: FloatArray?,
+        rawText: String?,
+        processedText: String?,
+        errorMessage: String?,
+        reason: InlineCapturePersistReason,
+    ) = Unit
+
+    override suspend fun persistAudioSource(
+        audioSource: InlineAudioSource?,
+        rawText: String?,
+        processedText: String?,
+        errorMessage: String?,
+        reason: InlineCapturePersistReason,
+    ) = Unit
+
+    override fun discardSamples() = Unit
+
+    override fun discardAudioSource(audioSource: InlineAudioSource) = Unit
 }
 
 /** Outcome the activity returns to the calling app after the inline pipeline finishes. */

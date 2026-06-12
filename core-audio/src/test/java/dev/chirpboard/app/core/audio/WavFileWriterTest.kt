@@ -161,6 +161,22 @@ class WavFileWriterTest {
             raf.seek(40)
             raf.readIntLittleEndian()
         }
+
+    @Test
+    fun `ensureWavSizeWithinLimit allows sizes up to the 32-bit header limit`() {
+        WavFileWriter.ensureWavSizeWithinLimit(
+            currentDataBytes = WavFileWriter.MAX_WAV_DATA_BYTES - 100,
+            additionalBytes = 100,
+        )
+    }
+
+    @Test(expected = java.io.IOException::class)
+    fun `ensureWavSizeWithinLimit rejects writes past the 32-bit header limit`() {
+        WavFileWriter.ensureWavSizeWithinLimit(
+            currentDataBytes = WavFileWriter.MAX_WAV_DATA_BYTES,
+            additionalBytes = 1,
+        )
+    }
 }
 
 private fun RandomAccessFile.writeIntLittleEndian(value: Int) {

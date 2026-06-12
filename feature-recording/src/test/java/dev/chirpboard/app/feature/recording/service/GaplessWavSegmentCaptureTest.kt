@@ -250,6 +250,149 @@ class GaplessWavSegmentCaptureTest {
             assertTrue(segment.exists())
         }
 
+    @Test
+    fun pauseAndFinalizeSegment_drainsBufferedAudioLikeStop() =
+        runTest {
+            // Same HAL model as the blocked-read stop test: one pre-pause buffer, then a
+            // final buffer that only becomes available once AudioRecord.stop() lands. The
+            // pause path must hand that tail off exactly like stop does (AUD pause-drain).
+            val firstReadDone = AtomicBoolean(false)
+            val stopSignal = CountDownLatch(1)
+            val postStopReads = AtomicInteger(0)
+            every { audioRecord.stop() } answers { stopSignal.countDown() }
+            every {
+                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
+            } answers {
+                val buffer = firstArg<ByteArray>()
+                if (!firstReadDone.getAndSet(true)) {
+                    buffer.fill(0x01)
+                    buffer.size
+                } else if (
+                    stopSignal.await(6, TimeUnit.SECONDS) &&
+                    postStopReads.getAndIncrement() == 0
+                ) {
+                    buffer.fill(0x02)
+                    buffer.size
+                } else {
+                    0
+                }
+            }
+
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val segment = File(temporaryFolder.root, "pause-drain.wav")
+
+            capture.start(segment)
+            Thread.sleep(150)
+
+            val finalized = capture.pauseAndFinalizeSegment()
+
+            assertEquals(segment, finalized)
+            assertTrue(
+                "file length ${segment.length()} should include the drained tail buffer",
+                segment.length() >= 2 * EXPECTED_READ_BUFFER_BYTES,
+            )
+        }
+
+    @Test
+    fun captureAppliesConfiguredGainToWrittenPcm() =
+        runTest {
+            val quietSample = 1_000
+            every {
+                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
+            } answers {
+                val buffer = firstArg<ByteArray>()
+                var index = 0
+                while (index + 1 < buffer.size) {
+                    buffer[index] = (quietSample and 0xFF).toByte()
+                    buffer[index + 1] = ((quietSample shr 8) and 0xFF).toByte()
+                    index += 2
+                }
+                buffer.size
+            }
+
+            val capture =
+                GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000, gainMultiplier = 2f)
+            val segment = File(temporaryFolder.root, "gain.wav")
+
+            capture.start(segment)
+            Thread.sleep(150)
+            capture.stopAndFinalize()
+
+            val payload = segment.readBytes()
+            val firstSample =
+                (
+                    (payload[WavFileWriter.WAV_HEADER_BYTES + 1].toInt() shl 8) or
+                        (payload[WavFileWriter.WAV_HEADER_BYTES].toInt() and 0xFF)
+                ).toShort().toInt()
+            // 1000 / 32767 * 2 = ~0.061: well below the soft-limit knee, so exactly doubled
+            // (within one LSB of the float round-trip).
+            assertTrue("firstSample=$firstSample", firstSample in 1_999..2_001)
+        }
+
+    @Test
+    fun sustainedZeroInput_notifiesSilenceListener_andRecovers() =
+        runTest {
+            val recovered = AtomicBoolean(false)
+            every {
+                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
+            } answers {
+                val buffer = firstArg<ByteArray>()
+                if (recovered.get()) {
+                    buffer.fill(0x01)
+                } else {
+                    buffer.fill(0x00)
+                }
+                buffer.size
+            }
+
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val silenced = CountDownLatch(1)
+            val unsilenced = CountDownLatch(1)
+            capture.setSilenceListener { isSilenced ->
+                if (isSilenced) silenced.countDown() else unsilenced.countDown()
+            }
+            val segment = File(temporaryFolder.root, "silence.wav")
+
+            capture.start(segment)
+
+            assertTrue("silence never reported", silenced.await(5, TimeUnit.SECONDS))
+            recovered.set(true)
+            assertTrue("recovery never reported", unsilenced.await(5, TimeUnit.SECONDS))
+
+            capture.stopAndFinalize()
+        }
+
+    @Test
+    fun writerFailureOnCaptureThread_routesThroughErrorListener_neverCrashes() =
+        runTest {
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val errors = CopyOnWriteArrayList<GaplessCaptureError>()
+            val notified = CountDownLatch(1)
+            capture.setCaptureErrorListener { error ->
+                errors += error
+                notified.countDown()
+            }
+            val segment = File(temporaryFolder.root, "write-fail.wav")
+
+            capture.start(segment)
+            Thread.sleep(150)
+
+            // Force the next segment file creation (on the capture thread, inside the
+            // write/rotate block) to throw an IOException: the rotation target's parent
+            // is an existing FILE, so the writer cannot be created. Pre-fix this unwound
+            // the raw capture thread into the default handler and killed the process.
+            val blocker = temporaryFolder.newFile("blocker")
+            val badTarget = File(blocker, "impossible.wav")
+            capture.rotateSegment(badTarget)
+
+            assertTrue("write failure never reported", notified.await(5, TimeUnit.SECONDS))
+            assertEquals(1, errors.size)
+            assertTrue(errors.single().message.contains("WAV capture failed"))
+            // The partial segment was finalized with an accurate header (stop-with-save).
+            assertTrue(WavFileWriter.hasAccurateHeader(segment))
+            verify { audioRecord.release() }
+        }
+
     private companion object {
         const val QUICK_STOP_THRESHOLD_MS = 3_000L
         const val EXPECTED_READ_BUFFER_BYTES = 4_096L

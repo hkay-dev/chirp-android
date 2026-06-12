@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.playback.R as PlaybackR
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
@@ -109,10 +110,13 @@ fun RecordingMiniPlayerBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                // No fixed 40dp size on the buttons: the M3 default keeps the 40dp
+                // visual container while restoring 48dp interactive bounds; these two
+                // controls sit 4dp from their neighbors, so fixed 40dp nodes got no
+                // touch-bounds expansion between each other (a11y touch-target audit).
                 FilledTonalIconButton(
                     onClick = onPlayPause,
                     enabled = !state.isLoading,
-                    modifier = Modifier.size(40.dp),
                     colors =
                         IconButtonDefaults.filledTonalIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -139,7 +143,10 @@ fun RecordingMiniPlayerBar(
                     modifier =
                         Modifier
                             .weight(1f)
-                            .clickable(onClick = onOpenRecording)
+                            .clickable(
+                                onClickLabel = stringResource(PlaybackR.string.playback_open_recording),
+                                onClick = onOpenRecording,
+                            )
                             .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -154,6 +161,14 @@ fun RecordingMiniPlayerBar(
                             text = state.errorMessage,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else if (state.noticeMessage != null) {
+                        Text(
+                            text = state.noticeMessage,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -176,7 +191,7 @@ fun RecordingMiniPlayerBar(
                     }
                 }
 
-                IconButton(onClick = onStop, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onStop) {
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.playback_stop),

@@ -116,6 +116,8 @@ class KeyboardSessionCoordinatorTest {
             mockk {
                 every { llmEnabled } returns flowOf(true)
                 every { microphoneGain } returns flowOf(1f)
+                every { defaultProcessingMode } returns flowOf(null)
+                coEvery { setDefaultProcessingMode(any()) } just runs
             }
         modePort =
             mockk {
@@ -855,6 +857,98 @@ class KeyboardSessionCoordinatorTest {
             teardownExecutor.shutdownNow()
         }
     }
+
+    @Test
+    fun changeMode_writesKeyboardScopedDefaultInsteadOfGlobalMode() =
+        runTest {
+            // PLH-1/PLH-8 class: a pick on the keyboard surface must never silently flip the
+            // GLOBAL processing mode; it sets the keyboard-scoped default instead.
+            val coordinator = buildCoordinator()
+
+            coordinator.changeMode("email")
+
+            coVerify(exactly = 1) { keyboardPreferences.setDefaultProcessingMode("email") }
+            coVerify(exactly = 0) { modePort.setModeById(any()) }
+        }
+
+    @Test
+    fun stopAndTranscribe_usesKeyboardDefaultModeForTheRequest() =
+        runTest {
+            // PLH-1: the persisted Keyboard Settings "Default Mode" drives the dictation request.
+            every { keyboardPreferences.defaultProcessingMode } returns flowOf("email")
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val requestModeId = CompletableDeferred<String>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                requestModeId.complete(
+                    arg<dev.chirpboard.app.core.transcription.InlineTranscriptionRequest>(0).processingModeId,
+                )
+            }
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+
+            assertEquals("email", requestModeId.await())
+        }
+
+    @Test
+    fun stopAndTranscribe_incognitoSessionWrapsPersistenceButForwardsRescues() =
+        runTest {
+            // IME-3: a no-personalized-learning session suppresses COMPLETED history persists
+            // while RESCUE persists still reach the real persistence untouched.
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val seenPersistence = CompletableDeferred<InlineCapturePersistence?>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                val sessionPersistence = arg<InlineCapturePersistence?>(1)
+                seenPersistence.complete(sessionPersistence)
+                sessionPersistence?.persist(
+                    samples = null,
+                    rawText = "secret",
+                    processedText = null,
+                    errorMessage = null,
+                    reason = InlineCapturePersistReason.COMPLETED,
+                )
+                sessionPersistence?.persist(
+                    samples = null,
+                    rawText = "secret",
+                    processedText = null,
+                    errorMessage = "interrupted",
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+            }
+            val coordinator = buildCoordinator()
+            coordinator.historyPersistenceSuppressed = { true }
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+
+            assertTrue(seenPersistence.await() is IncognitoCapturePersistence)
+            // Only the RESCUE persist reached the real persistence.
+            assertEquals(1, persistence.persistCalls)
+            assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+        }
+
+    @Test
+    fun stopAndTranscribe_normalSessionPassesRealPersistence() =
+        runTest {
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val seenPersistence = CompletableDeferred<InlineCapturePersistence?>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                seenPersistence.complete(arg<InlineCapturePersistence?>(1))
+            }
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+
+            assertSame(persistence, seenPersistence.await())
+        }
 
     private fun stubSuccessfulCapture(sampleCount: Long) {
         coEvery { capture.start() } returns QuickCaptureStartResult.Success

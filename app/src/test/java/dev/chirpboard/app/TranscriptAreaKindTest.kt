@@ -17,6 +17,7 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.Transcript,
             transcriptAreaKind(
                 hasText = true,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Initializing,
                 preRollComplete = false,
                 isRecording = false,
@@ -27,10 +28,39 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.Transcript,
             transcriptAreaKind(
                 hasText = true,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Ready,
                 preRollComplete = true,
                 isRecording = true,
                 isProcessing = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a terminal error owns the area regardless of any other state`() {
+        // ERR-9/ERR-23/ERR-27: failures must be explained in the dialog instead of a
+        // silent close, so the error kind takes precedence over everything.
+        assertEquals(
+            TranscriptAreaKind.Error,
+            transcriptAreaKind(
+                hasText = true,
+                hasError = true,
+                modelState = VoiceRecognitionModelState.Ready,
+                preRollComplete = true,
+                isRecording = true,
+                isProcessing = true,
+            ),
+        )
+        assertEquals(
+            TranscriptAreaKind.Error,
+            transcriptAreaKind(
+                hasText = false,
+                hasError = true,
+                modelState = VoiceRecognitionModelState.Initializing,
+                preRollComplete = false,
+                isRecording = false,
+                isProcessing = false,
             ),
         )
     }
@@ -41,6 +71,7 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.ModelLoading,
             transcriptAreaKind(
                 hasText = false,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Initializing,
                 preRollComplete = false,
                 isRecording = false,
@@ -55,6 +86,7 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.ModelUnavailable,
             transcriptAreaKind(
                 hasText = false,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Unavailable,
                 preRollComplete = false,
                 isRecording = true,
@@ -69,6 +101,7 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.Timer,
             transcriptAreaKind(
                 hasText = false,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Ready,
                 preRollComplete = true,
                 isRecording = true,
@@ -78,11 +111,14 @@ class TranscriptAreaKindTest {
     }
 
     @Test
-    fun `processing hides the timer so it does not flash during transcription`() {
+    fun `processing shows a textual status instead of an empty area`() {
+        // A11Y-8 (intentional change): the post-stop phase previously rendered nothing,
+        // leaving the busiest moment of the flow with no visual or accessible status.
         assertEquals(
-            TranscriptAreaKind.Empty,
+            TranscriptAreaKind.Processing,
             transcriptAreaKind(
                 hasText = false,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Ready,
                 preRollComplete = true,
                 isRecording = true,
@@ -99,6 +135,7 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.Ready,
             transcriptAreaKind(
                 hasText = false,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Ready,
                 preRollComplete = false,
                 isRecording = false,
@@ -115,6 +152,7 @@ class TranscriptAreaKindTest {
             TranscriptAreaKind.Empty,
             transcriptAreaKind(
                 hasText = false,
+                hasError = false,
                 modelState = VoiceRecognitionModelState.Ready,
                 preRollComplete = true,
                 isRecording = false,

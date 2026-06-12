@@ -71,6 +71,46 @@ class ChunkedAudioProcessorTest {
     }
 
     @Test
+    fun `joinTranscripts dedupes across punctuation at the boundary`() = runTest {
+        // Parakeet emits punctuation: "world." at a chunk tail must still match "world"
+        // at the next chunk's head or the whole overlap duplicates (PIPE-05).
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf("So that is how it works in the real world.", "real world, and that is why we ship it")
+        val joined = processor.joinTranscripts(parts)
+        assertEquals("So that is how it works in the real world. and that is why we ship it", joined)
+    }
+
+    @Test
+    fun `joinTranscripts dedupes overlaps longer than three words`() = runTest {
+        // A 2s overlap re-transcribes ~5-6 words at normal speaking rates; the comparison
+        // window must cover all of them, not just the last three (PIPE-05).
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf(
+            "We decided to move the launch to the second week of June",
+            "the second week of June because the model was not ready",
+        )
+        val joined = processor.joinTranscripts(parts)
+        assertEquals(
+            "We decided to move the launch to the second week of June because the model was not ready",
+            joined,
+        )
+    }
+
+    @Test
+    fun `joinTranscripts dedupes a punctuated five word overlap`() = runTest {
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf(
+            "First we set up the database. Then we ran the tests,",
+            "then we ran the tests and everything passed",
+        )
+        val joined = processor.joinTranscripts(parts)
+        assertEquals(
+            "First we set up the database. Then we ran the tests, and everything passed",
+            joined,
+        )
+    }
+
+    @Test
     fun `processAndJoin processes and joins all chunks`() = runTest {
         val processor = ChunkedAudioProcessor(
             chunkDurationMs = 2000,

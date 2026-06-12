@@ -5,16 +5,9 @@
     <string name="subtype_label">Voice Input</string>
     <string name="enable_keyboard">Enable Keyboard</string>
     <string name="select_keyboard">Select Keyboard</string>
-    <string name="discard_recording_title">Discard Recording?</string>
-    <string name="discard_recording_text">This recording will be permanently deleted.</string>
-    <string name="discard">Discard</string>
-    <string name="keep_recording">Keep Recording</string>
-    <string name="start_over_title">Start Over?</string>
-    <string name="start_over_text">Current recording will be discarded.</string>
-    <string name="start_over">Start Over</string>
-    <string name="recording_in_progress_title">Recording in Progress</string>
-    <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
-    <string name="save">Save</string>
+    <!-- Recording dialog strings live in feature-recording/res/values/strings.xml.
+         Do not redefine them here: app-module duplicates win resource merging and
+         silently override the real copy (I18N-01). -->
     <string name="keyboard_settings_title">Keyboard Settings</string>
     <string name="keyboard_settings_save_recordings_title">Save Recordings</string>
     <string name="keyboard_settings_save_recordings_description">Keep audio files of keyboard voice inputs in your history.</string>
@@ -41,7 +34,7 @@
     <string name="record_entry_model_integrity_failed_title">Model Integrity Check Failed</string>
     <string name="record_entry_model_integrity_failed_message">Model files are corrupted. Re-download the model in Settings.</string>
     <string name="record_entry_model_storage_denied_title">Storage Access Needed</string>
-    <string name="record_entry_model_storage_denied_message">A downloaded model from a previous install was found, but Chirpboard can\'t access it. Allow \"All files access\" for Chirpboard in system settings (Apps \u2192 Special app access \u2192 All files access), then try again.</string>
+    <string name="record_entry_model_storage_denied_message">A downloaded model from a previous install was found, but Chirp can\'t access it. Allow \"All files access\" for Chirp in system settings (Apps \u2192 Special app access \u2192 All files access), then try again.</string>
     <string name="record_entry_model_check_error_title">Model Check Error</string>
     <string name="record_entry_model_check_error_message">Could not verify model readiness. %1$s</string>
     <string name="settings_title">Settings</string>
@@ -78,7 +71,7 @@
     <string name="audio_settings_section_input">Input</string>
     <string name="audio_settings_section_output">Output</string>
     <string name="audio_settings_microphone_gain_value">Input Gain: %1$.1fx</string>
-    <string name="audio_settings_microphone_gain_help">Boosts microphone volume. Values over 2.0x may cause distortion.</string>
+    <string name="audio_settings_microphone_gain_help">Boosts microphone volume for dictation and saved recordings. Loud peaks are softly limited to avoid distortion.</string>
     <string name="audio_settings_recording_quality">Recording Quality</string>
     <string name="audio_settings_recording_quality_help">Applies to future saved app and keyboard recordings.</string>
     <string name="audio_settings_output_format">Output Format</string>
@@ -95,6 +88,7 @@
     <string name="audio_settings_input_policy_builtin">Built-in only</string>
     <string name="audio_settings_input_policy_manual">Choose device</string>
     <string name="audio_settings_active_input">Active input</string>
+    <string name="audio_settings_device_selected">Selected microphone</string>
     <string name="audio_settings_active_input_help">Last resolved microphone for recording.</string>
     <string name="dev_clear">Clear</string>
     <string name="dev_add_5">Add 5</string>
@@ -122,6 +116,15 @@
 
 
     <string name="dismiss">Dismiss</string>
+    <!-- Speech model download worker (ERR-1): foreground progress + terminal result notifications -->
+    <string name="model_download_channel_name">Model download</string>
+    <string name="model_download_channel_description">Shows progress while the speech model downloads</string>
+    <string name="model_download_notification_title">Downloading speech model</string>
+    <string name="model_download_notification_progress">%1$d%%</string>
+    <string name="model_download_complete_title">Speech model ready</string>
+    <string name="model_download_complete_text">Voice transcription is now available.</string>
+    <string name="model_download_failed_title">Model download failed</string>
+
     <string name="shared_audio_handoff_loading">Importing shared audio…</string>
     <string name="shared_audio_handoff_failed_title">Couldn’t import that audio</string>
     <string name="shared_audio_handoff_retry">Retry</string>

@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import android.Manifest
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -72,6 +73,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -81,6 +84,7 @@ import dev.chirpboard.app.core.ui.components.SkeletonPlaceholder
 import dev.chirpboard.app.core.ui.components.StatsPillRow
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.ui.components.StatusBarProtection
+import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
@@ -107,6 +111,7 @@ fun HomeScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
     val recordingState by viewModel.recordingState.collectAsStateWithLifecycle()
+    val autoStopEvent by viewModel.autoStopEvent.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
@@ -127,7 +132,38 @@ fun HomeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    var showImportMenu by remember { mutableStateOf(false) }
+    // LIF-10: open menu survives rotation/resize like its sibling searchActive.
+    var showImportMenu by rememberSaveable { mutableStateOf(false) }
+    val isHomeListCapped by viewModel.isHomeListCapped.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+
+    // ERR-7: record entry points re-request a missing mic permission instead of navigating into
+    // a screen that can only fail; a permanent denial deep-links to the app's settings page.
+    var showMicSettingsDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingRecordEntry by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val micPermissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val entry = pendingRecordEntry
+            pendingRecordEntry = null
+            if (granted) {
+                entry?.invoke()
+            } else if (isMicPermissionPermanentlyDenied(context)) {
+                showMicSettingsDialog = true
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar(context.getString(R.string.rec_mic_permission_denied))
+                }
+            }
+        }
+
+    fun withMicPermission(entry: () -> Unit) {
+        if (isMicPermissionGranted(context)) {
+            entry()
+        } else {
+            pendingRecordEntry = entry
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     // The recovery prompt is presented only when the user taps "Review" on the in-list recovery
     // banner (below). It is intentionally NOT auto-presented over Home: the modal's destructive
     // "Discard" button must never materialise asynchronously under an in-flight tap.
@@ -156,10 +192,15 @@ fun HomeScreen(
         derivedStateOf { listState.isScrollInProgress }
     }
 
-    // Bottom sheet state
-    var selectedItem by remember { mutableStateOf<RecordingDisplayItem?>(null) }
+    // Bottom sheet state. LIF-10: keyed by the recording's UUID string in rememberSaveable and
+    // re-resolved from the live list, so the open sheet survives rotation/process death and
+    // closes itself if the recording disappears.
+    var selectedItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedItem =
+        remember(selectedItemId, displayItems) {
+            selectedItemId?.let { id -> displayItems.firstOrNull { it.id.toString() == id } }
+        }
     val sheetState = rememberModalBottomSheetState()
-    val scope = rememberCoroutineScope()
 
     // Show error messages
     RepositoryErrorSnackbarEffect(
@@ -186,6 +227,29 @@ fun HomeScreen(
         }
     }
 
+    // ERR-13/ERR-14: reasoned auto-stops (storage critical, focus loss, device loss, capture
+    // death) save through the normal stop path, so they never arrive as RecordingState.Error;
+    // they surface through the service's dedicated event channel instead. Acknowledge only
+    // after the snackbar ran so a navigation mid-display re-surfaces it on the next screen.
+    LaunchedEffect(autoStopEvent) {
+        val event = autoStopEvent ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(
+            message = event.reason.autoStopSnackbarMessage(context),
+            duration = SnackbarDuration.Short,
+        )
+        viewModel.consumeAutoStopEvent()
+    }
+
+    if (showMicSettingsDialog) {
+        MicPermissionSettingsDialog(
+            onDismiss = { showMicSettingsDialog = false },
+            onOpenSettings = {
+                showMicSettingsDialog = false
+                openAppSettingsForPermission(context)
+            },
+        )
+    }
+
     recoveryPromptSession?.let { session ->
         AnimatedAlertDialog(
             onDismissRequest = {
@@ -196,8 +260,9 @@ fun HomeScreen(
             text = {
                 Text(
                     if (session.hasPotentialLoss) {
-                        stringResource(
-                            R.string.rec_recovery_message_with_loss,
+                        pluralStringResource(
+                            R.plurals.rec_recovery_message_with_loss,
+                            session.estimatedLostMinutes(),
                             session.estimatedLostMinutes(),
                         )
                     } else {
@@ -422,7 +487,7 @@ fun HomeScreen(
                 ) {
                     HomeQuickStartSurface(
                         quickStarts = quickStarts,
-                        onQuickStartClick = onQuickStartClick,
+                        onQuickStartClick = { profileId -> withMicPermission { onQuickStartClick(profileId) } },
                         isRecordEntryChecking = isRecordEntryChecking,
                     )
                 }
@@ -431,7 +496,7 @@ fun HomeScreen(
                     expanded = fabExpanded,
                     isChecking = isRecordEntryChecking,
                     isScrollInProgress = isListScrolling,
-                    onClick = onRecordClick,
+                    onClick = { withMicPermission(onRecordClick) },
                 )
             }
         },
@@ -468,8 +533,8 @@ fun HomeScreen(
 
                 HomeContentPhase.EMPTY ->
                 AnimatedEmptyState(
-                    onRecordClick = onRecordClick,
-                    onQuickStartClick = onQuickStartClick,
+                    onRecordClick = { withMicPermission(onRecordClick) },
+                    onQuickStartClick = { profileId -> withMicPermission { onQuickStartClick(profileId) } },
                     quickStarts = quickStarts,
                     isRecordEntryChecking = isRecordEntryChecking,
                     modifier =
@@ -520,8 +585,9 @@ fun HomeScreen(
                                     Text(
                                         text =
                                             if (recoverableSessions.firstOrNull()?.hasPotentialLoss == true) {
-                                                stringResource(
-                                                    R.string.rec_recovery_banner_body_with_loss,
+                                                pluralStringResource(
+                                                    R.plurals.rec_recovery_banner_body_with_loss,
+                                                    recoverableSessions.first().estimatedLostMinutes(),
                                                     recoverableSessions.first().estimatedLostMinutes(),
                                                 )
                                             } else {
@@ -688,11 +754,37 @@ fun HomeScreen(
                                 recordingState = recordingState,
                                 onClick = { onRecordingClick(item) },
                                 onPlayClick = { viewModel.playRecording(item) },
-                                onLongClick = { selectedItem = item },
+                                onLongClick = { selectedItemId = item.id.toString() },
                             )
                             HorizontalDivider(
                                 modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            )
+                        }
+                    }
+
+                    // DAT-006: disclose the row cap instead of silently dropping the oldest
+                    // recordings; older entries stay reachable via search (full-table query).
+                    item(key = "cap_footer", contentType = "cap_footer") {
+                        PushDownReveal(
+                            visible =
+                                isHomeListCapped &&
+                                    searchQuery.isBlank() &&
+                                    listFilter == ListFilterMode.ALL,
+                        ) {
+                            Text(
+                                text =
+                                    stringResource(
+                                        R.string.rec_home_list_cap_footer,
+                                        HOME_LIST_DISPLAY_CAP,
+                                    ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier =
+                                    Modifier.padding(
+                                        horizontal = ChirpSpacing.ScreenHorizontal,
+                                        vertical = ChirpSpacing.Medium,
+                                    ),
                             )
                         }
                     }
@@ -706,71 +798,80 @@ fun HomeScreen(
         }
 
         // Bottom sheet for item actions
-        if (selectedItem != null) {
+        selectedItem?.let { item ->
+            fun dismissSheet() {
+                scope.launch {
+                    sheetState.hide()
+                    selectedItemId = null
+                }
+            }
+
             ModalBottomSheet(
-                onDismissRequest = { selectedItem = null },
+                onDismissRequest = { selectedItemId = null },
                 sheetState = sheetState,
             ) {
                 RecordingActionsSheet(
-                    item = selectedItem!!,
+                    item = item,
                     onShare = {
-                        viewModel.shareRecording(selectedItem!!, context)
-                        scope.launch {
-                            sheetState.hide()
-                            selectedItem = null
-                        }
+                        viewModel.shareRecording(item, context)
+                        dismissSheet()
                     },
                     onDelete = {
-                        viewModel.deleteRecording(selectedItem!!)
-                        scope.launch {
-                            sheetState.hide()
-                            selectedItem = null
-                        }
+                        viewModel.deleteRecording(item)
+                        dismissSheet()
                     },
                     onRetryTranscription =
-                        if (selectedItem!!.status == RecordingStatus.FAILED) {
+                        if (item.status == RecordingStatus.FAILED) {
                             {
-                                viewModel.retryTranscription(selectedItem!!)
-                                scope.launch {
-                                    sheetState.hide()
-                                    selectedItem = null
-                                }
+                                viewModel.retryTranscription(item)
+                                dismissSheet()
                             }
                         } else {
                             null
                         },
                     onGenerateTitle =
-                        if (selectedItem!!.status == RecordingStatus.COMPLETED) {
+                        if (item.status == RecordingStatus.COMPLETED) {
                             {
-                                viewModel.generateTitle(selectedItem!!)
-                                scope.launch {
-                                    sheetState.hide()
-                                    selectedItem = null
-                                }
+                                viewModel.generateTitle(item)
+                                dismissSheet()
                             }
                         } else {
                             null
                         },
                     onGenerateSummary =
-                        if (selectedItem!!.status == RecordingStatus.COMPLETED) {
+                        if (item.status == RecordingStatus.COMPLETED) {
                             {
-                                viewModel.generateSummary(selectedItem!!)
-                                scope.launch {
-                                    sheetState.hide()
-                                    selectedItem = null
-                                }
+                                viewModel.generateSummary(item)
+                                dismissSheet()
                             }
                         } else {
                             null
                         },
                     onRecoverStuck =
-                        if (shouldShowStuckRecoveryAction(selectedItem!!.status)) {
+                        if (shouldShowStuckRecoveryAction(item.status)) {
                             {
-                                viewModel.recoverStuckItem(selectedItem!!)
-                                scope.launch {
-                                    sheetState.hide()
-                                    selectedItem = null
-                                }
+                                viewModel.recoverStuckItem(item)
+                                dismissSheet()
+                            }
+                        } else {
+                            null
+                        },
+                    onCancelTranscription =
+                        if (item.status == RecordingStatus.PENDING_TRANSCRIPTION ||
+                            item.status == RecordingStatus.TRANSCRIBING
+                        ) {
+                            {
+                                viewModel.cancelTranscription(item)
+                                dismissSheet()
+                            }
+                        } else {
+                            null
+                        },
+                    onTranscribeNow =
+                        if (item.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) {
+                            {
+                                viewModel.startManualTranscription(item)
+                                dismissSheet()
                             }
                         } else {
                             null
@@ -826,6 +927,9 @@ private val HOME_LIST_BOTTOM_CLEARANCE = 112.dp
 /** Number of shimmer placeholder rows shown in the first-load skeleton (LOAD-3). */
 private const val HOME_SKELETON_ROW_COUNT = 4
 
+/** DAT-006: the home list row cap disclosed by the list footer. */
+private const val HOME_LIST_DISPLAY_CAP = RecordingDao.HOME_RECORDINGS_LIMIT
+
 /**
  * First-load skeleton for the home list (LOAD-3).
  *
@@ -836,12 +940,15 @@ private const val HOME_SKELETON_ROW_COUNT = 4
  */
 @Composable
 private fun HomeListSkeleton(modifier: Modifier = Modifier) {
+    // A11Y: announce the load instead of reading as a blank screen to TalkBack.
+    val loadingDescription = stringResource(R.string.desc_loading_recordings)
     Column(
         modifier =
-            modifier.padding(
-                horizontal = ChirpSpacing.ScreenHorizontal,
-                vertical = ChirpSpacing.Small,
-            ),
+            modifier
+                .padding(
+                    horizontal = ChirpSpacing.ScreenHorizontal,
+                    vertical = ChirpSpacing.Small,
+                ).semantics { contentDescription = loadingDescription },
         verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
     ) {
         // Faint stats-pill placeholder mirroring the StatsPillRow that lands first.

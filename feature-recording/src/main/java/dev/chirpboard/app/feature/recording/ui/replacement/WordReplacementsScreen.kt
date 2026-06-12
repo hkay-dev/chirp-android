@@ -51,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,8 +86,14 @@ fun WordReplacementsScreen(
         onDismiss = viewModel::clearError,
     )
 
-    var showEditorDialog by remember { mutableStateOf(false) }
-    var editingReplacement by remember { mutableStateOf<WordReplacement?>(null) }
+    // LIF-12: the open editor (and which replacement it edits) survives rotation/process death;
+    // the entity is id-keyed and re-resolved from the live list.
+    var showEditorDialog by rememberSaveable { mutableStateOf(false) }
+    var editingReplacementId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editingReplacement =
+        remember(editingReplacementId, replacements) {
+            editingReplacementId?.let { id -> replacements.firstOrNull { it.id.toString() == id } }
+        }
 
     Scaffold(
         topBar = {
@@ -105,7 +112,7 @@ fun WordReplacementsScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
-                    editingReplacement = null
+                    editingReplacementId = null
                     showEditorDialog = true
                 },
             ) {
@@ -150,7 +157,7 @@ fun WordReplacementsScreen(
                             replacement = replacement,
                             onToggleEnabled = { viewModel.toggleEnabled(replacement) },
                             onEdit = {
-                                editingReplacement = replacement
+                                editingReplacementId = replacement.id.toString()
                                 showEditorDialog = true
                             },
                             onDelete = { viewModel.delete(replacement) },
@@ -165,16 +172,17 @@ fun WordReplacementsScreen(
 
     // Editor dialog
     if (showEditorDialog) {
+        val editTarget = editingReplacement
         WordReplacementEditorDialog(
-            replacement = editingReplacement,
+            replacement = editTarget,
             onDismiss = {
                 showEditorDialog = false
-                editingReplacement = null
+                editingReplacementId = null
             },
             onSave = { original, replacement, caseSensitive ->
-                if (editingReplacement != null) {
+                if (editTarget != null) {
                     viewModel.update(
-                        editingReplacement!!.copy(
+                        editTarget.copy(
                             original = original,
                             replacement = replacement,
                             caseSensitive = caseSensitive,
@@ -184,7 +192,7 @@ fun WordReplacementsScreen(
                     viewModel.create(original, replacement, caseSensitive)
                 }
                 showEditorDialog = false
-                editingReplacement = null
+                editingReplacementId = null
             },
         )
     }

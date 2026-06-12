@@ -6,13 +6,14 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.model.RecordingLibraryStats
 import dev.chirpboard.app.data.model.RecordingStatus
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
 @Dao
 interface RecordingDao {
-    @Query("SELECT * FROM recordings ORDER BY createdAt DESC, id ASC LIMIT 500")
+    @Query("SELECT * FROM recordings ORDER BY createdAt DESC, id ASC LIMIT " + RecordingDao.HOME_RECORDINGS_LIMIT)
     fun getAllRecordings(): Flow<List<Recording>>
 
     @Query("SELECT * FROM recordings WHERE id = :id")
@@ -215,6 +216,29 @@ interface RecordingDao {
     @Query("SELECT COUNT(*) FROM recordings WHERE status = :status")
     suspend fun getCountByStatus(status: RecordingStatus): Int
 
+    /**
+     * Full-table aggregate for the home header stats (DAT-006). Unlike [getAllRecordings]
+     * (capped at [HOME_RECORDINGS_LIMIT] rows), this counts and sums EVERY recording so the
+     * header never undercounts a 500+ library.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) AS totalCount,
+            COALESCE(SUM(durationMs), 0) AS totalDurationMs,
+            COALESCE(SUM(CASE WHEN status = :completedStatus THEN 1 ELSE 0 END), 0) AS completedCount
+        FROM recordings
+        """,
+    )
+    fun getLibraryStats(completedStatus: RecordingStatus): Flow<RecordingLibraryStats>
+
     @Query("DELETE FROM recordings")
     suspend fun deleteAll()
+
+    companion object {
+        /**
+         * Row cap for the home list query (DAT-006). The home screen shows a "showing latest"
+         * footer once the full count exceeds this; older recordings stay reachable via search.
+         */
+        const val HOME_RECORDINGS_LIMIT = 500
+    }
 }

@@ -2,12 +2,23 @@ package dev.chirpboard.app.core.playback
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.AudioManager
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.audio.AudioSettingsStore
+import dev.chirpboard.app.core.audio.PLAYBACK_SPEED_OPTIONS
+import dev.chirpboard.app.core.recording.RecordingStateManager
+import java.io.File
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -16,22 +27,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
-import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class RecordingPlaybackController
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
+        private val recordingStateManager: RecordingStateManager,
+        private val audioSettingsStore: AudioSettingsStore,
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -49,6 +57,9 @@ class RecordingPlaybackController
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) {
+                        refreshMutedVolumeNotice()
+                    }
                     syncFromPlayer()
                     if (isPlaying) {
                         startPositionUpdates()
@@ -64,13 +75,17 @@ class RecordingPlaybackController
                     syncFromPlayer()
                 }
 
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    Log.e(TAG, "Playback error", error)
+                override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                    syncFromPlayer()
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e(TAG, "Playback error (code=${error.errorCode})", error)
                     _state.value =
                         _state.value.copy(
                             isLoading = false,
                             isPlaying = false,
-                            errorMessage = error.message ?: "Unable to play audio",
+                            errorMessage = friendlyPlaybackError(error),
                         )
                 }
             }
@@ -83,7 +98,7 @@ class RecordingPlaybackController
             if (!validateAudioFile(audioPath, recordingId)) return
             runWithController { player ->
                 val currentId = activeRecordingId(player)
-                if (currentId == recordingId) {
+                if (currentId == recordingId && player.playerError == null) {
                     syncFromPlayer()
                     return@runWithController
                 }
@@ -93,6 +108,7 @@ class RecordingPlaybackController
                         title = title,
                         audioPath = audioPath,
                         isLoading = true,
+                        playbackSpeed = _state.value.playbackSpeed,
                     )
                 player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
                 player.prepare()
@@ -106,14 +122,36 @@ class RecordingPlaybackController
             title: String,
             audioPath: String,
         ) {
+            // AUD-10: the app's own playback must never fire a focus request that kills a
+            // live recording (the recorder treats permanent focus loss as stop-with-save).
+            // Refuse with a visible message instead; the recorder's focus claim wins.
+            if (recordingStateManager.state.value.isActive) {
+                _state.value =
+                    RecordingPlaybackState(
+                        recordingId = recordingId,
+                        title = title,
+                        audioPath = audioPath,
+                        errorMessage = context.getString(R.string.playback_blocked_while_recording),
+                        playbackSpeed = _state.value.playbackSpeed,
+                    )
+                return
+            }
             if (!validateAudioFile(audioPath, recordingId)) return
             runWithController { player ->
                 val currentId = activeRecordingId(player)
                 if (currentId == recordingId) {
-                    if (player.isPlaying) {
-                        player.pause()
-                    } else {
-                        player.play()
+                    when {
+                        player.playerError != null -> {
+                            // Retry after an error: a play() on an errored player is a
+                            // no-op, so rebuild the item and prepare again.
+                            _state.value =
+                                _state.value.copy(isLoading = true, errorMessage = null)
+                            player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
+                            player.prepare()
+                            player.play()
+                        }
+                        player.isPlaying -> player.pause()
+                        else -> player.play()
                     }
                     syncFromPlayer()
                     return@runWithController
@@ -125,6 +163,7 @@ class RecordingPlaybackController
                         title = title,
                         audioPath = audioPath,
                         isLoading = true,
+                        playbackSpeed = _state.value.playbackSpeed,
                     )
                 player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
                 player.prepare()
@@ -173,13 +212,35 @@ class RecordingPlaybackController
             seekTo((player.currentPosition - amountMs).coerceAtLeast(0L))
         }
 
+        /** Applies and persists a playback speed (snapped to the supported options). */
+        fun setPlaybackSpeed(speed: Float) {
+            val snapped = AudioSettingsStore.nearestPlaybackSpeed(speed)
+            _state.value = _state.value.copy(playbackSpeed = snapped)
+            runWithController { player ->
+                player.setPlaybackSpeed(snapped)
+                syncFromPlayer()
+            }
+            scope.launch {
+                runCatching { audioSettingsStore.setPlaybackSpeed(snapped) }
+                    .onFailure { error -> Log.w(TAG, "Failed to persist playback speed", error) }
+            }
+        }
+
+        /** Advances to the next supported speed (0.75 -> 1 -> 1.25 -> 1.5 -> 2 -> 0.75). */
+        fun cyclePlaybackSpeed() {
+            val options = PLAYBACK_SPEED_OPTIONS
+            val current = AudioSettingsStore.nearestPlaybackSpeed(_state.value.playbackSpeed)
+            val nextIndex = (options.indexOf(current) + 1) % options.size
+            setPlaybackSpeed(options[nextIndex])
+        }
+
         fun stop() {
             positionJob?.cancel()
             controller?.run {
                 pause()
                 clearMediaItems()
             }
-            _state.value = RecordingPlaybackState()
+            _state.value = RecordingPlaybackState(playbackSpeed = _state.value.playbackSpeed)
         }
 
         fun onStudioOpened(
@@ -204,6 +265,7 @@ class RecordingPlaybackController
                         recordingId = recordingId,
                         audioPath = audioPath,
                         errorMessage = "Audio file not found",
+                        playbackSpeed = _state.value.playbackSpeed,
                     )
                 return false
             }
@@ -237,10 +299,18 @@ class RecordingPlaybackController
                     context,
                     ComponentName(context, RecordingPlaybackService::class.java),
                 )
-            return MediaController.Builder(context, sessionToken)
-                .buildAsync()
-                .await()
-                .also { it.addListener(playerListener) }
+            val controller =
+                MediaController.Builder(context, sessionToken)
+                    .buildAsync()
+                    .await()
+                    .also { it.addListener(playerListener) }
+            // Restore the persisted playback speed before anything plays.
+            val storedSpeed =
+                runCatching { audioSettingsStore.currentPlaybackSpeed() }
+                    .getOrDefault(1f)
+            runCatching { controller.setPlaybackSpeed(storedSpeed) }
+            _state.value = _state.value.copy(playbackSpeed = storedSpeed)
+            return controller
         }
 
         private fun buildMediaItem(
@@ -265,8 +335,14 @@ class RecordingPlaybackController
             val player = controller ?: return
             val mediaItem = player.currentMediaItem
             if (mediaItem == null) {
-                if (_state.value.recordingId != null && player.mediaItemCount == 0) {
-                    _state.value = RecordingPlaybackState()
+                // Never reset an error state here: a stray callback with no media items
+                // (e.g. after a failed validate) must not wipe the message the user is
+                // reading. Errors clear on stop() or a successful new prepare/play.
+                if (_state.value.recordingId != null &&
+                    player.mediaItemCount == 0 &&
+                    _state.value.errorMessage == null
+                ) {
+                    _state.value = RecordingPlaybackState(playbackSpeed = _state.value.playbackSpeed)
                 }
                 return
             }
@@ -274,9 +350,22 @@ class RecordingPlaybackController
             val recordingId = activeRecordingId(player)
             val durationMs = player.duration.coerceAtLeast(0L)
             val positionMs = player.currentPosition.coerceAtLeast(0L)
+            val playerError = player.playerError
+            // A fatal error parks the player in STATE_IDLE with the item still queued;
+            // that is the error state, not "loading" — and it must not be overwritten by
+            // the callbacks Media3 batches together with onPlayerError (ERR-15/AUD-12).
             val isLoading =
-                player.playbackState == Player.STATE_BUFFERING ||
-                    (player.playbackState == Player.STATE_IDLE && player.mediaItemCount > 0)
+                playerError == null &&
+                    (
+                        player.playbackState == Player.STATE_BUFFERING ||
+                            (player.playbackState == Player.STATE_IDLE && player.mediaItemCount > 0)
+                    )
+            val errorMessage =
+                if (playerError != null) {
+                    _state.value.errorMessage ?: friendlyPlaybackError(playerError)
+                } else {
+                    null
+                }
 
             _state.value =
                 RecordingPlaybackState(
@@ -287,7 +376,38 @@ class RecordingPlaybackController
                     durationMs = if (durationMs > 0) durationMs else _state.value.durationMs,
                     isPlaying = player.isPlaying,
                     isLoading = isLoading,
-                    errorMessage = null,
+                    errorMessage = errorMessage,
+                    playbackSpeed = player.playbackParameters.speed,
+                    noticeMessage = if (player.isPlaying) _state.value.noticeMessage else null,
+                )
+        }
+
+        /**
+         * Maps Media3's developer-oriented error messages ("Source error",
+         * "MediaCodecAudioRenderer error…") to user-readable ones; the raw detail stays
+         * in the log (ERR-16).
+         */
+        private fun friendlyPlaybackError(error: PlaybackException): String {
+            val resId =
+                when (error.errorCode) {
+                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> R.string.playback_error_file_missing
+                    in IO_ERROR_CODE_RANGE -> R.string.playback_error_unreadable
+                    in PARSING_ERROR_CODE_RANGE, in DECODING_ERROR_CODE_RANGE -> R.string.playback_error_corrupt
+                    else -> R.string.playback_error_generic
+                }
+            return context.getString(resId)
+        }
+
+        /** One-shot "media volume is muted" hint when playback starts inaudible (AUD-21). */
+        private fun refreshMutedVolumeNotice() {
+            val muted =
+                runCatching {
+                    context.getSystemService(AudioManager::class.java)
+                        ?.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
+                }.getOrDefault(false)
+            _state.value =
+                _state.value.copy(
+                    noticeMessage = if (muted) context.getString(R.string.playback_volume_muted) else null,
                 )
         }
 
@@ -306,5 +426,8 @@ class RecordingPlaybackController
             private const val TAG = "RecordingPlayback"
             private const val SKIP_MS = 10_000L
             private const val POSITION_TICK_MS = 100L
+            private val IO_ERROR_CODE_RANGE = 2000..2999
+            private val PARSING_ERROR_CODE_RANGE = 3000..3999
+            private val DECODING_ERROR_CODE_RANGE = 4000..4999
         }
     }

@@ -19,6 +19,7 @@ import dev.chirpboard.app.data.model.RecordingEnhancementIntent
 import dev.chirpboard.app.data.model.RecordingEnhancementResult
 import dev.chirpboard.app.data.model.RecordingEnhancementSubworkState
 import dev.chirpboard.app.data.model.RecordingEnhancementSnapshot
+import dev.chirpboard.app.data.model.RecordingLibraryStats
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
@@ -74,6 +75,9 @@ class RecordingRepository
              * Statuses a transcription claim may take ownership from. COMPLETED is excluded so
              * a stale claim can never resurrect a finished recording, and RECORDING is excluded
              * so an in-progress capture is never hijacked before finalize.
+             * AWAITING_MANUAL_TRANSCRIPTION is claimable: starting a deliberately skipped or
+             * cancelled recording is always an explicit enqueue/retranscribe call (automatic
+             * recovery never loads AWAITING rows, see [getPendingRecordings]).
              */
             private val TRANSCRIPTION_CLAIMABLE_STATUSES =
                 listOf(
@@ -81,6 +85,7 @@ class RecordingRepository
                     RecordingStatus.TRANSCRIBING,
                     RecordingStatus.ENHANCING,
                     RecordingStatus.FAILED,
+                    RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION,
                 )
 
             /**
@@ -95,6 +100,17 @@ class RecordingRepository
 
         fun getAllRecordings(): Flow<RepositoryFlowState<List<Recording>>> =
             recordingDao.getAllRecordings().catchRepositoryFlowState(TAG, emptyList())
+
+        /**
+         * Full-table aggregates for the home header stats (DAT-006). [getAllRecordings] is capped
+         * at [RecordingDao.HOME_RECORDINGS_LIMIT] rows, so counts derived from it undercount large
+         * libraries; this query always reflects every recording.
+         */
+        fun getLibraryStats(): Flow<RepositoryFlowState<RecordingLibraryStats>> =
+            recordingDao
+                .getLibraryStats(RecordingStatus.COMPLETED)
+                .catchRepositoryFlowState(TAG, RecordingLibraryStats())
+
         suspend fun getAllAudioPaths(): List<String> = recordingDao.getAllAudioPaths()
 
         suspend fun getRecording(id: UUID): Recording? = recordingDao.getRecording(id)
@@ -105,10 +121,74 @@ class RecordingRepository
         fun getRecordingsByStatus(status: RecordingStatus): Flow<RepositoryFlowState<List<Recording>>> =
             recordingDao.getRecordingsByStatus(status).catchRepositoryFlowState(TAG, emptyList())
 
+        /**
+         * Recordings eligible for automatic queue recovery. Deliberately excludes
+         * AWAITING_MANUAL_TRANSCRIPTION rows (profile Auto Transcribe off / user cancel):
+         * those must never be re-enqueued by startup recovery, recover-stuck, or the
+         * reconciler — only an explicit user action starts them.
+         */
         suspend fun getPendingRecordings(): List<Recording> =
             recordingDao.getRecordingsByStatuses(
                 listOf(RecordingStatus.PENDING_TRANSCRIPTION, RecordingStatus.PENDING_ENHANCEMENT),
             )
+
+        /**
+         * Whether the recording's profile allows automatic transcription enqueue.
+         * Defaults to true when the recording, profile, or association is missing so
+         * the gate can never strand a recording that has no explicit opt-out.
+         */
+        suspend fun isAutoTranscribeEnabled(recordingId: UUID): Boolean {
+            val profileId = recordingDao.getRecording(recordingId)?.profileId ?: return true
+            return database.profileDao().getProfile(profileId)?.autoTranscribe != false
+        }
+
+        /**
+         * Moves a queued/running transcription row into the deliberate manual state and
+         * clears its execution token, so any in-flight worker holding the old token sees
+         * its commit/fail rejected as stale. Applies only from PENDING_TRANSCRIPTION or
+         * TRANSCRIBING; COMPLETED/FAILED rows are never regressed.
+         */
+        suspend fun markAwaitingManualTranscription(recordingId: UUID): Boolean =
+            recordingDao.updateStatusWithTranscriptionToken(
+                id = recordingId,
+                status = RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION,
+                errorMessage = null,
+                executionToken = null,
+                allowedCurrentStatuses =
+                    listOf(RecordingStatus.PENDING_TRANSCRIPTION, RecordingStatus.TRANSCRIBING),
+                expectedExecutionToken = null,
+            ) > 0
+
+        /**
+         * Resolves a user-cancelled enhancement to a neutral terminal state: the committed
+         * transcript is kept and the row becomes COMPLETED (or AWAITING_MANUAL_TRANSCRIPTION
+         * in the defensive case where no transcript exists). The enhancement snapshot is
+         * removed so reconciliation never resumes the cancelled work.
+         */
+        suspend fun resolveCancelledEnhancement(recordingId: UUID): Boolean =
+            database.withTransaction {
+                val currentStatus = recordingDao.getStatus(recordingId) ?: return@withTransaction false
+                if (currentStatus != RecordingStatus.PENDING_ENHANCEMENT &&
+                    currentStatus != RecordingStatus.ENHANCING
+                ) {
+                    return@withTransaction false
+                }
+                enhancementSnapshotDao.deleteByRecordingId(recordingId)
+                val destination =
+                    if (transcriptDao.getTranscript(recordingId) != null) {
+                        RecordingStatus.COMPLETED
+                    } else {
+                        RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION
+                    }
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = recordingId,
+                    status = destination,
+                    errorMessage = null,
+                    executionToken = null,
+                    allowedCurrentStatuses = listOf(currentStatus),
+                    expectedExecutionToken = null,
+                ) > 0
+            }
 
         fun searchRecordings(
             query: String,
@@ -1021,6 +1101,10 @@ class RecordingRepository
                         RecordingStatus.PENDING_ENHANCEMENT,
                         RecordingStatus.ENHANCING,
                     )
+                // The deliberate manual state is only entered through
+                // markAwaitingManualTranscription/resolveCancelledEnhancement, which pin
+                // their own allowed sources; generic status updates never produce it.
+                RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION -> emptyList()
             }
 
         private fun mergePipelineTranscript(

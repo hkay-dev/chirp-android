@@ -1,11 +1,13 @@
 package dev.chirpboard.app.data.repository
 
 import androidx.room.withTransaction
+import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.db.AppDatabase
+import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.toEntity
 import dev.chirpboard.app.data.entity.toModel
@@ -16,6 +18,7 @@ import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeSnapshot
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
@@ -395,5 +398,98 @@ class RecordingRepositoryTest {
             coVerify(exactly = 0) {
                 recordingDao.updateStatusWithTranscriptionToken(any(), any(), any(), any(), any(), any())
             }
+        }
+
+    @Test
+    fun `isAutoTranscribeEnabled defaults to true without recording or profile association`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getRecording(id) } returns null
+            assertTrue(repository.isAutoTranscribeEnabled(id))
+
+            coEvery { recordingDao.getRecording(id) } returns recording(status = RecordingStatus.PENDING_TRANSCRIPTION)
+            assertTrue(repository.isAutoTranscribeEnabled(id))
+        }
+
+    @Test
+    fun `isAutoTranscribeEnabled honors the profile opt-out`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val profileId = UUID.randomUUID()
+            val profileDao = mockk<ProfileDao>()
+            every { database.profileDao() } returns profileDao
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(status = RecordingStatus.PENDING_TRANSCRIPTION).copy(profileId = profileId)
+
+            coEvery { profileDao.getProfile(profileId) } returns
+                Profile(id = profileId, name = "Quiet", autoTranscribe = false)
+            assertFalse(repository.isAutoTranscribeEnabled(id))
+
+            coEvery { profileDao.getProfile(profileId) } returns
+                Profile(id = profileId, name = "Normal", autoTranscribe = true)
+            assertTrue(repository.isAutoTranscribeEnabled(id))
+
+            // Deleted profile: never strand the recording behind a missing opt-out.
+            coEvery { profileDao.getProfile(profileId) } returns null
+            assertTrue(repository.isAutoTranscribeEnabled(id))
+        }
+
+    @Test
+    fun `markAwaitingManualTranscription clears the execution token from queue states only`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(any(), any(), any(), any(), any(), any())
+            } returns 1
+
+            assertTrue(repository.markAwaitingManualTranscription(id))
+
+            coVerify(exactly = 1) {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = id,
+                    status = RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION,
+                    errorMessage = null,
+                    executionToken = null,
+                    allowedCurrentStatuses =
+                        listOf(RecordingStatus.PENDING_TRANSCRIPTION, RecordingStatus.TRANSCRIBING),
+                    expectedExecutionToken = null,
+                )
+            }
+        }
+
+    @Test
+    fun `resolveCancelledEnhancement keeps committed transcript and completes the row`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getStatus(id) } returns RecordingStatus.ENHANCING
+            coEvery { transcriptDao.getTranscript(id) } returns Transcript(recordingId = id, rawText = "hello")
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(any(), any(), any(), any(), any(), any())
+            } returns 1
+
+            assertTrue(repository.resolveCancelledEnhancement(id))
+
+            coVerify(exactly = 1) { enhancementSnapshotDao.deleteByRecordingId(id) }
+            coVerify(exactly = 1) {
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = id,
+                    status = RecordingStatus.COMPLETED,
+                    errorMessage = null,
+                    executionToken = null,
+                    allowedCurrentStatuses = listOf(RecordingStatus.ENHANCING),
+                    expectedExecutionToken = null,
+                )
+            }
+        }
+
+    @Test
+    fun `resolveCancelledEnhancement refuses rows outside enhancement states`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getStatus(id) } returns RecordingStatus.COMPLETED
+
+            assertFalse(repository.resolveCancelledEnhancement(id))
+
+            coVerify(exactly = 0) { enhancementSnapshotDao.deleteByRecordingId(any()) }
         }
 }

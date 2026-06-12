@@ -16,6 +16,7 @@ import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
 import io.mockk.coEvery
 import io.mockk.every
+import dev.chirpboard.app.feature.recording.util.RecordingTitleFormatter
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
@@ -79,6 +80,10 @@ class RecordingSessionRecoveryLiveSessionTest {
                 recordingStateManager = recordingStateManager,
                 protectedPathsStore = mockk(relaxed = true),
                 ownershipLock = RecordingFinalizeOwnershipLock(),
+                titleFormatter =
+                    mockk<RecordingTitleFormatter> {
+                        every { format(any()) } returns "Jun 12, 3:42 PM"
+                    },
             )
     }
 

@@ -14,4 +14,8 @@
     <string name="obsidian_help_title">About Export</string>
     <string name="obsidian_help_body">Choose a folder in your Obsidian vault. Recordings are exported as text files with tags.</string>
     <string name="obsidian_help_note">Chirp requests permission only for the specific folder you choose.</string>
+    <string name="obsidian_export_error_channel_name">Obsidian export</string>
+    <string name="obsidian_export_failed_title">Obsidian export failed</string>
+    <string name="obsidian_export_failed_vault_access">Vault access was lost. Open Obsidian settings and re-select your vault folder.</string>
+    <string name="obsidian_export_failed_generic">Couldn\'t write the note to your vault. Check your Obsidian settings and storage.</string>
 </resources>

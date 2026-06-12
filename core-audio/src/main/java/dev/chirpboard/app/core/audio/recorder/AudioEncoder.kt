@@ -121,7 +121,11 @@ class AudioEncoder
             val mediaFormat = MediaFormat.createAudioFormat(MIME_TYPE, sampleRate, 1).apply {
                 setInteger(MediaFormat.KEY_BIT_RATE, config.bitRate)
                 setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
-                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, pcmData.size)
+                // Chunk-sized like the streaming variants: asking for input buffers sized
+                // to the whole capture (tens of MB for long sessions) makes many codecs
+                // reject configure() or allocate huge buffers. The feed loop below already
+                // chunks by inputBuffer.capacity().
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, STREAM_CHUNK_SAMPLES * 2)
             }
 
             codec = MediaCodec.createEncoderByType(MIME_TYPE)

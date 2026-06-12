@@ -125,6 +125,9 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation(libs.mockk)
     testImplementation("app.cash.turbine:turbine:1.0.0")
+    // Same version as the okhttp implementation dependency; exercises the HTTP Range
+    // resume path of ModelDownloader against a real local server (ERR-2).
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

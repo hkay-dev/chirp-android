@@ -1,6 +1,8 @@
 package dev.chirpboard.app.feature.keyboard.ui
 
+import android.content.res.Configuration
 import android.os.SystemClock
+import android.view.accessibility.AccessibilityManager
 
 import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
@@ -42,12 +44,18 @@ import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Backspace
+import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SpaceBar
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Warning
@@ -78,16 +86,22 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextAlign
@@ -106,6 +120,9 @@ import dev.chirpboard.app.core.ui.theme.ChirpShapes
 import dev.chirpboard.app.core.ui.theme.chirpAccents
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
+import dev.chirpboard.app.feature.keyboard.service.KeyboardImeAction
+import dev.chirpboard.app.feature.keyboard.service.KeyboardImeActionKind
+import dev.chirpboard.app.feature.keyboard.session.KeyboardOverlayError
 import dev.chirpboard.app.feature.keyboard.session.KeyboardUiState
 import dev.chirpboard.app.feature.keyboard.session.ModelBannerState
 import dev.chirpboard.app.feature.keyboard.session.VoicePanelPhase
@@ -122,6 +139,7 @@ private val KeyboardPanelShape = ChirpShapes.KeyboardPanel
 private val RecordingActionsHeight = 64.dp
 private val ModelBannerMinHeight = 44.dp
 private const val VoiceTransitionMs = 280
+private const val LlmErrorAutoDismissMs = 3000
 private val SpaceCursorDragStep = 10.dp
 
 /**
@@ -181,11 +199,13 @@ private enum class ProcessingPhase {
 
 /** What the centered keyboard panel box should show, used to crossfade error <-> panel (UI-3). */
 internal sealed interface KeyboardPanelContent {
-    data class ErrorOverlay(val message: String) : KeyboardPanelContent
+    data class ErrorOverlay(val message: String, val showOpenApp: Boolean = false) : KeyboardPanelContent
 
     data class LlmError(val message: String) : KeyboardPanelContent
 
     data class RecognitionError(val message: String) : KeyboardPanelContent
+
+    data object SensitiveNotice : KeyboardPanelContent
 
     data object Panel : KeyboardPanelContent
 }
@@ -196,6 +216,7 @@ internal enum class KeyboardPanelContentKind {
     ErrorOverlay,
     LlmError,
     RecognitionError,
+    SensitiveNotice,
     Panel,
 }
 
@@ -204,21 +225,27 @@ internal fun KeyboardPanelContent.kind(): KeyboardPanelContentKind =
         is KeyboardPanelContent.ErrorOverlay -> KeyboardPanelContentKind.ErrorOverlay
         is KeyboardPanelContent.LlmError -> KeyboardPanelContentKind.LlmError
         is KeyboardPanelContent.RecognitionError -> KeyboardPanelContentKind.RecognitionError
+        KeyboardPanelContent.SensitiveNotice -> KeyboardPanelContentKind.SensitiveNotice
         KeyboardPanelContent.Panel -> KeyboardPanelContentKind.Panel
     }
 
 internal fun resolveKeyboardPanelContent(
-    errorOverlay: String?,
+    errorOverlay: KeyboardOverlayError?,
     voicePanel: VoicePanelPhase,
     errorMessage: String?,
     llmErrorMessage: String?,
+    sensitiveInputNotice: Boolean = false,
 ): KeyboardPanelContent =
     when {
-        errorOverlay != null -> KeyboardPanelContent.ErrorOverlay(errorOverlay)
+        errorOverlay != null ->
+            KeyboardPanelContent.ErrorOverlay(errorOverlay.message, errorOverlay.showOpenApp)
         voicePanel == VoicePanelPhase.LlmError && llmErrorMessage != null ->
             KeyboardPanelContent.LlmError(llmErrorMessage)
         voicePanel == VoicePanelPhase.Error && errorMessage != null ->
             KeyboardPanelContent.RecognitionError(errorMessage)
+        // IME-4: password/blocked fields show a calm "dictation off" notice in place of the mic —
+        // never an error panel, and never a Retry that resurrects dictation controls.
+        sensitiveInputNotice -> KeyboardPanelContent.SensitiveNotice
         else -> KeyboardPanelContent.Panel
     }
 
@@ -234,20 +261,12 @@ private data class KeyboardModeOption(
     @StringRes val labelRes: Int,
 )
 
+@Composable
 private fun defaultKeyboardModeOptions(): List<ProcessingModeListItem> =
     keyboardModeOptions().map { option ->
-        ProcessingModeListItem(
-            id = option.id,
-            name = when (option.id) {
-                "proofread" -> "Proofread"
-                "formal" -> "Formal"
-                "casual" -> "Casual"
-                "email" -> "Email"
-                "code" -> "Code"
-                "smart" -> "Smart"
-                else -> option.id
-            },
-        )
+        // I18N-08: resolve the names from the keyboard_mode_* resources instead of duplicating
+        // them as Kotlin literals.
+        ProcessingModeListItem(id = option.id, name = stringResource(option.labelRes))
     }
 
 private fun keyboardModeOptions(): List<KeyboardModeOption> =
@@ -274,12 +293,17 @@ fun KeyboardScreen(
     onBackspaceWord: () -> Unit = {},
     onSpace: () -> Unit = {},
     onMoveCursor: (Int) -> Unit = {},
+    // IME-1: the editor-derived action key (Done/Search/Send/Next/Go, falling back to Enter).
+    imeAction: KeyboardImeAction = KeyboardImeAction.Enter,
+    onImeAction: () -> Unit = {},
     onOpenApp: () -> Unit = {},
     onDismissError: () -> Unit = {},
     // DECISIONS (Color/brand): brand lavender is the default; the host service collects the user's
     // "Use system colors (Material You)" preference and passes it through so the keyboard matches
     // the app's chosen palette.
     dynamicColor: Boolean = false,
+    // PRF-3: ambient (infinite) animations compose only while the IME window is actually shown.
+    windowShown: Boolean = true,
 ) {
     KeyboardTheme(dynamicColor = dynamicColor) {
         val outlineColor = MaterialTheme.colorScheme.outlineVariant
@@ -306,11 +330,21 @@ fun KeyboardScreen(
                 ).toDp()
             }
 
+        // IME-13: a phone in landscape has ~360-400dp of window height; the portrait panel would
+        // leave no app content visible, so a compact layout takes over. A11Y-5: the max bound
+        // additionally grows with the font scale so large-font labels never clip against a fixed
+        // ceiling (half-rate growth keeps the keyboard from swallowing the whole screen at 2.0).
+        val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val fontScale = density.fontScale.coerceIn(1f, 2f)
+        val fontScaleGrowth = 1f + (fontScale - 1f) * 0.5f
+        val minPanelHeight = if (isLandscape) 200.dp else 284.dp
+        val maxPanelHeight = (if (isLandscape) 232.dp else 320.dp) * fontScaleGrowth
+
         Surface(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 284.dp + bottomInset, max = 320.dp + bottomInset)
+                    .heightIn(min = minPanelHeight + bottomInset, max = maxPanelHeight + bottomInset)
                     .drawBehind {
                         drawLine(
                             color = outlineColor,
@@ -370,6 +404,7 @@ fun KeyboardScreen(
                         voicePanel = voicePhase,
                         errorMessage = uiState.errorMessage,
                         llmErrorMessage = uiState.llmErrorMessage,
+                        sensitiveInputNotice = uiState.sensitiveInputNotice,
                     )
 
                 Box(
@@ -396,13 +431,22 @@ fun KeyboardScreen(
                     ) { content ->
                         when (content) {
                             is KeyboardPanelContent.ErrorOverlay ->
-                                ErrorContent(content.message, onDismissError)
+                                if (content.showOpenApp) {
+                                    // ERR-8: the IME cannot request RECORD_AUDIO itself; route to
+                                    // the app instead of a Retry that can never succeed.
+                                    PermissionErrorContent(content.message, onOpenApp)
+                                } else {
+                                    ErrorContent(content.message, onDismissError)
+                                }
 
                             is KeyboardPanelContent.LlmError ->
                                 LlmErrorContent(content.message, onDismissError)
 
                             is KeyboardPanelContent.RecognitionError ->
                                 ErrorContent(content.message, onMicTap)
+
+                            KeyboardPanelContent.SensitiveNotice ->
+                                SensitiveFieldNotice()
 
                             KeyboardPanelContent.Panel ->
                                 UnifiedVoicePanel(
@@ -412,6 +456,7 @@ fun KeyboardScreen(
                                     modelWarming = modelWarming,
                                     waveformBuffer = waveformBuffer,
                                     sampleCountFlow = sampleCountFlow,
+                                    windowShown = windowShown,
                                     onStart = onMicTap,
                                 )
                         }
@@ -439,6 +484,8 @@ fun KeyboardScreen(
                         onBackspaceWord = onBackspaceWord,
                         onSpace = onSpace,
                         onMoveCursor = onMoveCursor,
+                        imeAction = imeAction,
+                        onImeAction = onImeAction,
                     )
                 }
             }
@@ -475,7 +522,9 @@ private fun KeyboardTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Box(
-            modifier = Modifier.height(20.dp),
+            // A11Y-5: a minimum (not fixed) height so labelMedium at font scale 2.0 is not
+            // vertically clipped.
+            modifier = Modifier.heightIn(min = 20.dp),
             contentAlignment = Alignment.CenterStart,
         ) {
             Crossfade(
@@ -488,6 +537,10 @@ private fun KeyboardTopBar(
                         text = stringResource(labelRes),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // A11Y-1: the status label is the keyboard's only textual phase feedback
+                        // (Recording/Transcribing/Polishing) — announce its changes politely so
+                        // TalkBack users hear dictation state transitions.
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
                 }
             }
@@ -652,6 +705,7 @@ private fun UnifiedVoicePanel(
     modelWarming: Boolean,
     waveformBuffer: WaveformBuffer,
     sampleCountFlow: StateFlow<Long>,
+    windowShown: Boolean,
     onStart: () -> Unit,
 ) {
     val sampleCount by sampleCountFlow.collectAsStateWithLifecycle()
@@ -732,11 +786,15 @@ private fun UnifiedVoicePanel(
 
         if (phase == VoicePanelPhase.Idle && idleVisual > 0.01f) {
             // KBD-6: a calm always-on aura behind the resting mic so the hero affordance reads as
-            // present/premium even at rest, not only while recording.
-            KeyboardIdleMicGlow(
-                modifier = Modifier.matchParentSize(),
-                strength = idleVisual,
-            )
+            // present/premium even at rest, not only while recording. PRF-3: gated on the window
+            // actually being shown so the infinite transition can never animate behind a hidden
+            // IME window even if the pausable-frame-clock wiring regresses.
+            if (windowShown) {
+                KeyboardIdleMicGlow(
+                    modifier = Modifier.matchParentSize(),
+                    strength = idleVisual,
+                )
+            }
             Box(
                 modifier =
                     Modifier
@@ -813,12 +871,17 @@ private fun RecordingActionsRow(
             IconButton(
                 onClick = onCancel,
                 enabled = touchEnabled,
+                // A11Y-6: 48dp interactive target (was 42dp), matching the backspace/space keys.
                 modifier =
                     Modifier
                         .background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small)
-                        .size(42.dp),
+                        .size(48.dp),
             ) {
-                Icon(Icons.Filled.Close, "Cancel recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(
+                    Icons.Filled.Close,
+                    stringResource(R.string.keyboard_desc_cancel_recording),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
 
             FloatingActionButton(
@@ -841,12 +904,17 @@ private fun RecordingActionsRow(
             IconButton(
                 onClick = onRestart,
                 enabled = touchEnabled,
+                // A11Y-6: 48dp interactive target (was 42dp), matching the backspace/space keys.
                 modifier =
                     Modifier
                         .background(MaterialTheme.colorScheme.surfaceVariant, ChirpShapes.Small)
-                        .size(42.dp),
+                        .size(48.dp),
             ) {
-                Icon(Icons.Filled.Refresh, "Restart recording", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(
+                    Icons.Filled.Refresh,
+                    stringResource(R.string.keyboard_desc_restart_recording),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -864,7 +932,43 @@ private fun VoiceProcessingContent(phase: ProcessingPhase) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ThinkingDots(color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // A11Y-1: announce the Transcribing/Polishing processing phases.
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+}
+
+/**
+ * The neutral center-panel notice for password/blocked fields (IME-4): dictation is off, but the
+ * surrounding typing aids (backspace, space, cursor drag, action key) remain fully usable. No
+ * Retry — there is nothing to retry on a secure field.
+ */
+@Composable
+private fun SensitiveFieldNotice() {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier =
+            Modifier
+                .padding(horizontal = 24.dp)
+                .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+    ) {
+        Icon(
+            Icons.Filled.Lock,
+            contentDescription = null,
+            modifier = Modifier.size(32.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(R.string.keyboard_sensitive_notice),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -874,6 +978,8 @@ private fun KeyboardControls(
     onBackspaceWord: () -> Unit,
     onSpace: () -> Unit,
     onMoveCursor: (Int) -> Unit,
+    imeAction: KeyboardImeAction,
+    onImeAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -897,6 +1003,67 @@ private fun KeyboardControls(
             onMoveCursor = onMoveCursor,
             modifier = Modifier.weight(1f).height(48.dp),
         )
+
+        // IME-1: the editor-action key — Done/Search/Send/Next/Go per imeOptions, Enter otherwise.
+        ImeActionKey(
+            action = imeAction,
+            onImeAction = onImeAction,
+            modifier =
+                Modifier
+                    .background(
+                        MaterialTheme.colorScheme.secondaryContainer,
+                        ChirpShapes.Small,
+                    ).size(48.dp),
+        )
+    }
+}
+
+@StringRes
+private fun KeyboardImeActionKind.labelRes(): Int =
+    when (this) {
+        KeyboardImeActionKind.ENTER -> R.string.keyboard_action_enter
+        KeyboardImeActionKind.DONE -> R.string.keyboard_action_done
+        KeyboardImeActionKind.SEARCH -> R.string.keyboard_action_search
+        KeyboardImeActionKind.SEND -> R.string.keyboard_action_send
+        KeyboardImeActionKind.NEXT -> R.string.keyboard_action_next
+        KeyboardImeActionKind.GO -> R.string.keyboard_action_go
+        KeyboardImeActionKind.PREVIOUS -> R.string.keyboard_action_previous
+    }
+
+@Composable
+private fun ImeActionKey(
+    action: KeyboardImeAction,
+    onImeAction: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val label = stringResource(action.kind.labelRes())
+    val icon =
+        when (action.kind) {
+            KeyboardImeActionKind.ENTER -> Icons.AutoMirrored.Filled.KeyboardReturn
+            KeyboardImeActionKind.DONE -> Icons.Filled.Check
+            KeyboardImeActionKind.SEARCH -> Icons.Filled.Search
+            KeyboardImeActionKind.SEND -> Icons.AutoMirrored.Filled.Send
+            KeyboardImeActionKind.NEXT, KeyboardImeActionKind.GO -> Icons.AutoMirrored.Filled.ArrowForward
+            KeyboardImeActionKind.PREVIOUS -> Icons.AutoMirrored.Filled.ArrowBack
+        }
+
+    Box(
+        modifier =
+            modifier
+                .clip(ChirpShapes.Small)
+                .minimumInteractiveComponentSize()
+                .clickable(onClickLabel = label, role = Role.Button) {
+                    HapticFeedback.onKeyTap(context)
+                    onImeAction()
+                },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
     }
 }
 
@@ -908,18 +1075,29 @@ private fun BackspaceKey(
 ) {
     val context = LocalContext.current
     val deleteLabel = stringResource(R.string.keyboard_desc_delete)
+    val deleteWordLabel = stringResource(R.string.keyboard_action_delete_word)
 
     Box(
         modifier =
             modifier
                 .clip(ChirpShapes.Small)
                 .minimumInteractiveComponentSize()
-                .semantics {
+                // A11Y-4: merge so TalkBack announces the key by its icon label ("Delete") instead
+                // of an anonymous "Button" plus a stray child node. A11Y-7: hold-to-delete-word is
+                // unreachable through TalkBack's double-tap, so expose it as a custom action.
+                .semantics(mergeDescendants = true) {
                     role = Role.Button
                     onClick(label = deleteLabel) {
                         onDeleteCharacter()
                         true
                     }
+                    customActions =
+                        listOf(
+                            CustomAccessibilityAction(deleteWordLabel) {
+                                onDeleteWord()
+                                true
+                            },
+                        )
                 }.pointerInput(onDeleteCharacter, onDeleteWord) {
                     coroutineScope {
                         while (true) {
@@ -1000,18 +1178,35 @@ private fun SpaceBarKey(
     val cursorStepPx = with(density) { SpaceCursorDragStep.toPx() }
     val cursorDragStartThresholdPx = LocalViewConfiguration.current.touchSlop
     val spaceLabel = stringResource(R.string.keyboard_desc_space)
+    val cursorLeftLabel = stringResource(R.string.keyboard_action_cursor_left)
+    val cursorRightLabel = stringResource(R.string.keyboard_action_cursor_right)
 
     Box(
         modifier =
             modifier
                 .clip(ChirpShapes.Small)
                 .background(MaterialTheme.colorScheme.secondaryContainer)
-                .semantics {
+                // A11Y-4: merge so the key announces as "Space" instead of an unnamed button with
+                // detached children. A11Y-7: the horizontal cursor drag has no TalkBack gesture
+                // equivalent and this keyboard has no arrow keys, so expose cursor movement as
+                // custom actions.
+                .semantics(mergeDescendants = true) {
                     role = Role.Button
                     onClick(label = spaceLabel) {
                         onSpace()
                         true
                     }
+                    customActions =
+                        listOf(
+                            CustomAccessibilityAction(cursorLeftLabel) {
+                                onMoveCursor(-1)
+                                true
+                            },
+                            CustomAccessibilityAction(cursorRightLabel) {
+                                onMoveCursor(1)
+                                true
+                            },
+                        )
                 }.pointerInput(onSpace, onMoveCursor, cursorStepPx, cursorDragStartThresholdPx) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
@@ -1061,7 +1256,9 @@ private fun SpaceBarKey(
         ) {
             Icon(
                 Icons.Filled.SpaceBar,
-                contentDescription = spaceLabel,
+                // A11Y-4: the merged key already reads "Space" from the Text below; a description
+                // here would double-announce it.
+                contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
             )
@@ -1099,39 +1296,55 @@ private fun KeyboardRecordingGlow(
     val accents = MaterialTheme.colorScheme.chirpAccents
     val liveContainer = accents.recordingLiveContainer
     val live = accents.recordingLive
+    // PRF-4: the gradients are built once per size/palette with RELATIVE alpha stops and the
+    // per-frame pulse is applied via drawRoundRect's alpha parameter — zero allocations per frame.
+    val brushCache = remember(live, liveContainer) { SizedBrushCache<Pair<Brush, Brush>>() }
 
     Canvas(modifier = modifier) {
-        val glowAlpha = pulseAlpha.value * strength
+        val glowAlpha = (pulseAlpha.value * strength).coerceIn(0f, 1f)
         val cornerPx = ChirpShapes.KeyboardPanelCornerRadius.toPx()
         val cornerRadius = CornerRadius(cornerPx, cornerPx)
-        drawRoundRect(
-            brush =
-                Brush.radialGradient(
-                    colors =
-                        listOf(
-                            live.copy(alpha = glowAlpha),
-                            liveContainer.copy(alpha = glowAlpha * 0.45f),
-                            Color.Transparent,
-                        ),
-                    center = Offset(size.width / 2f, size.height * 0.72f),
-                    radius = size.maxDimension * 0.85f,
-                ),
-            cornerRadius = cornerRadius,
-        )
-        drawRoundRect(
-            brush =
-                Brush.verticalGradient(
-                    colors =
-                        listOf(
-                            Color.Transparent,
-                            liveContainer.copy(alpha = glowAlpha * 0.25f),
-                            live.copy(alpha = glowAlpha * 0.4f),
-                        ),
-                    startY = size.height * 0.35f,
-                    endY = size.height,
-                ),
-            cornerRadius = cornerRadius,
-        )
+        val (radialBrush, verticalBrush) =
+            brushCache.brushesFor(size) {
+                Pair(
+                    Brush.radialGradient(
+                        colors = listOf(live, liveContainer.copy(alpha = 0.45f), Color.Transparent),
+                        center = Offset(size.width / 2f, size.height * 0.72f),
+                        radius = size.maxDimension * 0.85f,
+                    ),
+                    Brush.verticalGradient(
+                        // 0.625 * the layer alpha factor of 0.4 == the original 0.25 mid stop.
+                        colors = listOf(Color.Transparent, liveContainer.copy(alpha = 0.625f), live),
+                        startY = size.height * 0.35f,
+                        endY = size.height,
+                    ),
+                )
+            }
+        drawRoundRect(brush = radialBrush, cornerRadius = cornerRadius, alpha = glowAlpha)
+        drawRoundRect(brush = verticalBrush, cornerRadius = cornerRadius, alpha = glowAlpha * 0.4f)
+    }
+}
+
+/**
+ * Per-size brush holder for the keyboard glows (PRF-4): rebuilt only when the canvas size (or the
+ * remember key palette) changes, so the per-frame draw never allocates gradients or color lists.
+ */
+private class SizedBrushCache<T : Any> {
+    private var cachedSize: Size = Size.Unspecified
+    private var cached: T? = null
+
+    fun brushesFor(
+        size: Size,
+        build: () -> T,
+    ): T {
+        val existing = cached
+        if (existing != null && cachedSize == size) {
+            return existing
+        }
+        val built = build()
+        cached = built
+        cachedSize = size
+        return built
     }
 }
 
@@ -1161,26 +1374,23 @@ private fun KeyboardIdleMicGlow(
     )
     val glow = MaterialTheme.colorScheme.primary
     val glowContainer = MaterialTheme.colorScheme.primaryContainer
+    // PRF-4: one gradient per size/palette; the breathing is applied via the draw alpha parameter.
+    val brushCache = remember(glow, glowContainer) { SizedBrushCache<Brush>() }
 
     Canvas(modifier = modifier) {
-        val glowAlpha = breath.value * strength
+        val glowAlpha = (breath.value * strength).coerceIn(0f, 1f)
         val cornerPx = ChirpShapes.KeyboardPanelCornerRadius.toPx()
         val cornerRadius = CornerRadius(cornerPx, cornerPx)
-        drawRoundRect(
-            brush =
+        val radialBrush =
+            brushCache.brushesFor(size) {
                 Brush.radialGradient(
-                    colors =
-                        listOf(
-                            glow.copy(alpha = glowAlpha),
-                            glowContainer.copy(alpha = glowAlpha * 0.5f),
-                            Color.Transparent,
-                        ),
+                    colors = listOf(glow, glowContainer.copy(alpha = 0.5f), Color.Transparent),
                     // Center on the mic FAB (slightly above panel center where the mic sits).
                     center = Offset(size.width / 2f, size.height * 0.42f),
                     radius = size.maxDimension * 0.55f,
-                ),
-            cornerRadius = cornerRadius,
-        )
+                )
+            }
+        drawRoundRect(brush = radialBrush, cornerRadius = cornerRadius, alpha = glowAlpha)
     }
 }
 
@@ -1229,7 +1439,14 @@ private fun ErrorContent(
         modifier = Modifier.padding(horizontal = 24.dp),
     ) {
         Icon(Icons.Filled.ErrorOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+            // A11Y-1: announce recognition/session errors when they appear.
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
         FilledTonalButton(
             onClick = onTap,
             colors =
@@ -1245,13 +1462,55 @@ private fun ErrorContent(
     }
 }
 
+/**
+ * Mic-permission error panel (ERR-8): an IME cannot request runtime permissions, so the only
+ * useful affordance is opening the app to grant microphone access — never a dead-end Retry.
+ */
+@Composable
+private fun PermissionErrorContent(
+    message: String,
+    onOpenApp: () -> Unit,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.padding(horizontal = 24.dp),
+    ) {
+        Icon(Icons.Filled.ErrorOutline, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.error)
+        Text(
+            message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        FilledTonalButton(onClick = onOpenApp) {
+            Text(stringResource(R.string.keyboard_open_app_for_mic))
+        }
+    }
+}
+
 @Composable
 private fun LlmErrorContent(
     message: String,
     onDismiss: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    // A11Y: honor the system's recommended timeout so TalkBack/magnification/switch users get
+    // long enough to perceive the error before it auto-dismisses (still tappable to dismiss).
+    val dismissDelayMs =
+        remember(context) {
+            val accessibilityManager =
+                context.getSystemService(AccessibilityManager::class.java)
+            (
+                accessibilityManager?.getRecommendedTimeoutMillis(
+                    LlmErrorAutoDismissMs,
+                    AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_CONTROLS,
+                ) ?: LlmErrorAutoDismissMs
+            ).toLong()
+        }
     LaunchedEffect(message) {
-        delay(3000)
+        delay(dismissDelayMs)
         onDismiss()
     }
     Row(
@@ -1261,7 +1520,8 @@ private fun LlmErrorContent(
                 .minimumInteractiveComponentSize()
                 .clip(MaterialTheme.shapes.small)
                 .background(MaterialTheme.colorScheme.errorContainer)
-                .semantics(mergeDescendants = true) {}
+                // A11Y-1: announce AI-enhancement failures when the banner appears.
+                .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
                 .clickable { onDismiss() }
                 .padding(12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),

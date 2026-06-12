@@ -6,6 +6,7 @@ import android.view.inputmethod.InputConnection
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -13,6 +14,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KeyboardInputSessionGuardTest {
+    private fun commitConnection(): InputConnection =
+        mockk<InputConnection>(relaxed = true).also { connection ->
+            every { connection.getTextBeforeCursor(1, 0) } returns ""
+            every { connection.getTextAfterCursor(1, 0) } returns ""
+            every { connection.commitText(any(), 1) } returns true
+        }
+
     @Test
     fun `session cannot be captured before input starts`() {
         val guard = KeyboardInputSessionGuard()
@@ -35,11 +43,30 @@ class KeyboardInputSessionGuardTest {
     }
 
     @Test
-    fun `no personalized learning input cannot capture commit session`() {
+    fun `no personalized learning input keeps dictation but suppresses learning`() {
+        // IME-3 (intentional behavior change): Chrome/Firefox set this flag on EVERY incognito
+        // field — the keyboard must stay fully functional there; only history persistence is
+        // suppressed. The old behavior (treat as sensitive, brick the keyboard) was wrong.
         val guard = KeyboardInputSessionGuard()
 
         guard.startInput(
             EditorInfo().apply {
+                imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            },
+        )
+
+        assertFalse(guard.isSensitiveInput)
+        assertTrue(guard.isLearningSuppressed)
+        assertNotNull(guard.captureCommitSession())
+    }
+
+    @Test
+    fun `password input with no learning flag stays blocked`() {
+        val guard = KeyboardInputSessionGuard()
+
+        guard.startInput(
+            EditorInfo().apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
                 imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
             },
         )
@@ -55,20 +82,79 @@ class KeyboardInputSessionGuardTest {
         guard.startInput(null)
 
         assertTrue(guard.isSensitiveInput)
+        assertFalse(guard.isLearningSuppressed)
         assertNull(guard.captureCommitSession())
+    }
+
+    @Test
+    fun `learning suppression clears when leaving the incognito field`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(
+            EditorInfo().apply {
+                imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            },
+        )
+        assertTrue(guard.isLearningSuppressed)
+
+        guard.startInput(EditorInfo())
+
+        assertFalse(guard.isLearningSuppressed)
     }
 
     @Test
     fun `current input session commits text`() {
         val guard = KeyboardInputSessionGuard()
-        val connection = mockk<InputConnection>()
-        every { connection.commitText("hello", 1) } returns true
+        val connection = commitConnection()
         guard.startInput(EditorInfo())
         val session = requireNotNull(guard.captureCommitSession())
 
         assertTrue(guard.commitIfCurrent(session, connection, "hello"))
 
         verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `commit clears composing region inside one batch edit`() {
+        // IME-12/IME-23: a composing span left by a previous IME must not be replaced by the
+        // dictation commit, and the whole fix-up is one atomic editor change.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        assertTrue(guard.commitIfCurrent(session, connection, "hello"))
+
+        verify { connection.beginBatchEdit() }
+        verify { connection.finishComposingText() }
+        verify { connection.endBatchEdit() }
+    }
+
+    @Test
+    fun `commit inserts leading space after a word`() {
+        // IME-14: dictating at "Hello|" must not glue into "Helloworld ".
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.getTextBeforeCursor(1, 0) } returns "o"
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        assertTrue(guard.commitIfCurrent(session, connection, "world "))
+
+        verify { connection.commitText(" world ", 1) }
+    }
+
+    @Test
+    fun `commit drops trailing space before punctuation`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.getTextBeforeCursor(1, 0) } returns " "
+        every { connection.getTextAfterCursor(1, 0) } returns "."
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        assertTrue(guard.commitIfCurrent(session, connection, "world "))
+
+        verify { connection.commitText("world", 1) }
     }
 
     @Test
@@ -97,8 +183,7 @@ class KeyboardInputSessionGuardTest {
     @Test
     fun `preserved session survives config change restart`() {
         val guard = KeyboardInputSessionGuard()
-        val connection = mockk<InputConnection>()
-        every { connection.commitText("hello", 1) } returns true
+        val connection = commitConnection()
         guard.startInput(EditorInfo())
         val session = requireNotNull(guard.captureCommitSession())
 
@@ -106,6 +191,92 @@ class KeyboardInputSessionGuardTest {
 
         assertTrue(guard.commitIfCurrent(session, connection, "hello"))
         verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `same editor restart preserves session`() {
+        // IME-11: EditText.setText/autofill triggers restartInput on the SAME field; a transcript
+        // finishing inside that window can still safely commit there.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        val editor =
+            EditorInfo().apply {
+                fieldId = 42
+                packageName = "com.example.chat"
+                inputType = InputType.TYPE_CLASS_TEXT
+            }
+        guard.startInput(editor)
+        val session = requireNotNull(guard.captureCommitSession())
+
+        guard.startInput(
+            EditorInfo().apply {
+                fieldId = 42
+                packageName = "com.example.chat"
+                inputType = InputType.TYPE_CLASS_TEXT
+            },
+            restarting = true,
+        )
+
+        assertTrue(guard.commitIfCurrent(session, connection, "hello"))
+        verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `restart for a different editor invalidates the session`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = mockk<InputConnection>(relaxed = true)
+        guard.startInput(
+            EditorInfo().apply {
+                fieldId = 42
+                packageName = "com.example.chat"
+            },
+        )
+        val session = requireNotNull(guard.captureCommitSession())
+
+        guard.startInput(
+            EditorInfo().apply {
+                fieldId = 7
+                packageName = "com.example.chat"
+            },
+            restarting = true,
+        )
+
+        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        verify(exactly = 0) { connection.commitText(any(), any()) }
+    }
+
+    @Test
+    fun `non-restart same editor still invalidates the session`() {
+        // Only restartInput is provably the same editor; a fresh startInput means focus moved.
+        val guard = KeyboardInputSessionGuard()
+        val connection = mockk<InputConnection>(relaxed = true)
+        val editor = EditorInfo().apply { fieldId = 42 }
+        guard.startInput(editor)
+        val session = requireNotNull(guard.captureCommitSession())
+
+        guard.startInput(EditorInfo().apply { fieldId = 42 })
+
+        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+    }
+
+    @Test
+    fun `same editor restart never preserves into a password field`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = mockk<InputConnection>(relaxed = true)
+        val editor = EditorInfo().apply { fieldId = 42 }
+        guard.startInput(editor)
+        val session = requireNotNull(guard.captureCommitSession())
+
+        guard.startInput(
+            EditorInfo().apply {
+                fieldId = 42
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            },
+            restarting = true,
+        )
+
+        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        verify(exactly = 0) { connection.commitText(any(), any()) }
     }
 
     @Test
@@ -156,8 +327,7 @@ class KeyboardInputSessionGuardTest {
     @Test
     fun `commit text provider captures session at stop time not at registration`() {
         val guard = KeyboardInputSessionGuard()
-        val connection = mockk<InputConnection>()
-        every { connection.commitText("hello", 1) } returns true
+        val connection = commitConnection()
         // Registered before any input session exists, exactly like the service wires
         // it in onCreate. A provider that captured the session here would be stuck
         // with no (or a stale) session for every later limit stop.
@@ -177,8 +347,7 @@ class KeyboardInputSessionGuardTest {
     @Test
     fun `commit text provider binds each stop to the live session`() {
         val guard = KeyboardInputSessionGuard()
-        val connection = mockk<InputConnection>()
-        every { connection.commitText(any(), 1) } returns true
+        val connection = commitConnection()
         val provider =
             guard.commitTextProvider { session, text ->
                 guard.commitIfCurrent(session, connection, text)
@@ -195,5 +364,24 @@ class KeyboardInputSessionGuardTest {
         val liveCommit = requireNotNull(provider())
         assertTrue(liveCommit("hello"))
         verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `resolveDictationCommitText covers spacing decisions`() {
+        // No surrounding context: unchanged.
+        assertEquals("hello ", resolveDictationCommitText(before = "", after = "", text = "hello "))
+        assertEquals("hello ", resolveDictationCommitText(before = null, after = null, text = "hello "))
+        // After a word: leading space inserted.
+        assertEquals(" hello ", resolveDictationCommitText(before = "o", after = "", text = "hello "))
+        // After whitespace or an opener: no leading space.
+        assertEquals("hello ", resolveDictationCommitText(before = " ", after = "", text = "hello "))
+        assertEquals("hello ", resolveDictationCommitText(before = "(", after = "", text = "hello "))
+        assertEquals("hello ", resolveDictationCommitText(before = "\n", after = "", text = "hello "))
+        // Before whitespace or closing punctuation: trailing space dropped.
+        assertEquals(" hello", resolveDictationCommitText(before = "o", after = " ", text = "hello "))
+        assertEquals("hello", resolveDictationCommitText(before = " ", after = ".", text = "hello "))
+        assertEquals("hello", resolveDictationCommitText(before = null, after = ")", text = "hello "))
+        // Empty text passes through untouched.
+        assertEquals("", resolveDictationCommitText(before = "o", after = ".", text = ""))
     }
 }

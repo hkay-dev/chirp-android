@@ -1,11 +1,14 @@
 package dev.chirpboard.app.di
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import dagger.Module
 import dagger.Provides
@@ -54,6 +57,8 @@ class DataStoreDynamicColorPreference(
 @Module
 @InstallIn(SingletonComponent::class)
 object AppearancePreferencesModule {
+    private const val TAG = "AppearancePrefs"
+
     @Provides
     @Singleton
     @AppearancePreferencesDataStore
@@ -61,6 +66,14 @@ object AppearancePreferencesModule {
         @ApplicationContext context: Context,
     ): DataStore<Preferences> =
         PreferenceDataStoreFactory.create(
+            // A corrupted preferences file would otherwise throw CorruptionException on
+            // every read forever (the theme flow is collected at the Compose root, so
+            // that would crash-loop the app); resetting to defaults is strictly better.
+            corruptionHandler =
+                ReplaceFileCorruptionHandler { corruption ->
+                    Log.e(TAG, "appearance_preferences corrupted; resetting to defaults", corruption)
+                    emptyPreferences()
+                },
             produceFile = { context.preferencesDataStoreFile("appearance_preferences") },
         )
 

@@ -3,6 +3,25 @@ package dev.chirpboard.app.feature.keyboard.service
 import android.view.inputmethod.InputConnection
 
 /**
+ * Window after IME-service creation inside which the stray-switch cleanup may run (IME-5).
+ *
+ * A genuine input-method switch recreates this service, so the SwiftKey stray-letter artifact can
+ * only exist within moments of `onCreate`. Outside this window the keyboard is binding a new
+ * client for ordinary reasons (app switch, refocus) and a trailing standalone z/Z is legitimate
+ * user text ("gen z", "…plan Z") that must never be deleted.
+ */
+internal const val STRAY_SWITCH_CLEANUP_FRESHNESS_MS = 3_000L
+
+/**
+ * Whether a client bind may still be attributed to an input-method switch (IME-5). Only the
+ * FIRST bind after service creation qualifies, and only within the freshness window.
+ */
+internal fun shouldAttemptStraySwitchCleanup(
+    uptimeSinceServiceCreateMs: Long,
+    freshnessWindowMs: Long = STRAY_SWITCH_CLEANUP_FRESHNESS_MS,
+): Boolean = uptimeSinceServiceCreateMs in 0..freshnessWindowMs
+
+/**
  * Some keyboards place their voice key next to a letter key (SwiftKey's mic sits by Z), so
  * invoking this keyboard from there sometimes commits a stray letter into the editor right
  * before the IME switch. When this keyboard takes over a freshly bound client, a lone z/Z

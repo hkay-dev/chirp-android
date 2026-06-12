@@ -1,5 +1,7 @@
 package dev.chirpboard.app.feature.recording.ui
 
+import android.database.sqlite.SQLiteException
+import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +14,8 @@ import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
 import dev.chirpboard.app.feature.recording.RecordingManager
+import dev.chirpboard.app.feature.recording.service.RecordingAutoStopEvent
+import dev.chirpboard.app.feature.recording.service.RecordingServiceEvents
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,8 +49,20 @@ class RecordViewModel
         private val profileRepository: ProfileRepository,
         private val tagRepository: TagRepository,
         private val recoveryStore: RecordingRecoveryStore,
-        savedStateHandle: SavedStateHandle,
+        private val serviceEvents: RecordingServiceEvents,
+        private val savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
+        private companion object {
+            const val TAG = "RecordViewModel"
+
+            /**
+             * LIF-02: latches once the screen's autoStart nav-argument has been acted on, in
+             * SavedStateHandle so a process-death restoration of the back stack can never
+             * re-fire an unattended microphone start.
+             */
+            const val KEY_AUTO_START_CONSUMED = "autoStartConsumed"
+        }
+
         private val requestedProfileId: UUID? =
             savedStateHandle
                 .get<String>("profileId")
@@ -65,6 +81,20 @@ class RecordViewModel
         /** Current recording state */
         val recordingState: StateFlow<RecordingState> = recordingStateManager.state
 
+        /**
+         * ERR-13/ERR-14: why the service ended a recording on its own (storage critical,
+         * permanent focus loss, mic disconnect, capture death). Auto-stops finish through
+         * the normal save path, so they never appear as [RecordingState.Error]; this is
+         * the only in-app channel for the reason. Surfaced as a snackbar by the screen,
+         * which acknowledges it via [consumeAutoStopEvent].
+         */
+        val autoStopEvent: StateFlow<RecordingAutoStopEvent?> = serviceEvents.autoStopEvent
+
+        /** Acknowledges a surfaced auto-stop so no screen shows it again. */
+        fun consumeAutoStopEvent() {
+            serviceEvents.clearAutoStopEvent()
+        }
+
         /** Buffer of amplitude samples for waveform display */
         val waveformBuffer = recordingStateManager.waveformBuffer
 
@@ -79,6 +109,23 @@ class RecordViewModel
 
         val recoverableSessions = recoveryStore.actionablePendingSessions
 
+        /**
+         * LIF-02: [recoverableSessions] starts as an empty list until the async refresh in init
+         * completes, so an auto-start decision taken before this flag flips could race ahead of a
+         * pending recovery prompt. The screen gates auto-start on it.
+         */
+        private val _isRecoverableSessionsRefreshed = MutableStateFlow(false)
+        val isRecoverableSessionsRefreshed: StateFlow<Boolean> = _isRecoverableSessionsRefreshed.asStateFlow()
+
+        /** LIF-02: true once this screen entry's autoStart argument has been acted on. */
+        val isAutoStartConsumed: StateFlow<Boolean> =
+            savedStateHandle.getStateFlow(KEY_AUTO_START_CONSUMED, false)
+
+        /** LIF-02: record the auto-start decision so restoration never repeats it. */
+        fun consumeAutoStart() {
+            savedStateHandle[KEY_AUTO_START_CONSUMED] = true
+        }
+
         val availableTags: StateFlow<List<Tag>> =
             tagRepository
                 .getAllTags()
@@ -92,7 +139,17 @@ class RecordViewModel
 
         init {
             viewModelScope.launch {
-                recoveryStore.refresh()
+                try {
+                    recoveryStore.refresh()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // A failed refresh must not block the screen (or crash the bare launch);
+                    // the recovery banner simply stays absent until the next refresh.
+                    Log.e(TAG, "Recovery store refresh failed", e)
+                } finally {
+                    _isRecoverableSessionsRefreshed.value = true
+                }
             }
             if (requestedProfileId != null) {
                 viewModelScope.launch {
@@ -206,15 +263,33 @@ class RecordViewModel
             _entryMessage.value = null
         }
 
+        /**
+         * Clear a surfaced [RecordingState.Error] after the screen has shown it (ERR-7/ERR-13:
+         * the record screen now renders service-reported stop/failure reasons via snackbar).
+         */
+        fun clearRecordingError() {
+            recordingManager.clearError()
+        }
+
         fun toggleTag(tagId: UUID) {
             val recordingId = recordingState.value.activeRecordingId ?: return
             viewModelScope.launch {
-                if (tagId in _selectedTagIds.value) {
-                    tagRepository.removeTagFromRecording(recordingId, tagId)
-                    _selectedTagIds.update { it - tagId }
-                } else {
-                    tagRepository.addTagToRecording(recordingId, tagId)
-                    _selectedTagIds.update { it + tagId }
+                // OR IGNORE does not cover FOREIGN KEY violations: if the recording row
+                // vanished between the UI action and the insert (auto-stop discard,
+                // rescue-path delete, finalize race) the insert throws
+                // SQLiteConstraintException, which would crash the process from this
+                // bare launch. Surface it instead.
+                try {
+                    if (tagId in _selectedTagIds.value) {
+                        tagRepository.removeTagFromRecording(recordingId, tagId)
+                        _selectedTagIds.update { it - tagId }
+                    } else {
+                        tagRepository.addTagToRecording(recordingId, tagId)
+                        _selectedTagIds.update { it + tagId }
+                    }
+                } catch (e: SQLiteException) {
+                    Log.e(TAG, "Tag toggle failed for recording $recordingId", e)
+                    _entryMessage.value = "Couldn't update tags. The recording may no longer exist."
                 }
             }
         }
@@ -222,9 +297,14 @@ class RecordViewModel
         fun createTagForRecording(name: String) {
             val recordingId = recordingState.value.activeRecordingId ?: return
             viewModelScope.launch {
-                val tag = tagRepository.createTag(name.trim())
-                tagRepository.addTagToRecording(recordingId, tag.id)
-                _selectedTagIds.update { it + tag.id }
+                try {
+                    val tag = tagRepository.createTag(name.trim())
+                    tagRepository.addTagToRecording(recordingId, tag.id)
+                    _selectedTagIds.update { it + tag.id }
+                } catch (e: SQLiteException) {
+                    Log.e(TAG, "Tag creation failed for recording $recordingId", e)
+                    _entryMessage.value = "Couldn't add the tag. The recording may no longer exist."
+                }
             }
         }
 
@@ -234,7 +314,8 @@ class RecordViewModel
                     is SessionRecoveryResult.Recovered -> {
                         _entryMessage.value =
                             result.estimatedLostMinutes?.let { lostMinutes ->
-                                "Recording recovered. Up to $lostMinutes minute(s) of recent audio may be missing."
+                                val unit = if (lostMinutes == 1) "minute" else "minutes"
+                                "Recording recovered. Up to $lostMinutes $unit of recent audio may be missing."
                             } ?: "Recording recovered."
                     }
                     is SessionRecoveryResult.Failed -> {

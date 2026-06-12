@@ -26,6 +26,7 @@ class WavFileWriter(
     }
 
     fun appendPcm16(buffer: ByteArray, size: Int) {
+        ensureWavSizeWithinLimit(dataBytesWritten, size.toLong())
         randomAccessFile.seek(WAV_HEADER_BYTES + dataBytesWritten)
         randomAccessFile.write(buffer, 0, size)
         dataBytesWritten += size
@@ -46,6 +47,28 @@ class WavFileWriter(
     companion object {
         const val WAV_HEADER_BYTES = 44
         const val DEFAULT_REPAIR_SAMPLE_RATE = 16_000
+
+        /**
+         * Largest data payload whose RIFF/data size fields still fit in the format's
+         * unsigned 32-bit fields. Beyond this the header would silently wrap and most
+         * players would read a truncated/unreadable file, so writes fail loudly instead.
+         */
+        const val MAX_WAV_DATA_BYTES: Long = 0xFFFFFFFFL - 44L
+
+        /**
+         * Guards against silent 32-bit overflow of the WAV header size fields (~4 GB,
+         * about 13.5 hours of 44.1 kHz mono PCM).
+         */
+        fun ensureWavSizeWithinLimit(
+            currentDataBytes: Long,
+            additionalBytes: Long,
+        ) {
+            if (currentDataBytes + additionalBytes > MAX_WAV_DATA_BYTES) {
+                throw java.io.IOException(
+                    "WAV files larger than 4 GB are not supported — use the M4A output format for recordings this long",
+                )
+            }
+        }
         private const val BYTES_PER_SAMPLE = 2
         private const val BITS_PER_SAMPLE = 16
         private const val RIFF_CHUNK_REMAINDER = 36L

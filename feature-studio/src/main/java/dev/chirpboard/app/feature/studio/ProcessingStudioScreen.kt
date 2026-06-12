@@ -5,6 +5,7 @@ import androidx.compose.animation.animateContentSize
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -57,13 +59,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -97,6 +102,7 @@ fun ProcessingStudioScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
     val message by viewModel.message.collectAsStateWithLifecycle()
+    val promotionPrompt by viewModel.promotionPrompt.collectAsStateWithLifecycle()
     val screenRecordingId = remember(recordingId) { runCatching { UUID.fromString(recordingId) }.getOrNull() }
 
     when (state.loadState) {
@@ -141,18 +147,34 @@ fun ProcessingStudioScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val transcriptClipLabel = stringResource(R.string.rec_transcript)
     val snackbarHostState = remember { SnackbarHostState() }
-    var showOptionsMenu by remember { mutableStateOf(false) }
-    var showShareMenu by remember { mutableStateOf(false) }
-    var showRetranscribeConfirmation by remember { mutableStateOf(false) }
+    // LIF-12: open menus + pending confirmations survive rotation/resize/process death.
+    var showOptionsMenu by rememberSaveable { mutableStateOf(false) }
+    var showShareMenu by rememberSaveable { mutableStateOf(false) }
+    var showRetranscribeConfirmation by rememberSaveable { mutableStateOf(false) }
+    // LIF-11: back gesture in edit mode confirms before discarding an in-progress correction.
+    var showDiscardEditDialog by rememberSaveable { mutableStateOf(false) }
+
+    fun requestCloseTranscriptEdit() {
+        if (state.transcriptDraft != state.effectiveTranscriptText) {
+            showDiscardEditDialog = true
+        } else {
+            viewModel.cancelEditingTranscript()
+        }
+    }
 
     val canEditTranscript =
         state.effectiveTranscriptText.isNotBlank() &&
             !state.isEditingTranscript &&
             state.status.transcriptionProgressKind() == null
+    // AWAITING_MANUAL_TRANSCRIPTION rows (profile Auto Transcribe off or a user cancel)
+    // have no transcript yet but must keep a working way to start transcription (PLH-4).
     val canRetranscribe =
-        state.effectiveTranscriptText.isNotBlank() &&
+        (
+            state.effectiveTranscriptText.isNotBlank() ||
+                state.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION
+        ) &&
             !state.isEditingTranscript &&
             state.status.transcriptionProgressKind() == null
 
@@ -160,6 +182,61 @@ fun ProcessingStudioScreen(
         val currentMessage = message ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(currentMessage)
         viewModel.clearMessage()
+    }
+
+    // PLH-7: after a saved correction reduces to one word/phrase substitution, offer to promote
+    // it to a global Word Replacement via an actionable snackbar.
+    val promotionActionLabel = stringResource(R.string.rec_promotion_action)
+    LaunchedEffect(promotionPrompt) {
+        val prompt = promotionPrompt ?: return@LaunchedEffect
+        val result =
+            snackbarHostState.showSnackbar(
+                message =
+                    context.getString(
+                        R.string.rec_promotion_prompt,
+                        prompt.original,
+                        prompt.replacement,
+                    ),
+                actionLabel = promotionActionLabel,
+                duration = androidx.compose.material3.SnackbarDuration.Long,
+            )
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.promoteTranscriptCorrection()
+        }
+        viewModel.clearPromotionPrompt()
+    }
+
+    // LIF-11: intercept predictive back while a modal edit/selection is active instead of
+    // silently popping the screen (and the draft) away.
+    BackHandler(enabled = state.isEditingTranscript || state.isEditingTitle || state.isSelectingTranscript) {
+        when {
+            state.isSelectingTranscript -> viewModel.exitTranscriptSelectionMode()
+            state.isEditingTranscript -> requestCloseTranscriptEdit()
+            else -> viewModel.cancelEditingTitle()
+        }
+    }
+
+    if (showDiscardEditDialog) {
+        AnimatedAlertDialog(
+            onDismissRequest = { showDiscardEditDialog = false },
+            title = { Text(stringResource(R.string.rec_discard_edit_title)) },
+            text = { Text(stringResource(R.string.rec_discard_edit_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardEditDialog = false
+                        viewModel.cancelEditingTranscript()
+                    },
+                ) {
+                    Text(stringResource(R.string.rec_discard_edit_confirm), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardEditDialog = false }) {
+                    Text(stringResource(R.string.rec_discard_edit_keep))
+                }
+            },
+        )
     }
 
     if (showRetranscribeConfirmation) {
@@ -200,11 +277,16 @@ fun ProcessingStudioScreen(
                     },
                     actions = {
                         if (state.isEditingTranscript) {
-                            IconButton(onClick = viewModel::cancelEditingTranscript) {
+                            IconButton(onClick = { requestCloseTranscriptEdit() }) {
                                 Icon(Icons.Rounded.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
                             }
                             IconButton(onClick = viewModel::saveTranscriptCorrection) {
                                 Icon(Icons.Rounded.Check, contentDescription = stringResource(CoreR.string.desc_save))
+                            }
+                        } else if (state.isSelectingTranscript) {
+                            // PLH-6: selection mode replaces the regular actions with Done.
+                            TextButton(onClick = viewModel::exitTranscriptSelectionMode) {
+                                Text(stringResource(R.string.rec_transcript_selection_done))
                             }
                         } else {
                         Box {
@@ -273,6 +355,25 @@ fun ProcessingStudioScreen(
                                     },
                                     leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = stringResource(CoreR.string.desc_edit)) },
                                 )
+                                // PLH-6: entry point for transcript passage selection + AI tools.
+                                if (state.canEnterTranscriptSelectionMode()) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.rec_select_text)) },
+                                        onClick = {
+                                            showOptionsMenu = false
+                                            viewModel.enterTranscriptSelectionMode()
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(0)
+                                            }
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Rounded.SelectAll,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(CoreR.string.rec_delete)) },
                                     onClick = {
@@ -335,11 +436,16 @@ fun ProcessingStudioScreen(
                     when {
                         editing -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                val titleFieldDescription = stringResource(R.string.rec_title_field_desc)
                                 TextField(
                                     value = state.editedTitle,
                                     onValueChange = viewModel::updateEditedTitle,
                                     singleLine = true,
-                                    modifier = Modifier.weight(1f),
+                                    // A11Y: name the edit box so TalkBack says what is being edited.
+                                    modifier =
+                                        Modifier
+                                            .weight(1f)
+                                            .semantics { contentDescription = titleFieldDescription },
                                     colors =
                                         TextFieldDefaults.colors(
                                             focusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -358,10 +464,14 @@ fun ProcessingStudioScreen(
                         skeleton -> {
                             // LOAD-8: a shimmering title-shaped placeholder reads more premium than
                             // the literal word "Loading…". Size it like a headlineSmall title line.
-                            SkeletonPlaceholder(
-                                width = 200.dp,
-                                height = 28.dp,
-                            )
+                            // A11Y: announce the load instead of reading as a blank header.
+                            val loadingDescription = stringResource(R.string.rec_studio_loading_title)
+                            Box(modifier = Modifier.semantics { contentDescription = loadingDescription }) {
+                                SkeletonPlaceholder(
+                                    width = 200.dp,
+                                    height = 28.dp,
+                                )
+                            }
                         }
 
                         else -> {
@@ -435,6 +545,25 @@ fun ProcessingStudioScreen(
                     )
                 },
             )
+
+            // PIPE-07: a queued/running transcription can be cancelled.
+            PushDownReveal(
+                visible =
+                    state.status == RecordingStatus.PENDING_TRANSCRIPTION ||
+                        state.status == RecordingStatus.TRANSCRIBING,
+            ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    TextButton(onClick = viewModel::cancelTranscription) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(stringResource(R.string.rec_cancel_transcription))
+                    }
+                }
+            }
 
             PushDownReveal(visible = failurePresentation.showRecoverySection) {
                 TranscriptionRecoverySection(
@@ -513,26 +642,43 @@ fun ProcessingStudioScreen(
                             hasManualCorrection = state.hasManualCorrection,
                             activeSegmentIndex = activeSegmentIndex,
                             status = state.status,
+                            isSelectingTranscript = state.isSelectingTranscript,
+                            renderedTranscriptText = state.renderedTranscriptText,
+                            selectedTranscriptPassage = state.selectedTranscriptPassage,
+                            transcriptSelectionActionInFlight = state.transcriptSelectionActionInFlight,
+                            transcriptSelectionResult = state.transcriptSelectionResult,
+                            onTranscriptSelectionChanged = viewModel::onTranscriptSelectionChanged,
+                            onRunTranscriptSelectionAction = viewModel::runTranscriptSelectionAction,
+                            onCopySelectionResult = { text ->
+                                copySensitiveTextToClipboard(context, transcriptClipLabel, text)
+                                viewModel.onTranscriptCopied()
+                            },
+                            onStartTranscription =
+                                if (state.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) {
+                                    { viewModel.retranscribe() }
+                                } else {
+                                    null
+                                },
                             onSegmentClicked = if (state.canUseTranscriptInteractions()) viewModel::onWordClicked else null,
                             onTranscriptDraftChange = viewModel::updateTranscriptDraft,
                             onCopyTranscript = {
                                 val text = state.effectiveTranscriptText.trim()
                                 if (text.isNotEmpty()) {
-                                    clipboardManager.setText(AnnotatedString(text))
+                                    copySensitiveTextToClipboard(context, transcriptClipLabel, text)
                                     viewModel.onTranscriptCopied()
                                 }
                             },
                             onCopyOriginal = {
                                 val text = state.rawTranscriptText.trim()
                                 if (text.isNotEmpty()) {
-                                    clipboardManager.setText(AnnotatedString(text))
+                                    copySensitiveTextToClipboard(context, transcriptClipLabel, text)
                                     viewModel.onTranscriptCopied()
                                 }
                             },
                             onCopyEnhanced = {
                                 val text = state.enhancedTranscriptText.trim()
                                 if (text.isNotEmpty()) {
-                                    clipboardManager.setText(AnnotatedString(text))
+                                    copySensitiveTextToClipboard(context, transcriptClipLabel, text)
                                     viewModel.onTranscriptCopied()
                                 }
                             },
@@ -545,7 +691,7 @@ fun ProcessingStudioScreen(
                             structuredOutcomeSection = state.structuredOutcomeSection,
                             onGenerateStructuredOutcomes = viewModel::generateStructuredOutcomes,
                             onCopyStructuredOutcome = { item ->
-                                clipboardManager.setText(AnnotatedString(item.text))
+                                copySensitiveTextToClipboard(context, transcriptClipLabel, item.text)
                                 viewModel.onStructuredOutcomeCopied()
                             },
                             onShareStructuredOutcome = { item -> viewModel.shareStructuredOutcome(context, item) },

@@ -23,8 +23,10 @@ import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
+import dev.chirpboard.app.data.model.RecordingLibraryStats
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.TranscriptPreview
+import dev.chirpboard.app.data.dao.RecordingDao
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.TagRepository
@@ -32,6 +34,8 @@ import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
+import dev.chirpboard.app.feature.recording.service.RecordingAutoStopEvent
+import dev.chirpboard.app.feature.recording.service.RecordingServiceEvents
 import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
@@ -144,6 +148,7 @@ class HomeViewModel
         // filter/map/sort/build work (which re-runs on every Room invalidation) no longer
         // executes on the main dispatcher. Tests inject a TestDispatcher for determinism.
         @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher,
+        private val serviceEvents: RecordingServiceEvents,
     ) : ViewModel() {
         /** Search query */
         private val _searchQuery = savedStateHandle.getStateFlow("searchQuery", "")
@@ -163,6 +168,20 @@ class HomeViewModel
         // channel so they are never painted as errors. errorMessage stays reserved for failures.
         private val _statusMessage = MutableStateFlow<String?>(null)
         val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+        /**
+         * ERR-13/ERR-14: why the service ended a recording on its own (storage critical,
+         * permanent focus loss, mic disconnect, capture death). Auto-stops finish through
+         * the normal save path, so they never appear as [RecordingState.Error]; this is
+         * the only in-app channel for the reason. Surfaced as a snackbar by the screen,
+         * which acknowledges it via [consumeAutoStopEvent].
+         */
+        val autoStopEvent: StateFlow<RecordingAutoStopEvent?> = serviceEvents.autoStopEvent
+
+        /** Acknowledges a surfaced auto-stop so no screen shows it again. */
+        fun consumeAutoStopEvent() {
+            serviceEvents.clearAutoStopEvent()
+        }
 
         private val _openStudioForRecordingId = MutableStateFlow<UUID?>(null)
         val openStudioForRecordingId: StateFlow<UUID?> = _openStudioForRecordingId.asStateFlow()
@@ -338,16 +357,22 @@ class HomeViewModel
                 }.flowOn(defaultDispatcher)
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-        /** Quick stats derived from recordings */
+        // DAT-006: count/duration/completed come from a full-table aggregate; the list flow is
+        // capped at the latest 500 rows, so deriving header stats from it undercounts (and shows
+        // "500 recordings" forever) once the library outgrows the cap.
+        private val libraryStats: StateFlow<RecordingLibraryStats> =
+            recordingRepository
+                .getLibraryStats()
+                .unwrapRepositoryFlow { _errorMessage.value = it }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RecordingLibraryStats())
+
+        /** Quick stats for the home header; full-table counts, capped-list processing count. */
         val stats: StateFlow<HomeStats> =
-            combine(allRecordingsList, recordingManager.state) { recordings, recordingState ->
+            combine(libraryStats, allRecordingsList, recordingManager.state) { library, recordings, recordingState ->
                 HomeStats(
-                    totalRecordings = recordings.size,
-                    totalDurationMs = recordings.sumOf { it.durationMs },
-                    completedCount =
-                        recordings.count {
-                            it.status == dev.chirpboard.app.data.model.RecordingStatus.COMPLETED
-                        },
+                    totalRecordings = library.totalCount,
+                    totalDurationMs = library.totalDurationMs,
+                    completedCount = library.completedCount,
                     processingCount =
                         recordings.count {
                             isHomeListProcessingItem(it, recordingState)
@@ -355,6 +380,16 @@ class HomeViewModel
                 )
             }.flowOn(defaultDispatcher)
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeStats())
+
+        /**
+         * DAT-006: true once the library has outgrown the home list's row cap, so the list can
+         * disclose "showing latest N" instead of silently dropping the oldest recordings.
+         */
+        val isHomeListCapped: StateFlow<Boolean> =
+            libraryStats
+                .map { it.totalCount > RecordingDao.HOME_RECORDINGS_LIMIT }
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
         /** Current recording state */
         val recordingState: StateFlow<RecordingState> = recordingManager.state
@@ -388,7 +423,8 @@ class HomeViewModel
                     is SessionRecoveryResult.Recovered -> {
                         _errorMessage.value =
                             result.estimatedLostMinutes?.let { lostMinutes ->
-                                "Recording recovered. Up to $lostMinutes minute(s) of recent audio may be missing."
+                                val unit = if (lostMinutes == 1) "minute" else "minutes"
+                                "Recording recovered. Up to $lostMinutes $unit of recent audio may be missing."
                             } ?: "Recording recovered."
                         refreshRecoverableSessions()
                     }
@@ -494,6 +530,10 @@ class HomeViewModel
         fun deleteRecording(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 try {
+                    // Step 0: cancel any queued/running transcription or enhancement work so
+                    // an orphaned worker never spins up for the deleted row (PIPE-07).
+                    transcriptionRecovery.cancelProcessing(recording.id)
+
                     // Step 1: Delete from database FIRST (the critical operation)
                     // Transcript is cascade-deleted via ForeignKey constraint
                     recordingRepository.deleteById(recording.id)
@@ -596,7 +636,9 @@ class HomeViewModel
                     )
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    _errorMessage.value = "Failed to share: ${e.message}"
+                    // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                    Log.e(TAG, "Failed to share recording ${recording.id}", e)
+                    _errorMessage.value = "Couldn't share the recording. Try again."
                 }
             }
         }
@@ -659,7 +701,7 @@ class HomeViewModel
             enrich(
                 recording = recording,
                 missingTranscriptError = "No transcript available for title generation",
-                inProgressStatus = "Generating title...",
+                inProgressStatus = "Generating title…",
                 successStatus = "Title updated",
                 failurePrefix = "Failed to generate title",
                 generate = { text -> recordingTextEnrichment.generateTitle(text) },
@@ -674,7 +716,7 @@ class HomeViewModel
             enrich(
                 recording = recording,
                 missingTranscriptError = "No transcript available for summary generation",
-                inProgressStatus = "Generating summary...",
+                inProgressStatus = "Generating summary…",
                 successStatus = "Summary updated",
                 failurePrefix = "Failed to generate summary",
                 generate = { text -> recordingTextEnrichment.generateSummary(text) },
@@ -707,13 +749,56 @@ class HomeViewModel
                 val result = generate(transcript.effectiveText)
                 result.fold(
                     onSuccess = { value ->
-                        persist(value)
-                        _statusMessage.value = successStatus
+                        // ERR-18: a one-shot Room write throws on a full disk; surface it
+                        // instead of crashing the process from this bare launch.
+                        try {
+                            persist(value)
+                            _statusMessage.value = successStatus
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            Log.e(TAG, "Failed to persist enrichment result", e)
+                            _errorMessage.value = "Couldn't save the result. Your device storage may be full."
+                        }
                     },
                     onFailure = { error ->
-                        _errorMessage.value = "$failurePrefix: ${error.message}"
+                        // I18N-05: never interpolate raw exception text into UI copy.
+                        Log.e(TAG, "$failurePrefix", error)
+                        _errorMessage.value = "$failurePrefix. ${enrichmentFailureHint(error)}"
                     },
                 )
+            }
+        }
+
+        /**
+         * PIPE-07: user-facing cancel for queued/running transcription. The recovery port
+         * resolves the row to a neutral awaiting/completed state rather than FAILED.
+         */
+        fun cancelTranscription(recording: RecordingDisplayItem) {
+            viewModelScope.launch {
+                try {
+                    transcriptionRecovery.cancelProcessing(recording.id)
+                    _statusMessage.value = "Transcription cancelled"
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e(TAG, "Failed to cancel processing for ${recording.id}", e)
+                    _errorMessage.value = "Couldn't cancel transcription. Try again."
+                }
+            }
+        }
+
+        /**
+         * PLH-4: explicit start for a recording whose profile skipped auto-transcription
+         * (AWAITING_MANUAL_TRANSCRIPTION).
+         */
+        fun startManualTranscription(recording: RecordingDisplayItem) {
+            viewModelScope.launch {
+                val result = transcriptionRecovery.retranscribe(recording.id)
+                val message = result.toUserMessage("Queued for transcription")
+                if (result == ManualRecoveryResult.ENQUEUED) {
+                    _statusMessage.value = message
+                } else {
+                    _errorMessage.value = message
+                }
             }
         }
 
@@ -737,8 +822,9 @@ class HomeViewModel
                     }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
+                    // I18N-05: exception messages are developer diagnostics; keep them in logs.
                     Log.e(TAG, "Failed to import audio", e)
-                    _errorMessage.value = "Failed to import audio: ${e.message}"
+                    _errorMessage.value = "Couldn't import the audio file. It may not be a playable audio file."
                 } finally {
                     _isImporting.value = false
                 }
@@ -857,3 +943,28 @@ internal fun deriveHomeQuickStarts(
 }
 
 internal fun shouldShowHomeQuickStartSurface(quickStarts: List<HomeQuickStartEntry>): Boolean = quickStarts.isNotEmpty()
+
+/**
+ * I18N-05: actionable hint for an AI title/summary failure instead of the raw exception message
+ * (which is logged, not shown).
+ */
+internal fun enrichmentFailureHint(error: Throwable): String =
+    if (error is java.io.IOException) {
+        "Check your internet connection and try again."
+    } else {
+        "Try again, or check your AI Processing settings."
+    }
+
+/**
+ * I18N-05: persisted worker error messages can carry machine-readable recovery prefixes
+ * (`recoverable_queue_handoff:` etc.) and an `|attemptAt=` suffix; strip them before any
+ * home-card display, mirroring the studio's presentation helper.
+ */
+internal fun String?.asHomeProcessingNote(): String? =
+    this
+        ?.removePrefix("recoverable_queue_handoff:")
+        ?.removePrefix("recoverable_stale_transcribing:")
+        ?.removePrefix("recoverable_stale_enhancing:")
+        ?.removePrefix("manual_recovery:")
+        ?.substringBefore("|attemptAt=")
+        ?.ifBlank { null }

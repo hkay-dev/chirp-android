@@ -21,6 +21,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import kotlinx.coroutines.CoroutineDispatcher
@@ -55,11 +56,13 @@ class KeyboardSessionCoordinator(
     private val teardownDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     private val isRecording = MutableStateFlow(false)
-    private val permissionError = MutableStateFlow<String?>(null)
+    private val overlayError = MutableStateFlow<KeyboardOverlayError?>(null)
+    private val sensitiveInput = MutableStateFlow(false)
     private val modelBanner = MutableStateFlow(ModelBannerState.Initializing)
     private val modelInitFailedMessage = MutableStateFlow<String?>(null)
     private val llmEnabled = MutableStateFlow(true)
     private val currentMode = MutableStateFlow<ProcessingMode>(ProcessingMode.Proofread)
+    private val keyboardDefaultModeId = MutableStateFlow<String?>(null)
     private val availableModes = MutableStateFlow<List<ProcessingModeListItem>>(emptyList())
 
     private var recordingJob: Job? = null
@@ -102,11 +105,19 @@ class KeyboardSessionCoordinator(
      */
     var commitTextProvider: () -> ((String) -> Boolean)? = { null }
 
+    /**
+     * Supplies whether the live input session suppresses history persistence (IME-3 incognito).
+     * Sampled synchronously at stop time by [stopAndTranscribe] so the suppression follows the
+     * field the transcript actually commits into. Set by the IME service.
+     */
+    var historyPersistenceSuppressed: () -> Boolean = { false }
+
     private data class PrefsState(
         val modelInitFailedMessage: String?,
         val llmEnabled: Boolean,
-        val processingMode: ProcessingMode,
-        val permissionError: String?,
+        val globalMode: ProcessingMode,
+        val keyboardDefaultModeId: String?,
+        val overlayError: KeyboardOverlayError?,
     )
 
     val uiState: StateFlow<KeyboardUiState> =
@@ -114,21 +125,35 @@ class KeyboardSessionCoordinator(
             combine(isRecording, transcription.phase, modelBanner) { recording, phase, banner ->
                 Triple(recording, phase, banner)
             },
-            combine(modelInitFailedMessage, llmEnabled, currentMode, permissionError) { initFailed, llm, mode, permError ->
-                PrefsState(initFailed, llm, mode, permError)
+            combine(
+                modelInitFailedMessage,
+                llmEnabled,
+                currentMode,
+                keyboardDefaultModeId,
+                overlayError,
+            ) { initFailed, llm, globalMode, defaultModeId, overlay ->
+                PrefsState(initFailed, llm, globalMode, defaultModeId, overlay)
             },
-            availableModes,
-        ) { captureState, prefsState, modes ->
+            combine(availableModes, sensitiveInput) { modes, sensitive -> modes to sensitive },
+        ) { captureState, prefsState, modesAndSensitive ->
             val (recording, phase, banner) = captureState
+            val (modes, sensitive) = modesAndSensitive
             mapKeyboardUiState(
                 isRecording = recording,
                 transcriptionPhase = phase,
                 modelBanner = banner,
                 modelInitFailedMessage = prefsState.modelInitFailedMessage,
                 llmEnabled = prefsState.llmEnabled,
-                processingMode = prefsState.processingMode,
+                // PLH-1: the keyboard-scoped default mode wins over the global mode when set.
+                processingMode =
+                    resolveKeyboardSessionMode(
+                        keyboardDefaultModeId = prefsState.keyboardDefaultModeId,
+                        globalMode = prefsState.globalMode,
+                        availableModes = modes,
+                    ),
                 availableModes = modes,
-                permissionError = prefsState.permissionError,
+                overlayError = prefsState.overlayError,
+                sensitiveInput = sensitive,
             )
         }.stateIn(
             scope,
@@ -141,7 +166,7 @@ class KeyboardSessionCoordinator(
                 llmEnabled = true,
                 processingMode = ProcessingMode.Proofread,
                 availableModes = emptyList(),
-                permissionError = null,
+                overlayError = null,
             ),
         )
 
@@ -157,6 +182,12 @@ class KeyboardSessionCoordinator(
         }
         scope.launch {
             keyboardPreferences.microphoneGain.collect { capture.gainMultiplier = it }
+        }
+        // PLH-1: the Keyboard Settings "Default Mode" preference drives the dictation session's
+        // processing mode (AI-pill label + the mode sent with every InlineTranscriptionRequest),
+        // falling back to the global mode when unset ("Use global setting").
+        scope.launch {
+            keyboardPreferences.defaultProcessingMode.collect { keyboardDefaultModeId.value = it }
         }
         scope.launch {
             modePort.currentMode.collect { currentMode.value = it }
@@ -364,7 +395,7 @@ class KeyboardSessionCoordinator(
                     recomputeModelBanner()
                 } else {
                     Log.e(tag, "Failed to initialize recognizer")
-                    modelInitFailedMessage.value = "Failed to load model"
+                    modelInitFailedMessage.value = context.getString(R.string.keyboard_model_load_failed)
                     modelBanner.value = ModelBannerState.InitFailed
                 }
             }
@@ -412,7 +443,9 @@ class KeyboardSessionCoordinator(
                         }
 
                         is QuickCaptureStartResult.PermissionDenied -> {
-                            permissionError.value = result.message
+                            // ERR-8: an IME cannot request runtime permissions itself, so the
+                            // overlay routes the user to the app instead of a futile Retry.
+                            overlayError.value = KeyboardOverlayError(result.message, showOpenApp = true)
                         }
 
                         is QuickCaptureStartResult.AudioFocusDenied -> {
@@ -444,6 +477,9 @@ class KeyboardSessionCoordinator(
         if (!isRecording.value) {
             return requestStopDuringStart()
         }
+        // IME-3: sample the incognito suppression synchronously at stop time so it matches the
+        // field the transcript commits into (the commit session is captured at the same moment).
+        val suppressHistory = historyPersistenceSuppressed()
         // Flip the UI/cancellation flags synchronously on the caller (IME main) thread so the
         // panel responds to the tap instantly, then hand the actual recorder teardown off-main.
         isRecording.value = false
@@ -474,7 +510,7 @@ class KeyboardSessionCoordinator(
                 // transcription, persistence, AtomicReference) is thread-safe off Main.
                 withContext(NonCancellable) {
                     val audioSource = capture.stopAsAudioSource()
-                    finishStopAfterTeardown(audioSource, commitText)
+                    finishStopAfterTeardown(audioSource, commitText, suppressHistory)
                 }
             }
         return true
@@ -483,6 +519,7 @@ class KeyboardSessionCoordinator(
     private fun finishStopAfterTeardown(
         audioSource: InlineAudioSource?,
         commitText: (String) -> Boolean,
+        suppressHistory: Boolean = false,
     ) {
         if (audioSource == null) {
             persistence.discardSamples()
@@ -492,7 +529,13 @@ class KeyboardSessionCoordinator(
             return
         }
 
-        persistence.prepareAudioSource(audioSource)
+        // IME-3: incognito sessions run against a wrapper that drops COMPLETED/USER_CANCELLED
+        // persists (no history) while forwarding RESCUE persists untouched, so the
+        // never-drop-captured-speech guarantee is unchanged.
+        val sessionPersistence =
+            if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
+
+        sessionPersistence.prepareAudioSource(audioSource)
 
         recordingStateManager.transitionToStopping()
         recordingStateManager.startStoppingTimeout(fileSizeBytes = audioSource.sizeInBytes())
@@ -509,9 +552,9 @@ class KeyboardSessionCoordinator(
                             InlineTranscriptionRequest(
                                 audioSource = audioSource,
                                 llmEnabled = llmEnabled.value,
-                                processingModeId = currentMode.value.id,
+                                processingModeId = sessionProcessingMode().id,
                             ),
-                        persistence = persistence,
+                        persistence = sessionPersistence,
                         commitText = commitText,
                         onRecordingCompleted = { onStopPipelineCompleted(stopToken) },
                         onRecordingError = { message -> onStopPipelineError(stopToken, message) },
@@ -525,6 +568,14 @@ class KeyboardSessionCoordinator(
         transcriptionJob = newJob
         checkNotNull(newJob).start()
     }
+
+    /** PLH-1: the mode an inline dictation actually runs with (keyboard default over global). */
+    private fun sessionProcessingMode(): ProcessingMode =
+        resolveKeyboardSessionMode(
+            keyboardDefaultModeId = keyboardDefaultModeId.value,
+            globalMode = currentMode.value,
+            availableModes = availableModes.value,
+        )
 
     private fun onStopPipelineCompleted(stopToken: Any) {
         if (activeStopToken.compareAndSet(stopToken, null)) {
@@ -681,8 +732,23 @@ class KeyboardSessionCoordinator(
             }
     }
 
-    fun setPermissionError(message: String?) {
-        permissionError.value = message
+    /** Mic-permission overlay (ERR-8): offers the open-app affordance instead of a futile Retry. */
+    fun setMicPermissionError(message: String) {
+        overlayError.value = KeyboardOverlayError(message, showOpenApp = true)
+    }
+
+    /** Session-scoped overlay error (e.g. "input field changed"); plain dismiss affordance. */
+    fun setSessionError(message: String) {
+        overlayError.value = KeyboardOverlayError(message, showOpenApp = false)
+    }
+
+    fun clearErrorOverlay() {
+        overlayError.value = null
+    }
+
+    /** Password/blocked field (IME-4): typing aids stay; the center panel shows the notice. */
+    fun setSensitiveInput(sensitive: Boolean) {
+        sensitiveInput.value = sensitive
     }
 
     fun toggleLlm() {
@@ -692,8 +758,11 @@ class KeyboardSessionCoordinator(
     }
 
     fun changeMode(modeId: String) {
+        // PLH-1: the in-keyboard mode picker writes the keyboard-scoped default so a pick on this
+        // surface can never silently flip the GLOBAL processing mode (the PLH-8 failure class).
+        // "Use global setting" remains available in Keyboard Settings.
         scope.launch {
-            modePort.setModeById(modeId)
+            keyboardPreferences.setDefaultProcessingMode(modeId)
         }
     }
 

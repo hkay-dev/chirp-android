@@ -121,7 +121,11 @@ internal class TranscriptionQueueReconciler(
     }
 
     private suspend fun reconcilePendingQueueOwnership(pending: List<Recording>) {
-        pending.forEach { recording ->
+        // PIPE-03: re-attach oldest-first so a large backlog drains in capture order
+        // (mergePendingRecordings sorts newest-first for UI display). WorkManager may run
+        // several workers concurrently, but the single recognizer mutex serializes the
+        // actual decodes, so enqueue order determines user-visible completion order.
+        pending.sortedBy { it.createdAt }.forEach { recording ->
             val ownership = inspectQueueOwnership(recording)
 
             when {

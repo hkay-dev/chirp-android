@@ -1,11 +1,14 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ForegroundInfo
 import dev.chirpboard.app.core.recording.RecordingState
@@ -71,6 +74,61 @@ internal fun buildEnhancementForegroundInfo(context: Context): ForegroundInfo {
         backgroundWorkerForegroundServiceType(),
     )
 }
+
+/**
+ * PIPE-01/PIPE-02: promote a worker to dataSync foreground when the platform allows it.
+ * Workers in this pipeline usually start while the app is deep in the background, where an
+ * unguarded setForeground throws [ForegroundServiceStartNotAllowedException] and would fail
+ * the run outright; in that case the worker simply continues without foreground (short jobs
+ * fit the normal execution window, long jobs are re-attached by startup recovery and the
+ * reconciler). IllegalStateException covers the already-stopped-worker race the same way.
+ */
+internal suspend fun CoroutineWorker.trySetWorkerForeground(
+    foregroundInfo: ForegroundInfo,
+    logTag: String,
+) {
+    try {
+        setForeground(foregroundInfo)
+    } catch (e: ForegroundServiceStartNotAllowedException) {
+        Log.w(logTag, "Foreground start not allowed; continuing in background", e)
+    } catch (e: IllegalStateException) {
+        Log.w(logTag, "Could not promote worker to foreground; continuing in background", e)
+    }
+}
+
+private val GeneratedTextWrappingQuotes = charArrayOf('"', '\'', '`', '“', '”', '‘', '’')
+private val GeneratedTextWhitespace = Regex("\\s+")
+internal const val GENERATED_TITLE_MAX_LENGTH = 80
+internal const val GENERATED_SUMMARY_MAX_LENGTH = 600
+
+/**
+ * Normalizes an LLM-generated title before persisting: collapses newlines/whitespace,
+ * strips wrapping quotes/backticks and leading list/heading markers, and caps the length
+ * (the title also becomes the Obsidian export filename and the share subject). Returns an
+ * empty string when nothing usable remains so callers can treat it as a failed generation.
+ */
+internal fun sanitizeGeneratedTitle(raw: String): String =
+    raw
+        .replace(GeneratedTextWhitespace, " ")
+        .trim()
+        .trim(*GeneratedTextWrappingQuotes)
+        .trim()
+        .trimStart('#', '-', '*', '•', ' ')
+        .trim()
+        .take(GENERATED_TITLE_MAX_LENGTH)
+        .trim()
+
+/**
+ * Normalizes an LLM-generated summary: trims outer whitespace/wrapping quotes and caps the
+ * length so a runaway generation never floods the list subline or export frontmatter.
+ */
+internal fun sanitizeGeneratedSummary(raw: String): String =
+    raw
+        .trim()
+        .trim(*GeneratedTextWrappingQuotes)
+        .trim()
+        .take(GENERATED_SUMMARY_MAX_LENGTH)
+        .trim()
 
 private fun ensureTranscriptionProgressChannel(context: Context) {
     val notificationManager = context.getSystemService(NotificationManager::class.java)

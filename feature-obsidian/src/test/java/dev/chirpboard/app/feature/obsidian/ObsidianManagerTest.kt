@@ -83,6 +83,45 @@ class ObsidianManagerTest {
     }
 
     @Test
+    fun `export filename embeds local created-at timestamp so same titles never collide`() {
+        val zone = java.time.ZoneId.of("UTC")
+        val first = buildObsidianExportFilename("Idea", 0L, zone)
+        val second = buildObsidianExportFilename("Idea", 61_000L, zone)
+
+        assertEquals("Idea (1970-01-01 000000).md", first)
+        assertEquals("Idea (1970-01-01 000101).md", second)
+        assertTrue(first != second)
+    }
+
+    @Test
+    fun `export filename is deterministic for the same recording`() {
+        val zone = java.time.ZoneId.of("UTC")
+        assertEquals(
+            buildObsidianExportFilename("Idea", 12_345L, zone),
+            buildObsidianExportFilename("Idea", 12_345L, zone),
+        )
+    }
+
+    @Test
+    fun `export filename uses the provided zone for the calendar date`() {
+        // 2026-06-12 04:30 UTC is still 2026-06-11 in UTC-7: the local date must win
+        // so daily-note grouping matches what the user saw on the clock.
+        val epochMs = 1_781_238_600_000L // 2026-06-12T04:30:00Z
+        val utc = buildObsidianExportFilename("Note", epochMs, java.time.ZoneId.of("UTC"))
+        val la = buildObsidianExportFilename("Note", epochMs, java.time.ZoneId.of("America/Los_Angeles"))
+
+        assertEquals("Note (2026-06-12 043000).md", utc)
+        assertEquals("Note (2026-06-11 213000).md", la)
+    }
+
+    @Test
+    fun `sanitizeObsidianFilename strips invalid characters and falls back when blank`() {
+        assertEquals("a_b_c", sanitizeObsidianFilename("a/b\\c"))
+        assertEquals("___", sanitizeObsidianFilename("???"))
+        assertEquals("Untitled", sanitizeObsidianFilename("   "))
+    }
+
+    @Test
     fun `export fails if no vault access`() = runTest {
         val uri = mockk<Uri>()
         val recording =

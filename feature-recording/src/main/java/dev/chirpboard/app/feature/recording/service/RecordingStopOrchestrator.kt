@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.recording.service
 
 import dev.chirpboard.app.feature.recording.util.probeDurationMs
+import dev.chirpboard.app.feature.recording.util.RecordingTitleFormatter
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityStage
@@ -12,9 +13,6 @@ import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,6 +26,7 @@ class RecordingStopOrchestrator
         private val fileValidator: RecordingFileValidator,
         private val sessionJournal: RecordingSessionJournal,
         private val segmentFinalize: RecordingSegmentFinalize,
+        private val titleFormatter: RecordingTitleFormatter,
     ) {
         suspend fun persistAndQueueRecording(
             snapshot: StopSnapshot,
@@ -61,7 +60,7 @@ class RecordingStopOrchestrator
                         snapshot.durationMs > 0L -> snapshot.durationMs
                         else -> 0L
                     }
-                val title = SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(snapshot.stoppedAtEpochMs))
+                val title = titleFormatter.format(snapshot.stoppedAtEpochMs)
                 val source =
                     when (snapshot.origin) {
                         RecordingOrigin.APP -> RecordingSource.APP

@@ -32,6 +32,25 @@ class ChunkedAudioProcessor(
     companion object {
         private const val TAG = "ChunkedAudioProcessor"
         private val WHITESPACE_REGEX = "\\s+".toRegex()
+
+        /**
+         * Words compared on each side of a chunk boundary. The 2s overlap re-transcribes
+         * ~5-6 words at normal speaking rates, so the window must comfortably exceed that
+         * or duplicated words leak through at every ~28s boundary (PIPE-05).
+         */
+        private const val BOUNDARY_DEDUP_WINDOW_WORDS = 8
+
+        /**
+         * Boundary comparison key: case-insensitive with leading/trailing punctuation
+         * stripped, so "world." at a chunk tail still matches "world" at the next chunk's
+         * head (Parakeet emits punctuation/capitalization, which otherwise defeats the
+         * dedup exactly where it matters most — after sentence-ending punctuation).
+         * The original tokens are always what gets emitted; only the comparison normalizes.
+         */
+        private fun normalizeBoundaryToken(token: String): String {
+            val stripped = token.trim { !it.isLetterOrDigit() }
+            return (if (stripped.isEmpty()) token else stripped).lowercase()
+        }
     }
 
     init {
@@ -114,7 +133,7 @@ class ChunkedAudioProcessor(
 
         val result = StringBuilder(parts[0].trim())
 
-        var prevWords = parts[0].trim().split(WHITESPACE_REGEX).takeLast(3)
+        var prevWords = parts[0].trim().split(WHITESPACE_REGEX).takeLast(BOUNDARY_DEDUP_WINDOW_WORDS)
 
         for (i in 1 until parts.size) {
             val currentPart = parts[i].trim()
@@ -126,7 +145,7 @@ class ChunkedAudioProcessor(
             val toAppend = currentWords.drop(skipWords)
             if (toAppend.isNotEmpty()) {
                 result.append(" ").append(toAppend.joinToString(" "))
-                prevWords = (prevWords + toAppend).takeLast(3)
+                prevWords = (prevWords + toAppend).takeLast(BOUNDARY_DEDUP_WINDOW_WORDS)
             }
         }
 
@@ -151,7 +170,7 @@ class ChunkedAudioProcessor(
             if (currentTimings.isEmpty()) continue
 
             val overlapCount = computeOverlapWordCount(
-                previousWords = combinedTimings.takeLast(3).map { it.text },
+                previousWords = combinedTimings.takeLast(BOUNDARY_DEDUP_WINDOW_WORDS).map { it.text },
                 currentWords = currentTimings.map { it.text },
             )
             combinedTimings += currentTimings.drop(overlapCount)
@@ -217,11 +236,11 @@ class ChunkedAudioProcessor(
         previousWords: List<String>,
         currentWords: List<String>,
     ): Int {
+        val previousKeys = previousWords.map(::normalizeBoundaryToken)
+        val currentKeys = currentWords.map(::normalizeBoundaryToken)
         var skipWords = 0
-        for (j in minOf(previousWords.size, currentWords.size) downTo 1) {
-            val previousEnd = previousWords.takeLast(j)
-            val currentStart = currentWords.take(j)
-            if (previousEnd.map { it.lowercase() } == currentStart.map { it.lowercase() }) {
+        for (j in minOf(previousKeys.size, currentKeys.size) downTo 1) {
+            if (previousKeys.takeLast(j) == currentKeys.take(j)) {
                 skipWords = j
                 break
             }

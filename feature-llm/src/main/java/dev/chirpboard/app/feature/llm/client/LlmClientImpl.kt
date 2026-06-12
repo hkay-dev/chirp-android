@@ -27,14 +27,17 @@ Return ONLY the summary text, nothing else.
 Transcript:
 """
 
+            // Raw (triple-quoted) strings do not process escapes: \" would send literal
+            // backslash+quote characters, showing the model an invalid JSON example that
+            // compliant models then echo back, breaking Gson parsing (PIPE-09).
             private const val STRUCTURED_OUTCOME_PROMPT =
                 """Extract structured outcomes from this voice recording transcript.
 Return valid JSON only, with no markdown fences and no commentary.
 Use this exact schema:
 {
-  \"tasks\": [\"...\"],
-  \"decisions\": [\"...\"],
-  \"followUps\": [\"...\"]
+  "tasks": ["..."],
+  "decisions": ["..."],
+  "followUps": ["..."]
 }
 Rules:
 - Keep every item grounded in the transcript.

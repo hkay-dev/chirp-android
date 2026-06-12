@@ -14,6 +14,9 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.data.entity.WordReplacement
+import dev.chirpboard.app.data.repository.WordReplacementRepository
+import dev.chirpboard.app.feature.transcription.WordReplacer
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -53,6 +56,7 @@ class InlineTranscriptionCoordinatorImplTest {
     private lateinit var transcriberProvider: TranscriberProvider
     private lateinit var textEnhancement: RecordingTextEnhancementPort
     private lateinit var readinessGate: SpeechModelReadinessGate
+    private lateinit var wordReplacementRepository: WordReplacementRepository
     private lateinit var coordinator: InlineTranscriptionCoordinatorImpl
 
     @Before
@@ -61,7 +65,16 @@ class InlineTranscriptionCoordinatorImplTest {
         transcriberProvider = mockk()
         textEnhancement = mockk(relaxed = true)
         readinessGate = mockk(relaxed = true)
-        coordinator = InlineTranscriptionCoordinatorImpl(transcriberProvider, textEnhancement, readinessGate)
+        wordReplacementRepository = mockk()
+        coEvery { wordReplacementRepository.getEnabledReplacements() } returns emptyList()
+        coordinator =
+            InlineTranscriptionCoordinatorImpl(
+                transcriberProvider,
+                textEnhancement,
+                readinessGate,
+                wordReplacementRepository,
+                WordReplacer(),
+            )
 
         mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "inline-test"
@@ -333,10 +346,187 @@ class InlineTranscriptionCoordinatorImplTest {
         assertEquals(InlineCapturePersistReason.COMPLETED, persistence.lastReason)
     }
 
-    private fun inMemoryRequest(): InlineTranscriptionRequest =
+    @Test
+    fun `word replacements apply to dictation before commit and persistence`() = runTest {
+        // PLH-10: the user's correction dictionary applies to the flagship dictation surface.
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns
+            TranscriptionOutcome.Success("deploy kubernetes now")
+        coEvery { wordReplacementRepository.getEnabledReplacements() } returns
+            listOf(WordReplacement(original = "kubernetes", replacement = "Kubernetes"))
+        val persistence = CapturingPersistence()
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        assertEquals("deploy Kubernetes now ", committed)
+        assertEquals("deploy Kubernetes now", persistence.lastRawText)
+    }
+
+    @Test
+    fun `word replacement lookup failure falls back to the unmodified transcript`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello world")
+        coEvery { wordReplacementRepository.getEnabledReplacements() } throws IllegalStateException("db down")
+        val persistence = CapturingPersistence()
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        assertEquals("hello world ", committed)
+        assertEquals(InlineCapturePersistReason.COMPLETED, persistence.lastReason)
+    }
+
+    @Test
+    fun `llm polish success commits processed text and persists raw and processed`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
+        coEvery { textEnhancement.process("raw words", "proofread") } returns Result.success("Polished words.")
+        val persistence = CapturingPersistence()
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(llmEnabled = true),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        assertEquals("Polished words. ", committed)
+        assertEquals("raw words", persistence.lastRawText)
+        assertEquals("Polished words.", persistence.lastProcessedText)
+        assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
+    }
+
+    @Test
+    fun `llm polish failure commits raw text with LlmError phase`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
+        coEvery { textEnhancement.process(any(), any()) } returns Result.failure(IllegalStateException("boom"))
+        val persistence = CapturingPersistence()
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(llmEnabled = true),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        // The raw transcript is never dropped on polish failure.
+        assertEquals("raw words ", committed)
+        assertEquals("raw words", persistence.lastRawText)
+        assertEquals(null, persistence.lastProcessedText)
+        assertEquals(InlineTranscriptionPhase.LlmError("LLM failed: boom"), coordinator.phase.value)
+    }
+
+    @Test
+    fun `llm polish timeout commits raw text with LlmError phase`() = runTest {
+        // ERR-19 (intentional behavior change): a timeout now surfaces the same LlmError panel as
+        // a polish failure instead of silently returning to Idle.
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
+        coEvery { textEnhancement.process(any(), any()) } coAnswers {
+            kotlinx.coroutines.delay(60_000L)
+            Result.success("too late")
+        }
+        val persistence = CapturingPersistence()
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(llmEnabled = true),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        assertEquals("raw words ", committed)
+        assertEquals(null, persistence.lastProcessedText)
+        assertEquals(InlineTranscriptionPhase.LlmError(ENHANCEMENT_TIMEOUT_MESSAGE), coordinator.phase.value)
+    }
+
+    @Test
+    fun `long in-memory dictation is transcribed in bounded chunks`() = runTest {
+        // Captures beyond the single-utterance cap go through the same 30s chunking as the
+        // file-backed path instead of one quadratic-memory utterance.
+        every { transcriberProvider.isReady() } returns true
+        var calls = 0
+        coEvery { transcriberProvider.transcribe(any(), any()) } coAnswers {
+            calls++
+            TranscriptionOutcome.Success("chunk$calls")
+        }
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request =
+                InlineTranscriptionRequest.inMemory(
+                    // 60.5s at 16kHz: just over the 60s single-utterance cap.
+                    samples = FloatArray(968_000),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                ),
+            persistence = CapturingPersistence(),
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        assertEquals(3, calls)
+        assertEquals("chunk1 chunk2 chunk3 ", committed)
+    }
+
+    @Test
+    fun `rescued transcription failure tells the user the audio was saved`() = runTest {
+        // ERR-25: rescue persistence is invisible unless the error says the capture survived.
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns
+            TranscriptionOutcome.EngineError("decode failed")
+        val persistence = CapturingPersistence()
+        var reportedError: String? = null
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(),
+            persistence = persistence,
+            commitText = { true },
+            onRecordingError = { reportedError = it },
+        )
+
+        // The persisted rescue entry keeps the raw failure message...
+        assertEquals("Transcription engine failed: decode failed", persistence.lastErrorMessage)
+        assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+        // ...while the user-facing error notes that the audio was saved.
+        assertEquals("Transcription engine failed: decode failed$RESCUE_SAVED_SUFFIX", reportedError)
+        assertEquals(
+            InlineTranscriptionPhase.Error("Transcription engine failed: decode failed$RESCUE_SAVED_SUFFIX"),
+            coordinator.phase.value,
+        )
+    }
+
+    private fun inMemoryRequest(llmEnabled: Boolean = false): InlineTranscriptionRequest =
         InlineTranscriptionRequest.inMemory(
             samples = floatArrayOf(0.1f, 0.2f),
-            llmEnabled = false,
+            llmEnabled = llmEnabled,
             processingModeId = "proofread",
         )
 

@@ -15,9 +15,6 @@
     <string name="rec_profile_name">Name *</string>
     <string name="rec_profile_icon">Icon (emoji)</string>
     <string name="rec_profile_icon_desc">Optional emoji to identify this profile</string>
-    <string name="rec_profile_vault">Obsidian Vault Path</string>
-    <string name="rec_profile_vault_desc">Leave empty to use global setting</string>
-    <string name="rec_profile_vault_support">Override the global Obsidian vault path for this profile</string>
     <string name="rec_profile_mode">Default Processing Mode</string>
     <string name="rec_delete_profile">Delete Profile</string>
     <string name="rec_profiles">Profiles</string>
@@ -84,23 +81,16 @@
     <string name="rec_profile_chip_auto_summary">Auto Summary</string>
     <string name="rec_profile_chip_obsidian">Obsidian</string>
     <string name="rec_word_replacements_empty_title">No word replacements</string>
-    <string name="rec_transcribing">Transcribing...</string>
     <string name="rec_filter_empty_title">No recordings match this filter</string>
     <string name="rec_filter_clear">Clear filter</string>
     <string name="rec_filter_processing">Processing</string>
-    <string name="rec_waiting_to_transcribe">Waiting to transcribe...</string>
-    <string name="rec_waiting_to_process">Waiting to process...</string>
-    <string name="rec_status_transcribing_short">Transcribing</string>
-    <string name="rec_status_enhancing">Enhancing</string>
-    <string name="rec_status_pending">Pending</string>
-    <string name="rec_status_completed">Completed</string>
     <string name="rec_recover">Recover</string>
     <string name="rec_case_sensitive">Case sensitive</string>
     <string name="rec_recordings_title_collapsed">Recordings</string>
     <string name="rec_recordings_title_expanded">Your Recordings</string>
-    <string name="rec_record_fab_checking">Checking...</string>
+    <string name="rec_record_fab_checking">Checking…</string>
     <string name="rec_record_fab_default">Record</string>
-    <string name="rec_empty_state_record_checking">Checking model...</string>
+    <string name="rec_empty_state_record_checking">Checking model…</string>
     <string name="rec_empty_state_record_default">Record now</string>
     <string name="rec_recover_stuck_processing">Recover stuck processing</string>
     <string name="rec_stuck_recovery_message">Stuck in %1$s. Long-press for recovery.</string>
@@ -108,10 +98,28 @@
     <string name="rec_empty_state_subtitle">Tap Record to capture your first brilliant idea</string>
     <string name="rec_notification_starting_title">Starting recording</string>
     <string name="rec_notification_starting_text">Preparing microphone</string>
+    <string name="rec_notification_channel_name">Recording</string>
+    <string name="rec_notification_channel_description">Shows when recording is in progress</string>
+    <string name="rec_notification_recording_title">Recording</string>
+    <string name="rec_notification_paused_title">Recording paused</string>
+    <string name="rec_notification_action_pause">Pause</string>
+    <string name="rec_notification_action_resume">Resume</string>
+    <string name="rec_notification_action_done">Done</string>
+    <string name="rec_notification_restart_refused_title">Couldn\'t start over</string>
+    <string name="rec_notification_restart_refused_text">Still saving the previous recording — try again in a moment</string>
+    <string name="rec_notification_paused_focus">Paused — another app interrupted audio. Recording will resume automatically.</string>
+    <string name="rec_notification_storage_low">Storage low — recording will stop soon</string>
+    <string name="rec_notification_silence">No audio detected — the microphone may be in use by another app</string>
+    <string name="rec_auto_stop_title">Recording stopped and saved</string>
+    <string name="rec_auto_stop_storage">Storage was full</string>
+    <string name="rec_auto_stop_focus">Another app took control of audio</string>
+    <string name="rec_auto_stop_device">The microphone disconnected</string>
+    <string name="rec_auto_stop_capture_error">A microphone error occurred</string>
+    <!-- In-app snackbar twin of the auto-stop notification; %1$s is one of the rec_auto_stop_* reasons. -->
+    <string name="rec_auto_stop_snackbar">Recording stopped and saved — %1$s</string>
     <string name="rec_finalize_notification_channel">Recording finalize</string>
     <string name="rec_finalize_notification_title">Stitching recording</string>
     <string name="rec_finalize_notification_body">Saving audio and preparing transcription.</string>
-    <string name="rec_record_button_recording">Recording</string>
     <string name="rec_active_profile_label">Recording with profile</string>
     <string name="rec_color">Color</string>
     <string name="rec_no_tags_yet">No tags yet</string>
@@ -128,7 +136,7 @@
     <string name="rec_empty_tags_description">Create tags to organize your recordings</string>
 
 
-    <string name="rec_delete_profile_confirm">Are you sure you want to delete "%1$s"? This cannot be undone.</string>
+    <string name="rec_delete_profile_confirm">Are you sure you want to delete \"%1$s\"? This cannot be undone.</string>
 
 
     <plurals name="rec_search_results_count">
@@ -138,14 +146,36 @@
 
     <string name="rec_recovery_title">Recover interrupted recording?</string>
     <string name="rec_recovery_message">Chirp found an unfinished recording from a previous session. You can recover it, keep the file, or discard it.</string>
-    <string name="rec_recovery_message_with_loss">Chirp found an unfinished recording. Up to %1$d minute(s) of the most recent audio may not have been saved. You can still recover what was captured.</string>
+    <plurals name="rec_recovery_message_with_loss">
+        <item quantity="one">Chirp found an unfinished recording. Up to %1$d minute of the most recent audio may not have been saved. You can still recover what was captured.</item>
+        <item quantity="other">Chirp found an unfinished recording. Up to %1$d minutes of the most recent audio may not have been saved. You can still recover what was captured.</item>
+    </plurals>
     <string name="rec_recovery_recover">Recover</string>
     <string name="rec_recovery_keep">Keep file</string>
     <string name="rec_recovery_discard">Discard</string>
     <string name="rec_recovery_banner_title">Interrupted recording found</string>
     <string name="rec_recovery_banner_body">A previous recording may not have finished saving.</string>
-    <string name="rec_recovery_banner_body_with_loss">A previous recording may not have finished saving. Up to %1$d minute(s) of recent audio may be missing.</string>
+    <plurals name="rec_recovery_banner_body_with_loss">
+        <item quantity="one">A previous recording may not have finished saving. Up to %1$d minute of recent audio may be missing.</item>
+        <item quantity="other">A previous recording may not have finished saving. Up to %1$d minutes of recent audio may be missing.</item>
+    </plurals>
     <string name="rec_recovery_review">Review</string>
     <string name="rec_done_wait_for_id">Preparing recording…</string>
+
+    <string name="rec_mic_permission_needed_title">Microphone access needed</string>
+    <string name="rec_mic_permission_needed_message">Chirpboard can\'t record without the microphone. Allow microphone access in system settings.</string>
+    <string name="rec_mic_permission_open_settings">Open settings</string>
+    <string name="rec_mic_permission_denied">Microphone access is required to record.</string>
+
+    <string name="rec_record_status_recording">Recording</string>
+    <string name="rec_record_status_paused">Paused</string>
+    <string name="rec_record_status_saving">Saving…</string>
+
+    <string name="rec_home_list_cap_footer">Showing the latest %1$d recordings. Search to find older ones.</string>
+    <string name="desc_loading_recordings">Loading recordings</string>
+
+    <string name="rec_cancel_transcription">Cancel transcription</string>
+    <string name="rec_transcribe_now">Transcribe</string>
+    <string name="rec_awaiting_transcription_note">Waiting for you to start transcription</string>
 
 </resources>

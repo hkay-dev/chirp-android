@@ -50,6 +50,7 @@ class AudioSettingsViewModelTest {
                 ),
             )
         every { inputDeviceSelector.activeDeviceLabel } returns MutableStateFlow(null)
+        every { inputDeviceSelector.devicesChangedTick } returns MutableStateFlow(0L)
         coEvery { inputDeviceSelector.listInputDevices() } returns emptyList()
     }
 
@@ -106,5 +107,28 @@ class AudioSettingsViewModelTest {
             viewModel.setOutputFormat(RecordingOutputFormat.MP3)
 
             coVerify { keyboardPreferences.setOutputFormat(RecordingOutputFormat.MP3) }
+        }
+
+    @Test
+    fun `device hot-plug refreshes the input device list`() =
+        runTest {
+            val tick = MutableStateFlow(0L)
+            every { inputDeviceSelector.devicesChangedTick } returns tick
+            createViewModel()
+
+            tick.value = 1L
+
+            coVerify(atLeast = 2) { inputDeviceSelector.listInputDevices() }
+        }
+
+    @Test
+    fun `setManualInputDevice persists the selection key and manual policy`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.setManualInputDevice("device:7:BT Headset")
+
+            coVerify { audioSettingsStore.setManualDeviceAddress("device:7:BT Headset") }
+            coVerify { audioSettingsStore.setInputDevicePolicy(AudioInputDevicePolicy.Manual) }
         }
 }

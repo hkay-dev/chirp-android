@@ -17,4 +17,13 @@
     <string name="playback_skip_forward">Skip forward 10 seconds</string>
     <string name="playback_error">Playback error</string>
     <string name="playback_other_recording_notice">Playing \"%1$s\" in the background. Press play to switch to this recording.</string>
+    <string name="rec_desc_start_recording">Start recording</string>
+    <string name="rec_desc_pause_recording">Pause recording</string>
+    <string name="rec_desc_resume_recording">Resume recording</string>
+    <string name="rec_desc_start_over">Start over</string>
+    <string name="rec_state_recording">Recording</string>
+    <string name="rec_state_paused">Paused</string>
+    <string name="rec_pill_recorded">Recorded</string>
+    <string name="rec_pill_duration">Duration</string>
+    <string name="rec_pill_source">Source</string>
 </resources>

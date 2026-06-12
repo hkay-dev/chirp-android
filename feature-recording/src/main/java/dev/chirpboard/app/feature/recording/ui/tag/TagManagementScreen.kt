@@ -48,6 +48,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,8 +92,11 @@ fun TagManagementScreen(
         onDismiss = viewModel::clearError,
     )
 
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var editingTag by remember { mutableStateOf<Tag?>(null) }
+    // LIF-12: open editors survive rotation/process death; the edited tag is keyed by id and
+    // re-resolved from the live list so the dialog also closes if the tag is deleted elsewhere.
+    var showCreateDialog by rememberSaveable { mutableStateOf(false) }
+    var editingTagId by rememberSaveable { mutableStateOf<String?>(null) }
+    val editingTag = remember(editingTagId, tags) { editingTagId?.let { id -> tags.firstOrNull { it.id.toString() == id } } }
 
     ChirpLeafScaffold(
         title = stringResource(R.string.rec_tags),
@@ -139,7 +143,7 @@ fun TagManagementScreen(
                     ) { tag ->
                         SwipeableTagItem(
                             tagItem = TagItemUiState(tag),
-                            onEdit = { editingTag = tag },
+                            onEdit = { editingTagId = tag.id.toString() },
                             onDelete = { viewModel.deleteTag(tag) },
                             modifier = Modifier.animateItem(),
                         )
@@ -166,10 +170,10 @@ fun TagManagementScreen(
     editingTag?.let { tag ->
         TagEditorDialog(
             tag = tag,
-            onDismiss = { editingTag = null },
+            onDismiss = { editingTagId = null },
             onSave = { name, color ->
                 viewModel.updateTag(tag.copy(name = name, color = color))
-                editingTag = null
+                editingTagId = null
             },
         )
     }

@@ -12,7 +12,14 @@
     <string name="transcription_title">Voice Model</string>
     <string name="transcription_section_model">Model Details</string>
     <string name="transcription_section_actions">Management</string>
-    <string name="transcription_model_help">The local speech recognition model. It runs entirely on your device.</string>
+    <string name="transcription_model_help">The local speech recognition model. It transcribes English speech and runs entirely on your device — audio never leaves your phone.</string>
+    <string name="transcription_retry">Retry</string>
+    <string name="transcription_cancel_download">Cancel download</string>
+    <string name="transcription_download_waiting">Waiting for connection…</string>
+    <string name="transcription_storage_choice_title">Where should the model go?</string>
+    <string name="transcription_storage_choice_message">Chirp can keep the %1$d MB speech model in shared storage (Documents) so it survives reinstalling the app or clearing its data. That needs the \"All files access\" permission. You can also keep it in app storage without any extra permission — it will be removed if the app\'s data is cleared.</string>
+    <string name="transcription_storage_choice_allow">Allow access</string>
+    <string name="transcription_storage_choice_internal">Use app storage</string>
     <string name="transcription_model_label">Model</string>
     <string name="transcription_size_label">Size</string>
     <string name="transcription_size_value">%1$d MB</string>
@@ -20,4 +27,8 @@
     <string name="transcription_status_downloading">Downloading</string>
     <string name="transcription_status_ready">Ready</string>
     <string name="transcription_status_not_downloaded">Not Downloaded</string>
+    <string name="transcription_status_waiting">Waiting for connection</string>
+    <string name="transcription_error_channel_name">Transcription errors</string>
+    <string name="transcription_error_notification_title">Transcription failed</string>
+    <string name="transcription_error_group_summary">Some recordings could not be transcribed</string>
 </resources>

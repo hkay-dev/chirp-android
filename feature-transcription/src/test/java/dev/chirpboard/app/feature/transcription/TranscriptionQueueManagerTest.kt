@@ -53,6 +53,7 @@ class TranscriptionQueueManagerTest {
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
         coEvery { recordingRepository.claimTranscriptionExecution(any(), any(), any(), any()) } returns true
+        coEvery { recordingRepository.isAutoTranscribeEnabled(any()) } returns true
 
         val readinessGate = mockk<SpeechModelReadinessGate>(relaxed = true)
         every { readinessGate.state } returns kotlinx.coroutines.flow.MutableStateFlow(ModelReadinessState.Ready(0L, ModelReadinessVerificationSource.PROCESS_CACHE))
@@ -225,17 +226,74 @@ class TranscriptionQueueManagerTest {
     }
 
     @Test
-    fun `cancel cancels work manager job and sets status to failed if transcribing`() = runTest {
+    fun `cancelProcessing cancels work and parks a transcribing row in the manual state`() = runTest {
         val id = UUID.randomUUID()
         val recording = mockk<Recording>()
         every { recording.status } returns RecordingStatus.TRANSCRIBING
         coEvery { recordingRepository.getRecording(id) } returns recording
+        coEvery { recordingRepository.markAwaitingManualTranscription(id) } returns true
 
-        manager.cancel(id)
+        manager.cancelProcessing(id)
 
         assertEquals(listOf(id), workScheduler.cancelledTranscriptions)
         assertEquals(listOf(id), workScheduler.cancelledEnhancements)
-        coVerify { recordingRepository.updateStatusWithError(id, RecordingStatus.FAILED, "Cancelled by user") }
+        coVerify(exactly = 1) { recordingRepository.markAwaitingManualTranscription(id) }
+        coVerify(exactly = 0) { recordingRepository.updateStatusWithError(any(), any(), any()) }
+    }
+
+    @Test
+    fun `cancelProcessing resolves an enhancing row to a neutral terminal state`() = runTest {
+        val id = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.status } returns RecordingStatus.ENHANCING
+        coEvery { recordingRepository.getRecording(id) } returns recording
+        coEvery { recordingRepository.resolveCancelledEnhancement(id) } returns true
+
+        manager.cancelProcessing(id)
+
+        assertEquals(listOf(id), workScheduler.cancelledTranscriptions)
+        assertEquals(listOf(id), workScheduler.cancelledEnhancements)
+        coVerify(exactly = 1) { recordingRepository.resolveCancelledEnhancement(id) }
+    }
+
+    @Test
+    fun `cancelProcessing leaves completed rows untouched`() = runTest {
+        val id = UUID.randomUUID()
+        val recording = mockk<Recording>()
+        every { recording.status } returns RecordingStatus.COMPLETED
+        coEvery { recordingRepository.getRecording(id) } returns recording
+
+        manager.cancelProcessing(id)
+
+        assertEquals(listOf(id), workScheduler.cancelledTranscriptions)
+        coVerify(exactly = 0) { recordingRepository.markAwaitingManualTranscription(any()) }
+        coVerify(exactly = 0) { recordingRepository.resolveCancelledEnhancement(any()) }
+    }
+
+    @Test
+    fun `enqueue parks recording in manual state when profile disables auto transcribe`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.isAutoTranscribeEnabled(id) } returns false
+        coEvery { recordingRepository.markAwaitingManualTranscription(id) } returns true
+
+        manager.enqueue(id)
+
+        coVerify(exactly = 0) { recordingRepository.claimTranscriptionExecution(any(), any(), any(), any()) }
+        assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `enqueue falls through to scheduling when manual-state marking is rejected`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.isAutoTranscribeEnabled(id) } returns false
+        coEvery { recordingRepository.markAwaitingManualTranscription(id) } returns false
+
+        manager.enqueue(id)
+
+        coVerify {
+            recordingRepository.claimTranscriptionExecution(id, any(), RecordingStatus.PENDING_TRANSCRIPTION, null)
+        }
+        assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test

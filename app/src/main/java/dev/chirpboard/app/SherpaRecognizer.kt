@@ -12,7 +12,10 @@ import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -26,6 +29,13 @@ class SherpaRecognizer(
     companion object {
         private const val TAG = "SherpaRecognizer"
         private const val MODEL_DIR = "parakeet-tdt-0.6b-v2"
+
+        /** Chunk geometry for long in-memory decodes, matching the file-backed path (PIPE-06). */
+        private const val CHUNK_DURATION_MS = 30_000L
+        private const val CHUNK_OVERLAP_MS = 2_000L
+
+        /** Slice granularity when streaming an in-memory buffer into the chunker (1s of audio). */
+        private const val CHUNK_SLICE_SECONDS = 1
     }
 
     private var recognizer: OfflineRecognizer? = null
@@ -127,22 +137,10 @@ class SherpaRecognizer(
                         )
 
                 try {
-                    val stream = rec.createStream()
-                    try {
-                        stream.acceptWaveform(samples, sampleRate)
-                        rec.decode(stream)
-                        val result = rec.getResult(stream)
-                        val text = result.text.trim()
-                        if (text.isBlank()) {
-                            TranscriptionOutcome.NoSpeech
-                        } else {
-                            TranscriptionOutcome.Success(
-                                text = text,
-                                wordTimings = result.toRecognizedWordTimingsOrNull(text),
-                            )
-                        }
-                    } finally {
-                        stream.release()
+                    if (inMemoryDecodeExceedsSingleUtteranceLimit(samples.size, sampleRate)) {
+                        transcribeChunkedLocked(rec, samples, sampleRate)
+                    } else {
+                        transcribeSingleUtteranceLocked(rec, samples, sampleRate)
                     }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
@@ -154,6 +152,70 @@ class SherpaRecognizer(
                 }
             }
         }
+
+    private fun transcribeSingleUtteranceLocked(
+        rec: OfflineRecognizer,
+        samples: FloatArray,
+        sampleRate: Int,
+    ): TranscriptionOutcome {
+        val stream = rec.createStream()
+        try {
+            stream.acceptWaveform(samples, sampleRate)
+            rec.decode(stream)
+            val result = rec.getResult(stream)
+            val text = result.text.trim()
+            return if (text.isBlank()) {
+                TranscriptionOutcome.NoSpeech
+            } else {
+                TranscriptionOutcome.Success(
+                    text = text,
+                    wordTimings = result.toRecognizedWordTimingsOrNull(text),
+                )
+            }
+        } finally {
+            stream.release()
+        }
+    }
+
+    /**
+     * PIPE-06: long in-memory captures (up to the recorder's 10-minute cap) must not be fed
+     * to sherpa-onnx as one utterance — the FastConformer encoder's self-attention scratch
+     * over thousands of subsampled frames is a realistic *native* OOM (which no JVM catch
+     * can intercept) in a process already holding the ~660MB model. Decode in the same
+     * 30s/2s overlapping chunks the file-backed transcription path uses, joining with the
+     * shared boundary-dedup logic. Word timings are not derivable across chunk joins and
+     * no in-memory caller consumes them, so the chunked path reports none.
+     */
+    private suspend fun transcribeChunkedLocked(
+        rec: OfflineRecognizer,
+        samples: FloatArray,
+        sampleRate: Int,
+    ): TranscriptionOutcome {
+        Log.i(TAG, "Chunking long in-memory decode (${samples.size} samples at $sampleRate Hz)")
+        val processor =
+            ChunkedAudioProcessor(
+                chunkDurationMs = CHUNK_DURATION_MS,
+                overlapDurationMs = CHUNK_OVERLAP_MS,
+                sampleRate = sampleRate,
+            )
+        val text =
+            processor
+                .processAndJoin(samples.asSliceFlow(sampleRate * CHUNK_SLICE_SECONDS)) { chunk ->
+                    val stream = rec.createStream()
+                    try {
+                        stream.acceptWaveform(chunk, sampleRate)
+                        rec.decode(stream)
+                        rec.getResult(stream).text.trim()
+                    } finally {
+                        stream.release()
+                    }
+                }.trim()
+        return if (text.isBlank()) {
+            TranscriptionOutcome.NoSpeech
+        } else {
+            TranscriptionOutcome.Success(text = text, wordTimings = null)
+        }
+    }
 
     suspend fun transcribe(
         samples: FloatArray,
@@ -171,6 +233,29 @@ class SherpaRecognizer(
         }
     }
 }
+
+/**
+ * Longest in-memory capture decoded as a single sherpa utterance; anything longer is
+ * chunked (PIPE-06). 60s keeps the per-decode native attention scratch bounded while
+ * leaving typical dictations on the single-utterance path with word timings intact.
+ */
+internal const val SINGLE_UTTERANCE_MAX_SECONDS = 60
+
+internal fun inMemoryDecodeExceedsSingleUtteranceLimit(
+    sampleCount: Int,
+    sampleRate: Int,
+): Boolean = sampleCount > sampleRate * SINGLE_UTTERANCE_MAX_SECONDS
+
+/** Streams an in-memory sample buffer as bounded slices so the chunker never re-buffers it whole. */
+internal fun FloatArray.asSliceFlow(sliceSize: Int): Flow<FloatArray> =
+    flow {
+        var offset = 0
+        while (offset < size) {
+            val end = minOf(offset + sliceSize, size)
+            emit(copyOfRange(offset, end))
+            offset = end
+        }
+    }
 
 private val RECOGNIZER_WHITESPACE_REGEX = "\\s+".toRegex()
 

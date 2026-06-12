@@ -55,6 +55,32 @@ class AudioFocusManagerTest {
         assertEquals(AudioFocusManager.FocusLossKind.PERMANENT, lossKind)
     }
 
+    @Test
+    fun `focus regained after transient loss invokes onFocusRegained`() {
+        val focusManager = AudioFocusManager(mockk(relaxed = true))
+        focusManager.markFocusOwnedForTest()
+        var regained = 0
+        focusManager.onFocusRegained = { regained++ }
+
+        focusManager.handleFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
+        focusManager.handleFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+
+        assertEquals(1, regained)
+    }
+
+    @Test
+    fun `focus gain after permanent loss does not invoke onFocusRegained`() {
+        val focusManager = AudioFocusManager(mockk(relaxed = true))
+        focusManager.markFocusOwnedForTest()
+        var regained = 0
+        focusManager.onFocusRegained = { regained++ }
+
+        focusManager.handleFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+        focusManager.handleFocusChange(AudioManager.AUDIOFOCUS_GAIN)
+
+        assertEquals(0, regained)
+    }
+
     private fun AudioFocusManager.markFocusOwnedForTest() {
         val field = AudioFocusManager::class.java.getDeclaredField("hasFocus")
         field.isAccessible = true

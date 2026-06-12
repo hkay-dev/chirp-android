@@ -123,11 +123,9 @@ class AudioImportOrchestrator
             val fromMime = mimeType?.substringAfter('/', missingDelimiterValue = "")?.substringBefore(';')
             val fromUri = uri.lastPathSegment?.substringAfterLast('.', missingDelimiterValue = "")
 
-            return when {
-                !fromMime.isNullOrBlank() -> fromMime
-                !fromUri.isNullOrBlank() -> fromUri
-                else -> "m4a"
-            }
+            return sanitizeImportedAudioExtension(fromMime)
+                ?: sanitizeImportedAudioExtension(fromUri)
+                ?: DEFAULT_IMPORT_EXTENSION
         }
 
         private fun deleteQuietly(file: File) {
@@ -137,4 +135,27 @@ class AudioImportOrchestrator
                 }
             }
         }
+
+        private companion object {
+            const val DEFAULT_IMPORT_EXTENSION = "m4a"
+        }
     }
+
+private const val MAX_IMPORT_EXTENSION_LENGTH = 5
+private val IMPORT_EXTENSION_DISALLOWED_CHARS = Regex("[^A-Za-z0-9]")
+
+/**
+ * Sanitizes an extension candidate derived from an untrusted shared URI or MIME type.
+ *
+ * The raw last path segment of a content URI can contain encoded separators
+ * (`%2F`, `..`), which would redirect the imported file out of the recordings/
+ * directory where cleanup and recovery expect it (SEC-9). Stripping everything
+ * outside `[A-Za-z0-9]` removes path separators and dots entirely; the result is
+ * lowercased and length-capped, or null when nothing safe remains.
+ */
+internal fun sanitizeImportedAudioExtension(candidate: String?): String? =
+    candidate
+        ?.replace(IMPORT_EXTENSION_DISALLOWED_CHARS, "")
+        ?.take(MAX_IMPORT_EXTENSION_LENGTH)
+        ?.lowercase()
+        ?.takeIf(String::isNotEmpty)

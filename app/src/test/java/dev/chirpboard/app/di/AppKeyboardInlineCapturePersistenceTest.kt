@@ -5,6 +5,7 @@ import android.util.Log
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
 import dev.chirpboard.app.core.audio.recorder.AudioEncoder
+import dev.chirpboard.app.core.export.TranscriptExportOutcome
 import dev.chirpboard.app.core.export.TranscriptExportPort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.transcription.InlineAudioSource
@@ -587,6 +588,8 @@ class AppKeyboardInlineCapturePersistenceTest {
 
     private fun transcriptExportPort(): TranscriptExportPort =
         mockk {
-            coEvery { exportIfEnabled(any(), any(), any()) } returns Result.success(Unit)
+            coEvery {
+                exportIfEnabled(any(), any(), any(), any(), any())
+            } returns Result.success(TranscriptExportOutcome(exportedUri = null))
         }
 }

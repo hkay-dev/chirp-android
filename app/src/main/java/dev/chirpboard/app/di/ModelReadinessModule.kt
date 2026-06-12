@@ -6,8 +6,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import dev.chirpboard.app.download.ModelDownloadWorkGateway
 import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.download.ModelReadinessGate
 import javax.inject.Singleton
@@ -38,4 +40,10 @@ object ModelReadinessModule {
     fun provideSpeechModelReadinessGate(
         gate: ModelReadinessGate,
     ): SpeechModelReadinessGate = gate
+
+    @Provides
+    @Singleton
+    fun provideSpeechModelDownloadGateway(
+        gateway: ModelDownloadWorkGateway,
+    ): SpeechModelDownloadGateway = gateway
 }

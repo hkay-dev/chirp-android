@@ -7,13 +7,12 @@ import androidx.annotation.VisibleForTesting
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
-import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadState
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -30,6 +29,8 @@ class ModelDownloader(
     private val modelFiles: List<ModelFile> = MODEL_FILES,
     private val modelDirProvider: (Context) -> File = { ensureModelDir(it) },
     private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") },
+    private val baseUrl: String = BASE_URL,
+    private val availableBytesProvider: (File) -> Long = ::defaultAvailableBytes,
 ) : SpeechModelStore {
     companion object {
         private const val TAG = "ModelDownloader"
@@ -38,6 +39,14 @@ class ModelDownloader(
         internal const val VERIFICATION_PREFS_NAME = "model_verification_cache"
 
         private const val MIN_STORAGE_BUFFER_BYTES = 50L * 1024L * 1024L
+
+        internal const val TEMP_FILE_SUFFIX = ".download"
+        internal const val ETAG_FILE_SUFFIX = ".download.etag"
+
+        private const val HTTP_PARTIAL_CONTENT = 206
+        private const val HTTP_TOO_MANY_REQUESTS = 429
+        private const val HTTP_RANGE_NOT_SATISFIABLE = 416
+        private const val HTTP_INTERNAL_SERVER_ERROR = 500
 
         private val MODEL_FILES =
             listOf(
@@ -145,6 +154,13 @@ class ModelDownloader(
 
         data class Error(
             val message: String,
+            /**
+             * Whether the failure is plausibly transient (network drop, server 5xx). The
+             * download worker auto-retries retryable errors with bounded exponential
+             * backoff (ERR-3); non-retryable errors fail terminally and require an
+             * explicit user retry.
+             */
+            val retryable: Boolean = false,
         ) : DownloadState
     }
 
@@ -266,9 +282,23 @@ class ModelDownloader(
 
     override suspend fun evaluateReadiness(): ModelReadinessEvaluation = evaluateModelReadiness()
 
-    fun downloadModelLegacy(): Flow<DownloadState> =
+    /**
+     * Streams the model files into the target directory, resuming partial downloads via
+     * HTTP Range requests (ERR-2). Partial `.download` temp files are deliberately KEPT on
+     * failure and cancellation (ERR-1) so a later attempt — WorkManager retry, process
+     * restart, manual retry — continues from the last byte written; a `.download.etag`
+     * sidecar pins the server entity the partial belongs to and is sent as `If-Range` so a
+     * changed remote file restarts cleanly instead of producing a corrupt splice. The
+     * SHA-256 + exact-size verification chain is unchanged: every file is fully validated
+     * before being promoted into place, and a failed validation discards the temp file.
+     *
+     * @param preferInternalStorage download into app-private storage instead of the shared
+     * Documents location, for users who decline the All-files-access permission (PLT-07).
+     */
+    fun downloadModelFlow(preferInternalStorage: Boolean = false): Flow<DownloadState> =
         flow {
-            val modelPath = modelDirProvider(context)
+            val modelPath =
+                if (preferInternalStorage) legacyModelDirProvider(context) else modelDirProvider(context)
             modelPath.mkdirs()
 
             val unreadable =
@@ -280,8 +310,9 @@ class ModelDownloader(
                 emit(
                     DownloadState.Error(
                         "Model files from a previous install were found but this install cannot access them. " +
-                            "Allow \"All files access\" for Chirpboard in system settings to reuse the existing model, " +
+                            "Allow \"All files access\" for Chirp in system settings to reuse the existing model, " +
                             "then try again.",
+                        retryable = false,
                     ),
                 )
                 return@flow
@@ -293,15 +324,16 @@ class ModelDownloader(
             val requiredDownloadBytes =
                 modelFiles.sumOf { file ->
                     val existing = File(modelPath, file.name)
-                    if (isValidDownloadedFile(existing, file)) 0L else file.expectedSize
+                    if (isValidDownloadedFile(existing, file)) 0L else file.expectedSize - resumableBytes(modelPath, file)
                 }
 
-            val availableBytes = getAvailableBytes(modelPath)
+            val availableBytes = availableBytesProvider(modelPath)
             val requiredWithBuffer = requiredDownloadBytes + MIN_STORAGE_BUFFER_BYTES
             if (!hasSufficientStorage(availableBytes, requiredWithBuffer)) {
                 emit(
                     DownloadState.Error(
                         "Insufficient storage. Need about ${requiredWithBuffer / (1024 * 1024)} MB free.",
+                        retryable = false,
                     ),
                 )
                 return@flow
@@ -310,7 +342,7 @@ class ModelDownloader(
             for (file in modelFiles) {
                 val destFile = File(modelPath, file.name)
                 if (isValidDownloadedFile(destFile, file)) {
-                    totalDownloaded += destFile.length()
+                    totalDownloaded += file.expectedSize
                     emit(DownloadState.Progress(file.name, totalDownloaded, totalSize))
                     continue
                 }
@@ -319,89 +351,151 @@ class ModelDownloader(
                     destFile.delete()
                 }
 
-                val tempFile = File(modelPath, "${file.name}.download")
-                if (tempFile.exists()) {
-                    tempFile.delete()
-                }
-
-                val url = "$BASE_URL/${file.name}"
-                Log.i(TAG, "Downloading $url")
-
-                try {
-                    val request = Request.Builder().url(url).build()
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            emit(DownloadState.Error("Failed to download ${file.name}: ${response.code}"))
-                            return@flow
-                        }
-
-                        val body =
-                            response.body ?: run {
-                                emit(DownloadState.Error("Empty response for ${file.name}"))
-                                return@flow
-                            }
-
-                        val downloaded =
-                            body.byteStream().use { input ->
-                                writeInputStreamToTempFile(input, tempFile) { bytesRead ->
-                                    emit(
-                                        DownloadState.Progress(
-                                            file.name,
-                                            totalDownloaded + bytesRead,
-                                            totalSize,
-                                        ),
-                                    )
-                                }
-                            }
-
-                        if (!validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256)) {
-                            tempFile.delete()
-                            emit(DownloadState.Error("Checksum validation failed for ${file.name}"))
-                            return@flow
-                        }
-
-                        if (!promoteTempFileAtomically(tempFile, destFile)) {
-                            tempFile.delete()
-                            emit(DownloadState.Error("Failed to finalize ${file.name}"))
-                            return@flow
-                        }
-
-                        cacheValidationResult(destFile, file, valid = true)
-
-                        totalDownloaded += downloaded
-                        Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes")
-                    }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e(TAG, "Download failed for ${file.name}", e)
-                    emit(DownloadState.Error("Download failed: ${e.message}"))
+                if (!downloadSingleFile(file, modelPath, totalDownloaded, totalSize)) {
                     return@flow
-                } finally {
-                    if (tempFile.exists()) tempFile.delete()
                 }
+                totalDownloaded += file.expectedSize
             }
 
             emit(DownloadState.Complete)
         }.flowOn(Dispatchers.IO)
 
-    override fun downloadModel(): Flow<SpeechModelDownloadState> =
-        downloadModelLegacy().map { state ->
-            when (state) {
-                is DownloadState.Progress ->
-                    SpeechModelDownloadState.Progress(
-                        file = state.file,
-                        progress =
-                            if (state.totalBytes > 0) {
-                                state.bytesDownloaded.toFloat() / state.totalBytes.toFloat()
-                            } else {
-                                0f
-                            },
-                    )
+    /**
+     * Downloads (or resumes) one model file. Returns true when the file is validated and
+     * promoted into place; emits a terminal [DownloadState.Error] and returns false otherwise.
+     */
+    private suspend fun FlowCollector<DownloadState>.downloadSingleFile(
+        file: ModelFile,
+        modelPath: File,
+        totalDownloadedBefore: Long,
+        totalSize: Long,
+    ): Boolean {
+        val destFile = File(modelPath, file.name)
+        val tempFile = File(modelPath, "${file.name}$TEMP_FILE_SUFFIX")
+        val etagFile = File(modelPath, "${file.name}$ETAG_FILE_SUFFIX")
 
-                DownloadState.Complete -> SpeechModelDownloadState.Complete
-                is DownloadState.Error -> SpeechModelDownloadState.Error(state.message)
+        var plan = resolveResumePlan(tempFile, etagFile, file.expectedSize)
+        if (plan is ResumePlan.PromoteCompleted) {
+            // Process died (or promote failed) after the full file landed: finish without network.
+            if (validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256) &&
+                promoteTempFileAtomically(tempFile, destFile)
+            ) {
+                etagFile.delete()
+                cacheValidationResult(destFile, file, valid = true)
+                emit(DownloadState.Progress(file.name, totalDownloadedBefore + file.expectedSize, totalSize))
+                Log.i(TAG, "Promoted previously completed temp file for ${file.name}")
+                return true
             }
+            discardPartialDownload(tempFile, etagFile)
+            plan = ResumePlan.Fresh
         }
+        if (plan is ResumePlan.Fresh) {
+            discardPartialDownload(tempFile, etagFile)
+        }
+
+        val url = "$baseUrl/${file.name}"
+        val resumePlan = plan as? ResumePlan.Resume
+        Log.i(TAG, "Downloading $url (resumeFrom=${resumePlan?.offset ?: 0L})")
+
+        try {
+            val requestBuilder = Request.Builder().url(url)
+            if (resumePlan != null) {
+                requestBuilder.header("Range", "bytes=${resumePlan.offset}-")
+                requestBuilder.header("If-Range", resumePlan.etag)
+            }
+            client.newCall(requestBuilder.build()).execute().use { response ->
+                if (response.code == HTTP_RANGE_NOT_SATISFIABLE) {
+                    // Stale/oversized partial the server refuses to extend: restart cleanly.
+                    discardPartialDownload(tempFile, etagFile)
+                    emit(
+                        DownloadState.Error(
+                            "The download could not resume and will restart. Try again.",
+                            retryable = true,
+                        ),
+                    )
+                    return false
+                }
+                if (!response.isSuccessful) {
+                    emit(
+                        DownloadState.Error(
+                            "The download server returned an error (${response.code}). Try again later.",
+                            retryable = response.code >= HTTP_INTERNAL_SERVER_ERROR || response.code == HTTP_TOO_MANY_REQUESTS,
+                        ),
+                    )
+                    return false
+                }
+
+                val resuming = resumePlan != null && response.code == HTTP_PARTIAL_CONTENT
+                if (!resuming) {
+                    // Full entity: either a fresh start, or the If-Range validator no longer
+                    // matched (server sent 200) — restart from byte zero against the new entity.
+                    discardPartialDownload(tempFile, etagFile)
+                    writeEtagSidecar(etagFile, response.header("ETag"))
+                }
+                val startOffset = if (resuming) resumePlan?.offset ?: 0L else 0L
+
+                val body =
+                    response.body ?: run {
+                        emit(DownloadState.Error("Empty response for ${file.name}", retryable = true))
+                        return false
+                    }
+
+                val downloaded =
+                    body.byteStream().use { input ->
+                        writeInputStreamToTempFile(input, tempFile, append = resuming) { bytesRead ->
+                            emit(
+                                DownloadState.Progress(
+                                    file.name,
+                                    totalDownloadedBefore + startOffset + bytesRead,
+                                    totalSize,
+                                ),
+                            )
+                        }
+                    }
+
+                if (!validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256)) {
+                    discardPartialDownload(tempFile, etagFile)
+                    emit(
+                        DownloadState.Error(
+                            "Checksum validation failed for ${file.name}. Try the download again.",
+                            retryable = false,
+                        ),
+                    )
+                    return false
+                }
+
+                if (!promoteTempFileAtomically(tempFile, destFile)) {
+                    emit(DownloadState.Error("Failed to finalize ${file.name}", retryable = true))
+                    return false
+                }
+
+                etagFile.delete()
+                cacheValidationResult(destFile, file, valid = true)
+                Log.i(TAG, "Downloaded ${file.name}: $downloaded bytes (resumedFrom=$startOffset)")
+            }
+        } catch (e: Exception) {
+            // Cancellation must propagate; the partial temp file is intentionally kept so
+            // the next attempt resumes instead of restarting the 652MB transfer (ERR-1/2).
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "Download failed for ${file.name}", e)
+            emit(classifyDownloadError(e))
+            return false
+        }
+        return true
+    }
+
+    private fun resumableBytes(
+        modelPath: File,
+        file: ModelFile,
+    ): Long {
+        val tempFile = File(modelPath, "${file.name}$TEMP_FILE_SUFFIX")
+        val etagFile = File(modelPath, "${file.name}$ETAG_FILE_SUFFIX")
+        return when (val plan = resolveResumePlan(tempFile, etagFile, file.expectedSize)) {
+            is ResumePlan.Resume -> plan.offset
+            is ResumePlan.PromoteCompleted -> file.expectedSize
+            ResumePlan.Fresh -> 0L
+        }
+    }
 
     override suspend fun deleteModel(): Boolean =
         withContext(Dispatchers.IO) {
@@ -606,16 +700,121 @@ class ModelDownloader(
         return "verification:$digest"
     }
 
-    private fun getAvailableBytes(path: File): Long =
+    private fun discardPartialDownload(
+        tempFile: File,
+        etagFile: File,
+    ) {
+        if (tempFile.exists()) tempFile.delete()
+        if (etagFile.exists()) etagFile.delete()
+    }
+
+    private fun writeEtagSidecar(
+        etagFile: File,
+        etag: String?,
+    ) {
+        // Weak validators (W/"...") must not be used with If-Range; without a strong ETag
+        // the partial cannot be safely resumed, so no sidecar is written and a later
+        // attempt restarts from byte zero.
+        val strongEtag = etag?.trim()?.takeIf { it.isNotEmpty() && !it.startsWith("W/") } ?: return
         try {
-            val target = if (path.exists()) path else path.parentFile ?: path
-            StatFs(target.absolutePath).availableBytes
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.w(TAG, "Failed to read free storage for ${path.absolutePath}", e)
-            0L
+            etagFile.writeText(strongEtag)
+        } catch (e: java.io.IOException) {
+            Log.w(TAG, "Could not persist resume validator for ${etagFile.name}", e)
         }
+    }
 }
+
+internal sealed interface ResumePlan {
+    /** No usable partial: start (or restart) the transfer from byte zero. */
+    data object Fresh : ResumePlan
+
+    /** Resume the partial from [offset] with `If-Range: [etag]`. */
+    data class Resume(
+        val offset: Long,
+        val etag: String,
+    ) : ResumePlan
+
+    /** The temp file is already complete: validate and promote without network. */
+    data object PromoteCompleted : ResumePlan
+}
+
+internal fun resolveResumePlan(
+    tempFile: File,
+    etagFile: File,
+    expectedSize: Long,
+): ResumePlan {
+    if (!tempFile.exists()) return ResumePlan.Fresh
+    val length = tempFile.length()
+    if (length == expectedSize) return ResumePlan.PromoteCompleted
+    val etag = readEtagSidecar(etagFile)
+    return if (length in 1 until expectedSize && etag != null) {
+        ResumePlan.Resume(offset = length, etag = etag)
+    } else {
+        ResumePlan.Fresh
+    }
+}
+
+internal fun readEtagSidecar(etagFile: File): String? =
+    try {
+        if (etagFile.exists()) {
+            etagFile.readText().trim().takeIf { it.isNotEmpty() && !it.startsWith("W/") }
+        } else {
+            null
+        }
+    } catch (e: java.io.IOException) {
+        Log.w("ModelDownloader", "Cannot read resume validator ${etagFile.absolutePath}", e)
+        null
+    }
+
+/**
+ * Maps download exceptions to user-facing copy (ERR-4): connectivity failures get an
+ * actionable hint instead of raw "Unable to resolve host…" text, and disk-full gets the
+ * storage message. Raw details stay in the log only.
+ */
+internal fun classifyDownloadError(error: Exception): ModelDownloader.DownloadState.Error {
+    val isConnectivity =
+        error is java.net.UnknownHostException ||
+            error is java.net.ConnectException ||
+            error is java.net.SocketTimeoutException ||
+            error is java.net.SocketException ||
+            error is javax.net.ssl.SSLException
+    val isDiskFull = error is java.io.IOException && error.message?.contains("ENOSPC") == true
+    return when {
+        isConnectivity ->
+            ModelDownloader.DownloadState.Error(
+                "No internet connection. Check your network and try again.",
+                retryable = true,
+            )
+
+        isDiskFull ->
+            ModelDownloader.DownloadState.Error(
+                "Not enough storage to finish the download. Free up space and try again.",
+                retryable = false,
+            )
+
+        error is java.io.IOException ->
+            ModelDownloader.DownloadState.Error(
+                "The download was interrupted. Retrying will resume where it left off.",
+                retryable = true,
+            )
+
+        else ->
+            ModelDownloader.DownloadState.Error(
+                "Download failed: ${error.message}",
+                retryable = false,
+            )
+    }
+}
+
+private fun defaultAvailableBytes(path: File): Long =
+    try {
+        val target = if (path.exists()) path else path.parentFile ?: path
+        StatFs(target.absolutePath).availableBytes
+    } catch (e: Exception) {
+        if (e is kotlinx.coroutines.CancellationException) throw e
+        Log.w("ModelDownloader", "Failed to read free storage for ${path.absolutePath}", e)
+        0L
+    }
 
 internal fun hasSufficientStorage(
     availableBytes: Long,
@@ -640,29 +839,30 @@ internal fun validateFileIntegrity(
     }
 }
 
+/**
+ * Streams [input] into [tempFile], optionally appending to an existing partial (HTTP Range
+ * resume). The temp file is intentionally KEPT when the stream fails or the coroutine is
+ * cancelled: everything written so far is valid entity bytes, so a later attempt resumes
+ * from `tempFile.length()` instead of re-downloading (ERR-1/ERR-2).
+ */
 internal suspend fun writeInputStreamToTempFile(
     input: InputStream,
     tempFile: File,
+    append: Boolean = false,
     onTotalBytesWritten: suspend (Long) -> Unit,
 ): Long {
     var downloaded = 0L
 
-    try {
-        FileOutputStream(tempFile).use { output ->
-            val buffer = ByteArray(8192)
-            var read: Int
-            while (input.read(buffer).also { read = it } != -1) {
-                output.write(buffer, 0, read)
-                downloaded += read
-                onTotalBytesWritten(downloaded)
-            }
+    FileOutputStream(tempFile, append).use { output ->
+        val buffer = ByteArray(8192)
+        var read: Int
+        while (input.read(buffer).also { read = it } != -1) {
+            output.write(buffer, 0, read)
+            downloaded += read
+            onTotalBytesWritten(downloaded)
         }
-        return downloaded
-    } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
-        tempFile.delete()
-        throw e
     }
+    return downloaded
 }
 
 internal fun promoteTempFileAtomically(

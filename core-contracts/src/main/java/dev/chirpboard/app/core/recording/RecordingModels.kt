@@ -41,4 +41,12 @@ enum class RecordingStatus {
 
     /** Error occurred */
     FAILED,
+
+    /**
+     * Saved but deliberately not queued: the recording's profile has Auto Transcribe
+     * disabled, or the user cancelled queued/running transcription. Excluded from
+     * automatic queue recovery; transcription starts only from an explicit user
+     * action (the re-transcribe affordance).
+     */
+    AWAITING_MANUAL_TRANSCRIPTION,
 }

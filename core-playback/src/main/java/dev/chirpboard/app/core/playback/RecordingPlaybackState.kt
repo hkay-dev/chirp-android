@@ -11,6 +11,10 @@ data class RecordingPlaybackState(
     val isPlaying: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    /** Persisted playback speed (0.75x-2x); always one of the supported options. */
+    val playbackSpeed: Float = 1f,
+    /** Transient non-error hint (for example "media volume is muted"). */
+    val noticeMessage: String? = null,
 ) {
     val isActive: Boolean
         get() = recordingId != null && errorMessage == null

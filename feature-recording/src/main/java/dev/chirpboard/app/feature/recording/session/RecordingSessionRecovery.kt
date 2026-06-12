@@ -17,14 +17,12 @@ import dev.chirpboard.app.feature.recording.session.validation.RecordingFileVali
 import dev.chirpboard.app.feature.recording.session.validation.RecordingValidationLevel
 import dev.chirpboard.app.feature.recording.service.RecordingFinalizeWorkRequest
 import dev.chirpboard.app.feature.recording.service.RecordingSegmentFinalize
+import dev.chirpboard.app.feature.recording.util.RecordingTitleFormatter
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -75,6 +73,7 @@ class RecordingSessionRecovery
         private val recordingStateManager: RecordingStateManager,
         private val protectedPathsStore: RecordingRecoveryProtectedPathsStore,
         private val ownershipLock: RecordingFinalizeOwnershipLock,
+        private val titleFormatter: RecordingTitleFormatter,
     ) {
         suspend fun scanForRecoverableSessions(): List<RecoverableRecordingSession> =
             withContext(Dispatchers.IO) {
@@ -185,9 +184,7 @@ class RecordingSessionRecovery
 
                 val durationMs = probeDurationMs(exportFile)
                 val correlationId = entry.correlationId ?: ReliabilityEventLogger.newCorrelationId("recover")
-                val title =
-                    SimpleDateFormat("MMM d, h:mm a", Locale.US).format(Date(entry.startedAtEpochMs)) +
-                        " (recovered)"
+                val title = titleFormatter.format(entry.startedAtEpochMs) + " (recovered)"
 
                 val source =
                     when (entry.origin) {

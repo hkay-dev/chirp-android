@@ -213,22 +213,9 @@ fun ProfileEditorScreen(
                     onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
                 )
 
-                // Obsidian vault path
-                if (uiState.autoExportToObsidian) {
-                    OutlinedTextField(
-                        value = uiState.obsidianVaultPath,
-                        onValueChange = { viewModel.updateObsidianVaultPath(it) },
-                        label = { Text(stringResource(R.string.rec_profile_vault)) },
-                        placeholder = { Text(stringResource(R.string.rec_profile_vault_desc)) },
-                        singleLine = true,
-                        keyboardOptions =
-                            KeyboardOptions(
-                                imeAction = ImeAction.Done,
-                            ),
-                        modifier = Modifier.fillMaxWidth(),
-                        supportingText = { Text(stringResource(R.string.rec_profile_vault_support)) },
-                    )
-                }
+                // PLH-5: the free-text vault path override was removed — exports go through
+                // SAF, so a typed filesystem path can never be used; the export destination
+                // is the vault chosen in Obsidian settings.
 
                 // Spacer for bottom padding
                 Spacer(modifier = Modifier.height(16.dp))

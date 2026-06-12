@@ -23,6 +23,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -53,6 +55,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -66,8 +69,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,6 +86,7 @@ import dev.chirpboard.app.core.llm.ProcessingModeDefaults
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpLlmToggle
 import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
 import dev.chirpboard.app.core.ui.components.ThinkingDots
@@ -101,12 +110,17 @@ internal fun VoiceRecognitionDialog(
     shouldDismissFlow: StateFlow<Boolean>,
     partialTranscriptFlow: StateFlow<String>,
     modelStateFlow: StateFlow<VoiceRecognitionModelState>,
+    uiErrorFlow: StateFlow<VoiceRecognitionUiError?>,
     llmEnabled: Boolean,
+    aiControlEnabled: Boolean,
     currentMode: ProcessingMode,
     selectableModes: List<ProcessingModeListItem>,
+    callerPrompt: String?,
+    englishOnlyHint: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit,
+    onOpenApp: () -> Unit,
     onDismissComplete: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
@@ -114,7 +128,29 @@ internal fun VoiceRecognitionDialog(
     val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
     val modelState by modelStateFlow.collectAsStateWithLifecycle(VoiceRecognitionModelState.Initializing)
+    val uiError by uiErrorFlow.collectAsStateWithLifecycle(null)
     var isVisible by remember { mutableStateOf(true) }
+    var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    // A11Y-2: cancelling once the user's speech is captured but not yet returned (the
+    // post-stop transcription window, or committed text awaiting delivery) would silently
+    // discard it — an unlabeled scrim double-tap was one accidental path — so confirm
+    // first. Cancel stays one-tap while idle or still recording, matching the platform
+    // dialog. The transcript flow value is read imperatively so streaming text never
+    // recomposes this root scope (CMP-11). Once the dismiss animation is in flight the
+    // result is already committed, so late taps must not overwrite it with a cancel.
+    val requestCancel: () -> Unit = {
+        when {
+            shouldDismiss -> Unit
+            // A terminal error is already showing: there is nothing left to discard, and
+            // dismissing must report that failure straight away (ERR-9/ERR-27).
+            uiError != null -> onCancel()
+            recordingState is RecordingState.Stopping || partialTranscriptFlow.value.isNotBlank() ->
+                showDiscardConfirm = true
+
+            else -> onCancel()
+        }
+    }
 
     // The 10 Hz waveform tick (sampleCountFlow) and the per-token partial transcript are
     // intentionally NOT collected here: collecting them at the dialog root would re-run the
@@ -167,7 +203,8 @@ internal fun VoiceRecognitionDialog(
     // The window is MATCH_PARENT (so FLAG_DIM_BEHIND can scrim the host); the host dim is drawn by
     // the window. This transparent full-height layer above the sheet captures taps on the dimmed
     // area to cancel, replacing the old FLAG_WATCH_OUTSIDE_TOUCH path that no longer fires once the
-    // window covers the whole screen (DLG-5/DLG-6).
+    // window covers the whole screen (DLG-5/DLG-6). The click is labeled so TalkBack does not
+    // expose an anonymous full-screen "double-tap to activate" node that silently cancels (A11Y-2).
     Box(
         modifier =
             Modifier
@@ -175,7 +212,8 @@ internal fun VoiceRecognitionDialog(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onCancel,
+                    onClickLabel = stringResource(R.string.desc_cancel),
+                    onClick = requestCancel,
                 ),
         contentAlignment = Alignment.BottomCenter,
     ) {
@@ -190,17 +228,45 @@ internal fun VoiceRecognitionDialog(
                 sampleCountFlow = sampleCountFlow,
                 partialTranscriptFlow = partialTranscriptFlow,
                 modelState = modelState,
+                uiError = uiError,
                 preRollComplete = preRollComplete,
                 llmEnabled = llmEnabled,
+                aiControlEnabled = aiControlEnabled,
                 currentMode = currentMode,
                 selectableModes = selectableModes,
+                callerPrompt = callerPrompt,
+                englishOnlyHint = englishOnlyHint,
                 onStart = onStart,
                 onStop = onStop,
-                onCancel = onCancel,
+                onCancel = requestCancel,
+                onOpenApp = onOpenApp,
                 onToggleLlm = onToggleLlm,
                 onModeChange = onModeChange,
             )
         }
+    }
+
+    if (showDiscardConfirm) {
+        AnimatedAlertDialog(
+            onDismissRequest = { showDiscardConfirm = false },
+            title = { Text(stringResource(R.string.voice_recognition_discard_title)) },
+            text = { Text(stringResource(R.string.voice_recognition_discard_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDiscardConfirm = false
+                        onCancel()
+                    },
+                ) {
+                    Text(stringResource(R.string.voice_recognition_discard_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardConfirm = false }) {
+                    Text(stringResource(R.string.voice_recognition_discard_keep))
+                }
+            },
+        )
     }
 }
 
@@ -211,13 +277,18 @@ private fun VoiceRecognitionDialogContent(
     sampleCountFlow: StateFlow<Long>,
     partialTranscriptFlow: StateFlow<String>,
     modelState: VoiceRecognitionModelState,
+    uiError: VoiceRecognitionUiError?,
     preRollComplete: Boolean,
     llmEnabled: Boolean,
+    aiControlEnabled: Boolean,
     currentMode: ProcessingMode,
     selectableModes: List<ProcessingModeListItem>,
+    callerPrompt: String?,
+    englishOnlyHint: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit,
+    onOpenApp: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
 ) {
@@ -227,7 +298,7 @@ private fun VoiceRecognitionDialogContent(
             recordingState is RecordingState.Stopping
     val isProcessing = recordingState is RecordingState.Stopping
     val isModelReady = modelState == VoiceRecognitionModelState.Ready
-    val showRecordingVisuals = isRecording && !isProcessing
+    val showRecordingVisuals = isRecording && !isProcessing && uiError == null
     val recordingVisualEnter =
         fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = FastOutSlowInEasing)) +
             expandVertically(
@@ -257,12 +328,10 @@ private fun VoiceRecognitionDialogContent(
             Modifier
                 .fillMaxWidth()
                 // Absorb taps on the sheet body so they do not fall through to the scrim's
-                // tap-to-cancel (the window is full-screen, so the sheet is a sibling of the scrim).
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {},
-                ),
+                // tap-to-cancel (the window is full-screen, so the sheet is a sibling of the
+                // scrim). A raw pointerInput (not a no-op clickable) so TalkBack never exposes
+                // an unlabeled do-nothing "double-tap to activate" node here (A11Y-2).
+                .pointerInput(Unit) { detectTapGestures { } },
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 2.dp,
@@ -311,11 +380,23 @@ private fun VoiceRecognitionDialogContent(
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
                     selectableModes = selectableModes,
-                    settingsEnabled = !isProcessing,
+                    settingsEnabled = aiControlEnabled && !isProcessing,
                     onToggleLlm = onToggleLlm,
                     onModeChange = onModeChange,
                     onCancel = onCancel,
                 )
+
+                // PIPE-08: the bundled model transcribes English only; say so when the caller
+                // explicitly requested another language instead of returning silent garbage.
+                if (englishOnlyHint) {
+                    Text(
+                        text = stringResource(R.string.voice_recognition_english_only),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 Column(
                     modifier =
@@ -331,9 +412,12 @@ private fun VoiceRecognitionDialogContent(
                         partialTranscriptFlow = partialTranscriptFlow,
                         recordingState = recordingState,
                         modelState = modelState,
+                        uiError = uiError,
                         preRollComplete = preRollComplete,
                         isRecording = isRecording,
                         isProcessing = isProcessing,
+                        callerPrompt = callerPrompt,
+                        onOpenApp = onOpenApp,
                     )
 
                     AnimatedVisibility(
@@ -358,13 +442,19 @@ private fun VoiceRecognitionDialogContent(
                             Modifier.height(if (showRecordingVisuals) ChirpSpacing.Small else ChirpSpacing.ExtraExtraLarge),
                     )
 
-                    VoiceRecognitionMicControl(
-                        isRecording = isRecording,
-                        isProcessing = isProcessing,
-                        isModelReady = isModelReady,
-                        onStart = onStart,
-                        onStop = onStop,
-                    )
+                    // A terminal error replaces the mic affordance: a dead "tap to retry the
+                    // exact same failure" control would mislead (ERR-9/ERR-23).
+                    if (uiError == null) {
+                        VoiceRecognitionMicControl(
+                            isRecording = isRecording,
+                            isProcessing = isProcessing,
+                            isModelReady = isModelReady,
+                            onStart = onStart,
+                            onStop = onStop,
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.size(MicControlAreaSize))
+                    }
 
                     Spacer(modifier = Modifier.height(ChirpSpacing.ExtraLarge))
                 }
@@ -548,7 +638,7 @@ private fun VoiceRecognitionMicControl(
     )
 
     Box(
-        modifier = Modifier.size(96.dp),
+        modifier = Modifier.size(MicControlAreaSize),
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -614,37 +704,50 @@ private const val READY_PRE_ROLL_MS = 300L
 
 private val MicSize = 64.dp
 
+/** Footprint reserved for the mic affordance so error states keep the sheet's layout stable. */
+private val MicControlAreaSize = 96.dp
+
 /** Minimum sheet bottom inset so content never sits flush against the edge when Good Lock zeroes it. */
 private val DialogNavInsetFloor = 16.dp
 
 /** Minimum height of the inner panel so a short status line does not collapse the sheet. */
 private val DialogPanelMinHeight = 200.dp
 
+/** Minimum (growable) height of the transcript/status area; fixed 80dp clipped at large font scales. */
+private val TranscriptAreaMinHeight = 80.dp
+
 /** Bottom-sheet silhouette: rounded TOP corners so the sheet reads as rising from the bottom (INS-2). */
 private val DialogSheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 /** The kind of content shown in the transcript area; the crossfade keys on this, not the text. */
 internal enum class TranscriptAreaKind {
+    Error,
     Transcript,
     ModelLoading,
     ModelUnavailable,
     Ready,
     Timer,
+    Processing,
     Empty,
 }
 
 internal fun transcriptAreaKind(
     hasText: Boolean,
+    hasError: Boolean,
     modelState: VoiceRecognitionModelState,
     preRollComplete: Boolean,
     isRecording: Boolean,
     isProcessing: Boolean,
 ): TranscriptAreaKind =
     when {
+        // A terminal error owns the area: failures must be explained, never a silent close
+        // (ERR-9/ERR-23/ERR-27). Errors only arise on paths that produced no text.
+        hasError -> TranscriptAreaKind.Error
         hasText -> TranscriptAreaKind.Transcript
         modelState == VoiceRecognitionModelState.Initializing -> TranscriptAreaKind.ModelLoading
         modelState == VoiceRecognitionModelState.Unavailable -> TranscriptAreaKind.ModelUnavailable
-        isProcessing -> TranscriptAreaKind.Empty
+        // A11Y-8: the post-stop phase shows a textual status, not a blank area with bare dots.
+        isProcessing -> TranscriptAreaKind.Processing
         isRecording -> TranscriptAreaKind.Timer
         // Model is Ready but capture has not begun yet: the calm pre-roll beat (DLG-4).
         !preRollComplete -> TranscriptAreaKind.Ready
@@ -662,24 +765,34 @@ private fun VoiceRecognitionTranscriptArea(
     partialTranscriptFlow: StateFlow<String>,
     recordingState: RecordingState,
     modelState: VoiceRecognitionModelState,
+    uiError: VoiceRecognitionUiError?,
     preRollComplete: Boolean,
     isRecording: Boolean,
     isProcessing: Boolean,
+    callerPrompt: String?,
+    onOpenApp: () -> Unit,
 ) {
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
     val kind =
         transcriptAreaKind(
             hasText = partialTranscript.isNotBlank(),
+            hasError = uiError != null,
             modelState = modelState,
             preRollComplete = preRollComplete,
             isRecording = isRecording,
             isProcessing = isProcessing,
         )
+    // A11Y-1: every status transition in here is the dialog's only textual feedback, so
+    // each status text is a polite live region. The streaming transcript itself is not
+    // (per-token announcements would be unusable chatter).
+    val statusLiveRegion = Modifier.semantics { liveRegion = LiveRegionMode.Polite }
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .height(80.dp)
+                // Min (not fixed) height so large font scales grow the area instead of
+                // clipping the only textual feedback in the dialog (A11Y fontscale).
+                .heightIn(min = TranscriptAreaMinHeight)
                 .padding(horizontal = ChirpSpacing.Small),
         contentAlignment = Alignment.Center,
     ) {
@@ -692,6 +805,13 @@ private fun VoiceRecognitionTranscriptArea(
             label = "transcript_animation",
         ) { targetKind ->
             when (targetKind) {
+                TranscriptAreaKind.Error ->
+                    VoiceRecognitionErrorStatus(
+                        uiError = uiError,
+                        statusLiveRegion = statusLiveRegion,
+                        onOpenApp = onOpenApp,
+                    )
+
                 TranscriptAreaKind.Transcript ->
                     Text(
                         // Read the live value so words stream in place within this kind
@@ -709,28 +829,99 @@ private fun VoiceRecognitionTranscriptArea(
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
+                        modifier = statusLiveRegion,
                     )
 
                 TranscriptAreaKind.ModelUnavailable ->
-                    Text(
-                        text = stringResource(R.string.voice_recognition_model_unavailable),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = stringResource(R.string.voice_recognition_model_unavailable),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center,
+                            modifier = statusLiveRegion,
+                        )
+                        Spacer(modifier = Modifier.height(ChirpSpacing.Small))
+                        // ERR-10: "Open Chirp to download it" needs a tap action, not just prose.
+                        FilledTonalButton(onClick = onOpenApp) {
+                            Text(stringResource(R.string.voice_recognition_open_app))
+                        }
+                    }
 
                 TranscriptAreaKind.Ready ->
                     Text(
-                        text = stringResource(R.string.voice_recognition_ready),
+                        // IME-15: show the caller's instructional prompt ("Say your search")
+                        // when one was provided.
+                        text = callerPrompt ?: stringResource(R.string.voice_recognition_ready),
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
+                        modifier = statusLiveRegion,
                     )
 
                 TranscriptAreaKind.Timer ->
                     VoiceRecognitionTimer(recordingState = recordingState)
 
+                TranscriptAreaKind.Processing ->
+                    Text(
+                        text = stringResource(R.string.voice_recognition_processing),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = statusLiveRegion,
+                    )
+
                 TranscriptAreaKind.Empty -> Unit
+            }
+        }
+    }
+}
+
+/**
+ * Terminal in-dialog error status (ERR-9/ERR-23/ERR-27): explains the failure where the
+ * sheet previously just vanished. The permission state carries an "Open Chirp" affordance
+ * since an IME-less dialog cannot request the grant itself.
+ */
+@Composable
+private fun VoiceRecognitionErrorStatus(
+    uiError: VoiceRecognitionUiError?,
+    statusLiveRegion: Modifier,
+    onOpenApp: () -> Unit,
+) {
+    val message =
+        when (uiError) {
+            null -> return
+            VoiceRecognitionUiError.PermissionMissing ->
+                stringResource(R.string.voice_recognition_error_permission)
+
+            is VoiceRecognitionUiError.MicBusy ->
+                stringResource(R.string.voice_recognition_error_busy, uiError.sourceLabel)
+
+            VoiceRecognitionUiError.CaptureFailed ->
+                stringResource(R.string.voice_recognition_error_capture_failed)
+
+            is VoiceRecognitionUiError.TranscriptionFailed ->
+                if (uiError.audioRescued) {
+                    stringResource(R.string.voice_recognition_error_transcription_rescued)
+                } else {
+                    stringResource(R.string.voice_recognition_error_transcription)
+                }
+
+            VoiceRecognitionUiError.NoSpeech ->
+                stringResource(R.string.voice_recognition_error_no_speech)
+        }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.error,
+            textAlign = TextAlign.Center,
+            modifier = statusLiveRegion,
+        )
+        if (uiError == VoiceRecognitionUiError.PermissionMissing) {
+            Spacer(modifier = Modifier.height(ChirpSpacing.Small))
+            FilledTonalButton(onClick = onOpenApp) {
+                Text(stringResource(R.string.voice_recognition_open_app))
             }
         }
     }
@@ -776,12 +967,21 @@ private fun VoiceRecognitionTimer(recordingState: RecordingState) {
         }
     }
 
+    // A11Y-1: announce that capture is live when the timer appears. The description is a
+    // constant "Listening…" (not the ticking digits) so TalkBack hears the state change
+    // once instead of chatty per-second updates.
+    val listeningDescription = stringResource(R.string.voice_recognition_listening)
     Text(
         text = elapsedMs.formatAsDuration(),
         // A restrained compact size of the same Light/tnum family as the shared timer token, so the
         // dialog timer and the in-app recorder read as one family rather than a one-off monospace.
         style = recordingTimerStyle.copy(fontSize = DIALOG_TIMER_FONT_SIZE),
         color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
+        modifier =
+            Modifier.semantics {
+                liveRegion = LiveRegionMode.Polite
+                contentDescription = listeningDescription
+            },
     )
 }
 

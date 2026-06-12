@@ -56,6 +56,7 @@ class RecordingEnhancementWorkerTest {
     private lateinit var wordReplacer: WordReplacer
     private lateinit var textEnhancement: FakeRecordingTextEnhancement
     private lateinit var foregroundUpdater: ForegroundUpdater
+    private lateinit var completionExporter: TranscriptionCompletionExporter
 
     @Before
     fun setup() {
@@ -71,6 +72,7 @@ class RecordingEnhancementWorkerTest {
         wordReplacementRepository = mockk(relaxed = true)
         wordReplacer = mockk(relaxed = true)
         textEnhancement = FakeRecordingTextEnhancement()
+        completionExporter = mockk(relaxed = true)
 
         mockkObject(ReliabilityEventLogger)
         mockkStatic("dev.chirpboard.app.feature.transcription.TranscriptionWorkerSupportKt")
@@ -164,6 +166,75 @@ class RecordingEnhancementWorkerTest {
             assertEquals(EnhancementSubworkStatus.SUCCEEDED, resultSlot.captured.summaryStatus)
         }
 
+    @Test
+    fun `generated title is sanitized before persisting`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            val resultSlot = slot<RecordingEnhancementResult>()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            textEnhancement.available = true
+            textEnhancement.titleResult = Result.success("\"Weekly Sync\nNotes\"")
+            textEnhancement.summaryResult = Result.success("  \"A short summary.\"  ")
+
+            worker().doWork()
+
+            coVerify(exactly = 1) {
+                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
+            }
+            assertEquals("Weekly Sync Notes", resultSlot.captured.title)
+            assertEquals("A short summary.", resultSlot.captured.summary)
+        }
+
+    @Test
+    fun `title that sanitizes to empty is recorded as failed subwork`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            val resultSlot = slot<RecordingEnhancementResult>()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            textEnhancement.available = true
+            textEnhancement.titleResult = Result.success("\"\"")
+
+            worker().doWork()
+
+            coVerify(exactly = 1) {
+                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
+            }
+            assertNull(resultSlot.captured.title)
+            assertEquals(EnhancementSubworkStatus.FAILED, resultSlot.captured.titleStatus)
+        }
+
+    @Test
+    fun `committed enhancement triggers completion export`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            textEnhancement.available = true
+
+            worker().doWork()
+
+            coVerify(exactly = 1) { completionExporter.exportIfCompleted(recordingId) }
+        }
+
+    @Test
+    fun `stale enhancement commit does not export`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns false
+            textEnhancement.available = true
+
+            worker().doWork()
+
+            coVerify(exactly = 0) { completionExporter.exportIfCompleted(any()) }
+        }
+
     private fun worker(): RecordingEnhancementWorker =
         RecordingEnhancementWorker(
             appContext = context,
@@ -172,6 +243,7 @@ class RecordingEnhancementWorkerTest {
             wordReplacementRepository = wordReplacementRepository,
             wordReplacer = wordReplacer,
             textEnhancement = textEnhancement,
+            completionExporter = completionExporter,
         )
 
     private fun inputData(recordingId: UUID): Data =

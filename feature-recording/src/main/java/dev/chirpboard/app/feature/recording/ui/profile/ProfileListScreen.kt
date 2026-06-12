@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -55,19 +56,25 @@ fun ProfileListScreen(
         onDismiss = viewModel::clearError,
     )
 
-    var profileToDelete by remember { mutableStateOf<dev.chirpboard.app.data.entity.Profile?>(null) }
+    // LIF-12: the pending delete decision survives rotation/process death; id-keyed and
+    // re-resolved from the live list so it clears if the profile disappears.
+    var profileToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
+    val profileToDelete =
+        remember(profileToDeleteId, profiles) {
+            profileToDeleteId?.let { id -> profiles.firstOrNull { it.id.toString() == id } }
+        }
 
     // Delete confirmation dialog
     profileToDelete?.let { profile ->
         AnimatedAlertDialog(
-            onDismissRequest = { profileToDelete = null },
+            onDismissRequest = { profileToDeleteId = null },
             title = { Text(stringResource(R.string.rec_delete_profile)) },
             text = { Text(stringResource(R.string.rec_delete_profile_confirm, profile.name)) },
             confirmButton = {
                 TextButton(
                     onClick = {
                         viewModel.deleteProfile(profile)
-                        profileToDelete = null
+                        profileToDeleteId = null
                     },
                     colors =
                         ButtonDefaults.textButtonColors(
@@ -78,7 +85,7 @@ fun ProfileListScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { profileToDelete = null }) {
+                TextButton(onClick = { profileToDeleteId = null }) {
                     Text(stringResource(CoreR.string.rec_cancel))
                 }
             },
@@ -149,7 +156,7 @@ fun ProfileListScreen(
                         ProfileCard(
                             profileItem = ProfileItemState(profile),
                             onClick = { onProfileClick(profile.id) },
-                            onDelete = { profileToDelete = profile },
+                            onDelete = { profileToDeleteId = profile.id.toString() },
                             modifier = Modifier.animateItem(),
                         )
                         HorizontalDivider()

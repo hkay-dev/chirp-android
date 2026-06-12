@@ -37,8 +37,20 @@ class LlmClientImplTest {
         client.generateTitle(context)
         client.generateSummary(context)
 
-        coVerify { chatService.completePrompt("systemhello\n</transcript>") }
+        // Free-text prompts get the transcript fully delimited: opening tag added with a
+        // separating blank line, closing tag appended.
+        coVerify { chatService.completePrompt("system\n\n<transcript>\nhello\n</transcript>") }
         coVerify { chatService.completePrompt(match { it.endsWith("Transcript:\nhello") }) }
+    }
+
+    @Test
+    fun `process keeps built-in prompts ending with an opening transcript tag unchanged`() = runTest {
+        val context = TranscriptLlmContext("hello")
+        coEvery { chatService.completePrompt(any()) } returns Result.success("OK")
+
+        client.process(context, "Instructions here.\n\n<transcript>\n")
+
+        coVerify { chatService.completePrompt("Instructions here.\n\n<transcript>\nhello\n</transcript>") }
     }
 
     @Test

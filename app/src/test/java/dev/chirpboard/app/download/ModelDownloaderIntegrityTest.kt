@@ -33,8 +33,11 @@ class ModelDownloaderIntegrityTest {
         tempFile.delete()
     }
 
+    // Intentionally-changed behavior (ERR-1/ERR-2): the partial temp file is now KEPT on
+    // interruption so a later attempt resumes via HTTP Range instead of restarting the
+    // 652MB transfer. This test previously asserted the temp was deleted.
     @Test
-    fun `writeInputStreamToTempFile deletes temp on interruption`() {
+    fun `writeInputStreamToTempFile keeps partial temp on interruption for resume`() {
         val tempDir = Files.createTempDirectory("modeldl")
         val tempFile = tempDir.resolve("file.download").toFile()
 
@@ -57,7 +60,24 @@ class ModelDownloaderIntegrityTest {
         }
 
         assertTrue(threw)
-        assertFalse(tempFile.exists())
+        assertTrue(tempFile.exists())
+        assertEquals(20L, tempFile.length())
+        tempFile.delete()
+        tempDir.deleteIfExists()
+    }
+
+    @Test
+    fun `writeInputStreamToTempFile appends when resuming`() {
+        val tempDir = Files.createTempDirectory("modeldl")
+        val tempFile = tempDir.resolve("file.download").toFile()
+        tempFile.writeText("hello ")
+
+        runBlocking {
+            writeInputStreamToTempFile("world".byteInputStream(), tempFile, append = true) { }
+        }
+
+        assertEquals("hello world", tempFile.readText())
+        tempFile.delete()
         tempDir.deleteIfExists()
     }
 

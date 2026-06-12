@@ -32,6 +32,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -43,9 +44,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.chirpboard.app.core.playback.R as PlaybackR
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.util.formatAsDuration
 
@@ -85,6 +89,14 @@ internal fun PlaybackTimelineRow(
             positionMs
         }
 
+    // TalkBack reads the raw 0..1 fraction as a bare percentage; describe the position
+    // in time instead ("1:20 of 3:42").
+    val seekStateDescription =
+        stringResource(
+            PlaybackR.string.playback_seek_position,
+            displayedPositionMs.formatAsDuration(),
+            durationMs.formatAsDuration(),
+        )
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -102,7 +114,10 @@ internal fun PlaybackTimelineRow(
                 isDragging = false
             },
             enabled = enabled && durationMs > 0,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { stateDescription = seekStateDescription },
             colors = playbackSliderColors(),
         )
         Row(
@@ -141,10 +156,11 @@ internal fun PlaybackTransportRow(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        // No fixed 40dp size: the M3 default keeps the 40dp visual state layer while
+        // restoring the 48dp minimum interactive bounds (a11y touch-target audit).
         IconButton(
             onClick = onSkipBackward,
             enabled = controlsEnabled,
-            modifier = Modifier.size(40.dp),
         ) {
             Icon(
                 imageVector = Icons.Rounded.Replay10,
@@ -156,7 +172,7 @@ internal fun PlaybackTransportRow(
         FilledTonalIconButton(
             onClick = onPlayPause,
             enabled = !isLoading && !isError,
-            modifier = Modifier.size(playButtonSize),
+            modifier = Modifier.minimumInteractiveComponentSize().size(playButtonSize),
             colors =
                 IconButtonDefaults.filledTonalIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -203,7 +219,6 @@ internal fun PlaybackTransportRow(
         IconButton(
             onClick = onSkipForward,
             enabled = controlsEnabled,
-            modifier = Modifier.size(40.dp),
         ) {
             Icon(
                 imageVector = Icons.Rounded.Forward10,
@@ -288,12 +303,20 @@ internal fun MiniPlayerSeekTrack(
         } else {
             positionMs
         }
+    val miniSeekStateDescription =
+        stringResource(
+            PlaybackR.string.playback_seek_position,
+            displayedPositionMs.formatAsDuration(),
+            durationMs.formatAsDuration(),
+        )
 
+    // 32dp hit area (was 16dp): the visual 2dp track stays centered, but a sliver this
+    // thin was nearly impossible to grab by touch or focus with TalkBack/switch access.
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
-                .height(16.dp),
+                .height(32.dp),
         contentAlignment = Alignment.Center,
     ) {
         MiniPlayerProgressTrack(
@@ -314,7 +337,10 @@ internal fun MiniPlayerSeekTrack(
                 isDragging = false
             },
             enabled = enabled && durationMs > 0,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .semantics { stateDescription = miniSeekStateDescription },
             colors =
                 SliderDefaults.colors(
                     // The custom MiniPlayerProgressTrack draws the visible track, so keep the

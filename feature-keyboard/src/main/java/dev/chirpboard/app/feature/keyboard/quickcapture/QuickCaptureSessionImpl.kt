@@ -15,6 +15,7 @@ import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.feature.keyboard.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 
@@ -69,19 +70,24 @@ class QuickCaptureSessionImpl(
             is RecordingStartResult.AlreadyRecording -> {
                 val sourceLabel =
                     when (result.currentOrigin) {
-                        RecordingOrigin.APP -> "app"
-                        RecordingOrigin.WIDGET -> "widget"
-                        RecordingOrigin.KEYBOARD -> "keyboard"
-                        RecordingOrigin.RECOGNITION -> "voice recognition"
+                        RecordingOrigin.APP -> context.getString(R.string.keyboard_mic_source_app)
+                        RecordingOrigin.WIDGET -> context.getString(R.string.keyboard_mic_source_widget)
+                        RecordingOrigin.KEYBOARD -> context.getString(R.string.keyboard_mic_source_keyboard)
+                        RecordingOrigin.RECOGNITION -> context.getString(R.string.keyboard_mic_source_recognition)
                     }
-                Toast.makeText(context, "Microphone in use by $sourceLabel", Toast.LENGTH_SHORT).show()
+                Toast
+                    .makeText(
+                        context,
+                        context.getString(R.string.keyboard_mic_in_use, sourceLabel),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                 return QuickCaptureStartResult.AlreadyRecording(sourceLabel)
             }
         }
 
         when (audioFocusManager.requestFocus()) {
             is AudioFocusManager.FocusResult.Denied -> {
-                val message = "Another app is using audio"
+                val message = context.getString(R.string.keyboard_audio_busy)
                 recordingStateManager.onRecordingError(message)
                 return QuickCaptureStartResult.AudioFocusDenied(message)
             }
@@ -91,8 +97,9 @@ class QuickCaptureSessionImpl(
 
         if (!recorder.start()) {
             audioFocusManager.abandonFocus()
-            recordingStateManager.onRecordingError("Failed to start recording")
-            return QuickCaptureStartResult.Failed("Failed to start recording")
+            val message = context.getString(R.string.keyboard_record_start_failed)
+            recordingStateManager.onRecordingError(message)
+            return QuickCaptureStartResult.Failed(message)
         }
 
         recordingStateManager.onRecordingStarted("keyboard_temp_recording")

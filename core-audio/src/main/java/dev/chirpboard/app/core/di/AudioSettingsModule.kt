@@ -1,9 +1,12 @@
 package dev.chirpboard.app.core.di
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import dagger.Binds
@@ -54,6 +57,8 @@ class ContextAudioSettingsMigrationSource
 @Module
 @InstallIn(SingletonComponent::class)
 object AudioSettingsModule {
+    private const val TAG = "AudioSettings"
+
     @Provides
     @Singleton
     @AudioSettingsDataStore
@@ -61,6 +66,13 @@ object AudioSettingsModule {
         @ApplicationContext context: Context,
     ): DataStore<Preferences> =
         PreferenceDataStoreFactory.create(
+            // A corrupted preferences file would otherwise throw CorruptionException
+            // on every read forever; resetting to defaults is strictly better.
+            corruptionHandler =
+                ReplaceFileCorruptionHandler { corruption ->
+                    Log.e(TAG, "audio_settings corrupted; resetting to defaults", corruption)
+                    emptyPreferences()
+                },
             produceFile = { context.preferencesDataStoreFile("audio_settings") },
         )
 }

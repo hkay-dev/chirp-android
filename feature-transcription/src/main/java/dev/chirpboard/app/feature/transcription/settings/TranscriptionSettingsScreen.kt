@@ -59,6 +59,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
@@ -66,8 +67,14 @@ import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.transcription.R
 
+/**
+ * Entry point for every download intent. When All-files-access is missing the user is
+ * shown a rationale + storage-choice dialog (PLT-07) instead of being bounced straight to
+ * the system toggle: they can grant the permission for the durable shared-storage location
+ * OR download into app storage with no permission at all, so a declined grant is never a
+ * dead end.
+ */
 private fun requestModelDownload(
-    context: android.content.Context,
     viewModel: TranscriptionSettingsViewModel,
     uiState: TranscriptionSettingsViewModel.UiState,
 ) {
@@ -76,7 +83,7 @@ private fun requestModelDownload(
     }
 
     if (AllFilesAccessRequester.needsPermission()) {
-        AllFilesAccessRequester.openSettings(context)
+        viewModel.showStorageChoice()
         return
     }
 
@@ -86,7 +93,7 @@ private fun requestModelDownload(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptionSettingsScreen(
-    autoStartDownload: Boolean = false,
+    @Suppress("UNUSED_PARAMETER") autoStartDownload: Boolean = false,
     viewModel: TranscriptionSettingsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
 ) {
@@ -94,10 +101,20 @@ fun TranscriptionSettingsScreen(
     val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    LaunchedEffect(autoStartDownload, uiState.isDownloaded, uiState.isLoading) {
-        if (autoStartDownload) {
-            requestModelDownload(context, viewModel, uiState)
+    // LIF-06/ERR-3: the autoDownload nav-arg is consumed exactly once via the ViewModel's
+    // SavedStateHandle (the nav arg itself arrives there). Rotation, process-death restore,
+    // and error->idle flips can never re-trigger the 660MB download or loop a failing one.
+    LaunchedEffect(Unit) {
+        if (viewModel.consumePendingAutoDownload()) {
+            requestModelDownload(viewModel, viewModel.uiState.value)
         }
+    }
+
+    // PLT-07: returning from the system All-files-access page resumes the user's intent —
+    // if they granted access, the download they asked for starts without another tap.
+    LifecycleResumeEffect(Unit) {
+        viewModel.onResumed(hasAllFilesAccess = !AllFilesAccessRequester.needsPermission())
+        onPauseOrDispose { }
     }
 
     Scaffold(
@@ -143,22 +160,26 @@ fun TranscriptionSettingsScreen(
             item {
                 ModelManagementCard(
                     modelName = uiState.modelName,
-                    modelSizeMb = uiState.modelSizeMb,
+                    modelSizeMb = uiState.downloadedSizeMb ?: uiState.modelSizeMb,
                     isDownloaded = uiState.isDownloaded,
                     isLoading = uiState.isLoading,
+                    isWaitingForNetwork = uiState.isWaitingForNetwork,
                     progress = uiState.downloadProgress,
                     currentFile = uiState.currentFile,
-                    onDownload = { requestModelDownload(context, viewModel, uiState) },
+                    onDownload = { requestModelDownload(viewModel, uiState) },
+                    onCancelDownload = viewModel::cancelDownload,
                     onDelete = viewModel::showDeleteConfirmation,
                 )
             }
 
-            // Error Message
+            // Error Message (honest card with a manual Retry — never auto-retried, ERR-3)
             uiState.errorMessage?.let { error ->
                 item { Spacer(Modifier.height(8.dp)) }
                 item {
                     ErrorCard(
                         message = error,
+                        showRetry = !uiState.isDownloaded,
+                        onRetry = { requestModelDownload(viewModel, uiState) },
                         onDismiss = viewModel::dismissError,
                     )
                 }
@@ -187,6 +208,18 @@ fun TranscriptionSettingsScreen(
             onDismiss = viewModel::dismissDeleteConfirmation,
         )
     }
+
+    if (uiState.showStorageChoice) {
+        StorageChoiceDialog(
+            modelSizeMb = uiState.modelSizeMb,
+            onAllowAccess = {
+                viewModel.onAllFilesAccessRequested()
+                AllFilesAccessRequester.openSettings(context)
+            },
+            onUseAppStorage = { viewModel.downloadModel(preferInternalStorage = true) },
+            onDismiss = viewModel::dismissStorageChoice,
+        )
+    }
 }
 
 @Composable
@@ -195,9 +228,11 @@ private fun ModelManagementCard(
     modelSizeMb: Int,
     isDownloaded: Boolean,
     isLoading: Boolean,
+    isWaitingForNetwork: Boolean,
     progress: Float,
     currentFile: String,
     onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val statusTint =
@@ -295,6 +330,7 @@ private fun ModelManagementCard(
                     )
                     
                     val statusText = when {
+                        isWaitingForNetwork -> stringResource(R.string.transcription_status_waiting)
                         isLoading -> stringResource(R.string.transcription_status_downloading)
                         isDownloaded -> stringResource(R.string.transcription_status_ready)
                         else -> stringResource(R.string.transcription_status_not_downloaded)
@@ -321,43 +357,56 @@ private fun ModelManagementCard(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = if (currentFile.isNotEmpty()) {
-                                stringResource(R.string.transcription_downloading_file, currentFile)
-                            } else {
-                                stringResource(R.string.transcription_downloading)
+                            text = when {
+                                isWaitingForNetwork -> stringResource(R.string.transcription_download_waiting)
+                                currentFile.isNotEmpty() ->
+                                    stringResource(R.string.transcription_downloading_file, currentFile)
+                                else -> stringResource(R.string.transcription_downloading)
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Text(
-                            text = "${(progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
+                        if (!isWaitingForNetwork) {
+                            Text(
+                                text = "${(progress * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.tertiary,
+                            )
+                        }
+                    }
+                    if (isWaitingForNetwork) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth().height(8.dp),
                             color = MaterialTheme.colorScheme.tertiary,
+                            trackColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        )
+                    } else {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(8.dp),
+                            color = MaterialTheme.colorScheme.tertiary,
+                            trackColor = MaterialTheme.colorScheme.tertiaryContainer,
                         )
                     }
-                    LinearProgressIndicator(
-                        progress = { progress },
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                        color = MaterialTheme.colorScheme.tertiary,
-                        trackColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    )
                 }
             }
-            
+
             // Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
                 if (!isDownloaded) {
-                    Button(
-                        onClick = onDownload,
-                        enabled = !isLoading,
-                    ) {
-                        if (isLoading) {
-                            Text(stringResource(R.string.transcription_downloading))
-                        } else {
+                    if (isLoading) {
+                        // The transfer is app-scoped work that keeps running when the user
+                        // leaves; Cancel is the honest escape hatch (partials are kept, so
+                        // a later download resumes instead of restarting).
+                        OutlinedButton(onClick = onCancelDownload) {
+                            Text(stringResource(R.string.transcription_cancel_download))
+                        }
+                    } else {
+                        Button(onClick = onDownload) {
                             Icon(
                                 imageVector = Icons.Rounded.CloudDownload,
                                 contentDescription = null,
@@ -391,6 +440,8 @@ private fun ModelManagementCard(
 @Composable
 private fun ErrorCard(
     message: String,
+    showRetry: Boolean,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     Surface(
@@ -420,8 +471,58 @@ private fun ErrorCard(
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.transcription_dismiss))
             }
+            if (showRetry) {
+                TextButton(onClick = onRetry) {
+                    Text(stringResource(R.string.transcription_retry))
+                }
+            }
         }
     }
+}
+
+/**
+ * PLT-07: explains WHY the app wants All-files-access (the 660MB model survives reinstall
+ * and Clear data in shared Documents) and offers the internal-storage fallback the
+ * downloader already supports, so declining the permission never dead-ends the download.
+ */
+@Composable
+private fun StorageChoiceDialog(
+    modelSizeMb: Int,
+    onAllowAccess: () -> Unit,
+    onUseAppStorage: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AnimatedAlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.CloudDownload,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        title = {
+            Text(stringResource(R.string.transcription_storage_choice_title))
+        },
+        text = {
+            Text(stringResource(R.string.transcription_storage_choice_message, modelSizeMb))
+        },
+        confirmButton = {
+            Button(onClick = onAllowAccess) {
+                Text(stringResource(R.string.transcription_storage_choice_allow))
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.transcription_cancel))
+                }
+                TextButton(onClick = onUseAppStorage) {
+                    Text(stringResource(R.string.transcription_storage_choice_internal))
+                }
+            }
+        },
+    )
 }
 
 @Composable

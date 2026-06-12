@@ -11,7 +11,10 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import androidx.compose.runtime.MonotonicFrameClock
+import androidx.compose.runtime.PausableMonotonicFrameClock
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.compositionContext
@@ -97,7 +100,20 @@ class ChirpKeyboardService :
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val recomposerScope = CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main)
-    private val recomposer = Recomposer(recomposerScope.coroutineContext)
+
+    // PRF-3: unlike the platform windowRecomposer, a hand-rolled Recomposer has no pausable frame
+    // clock, so the idle mic aura's infinite transition would keep posting Choreographer callbacks
+    // at vsync rate for as long as the IME service lives — including while the keyboard window is
+    // HIDDEN and the user is in other apps. Wrapping the AndroidUiDispatcher clock in a
+    // PausableMonotonicFrameClock lets onWindowHidden stop all withFrameNanos work and
+    // onWindowShown resume it (recomposition catches up with any state written while paused).
+    private val recomposerFrameClock =
+        PausableMonotonicFrameClock(
+            requireNotNull(recomposerScope.coroutineContext[MonotonicFrameClock]) {
+                "AndroidUiDispatcher.Main must provide a MonotonicFrameClock"
+            },
+        )
+    private val recomposer = Recomposer(recomposerScope.coroutineContext + recomposerFrameClock)
 
     private lateinit var audioFocusManager: AudioFocusManager
     private lateinit var coordinator: KeyboardSessionCoordinator
@@ -106,14 +122,28 @@ class ChirpKeyboardService :
     private var stopBridgeRegistration: KeyboardRecordingStopBridge.Registration? = null
     private var composeView: ComposeView? = null
     private var configChangeGraceUntilUptimeMs = 0L
-    private var lastKnownOrientation = Configuration.ORIENTATION_UNDEFINED
+    private var lastKnownConfigSnapshot: KeyboardConfigSnapshot? = null
     private var orphanedRecordingFinalizeJob: Job? = null
     private var pendingImeSwitchCleanup = false
+
+    // IME-5: the stray-z cleanup may only be considered for the FIRST client bind after service
+    // creation (a genuine IME switch recreates this service) and only within a freshness window,
+    // so an ordinary app switch can never delete a legitimate trailing z/Z.
+    private var straySwitchCleanupArmed = false
+    private var serviceCreatedAtUptimeMs = 0L
+
+    /** Current editor's action key (IME-1); read by the composition, written on input start. */
+    private val editorImeAction = mutableStateOf(KeyboardImeAction.Enter)
+
+    /** PRF-3 defensive gate: ambient keyboard animations compose only while the window shows. */
+    private val windowShownState = mutableStateOf(true)
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "onCreate")
-        lastKnownOrientation = resources.configuration.orientation
+        lastKnownConfigSnapshot = keyboardConfigSnapshotOf(resources.configuration)
+        serviceCreatedAtUptimeMs = SystemClock.uptimeMillis()
+        straySwitchCleanupArmed = true
 
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -149,6 +179,9 @@ class ChirpKeyboardService :
             )
 
         coordinator.commitTextProvider = inputSessionGuard.commitTextProvider(::commitToInputSession)
+        // IME-3: incognito (no-personalized-learning) sessions suppress history persistence only;
+        // sampled by the coordinator at stop time.
+        coordinator.historyPersistenceSuppressed = { inputSessionGuard.isLearningSuppressed }
 
         audioFocusManager.onFocusLost = { lossKind ->
             // Transient loss or ducking (notification ding, assistant chirp) must not end
@@ -173,7 +206,10 @@ class ChirpKeyboardService :
                 }
             }
 
-        recomposerScope.launch(AndroidUiDispatcher.Main) {
+        // PRF-3: the recompose loop awaits frames from the CALLING coroutine's MonotonicFrameClock,
+        // so the pausable clock must be in this launch context (the Recomposer constructor context
+        // only covers effect coroutines like rememberInfiniteTransition's withFrameNanos).
+        recomposerScope.launch(AndroidUiDispatcher.Main + recomposerFrameClock) {
             recomposer.runRecomposeAndApplyChanges()
         }
 
@@ -216,17 +252,64 @@ class ChirpKeyboardService :
     override fun onConfigurationChanged(newConfig: Configuration) {
         configChangeGraceUntilUptimeMs = SystemClock.uptimeMillis() + CONFIG_CHANGE_GRACE_MS
         super.onConfigurationChanged(newConfig)
+        // LIF-08: the cached ComposeView can be detached from its dead parent exactly when the
+        // window's configuration dispatch lands, leaving LocalConfiguration (and with it
+        // isSystemInDarkTheme/density) stale until the IME process restarts. Forwarding the new
+        // configuration ourselves makes the update deterministic; safe on detached views.
+        composeView?.dispatchConfigurationChanged(newConfig)
     }
 
-    // The view-restart messages from a rotation can arrive before or after our own
-    // onConfigurationChanged, so check both the grace window and the live orientation.
+    // The view-restart messages from a config change can arrive before or after our own
+    // onConfigurationChanged, so check both the grace window and a live snapshot diff. The
+    // snapshot covers orientation AND uiMode/fontScale/density/screen size (LIF-07): a dark-mode
+    // flip or split-screen resize mid-dictation must preserve the session exactly like rotation.
     private fun isConfigChangeInFlight(): Boolean =
         SystemClock.uptimeMillis() < configChangeGraceUntilUptimeMs ||
-            resources.configuration.orientation != lastKnownOrientation
+            keyboardConfigSnapshotOf(resources.configuration) != lastKnownConfigSnapshot
 
     override fun onBindInput() {
         super.onBindInput()
-        pendingImeSwitchCleanup = true
+        // IME-5: onBindInput fires for EVERY freshly bound client app, not only after an IME
+        // switch. Arm the cleanup once per service lifetime, and only within moments of
+        // onCreate — the only window in which a SwiftKey-mic stray letter can exist.
+        if (straySwitchCleanupArmed) {
+            straySwitchCleanupArmed = false
+            pendingImeSwitchCleanup =
+                shouldAttemptStraySwitchCleanup(SystemClock.uptimeMillis() - serviceCreatedAtUptimeMs)
+        }
+    }
+
+    override fun onWindowShown() {
+        super.onWindowShown()
+        windowShownState.value = true
+        if (recomposerFrameClock.isPaused) {
+            recomposerFrameClock.resume()
+        }
+        // PRF-3: restore RESUMED so collectAsStateWithLifecycle collectors pick the state back up.
+        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+    }
+
+    override fun onWindowHidden() {
+        super.onWindowHidden()
+        windowShownState.value = false
+        // PRF-3: with the keyboard window hidden there is nothing to draw — drop the lifecycle to
+        // CREATED so lifecycle-aware flow collection suspends, and pause the frame clock so the
+        // idle aura's infinite transition stops burning a CPU wakeup per vsync all day. Dictation
+        // cannot be active here (onFinishInputView finalizes it), and in-flight transcription,
+        // commits and rescue persistence run on ordinary dispatchers, untouched by the clock.
+        moveLifecycleDownToCreated()
+        if (!recomposerFrameClock.isPaused) {
+            recomposerFrameClock.pause()
+        }
+    }
+
+    private fun moveLifecycleDownToCreated() {
+        if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+        }
+        if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        }
     }
 
     override fun onCreateInputView(): View {
@@ -275,12 +358,15 @@ class ChirpKeyboardService :
                     onBackspaceWord = { deletePreviousWord(currentInputConnection) },
                     onSpace = { commitSpace(currentInputConnection) },
                     onMoveCursor = { delta -> moveCursor(currentInputConnection, delta) },
+                    imeAction = editorImeAction.value,
+                    onImeAction = { performImeAction(currentInputConnection, editorImeAction.value) },
                     onOpenApp = ::openMainActivity,
                     onDismissError = {
-                        coordinator.setPermissionError(null)
+                        coordinator.clearErrorOverlay()
                         inlineTranscription.resetPhase()
                     },
                     dynamicColor = useDynamicColor,
+                    windowShown = windowShownState.value,
                 )
             }
             composeView = view
@@ -295,27 +381,32 @@ class ChirpKeyboardService :
         orphanedRecordingFinalizeJob?.cancel()
         orphanedRecordingFinalizeJob = null
         val preserveSession = restarting && isConfigChangeInFlight()
-        lastKnownOrientation = resources.configuration.orientation
+        lastKnownConfigSnapshot = keyboardConfigSnapshotOf(resources.configuration)
+        editorImeAction.value = resolveImeAction(info)
         val cleanupStraySwitchCharacter = pendingImeSwitchCleanup && !restarting && !preserveSession
         pendingImeSwitchCleanup = false
-        inputSessionGuard.startInput(info, preserveSession = preserveSession)
+        inputSessionGuard.startInput(info, preserveSession = preserveSession, restarting = restarting)
         if (inputSessionGuard.isSensitiveInput) {
             if (coordinator.isRecordingActive()) {
                 coordinator.finalizeActiveRecording(
                     errorMessage = getString(R.string.keyboard_sensitive_input_disabled),
                 )
             }
-            coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
+            // IME-4: a password field is not an error — typing aids stay usable; only the voice
+            // panel swaps to a neutral "dictation off" notice (no Retry).
+            coordinator.clearErrorOverlay()
+            coordinator.setSensitiveInput(true)
             return
         }
+        coordinator.setSensitiveInput(false)
         if (cleanupStraySwitchCharacter) {
             removeStraySwitchCharacter(currentInputConnection)
         }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
-            coordinator.setPermissionError(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
+            coordinator.setMicPermissionError(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
             return
         }
-        coordinator.setPermissionError(null)
+        coordinator.clearErrorOverlay()
         coordinator.refreshModelStatus()
         // LOAD-1/LOAD-2: warm the shared recognizer into RAM the instant the keyboard appears
         // (idempotent — initializeModel() no-ops when already ready or a load is in flight), so a
@@ -350,7 +441,7 @@ class ChirpKeyboardService :
     private fun finalizeRecordingForClosedKeyboard() {
         if (coordinator.isRecordingActive()) {
             coordinator.finalizeActiveRecording(
-                errorMessage = "Recording stopped when the keyboard closed before transcription finished",
+                errorMessage = getString(R.string.keyboard_closed_during_dictation),
             )
         }
     }
@@ -373,9 +464,13 @@ class ChirpKeyboardService :
         // destroy could never interleave.
         coordinator.awaitInFlightTeardown()
         coordinator.capture.close()
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        moveLifecycleDownToCreated()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        // Un-pause the frame clock (if the window was hidden) so recomposer cancellation and
+        // composition disposal can quiesce without waiting on a frame that will never come.
+        if (recomposerFrameClock.isPaused) {
+            recomposerFrameClock.resume()
+        }
         recomposer.cancel()
         recomposerScope.cancel()
         scope.cancel()
@@ -395,7 +490,11 @@ class ChirpKeyboardService :
     private fun onMicTapForCurrentInput() {
         val session = inputSessionGuard.captureCommitSession()
         if (session == null) {
-            coordinator.setPermissionError(getString(R.string.keyboard_sensitive_input_disabled))
+            // Sensitive fields already show the dictation-off notice; for any other dead session
+            // (no active input) surface the same explanation as a dismissible overlay.
+            if (!inputSessionGuard.isSensitiveInput) {
+                coordinator.setSessionError(getString(R.string.keyboard_sensitive_input_disabled))
+            }
             return
         }
         modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
@@ -421,7 +520,7 @@ class ChirpKeyboardService :
         val committed = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
         if (!committed) {
             Log.w(TAG, "Skipped dictation commit because the input session changed")
-            coordinator.setPermissionError(getString(R.string.keyboard_input_changed))
+            coordinator.setSessionError(getString(R.string.keyboard_input_changed))
         }
         return committed
     }

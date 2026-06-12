@@ -8,6 +8,7 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
+import dev.chirpboard.app.feature.recording.util.RecordingTitleFormatter
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -55,6 +56,9 @@ class RecordingStopOrchestratorTest {
                     mockk(relaxed = true),
                     RecordingFileValidator(),
                 ),
+                mockk<RecordingTitleFormatter> {
+                    every { format(any()) } returns "Jun 12, 3:42 PM"
+                },
             )
     }
 

@@ -91,12 +91,9 @@
                 android:resource="@xml/recognition_service" />
         </service>
 
-        <!-- Recording Service (from feature-recording) -->
-        <service
-            android:name="dev.chirpboard.app.feature.recording.service.RecordingService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="microphone" />
+        <!-- RecordingService is declared by feature-recording's own manifest (single owner);
+             a duplicate node here would have to stay attribute-identical forever to keep the
+             manifest merger happy, so it was removed. -->
 
         <!-- Shared recording playback -->
         <service

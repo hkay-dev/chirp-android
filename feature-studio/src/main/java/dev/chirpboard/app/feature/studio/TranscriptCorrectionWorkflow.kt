@@ -14,6 +14,15 @@ data class TranscriptSelectionResult(
     val text: String,
 )
 
+/**
+ * PLH-7: a pending "save this correction as a Word Replacement?" offer surfaced after a manual
+ * transcript correction reduces to a single word/phrase substitution.
+ */
+data class TranscriptCorrectionPromotionPrompt(
+    val original: String,
+    val replacement: String,
+)
+
 internal fun analyzeTranscriptCorrectionPromotion(
     sourceText: String,
     correctedText: String,

@@ -24,6 +24,9 @@ object HapticFeedback {
     /** Light tick when backspace is pressed. */
     fun onBackspace(context: Context) = ChirpHaptics.tap(context)
 
+    /** Light tick for plain key taps (space-adjacent action key). */
+    fun onKeyTap(context: Context) = ChirpHaptics.tap(context)
+
     /** Very subtle tick while sliding the spacebar to move the cursor. */
     fun onCursorStep(context: Context) = ChirpHaptics.cursorStep(context)
 }

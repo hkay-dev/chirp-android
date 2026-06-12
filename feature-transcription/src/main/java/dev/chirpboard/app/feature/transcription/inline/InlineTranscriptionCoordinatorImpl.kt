@@ -13,6 +13,8 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.data.repository.WordReplacementRepository
+import dev.chirpboard.app.feature.transcription.WordReplacer
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import dev.chirpboard.app.feature.transcription.audio.asSampleFlow
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,6 +36,8 @@ class InlineTranscriptionCoordinatorImpl
         private val transcriberProvider: TranscriberProvider,
         private val textEnhancement: RecordingTextEnhancementPort,
         private val modelReadinessGate: SpeechModelReadinessGate,
+        private val wordReplacementRepository: WordReplacementRepository,
+        private val wordReplacer: WordReplacer,
     ) : InlineTranscriptionCoordinator {
         private val tag = "InlineTranscription"
 
@@ -108,16 +112,20 @@ class InlineTranscriptionCoordinatorImpl
                                 "Failed to load speech model"
                             }
                         transcriptionLog.failure("recognizer_not_ready")
-                        rescueCapture(
-                            persistence = persistence,
-                            audioSource = request.audioSource,
-                            rawText = null,
-                            errorMessage = message,
-                            reason = InlineCapturePersistReason.RESCUE,
-                        )
+                        val rescued =
+                            rescueCapture(
+                                persistence = persistence,
+                                audioSource = request.audioSource,
+                                rawText = null,
+                                errorMessage = message,
+                                reason = InlineCapturePersistReason.RESCUE,
+                            )
                         captureResolved.set(true)
-                        _phase.value = InlineTranscriptionPhase.Error(message)
-                        onRecordingError(message)
+                        // ERR-25: when the capture was rescued, say so — otherwise users assume
+                        // their dictation is gone and re-speak it.
+                        val displayMessage = if (rescued) message + RESCUE_SAVED_SUFFIX else message
+                        _phase.value = InlineTranscriptionPhase.Error(displayMessage)
+                        onRecordingError(displayMessage)
                         return
                     }
                 }
@@ -135,7 +143,11 @@ class InlineTranscriptionCoordinatorImpl
                     }
                 val rawText =
                     when (mappedOutcome) {
-                        is InlineTranscriptionResolution.Success -> mappedOutcome.text
+                        // PLH-10: the user's word-replacement dictionary applies to inline
+                        // dictations exactly like recorder-app transcriptions — before the LLM
+                        // sees the text, so the raw fallback, the polish input and the persisted
+                        // rawText are all post-replacement.
+                        is InlineTranscriptionResolution.Success -> applyWordReplacements(mappedOutcome.text)
 
                         InlineTranscriptionResolution.NoSpeech -> {
                             transcriptionLog.skipped("no_speech")
@@ -153,16 +165,19 @@ class InlineTranscriptionCoordinatorImpl
 
                         is InlineTranscriptionResolution.Failure -> {
                             transcriptionLog.failure("transcription_failed", message = mappedOutcome.message)
-                            rescueCapture(
-                                persistence = persistence,
-                                audioSource = request.audioSource,
-                                rawText = rawTextForPersistence,
-                                errorMessage = mappedOutcome.message,
-                                reason = InlineCapturePersistReason.RESCUE,
-                            )
+                            val rescued =
+                                rescueCapture(
+                                    persistence = persistence,
+                                    audioSource = request.audioSource,
+                                    rawText = rawTextForPersistence,
+                                    errorMessage = mappedOutcome.message,
+                                    reason = InlineCapturePersistReason.RESCUE,
+                                )
                             captureResolved.set(true)
-                            _phase.value = InlineTranscriptionPhase.Error(mappedOutcome.message)
-                            onRecordingError(mappedOutcome.message)
+                            val displayMessage =
+                                if (rescued) mappedOutcome.message + RESCUE_SAVED_SUFFIX else mappedOutcome.message
+                            _phase.value = InlineTranscriptionPhase.Error(displayMessage)
+                            onRecordingError(displayMessage)
                             return
                         }
                     }
@@ -225,6 +240,9 @@ class InlineTranscriptionCoordinatorImpl
                             )
                         } else {
                             enhancementLog.failure("enhancement_timeout")
+                            // ERR-19: an enhancement timeout degrades to the raw transcript just
+                            // like an enhancement failure, so it surfaces the same LlmError panel
+                            // instead of silently returning to Idle.
                             deliverTranscript(
                                 delivery =
                                     TranscriptDelivery(
@@ -232,7 +250,8 @@ class InlineTranscriptionCoordinatorImpl
                                         persistence = persistence,
                                         rawText = rawText,
                                         processedText = null,
-                                        phaseOnCommit = InlineTranscriptionPhase.Idle,
+                                        phaseOnCommit =
+                                            InlineTranscriptionPhase.LlmError(ENHANCEMENT_TIMEOUT_MESSAGE),
                                         correlationId = correlationId,
                                         captureResolved = captureResolved,
                                     ),
@@ -273,17 +292,34 @@ class InlineTranscriptionCoordinatorImpl
             } catch (e: Exception) {
                 val errorMessage = "Transcription failed: ${e.message}"
                 transcriptionLog.failure("exception", e)
-                rescueCapture(
-                    persistence = persistence,
-                    audioSource = request.audioSource,
-                    rawText = rawTextForPersistence,
-                    errorMessage = errorMessage,
-                    reason = InlineCapturePersistReason.RESCUE,
-                )
-                _phase.value = InlineTranscriptionPhase.Error(errorMessage)
-                onRecordingError(errorMessage)
+                val rescued =
+                    rescueCapture(
+                        persistence = persistence,
+                        audioSource = request.audioSource,
+                        rawText = rawTextForPersistence,
+                        errorMessage = errorMessage,
+                        reason = InlineCapturePersistReason.RESCUE,
+                    )
+                val displayMessage = if (rescued) errorMessage + RESCUE_SAVED_SUFFIX else errorMessage
+                _phase.value = InlineTranscriptionPhase.Error(displayMessage)
+                onRecordingError(displayMessage)
             }
         }
+
+        /**
+         * Applies the user's enabled word replacements to a fresh transcript (PLH-10). Failures
+         * (e.g. a DB read error) must never fail the dictation: the unmodified transcript wins.
+         */
+        private suspend fun applyWordReplacements(text: String): String =
+            try {
+                val replacements = wordReplacementRepository.getEnabledReplacements()
+                if (replacements.isEmpty()) text else wordReplacer.apply(text, replacements)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(tag, "Word replacements unavailable; using the unmodified transcript", e)
+                text
+            }
 
         /**
          * Classifies a pipeline cancellation before rethrowing it. Only an explicit user
@@ -337,6 +373,9 @@ class InlineTranscriptionCoordinatorImpl
          * callback so each site keeps its own user-visible outcome; this helper only owns
          * the "captured speech is never silently dropped, and a rescue can never crash the
          * process" invariant.
+         *
+         * @return true when the persist completed, so callers can tell the user their audio was
+         * saved (ERR-25); false when there is no persistence or the persist failed.
          */
         private suspend fun rescueCapture(
             persistence: InlineCapturePersistence?,
@@ -345,9 +384,9 @@ class InlineTranscriptionCoordinatorImpl
             processedText: String? = null,
             errorMessage: String?,
             reason: InlineCapturePersistReason,
-        ) {
-            if (persistence == null) return
-            withContext(NonCancellable + Dispatchers.Main) {
+        ): Boolean {
+            if (persistence == null) return false
+            return withContext(NonCancellable + Dispatchers.Main) {
                 try {
                     persistence.persistAudioSource(
                         audioSource = audioSource,
@@ -356,6 +395,7 @@ class InlineTranscriptionCoordinatorImpl
                         errorMessage = errorMessage,
                         reason = reason,
                     )
+                    true
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -363,6 +403,7 @@ class InlineTranscriptionCoordinatorImpl
                     // into the IME process. The capture's backing audio file remains on disk
                     // for the next reconciliation/recovery pass even if this DB write failed.
                     Log.e(tag, "Rescue persist failed (reason=$reason); capture left for recovery", e)
+                    false
                 }
             }
         }
@@ -436,45 +477,65 @@ class InlineTranscriptionCoordinatorImpl
         private suspend fun transcribeAudioSource(audioSource: InlineAudioSource): InlineTranscriptionResolution =
             when (audioSource) {
                 is InlineAudioSource.InMemory ->
-                    mapInlineTranscriptionOutcome(
-                        transcriberProvider.transcribe(audioSource.samples, audioSource.sampleRate),
-                    )
-
-                is InlineAudioSource.PcmFloatFile -> {
-                    val processor =
-                        ChunkedAudioProcessor(
-                            chunkDurationMs = 30_000,
-                            overlapDurationMs = 2_000,
-                            sampleRate = audioSource.sampleRate,
-                        )
-                    val transcript =
-                        processor.processAndJoin(audioSource.asSampleFlow()) { samples ->
-                            when (
-                                val outcome =
-                                    mapInlineTranscriptionOutcome(
-                                        transcriberProvider.transcribe(samples, audioSource.sampleRate),
-                                    )
-                            ) {
-                                is InlineTranscriptionResolution.Success -> outcome.text
-                                InlineTranscriptionResolution.NoSpeech -> ""
-                                is InlineTranscriptionResolution.Failure -> throw InlineTranscriptionFailureException(outcome.message)
-                            }
-                        }
-
-                    if (transcript.isBlank()) {
-                        InlineTranscriptionResolution.NoSpeech
+                    // Long in-memory captures (recognition-surface dictations can reach the
+                    // 10-minute recorder cap) go through the same bounded 30s chunking as the
+                    // file-backed path: a single multi-minute utterance costs quadratic native
+                    // attention memory in sherpa-onnx and risks an unrecoverable native OOM.
+                    if (audioSource.samples.size > audioSource.sampleRate * SINGLE_UTTERANCE_MAX_SECONDS) {
+                        transcribeChunked(audioSource)
                     } else {
-                        InlineTranscriptionResolution.Success(transcript)
+                        mapInlineTranscriptionOutcome(
+                            transcriberProvider.transcribe(audioSource.samples, audioSource.sampleRate),
+                        )
+                    }
+
+                is InlineAudioSource.PcmFloatFile -> transcribeChunked(audioSource)
+            }
+
+        private suspend fun transcribeChunked(audioSource: InlineAudioSource): InlineTranscriptionResolution {
+            val processor =
+                ChunkedAudioProcessor(
+                    chunkDurationMs = 30_000,
+                    overlapDurationMs = 2_000,
+                    sampleRate = audioSource.sampleRate,
+                )
+            val transcript =
+                processor.processAndJoin(audioSource.asSampleFlow()) { samples ->
+                    when (
+                        val outcome =
+                            mapInlineTranscriptionOutcome(
+                                transcriberProvider.transcribe(samples, audioSource.sampleRate),
+                            )
+                    ) {
+                        is InlineTranscriptionResolution.Success -> outcome.text
+                        InlineTranscriptionResolution.NoSpeech -> ""
+                        is InlineTranscriptionResolution.Failure -> throw InlineTranscriptionFailureException(outcome.message)
                     }
                 }
+
+            return if (transcript.isBlank()) {
+                InlineTranscriptionResolution.NoSpeech
+            } else {
+                InlineTranscriptionResolution.Success(transcript)
             }
+        }
     }
+
+/** In-memory captures longer than this are decoded in bounded chunks instead of one utterance. */
+private const val SINGLE_UTTERANCE_MAX_SECONDS = 60
 
 internal const val COMMIT_REFUSED_MESSAGE =
     "Couldn't insert dictated text into the field; transcript saved to recordings"
 
 internal const val CANCELLATION_RESCUE_MESSAGE =
     "Dictation was interrupted before it finished; the capture was saved to recordings"
+
+/** ERR-19: shown when AI polish times out and the raw transcript was inserted instead. */
+internal const val ENHANCEMENT_TIMEOUT_MESSAGE =
+    "AI processing timed out — inserted the raw transcript"
+
+/** ERR-25: appended to rescue-backed errors so users know their speech was not lost. */
+internal const val RESCUE_SAVED_SUFFIX = " — your audio was saved to recordings"
 
 private data class TranscriptDelivery(
     val request: InlineTranscriptionRequest,
