@@ -459,4 +459,83 @@ class AudioInputDeviceSelectorTest {
     fun kindFor_mapsUsbAccessoryToUsb() {
         assertEquals(AudioInputDeviceKind.Usb, AudioInputDeviceSelector.kindFor(AudioDeviceInfo.TYPE_USB_ACCESSORY))
     }
+
+    @Test
+    fun surfaceableInputDevices_keepsSameNameDevicesWithDistinctAddresses() {
+        // Two identical-model USB interfaces on a hub share a productName but carry
+        // distinct hardware addresses — both must stay selectable.
+        val usbA =
+            summary(id = 1, kind = AudioInputDeviceKind.Usb, name = "USB Audio", address = "card=1;device=0")
+        val usbB =
+            summary(id = 2, kind = AudioInputDeviceKind.Usb, name = "USB Audio", address = "card=2;device=0")
+
+        val surfaced = AudioInputDeviceSelector.surfaceableInputDevices(listOf(usbA, usbB))
+
+        assertEquals(listOf(1, 2), surfaced.map { it.id })
+    }
+
+    @Test
+    fun surfaceableInputDevices_stillCollapsesHiddenNameBluetoothRowsWithBlankAddresses() {
+        // Without BLUETOOTH_CONNECT both headsets degrade to the type label with a blank
+        // address; the user could never tell them apart, so one row is kept — only
+        // distinct NON-blank addresses prevent collapsing.
+        val first =
+            summary(id = 1, kind = AudioInputDeviceKind.Bluetooth, name = "Bluetooth", address = "", bluetoothNameHidden = true)
+        val second =
+            summary(id = 2, kind = AudioInputDeviceKind.Bluetooth, name = "Bluetooth", address = "", bluetoothNameHidden = true)
+
+        val surfaced = AudioInputDeviceSelector.surfaceableInputDevices(listOf(first, second))
+
+        assertEquals(1, surfaced.size)
+    }
+
+    // --- Recordable (capture-side) device list ------------------------------------------
+
+    @Test
+    fun recordableInputDevices_dropsOtherKindsButKeepsDuplicateBuiltInRows() {
+        // Capture-start selection must not dedup: a manual key persisted for the sibling
+        // built-in row the picker collapsed must still resolve to hardware.
+        val bottomMic = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+        val referenceMic = summary(id = 2, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+        val telephony = summary(id = 3, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
+
+        val recordable =
+            AudioInputDeviceSelector.recordableInputDevices(listOf(bottomMic, referenceMic, telephony))
+
+        assertEquals(listOf(1, 2), recordable.map { it.id })
+    }
+
+    @Test
+    fun choose_manualKeyForOtherEndpoint_overTheRecordableList_fallsBackAndFlagsMissing() {
+        // Legacy poisoned key: pre-dedup pickers displayed Other-kind endpoints, so a
+        // stored key may pin one. Over the recordable list it must report the preference
+        // missing and fall back by rank — consistent with what the picker shows.
+        val otherEndpoint = summary(id = 3, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
+        val builtIn = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+
+        val choice =
+            AudioInputDeviceSelector.chooseInputDevice(
+                devices = AudioInputDeviceSelector.recordableInputDevices(listOf(otherEndpoint, builtIn)),
+                policy = AudioInputDevicePolicy.Manual,
+                manualKey = otherEndpoint.selectionKey,
+            )
+
+        assertEquals(builtIn.id, choice.device?.id)
+        assertTrue(choice.preferredMissing)
+    }
+
+    @Test
+    fun choose_automaticOverTheRecordableList_neverPicksOtherEndpoints() {
+        val telephony = summary(id = 3, kind = AudioInputDeviceKind.Other, name = "SM-S938U1")
+        val builtIn = summary(id = 1, kind = AudioInputDeviceKind.BuiltIn, name = "SM-S938U1")
+
+        val choice =
+            AudioInputDeviceSelector.chooseInputDevice(
+                devices = AudioInputDeviceSelector.recordableInputDevices(listOf(telephony, builtIn)),
+                policy = AudioInputDevicePolicy.Automatic,
+                manualKey = null,
+            )
+
+        assertEquals(builtIn.id, choice.device?.id)
+    }
 }

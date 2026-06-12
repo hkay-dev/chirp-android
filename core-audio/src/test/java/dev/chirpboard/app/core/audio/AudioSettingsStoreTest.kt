@@ -237,6 +237,55 @@ class AudioSettingsStoreTest {
         }
 
     @Test
+    fun `selectManualDevice writes key name and manual policy in a single emission`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_select_manual.preferences_pb")
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            store.settings.test {
+                // Drain the initial post-migration state before selecting a device.
+                val initial = awaitItem()
+                assertEquals(AudioInputDevicePolicy.Automatic, initial.inputDevicePolicy)
+                assertEquals(null, initial.manualDeviceAddress)
+
+                store.selectManualDevice("device:26:Buds", displayName = "Buds")
+
+                // A single emission must carry the key, name AND the flipped policy together,
+                // so a capture racing the selection never sees the new key under Automatic.
+                val updated = awaitItem()
+                assertEquals(AudioInputDevicePolicy.Manual, updated.inputDevicePolicy)
+                assertEquals("device:26:Buds", updated.manualDeviceAddress)
+                assertEquals("Buds", updated.manualDeviceName)
+
+                cancelAndIgnoreRemainingEvents()
+            }
+        }
+
+    @Test
+    fun `selectAutomatic flips policy and leaves the stale manual key in place`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_select_automatic.preferences_pb")
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            store.selectManualDevice("device:26:Buds", displayName = "Buds")
+            store.selectAutomatic()
+
+            val settings = store.currentSettings()
+            assertEquals(AudioInputDevicePolicy.Automatic, settings.inputDevicePolicy)
+            // The manual key/name are deliberately retained so switching back restores them.
+            assertEquals("device:26:Buds", settings.manualDeviceAddress)
+            assertEquals("Buds", settings.manualDeviceName)
+        }
+
+    @Test
     fun `setManualDeviceAddress keeps working as a name-less selection`() =
         testScope.runTest {
             val dataStore = createDataStore("audio_settings_manual_addr.preferences_pb")

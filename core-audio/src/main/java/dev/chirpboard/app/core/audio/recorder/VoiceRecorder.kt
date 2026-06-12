@@ -251,13 +251,14 @@ class VoiceRecorder(
                     // phoneme-smearing noise suppression) instead of generic MIC defaults.
                     attempt.pendingRecord =
                         inputDeviceSelector?.let { selector ->
-                            selector.buildAudioRecord(
-                                audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                                sampleRate = SAMPLE_RATE,
-                                channelConfig = CHANNEL_CONFIG,
-                                audioFormat = AUDIO_FORMAT,
-                                bufferSize = bufferSize * 2,
-                            )
+                            selector
+                                .buildAudioRecord(
+                                    audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                                    sampleRate = SAMPLE_RATE,
+                                    channelConfig = CHANNEL_CONFIG,
+                                    audioFormat = AUDIO_FORMAT,
+                                    bufferSize = bufferSize * 2,
+                                ).record
                         } ?: AudioRecord(
                             MediaRecorder.AudioSource.VOICE_RECOGNITION,
                             SAMPLE_RATE,

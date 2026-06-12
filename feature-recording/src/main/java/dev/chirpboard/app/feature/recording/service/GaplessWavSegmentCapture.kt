@@ -102,13 +102,14 @@ class GaplessWavSegmentCapture(
         repeat(INIT_MAX_ATTEMPTS) { attempt ->
             val record =
                 try {
-                    inputDeviceSelector.buildAudioRecord(
-                        audioSource = MediaRecorder.AudioSource.MIC,
-                        sampleRate = sampleRate,
-                        channelConfig = channelConfig,
-                        audioFormat = audioFormat,
-                        bufferSize = bufferSize,
-                    )
+                    inputDeviceSelector
+                        .buildAudioRecord(
+                            audioSource = MediaRecorder.AudioSource.MIC,
+                            sampleRate = sampleRate,
+                            channelConfig = channelConfig,
+                            audioFormat = audioFormat,
+                            bufferSize = bufferSize,
+                        ).record
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {

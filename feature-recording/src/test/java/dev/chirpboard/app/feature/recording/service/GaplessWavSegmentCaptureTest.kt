@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.service
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Process
+import dev.chirpboard.app.core.audio.AudioCaptureSession
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
@@ -70,7 +71,7 @@ class GaplessWavSegmentCaptureTest {
                 audioFormat = any(),
                 bufferSize = any(),
             )
-        } returns audioRecord
+        } returns AudioCaptureSession(audioRecord, sessionToken = 1L)
     }
 
     @After

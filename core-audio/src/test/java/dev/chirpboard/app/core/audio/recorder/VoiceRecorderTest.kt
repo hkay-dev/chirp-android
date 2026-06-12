@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import dev.chirpboard.app.core.audio.AudioCaptureSession
 import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import io.mockk.coEvery
@@ -72,7 +73,9 @@ class VoiceRecorderTest {
         every { AudioRecord.getMinBufferSize(any(), any(), any()) } returns 4096
 
         every { record.state } returns AudioRecord.STATE_INITIALIZED
-        coEvery { selector.buildAudioRecord(any(), any(), any(), any(), any()) } returns record
+        coEvery {
+            selector.buildAudioRecord(any(), any(), any(), any(), any())
+        } returns AudioCaptureSession(record, sessionToken = 1L)
     }
 
     @After
@@ -125,7 +128,9 @@ class VoiceRecorderTest {
 
             val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
             every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
-            coEvery { selector.buildAudioRecord(any(), any(), any(), any(), any()) } returns secondRecord
+            coEvery {
+                selector.buildAudioRecord(any(), any(), any(), any(), any())
+            } returns AudioCaptureSession(secondRecord, sessionToken = 2L)
 
             assertTrue(recorder.start())
             assertTrue(recorder.isRecording())
@@ -215,7 +220,7 @@ class VoiceRecorderTest {
             val initStarted = CompletableDeferred<Unit>()
             coEvery { selector.buildAudioRecord(any(), any(), any(), any(), any()) } coAnswers {
                 initStarted.complete(Unit)
-                record
+                AudioCaptureSession(record, sessionToken = 1L)
             }
 
             val job = launch(Dispatchers.IO) { recorder.start() }
@@ -247,7 +252,9 @@ class VoiceRecorderTest {
                 // The old session is stopped and a new one started while this
                 // read is still in flight; its failure must then be ignored.
                 recorder.stop()
-                coEvery { selector.buildAudioRecord(any(), any(), any(), any(), any()) } returns secondRecord
+                coEvery {
+                    selector.buildAudioRecord(any(), any(), any(), any(), any())
+                } returns AudioCaptureSession(secondRecord, sessionToken = 2L)
                 runBlocking { assertTrue(recorder.start()) }
                 AudioRecord.ERROR_DEAD_OBJECT
             }

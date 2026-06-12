@@ -174,6 +174,42 @@ class AudioSettingsStore
             }
         }
 
+        /**
+         * Atomically selects a manual input device: writes the stable selection key, its
+         * display name, and flips [Keys.inputDevicePolicy] to [AudioInputDevicePolicy.Manual]
+         * in a single [DataStore.edit]. This avoids the two-edit window where a capture
+         * starting between separate key and policy writes would read the new key under the
+         * old (automatic) policy, and collapses the picker to a single `settings` emission.
+         */
+        suspend fun selectManualDevice(
+            selectionKey: String,
+            displayName: String?,
+        ) {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                preferences[Keys.manualDeviceAddress] = selectionKey
+                if (displayName.isNullOrBlank()) {
+                    preferences.remove(Keys.manualDeviceName)
+                } else {
+                    preferences[Keys.manualDeviceName] = displayName
+                }
+                preferences[Keys.inputDevicePolicy] = AudioInputDevicePolicy.Manual.storageValue
+            }
+        }
+
+        /**
+         * Atomically flips the policy to [AudioInputDevicePolicy.Automatic] in a single edit.
+         * The stale manual key/name are deliberately left in place — the `manualDevice` getter
+         * only consults them under [AudioInputDevicePolicy.Manual], so they stay dormant and
+         * the prior selection is restored verbatim if the user switches back to Manual.
+         */
+        suspend fun selectAutomatic() {
+            ensureMigrated()
+            dataStore.edit { preferences ->
+                preferences[Keys.inputDevicePolicy] = AudioInputDevicePolicy.Automatic.storageValue
+            }
+        }
+
         suspend fun setPlaybackSpeed(speed: Float) {
             ensureMigrated()
             dataStore.edit { preferences ->
