@@ -277,6 +277,11 @@ class VoiceRecorder(
                     // VOICE_RECOGNITION: every VoiceRecorder surface feeds ASR, and this
                     // source gives recognition-tuned processing (predictable AGC, no
                     // phoneme-smearing noise suppression) instead of generic MIC defaults.
+                    // buildAudioRecord also suspends through Bluetooth-SCO
+                    // communication-device activation (bounded ~2s) before the record
+                    // exists, so startRecording() below is gated on the SCO route being
+                    // live or already fallen back to default routing (MIC-006) — these
+                    // short init retries never need to cover SCO bring-up themselves.
                     attempt.pendingRecord =
                         inputDeviceSelector?.let { selector ->
                             val session =
@@ -301,11 +306,16 @@ class VoiceRecorder(
                     }
                     attempt.pendingRecord?.release()
                     attempt.pendingRecord = null
+                    // Token-clear the failed attempt's publication before the retry
+                    // overwrites the token: an unreleased token would otherwise leak
+                    // its communication-device hold (MIC-006).
+                    clearPendingSessionToken(attempt)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     initException = e
                     attempt.pendingRecord?.release()
                     attempt.pendingRecord = null
+                    clearPendingSessionToken(attempt)
                 }
 
                 retryCount++

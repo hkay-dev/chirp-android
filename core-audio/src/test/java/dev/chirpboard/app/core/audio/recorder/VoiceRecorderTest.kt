@@ -248,6 +248,33 @@ class VoiceRecorderTest {
         }
 
     @Test
+    fun `failed init attempts token-clear their selector publication before retrying`() =
+        runBlocking {
+            // Each attempt publishes a fresh selector token; without the per-attempt
+            // clear, the failed attempts' tokens would leak their publication — and
+            // any communication-device hold a classic-BT selection took (MIC-006).
+            var token = 0L
+            coEvery { selector.buildAudioRecord(any(), any(), any(), any(), any()) } coAnswers {
+                AudioCaptureSession(record, sessionToken = ++token)
+            }
+            val states =
+                intArrayOf(
+                    AudioRecord.STATE_UNINITIALIZED,
+                    AudioRecord.STATE_UNINITIALIZED,
+                    AudioRecord.STATE_INITIALIZED,
+                )
+            var stateReads = 0
+            every { record.state } answers { states[minOf(stateReads++, states.lastIndex)] }
+
+            assertTrue(recorder.start())
+
+            verify(exactly = 1) { selector.clearActiveDevice(1L) }
+            verify(exactly = 1) { selector.clearActiveDevice(2L) }
+            // The successful third attempt's token is live and must not be cleared.
+            verify(exactly = 0) { selector.clearActiveDevice(3L) }
+        }
+
+    @Test
     fun `stale read error after a restart does not tear down the new session`() =
         runBlocking {
             val errors = mutableListOf<RecordingError>()

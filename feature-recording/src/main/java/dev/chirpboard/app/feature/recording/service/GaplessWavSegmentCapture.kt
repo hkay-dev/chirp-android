@@ -143,7 +143,13 @@ class GaplessWavSegmentCapture(
      * Builds the capture session, retrying transient init failures (common right after a
      * call ends) and releasing every failed instance so no native handle leaks. A failed
      * attempt's active-device publication is token-cleared so it cannot dangle past the
-     * release (or the final throw).
+     * release (or the final throw) — that clear also releases the attempt's Bluetooth-SCO
+     * communication-device hold, keeping acquire/release balanced (MIC-006). The
+     * selector's buildAudioRecord suspends through SCO communication-device activation
+     * (bounded ~2s) before the record exists, so [start]'s startRecording() is gated on
+     * the SCO route being live or already fallen back to default routing — these short
+     * init retries never need to cover SCO bring-up themselves (MIC-006; end-to-end
+     * classic-BT routing still needs on-device verification per ONDEVICE.md).
      */
     private suspend fun buildInitializedAudioRecord(
         channelConfig: Int,

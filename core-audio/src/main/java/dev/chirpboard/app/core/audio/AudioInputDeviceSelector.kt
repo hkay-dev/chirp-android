@@ -111,6 +111,21 @@ class AudioInputDeviceSelector
         @Volatile
         private var onActiveDeviceLost: ((lostDeviceName: String?) -> Unit)? = null
 
+        /**
+         * Owns SCO/communication-device routing for classic-BT capture sessions
+         * (MIC-006): engaged in [buildAudioRecord] before the AudioRecord exists,
+         * released per session token from [clearActiveDevice].
+         */
+        private val communicationDeviceSession = CommunicationDeviceSession(audioManager)
+
+        /**
+         * Tokens of sessions currently holding a [communicationDeviceSession] hold.
+         * Guarded by [stateLock]. Tracked per token — never latest-token-gated like the
+         * state clear — because an unreleased hold strands the phone in headset routing,
+         * so every teardown path must balance exactly the holds its own session made.
+         */
+        private val communicationDeviceTokens = mutableSetOf<Long>()
+
         /** Routing listeners registered via [observeRouting], keyed by record identity. */
         private val routingListeners = mutableMapOf<AudioRecord, AudioRouting.OnRoutingChangedListener>()
 
@@ -195,9 +210,22 @@ class AudioInputDeviceSelector
             val sessionToken: Long,
         )
 
-        private suspend fun resolveAndPublish(): ResolvedSelection {
+        /**
+         * One capture-start resolution + publication. [excludeBluetoothSco] drops every
+         * classic-BT (SCO) input from the candidate list — the MIC-006 fallback after a
+         * failed communication-device activation re-resolves to guaranteed-working
+         * routing — and [scoFallbackName] then names the failed device on the published
+         * fallback notice when no preferred-missing notice takes precedence.
+         */
+        private suspend fun resolveAndPublish(
+            excludeBluetoothSco: Boolean = false,
+            scoFallbackName: String? = null,
+        ): ResolvedSelection {
             val settings = audioSettingsStore.currentSettings()
-            val devices = inputDevices()
+            val devices =
+                inputDevices().filter {
+                    !excludeBluetoothSco || kindFor(it.type) != AudioInputDeviceKind.Bluetooth
+                }
             val summaries = recordableInputDevices(devices.map(::summaryFor))
             val choice =
                 chooseInputDevice(
@@ -208,11 +236,11 @@ class AudioInputDeviceSelector
             val resolvedSummary = choice.device
             val resolved = resolvedSummary?.let { summary -> devices.firstOrNull { it.id == summary.id } }
             val fallbackName =
-                if (choice.preferredMissing) {
-                    settings.manualDeviceName
-                        ?: displayNameFromSelectionKey(settings.manualDeviceAddress)
-                } else {
-                    null
+                when {
+                    choice.preferredMissing ->
+                        settings.manualDeviceName
+                            ?: displayNameFromSelectionKey(settings.manualDeviceAddress)
+                    else -> scoFallbackName
                 }
             val sessionToken =
                 synchronized(stateLock) {
@@ -235,9 +263,15 @@ class AudioInputDeviceSelector
 
         /**
          * Builds the capture session's [AudioRecord], pinned to the resolved preferred
-         * device. The returned [AudioCaptureSession] carries the session token engines
-         * pass back to [clearActiveDevice] at teardown, so a finished session's late
-         * clear can never wipe the state a newer session has already published.
+         * device. When the resolved device is a classic Bluetooth (SCO) mic, the
+         * communication-device route is engaged FIRST — suspending until the platform
+         * confirms it, bounded ~2 s — so the engine's first startRecording() is gated on
+         * the SCO link being up; on activation failure/timeout the selection falls back
+         * to default routing with the standard "using X instead" notice (MIC-006). The
+         * returned [AudioCaptureSession] carries the session token engines pass back to
+         * [clearActiveDevice] at teardown, so a finished session's late clear can never
+         * wipe the state a newer session has already published — and so the session's
+         * communication-device hold is always released on every stop/error path.
          */
         @SuppressLint("MissingPermission")
         suspend fun buildAudioRecord(
@@ -247,9 +281,18 @@ class AudioInputDeviceSelector
             audioFormat: Int,
             bufferSize: Int,
         ): AudioCaptureSession {
-            val selection = resolveAndPublish()
+            val selection = engageCommunicationDeviceIfNeeded(resolveAndPublish())
             val device = selection.device
-            val record = AudioRecord(audioSource, sampleRate, channelConfig, audioFormat, bufferSize)
+            val record =
+                try {
+                    AudioRecord(audioSource, sampleRate, channelConfig, audioFormat, bufferSize)
+                } catch (e: Exception) {
+                    // A failed build must release this session's communication-device
+                    // hold here and now: no engine ever learns this token, so the
+                    // token-teardown path could never balance the acquire (MIC-006).
+                    releaseCommunicationDeviceHold(selection.sessionToken)
+                    throw e
+                }
             if (device != null) {
                 val applied = record.setPreferredDevice(device)
                 Log.i(TAG, "setPreferredDevice(id=${device.id}) accepted=$applied")
@@ -266,6 +309,50 @@ class AudioInputDeviceSelector
                 }
             }
             return AudioCaptureSession(record = record, sessionToken = selection.sessionToken)
+        }
+
+        /**
+         * Brings up the platform communication-device route when the resolved capture
+         * device is a classic Bluetooth (SCO) microphone — [AudioRecord.setPreferredDevice]
+         * alone does not manage the SCO link on every OEM build, so the selector owns it
+         * explicitly via [CommunicationDeviceSession] for the session's lifetime. Acquired
+         * here BEFORE the AudioRecord is constructed (the suspend acquire gates the
+         * engine's first startRecording() on the link coming up) and released by
+         * [clearActiveDevice] from the same token teardown every engine already funnels
+         * through, so acquire/release balance is automatic across every surface and error
+         * path. BLE ([AudioInputDeviceKind.BluetoothLe]) and all other kinds capture
+         * correctly without it and are never engaged. On activation failure/timeout the
+         * selection falls back to default routing: re-resolve WITHOUT classic-BT devices,
+         * surfacing the existing "using X instead" fallback notice.
+         *
+         * NOTE: end-to-end classic-BT routing still requires on-device verification
+         * (Samsung + Pixel) per ONDEVICE.md — setCommunicationDevice acceptance and SCO
+         * behavior are OEM- and version-dependent.
+         */
+        private suspend fun engageCommunicationDeviceIfNeeded(selection: ResolvedSelection): ResolvedSelection {
+            val device = selection.device ?: return selection
+            if (kindFor(device.type) != AudioInputDeviceKind.Bluetooth) return selection
+            if (communicationDeviceSession.acquire(device)) {
+                synchronized(stateLock) { communicationDeviceTokens.add(selection.sessionToken) }
+                return selection
+            }
+            val failedName = summaryFor(device).productName
+            Log.w(TAG, "Communication-device activation failed for $failedName; falling back to default routing")
+            return resolveAndPublish(excludeBluetoothSco = true, scoFallbackName = failedName)
+        }
+
+        /**
+         * Releases the communication-device hold the session identified by
+         * [sessionToken] took in [buildAudioRecord], if any. Deliberately NOT gated on
+         * the token being latest: an unreleased hold strands process-wide headset
+         * routing, so balance follows the holding token itself (the set removal also
+         * makes a doubled release impossible).
+         */
+        private fun releaseCommunicationDeviceHold(sessionToken: Long) {
+            val held = synchronized(stateLock) { communicationDeviceTokens.remove(sessionToken) }
+            if (held) {
+                communicationDeviceSession.release()
+            }
         }
 
         /**
@@ -335,19 +422,27 @@ class AudioInputDeviceSelector
          * [sessionToken] (from [AudioCaptureSession]) ends. No-ops when a newer session
          * has already published: a finished session's late teardown (e.g. the service's
          * stop lifecycle racing a fresh keyboard dictation) must never clobber the newer
-         * session's state. Deliberately does NOT clear the device-lost listener: its
-         * lifecycle belongs to whoever registered it (the recording service holds it for
-         * its whole lifetime), and nulling it here used to leave the next capture of a
-         * surviving service instance without any device-lost handling.
+         * session's state. The session's communication-device hold, by contrast, is
+         * ALWAYS released (MIC-006) — that balance is per-token, not latest-gated, so a
+         * superseded session can never strand the phone in headset routing. Deliberately
+         * does NOT clear the device-lost listener: its lifecycle belongs to whoever
+         * registered it (the recording service holds it for its whole lifetime), and
+         * nulling it here used to leave the next capture of a surviving service instance
+         * without any device-lost handling.
          */
         fun clearActiveDevice(sessionToken: Long) {
+            releaseCommunicationDeviceHold(sessionToken)
             synchronized(stateLock) {
                 if (sessionToken != latestSessionToken) return
                 clearActiveDeviceLocked()
             }
         }
 
-        /** Unconditional clear, kept only until every surface passes its session token. */
+        /**
+         * Unconditional clear, kept only until every surface passes its session token.
+         * Releases EVERY outstanding communication-device hold so a legacy caller can
+         * never strand SCO routing (MIC-006).
+         */
         @Deprecated(
             message =
                 "An unconditional clear can clobber a newer session's published state; " +
@@ -355,7 +450,12 @@ class AudioInputDeviceSelector
             replaceWith = ReplaceWith("clearActiveDevice(sessionToken)"),
         )
         fun clearActiveDevice() {
-            synchronized(stateLock) { clearActiveDeviceLocked() }
+            val heldCount =
+                synchronized(stateLock) {
+                    clearActiveDeviceLocked()
+                    communicationDeviceTokens.size.also { communicationDeviceTokens.clear() }
+                }
+            repeat(heldCount) { communicationDeviceSession.release() }
         }
 
         private fun clearActiveDeviceLocked() {
