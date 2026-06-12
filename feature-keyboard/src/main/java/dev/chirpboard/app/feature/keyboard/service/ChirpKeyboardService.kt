@@ -43,6 +43,7 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import dev.chirpboard.app.feature.keyboard.session.KeyboardSessionCoordinator
@@ -80,6 +81,7 @@ class ChirpKeyboardService :
     @Inject lateinit var inlineCapturePersistence: InlineCapturePersistence
     @Inject lateinit var keyboardStopBridge: KeyboardRecordingStopBridge
     @Inject lateinit var pendingStopStore: KeyboardPendingStopStore
+    @Inject lateinit var dynamicColorPreference: DynamicColorPreference
 
     private val lifecycleRegistry = LifecycleRegistry(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
@@ -253,6 +255,13 @@ class ChirpKeyboardService :
             }
             view.setContent {
                 val uiState by coordinator.uiState.collectAsStateWithLifecycle()
+                // DECISIONS (Color/brand): collect the shared "Use system colors (Material You)"
+                // preference so the keyboard matches whatever palette the app is showing. Brand
+                // lavender remains the default until the user opts in.
+                val useDynamicColor by dynamicColorPreference.useDynamicColor
+                    .collectAsStateWithLifecycle(
+                        initialValue = DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR,
+                    )
                 KeyboardScreen(
                     uiState = uiState,
                     waveformBuffer = coordinator.capture.waveformBuffer,
@@ -271,6 +280,7 @@ class ChirpKeyboardService :
                         coordinator.setPermissionError(null)
                         inlineTranscription.resetPhase()
                     },
+                    dynamicColor = useDynamicColor,
                 )
             }
             composeView = view

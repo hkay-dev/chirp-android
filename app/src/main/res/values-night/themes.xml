@@ -4,5 +4,7 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
+        <!-- LOAD-6: branded window background (dark surface) — see values/themes.xml. -->
+        <item name="android:windowBackground">@drawable/window_background</item>
     </style>
 </resources>

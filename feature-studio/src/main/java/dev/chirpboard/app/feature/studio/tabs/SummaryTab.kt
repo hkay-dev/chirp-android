@@ -13,9 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -135,7 +135,7 @@ private fun StructuredOutcomeSection(
 
                 StudioOutlinedAction(
                     onClick = onGenerateStructuredOutcomes,
-                    icon = Icons.Filled.AutoAwesome,
+                    icon = Icons.Rounded.AutoAwesome,
                     label = structuredOutcomeActionLabel(state),
                     enabled = state.canRunGeneration,
                 )
@@ -247,7 +247,7 @@ private fun StructuredOutcomeGeneratingProgress() {
                 subtitle = stringResource(R.string.rec_structured_generating_subtitle),
             ),
         kind = null,
-        leadingIcon = Icons.Filled.AutoAwesome,
+        leadingIcon = Icons.Rounded.AutoAwesome,
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -307,12 +307,12 @@ private fun StructuredOutcomeGroupSection(
                         )
                         StudioOutlinedAction(
                             onClick = { onShareStructuredOutcome(item) },
-                            icon = Icons.Filled.Share,
+                            icon = Icons.Rounded.Share,
                             label = stringResource(CoreR.string.rec_share),
                         )
                         StudioOutlinedAction(
                             onClick = { onAskAiAboutStructuredOutcome(item) },
-                            icon = Icons.AutoMirrored.Filled.Chat,
+                            icon = Icons.AutoMirrored.Rounded.Chat,
                             label = stringResource(R.string.rec_ask_ai),
                         )
                     }

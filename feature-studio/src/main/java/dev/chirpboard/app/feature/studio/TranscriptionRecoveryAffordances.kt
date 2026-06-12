@@ -10,8 +10,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -67,7 +67,7 @@ fun TranscriptionRecoverySection(
                 enabled = recoveryActions.actionsEnabled,
             ) {
                 Icon(
-                    imageVector = Icons.Default.Refresh,
+                    imageVector = Icons.Rounded.Refresh,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
@@ -92,7 +92,7 @@ fun EnhancingRecoveryActions(
         modifier = Modifier.testTag(TranscriptionRecoveryTestTags.EnhancingRecoverButton),
     ) {
         Icon(
-            imageVector = Icons.Default.Build,
+            imageVector = Icons.Rounded.Build,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
         )
@@ -107,7 +107,7 @@ fun EnhancingRecoveryActions(
             modifier = Modifier.testTag(TranscriptionRecoveryTestTags.EnhancingRetranscribeButton),
         ) {
             Icon(
-                imageVector = Icons.Default.Refresh,
+                imageVector = Icons.Rounded.Refresh,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
             )
@@ -129,7 +129,7 @@ fun PendingRecoveryAffordance(
         modifier = Modifier.testTag(TranscriptionRecoveryTestTags.PendingRecoverButton),
     ) {
         Icon(
-            imageVector = Icons.Default.Refresh,
+            imageVector = Icons.Rounded.Refresh,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
         )

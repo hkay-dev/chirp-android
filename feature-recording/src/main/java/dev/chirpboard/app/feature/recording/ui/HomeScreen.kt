@@ -28,13 +28,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AudioFile
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Settings
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -78,12 +77,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.ui.components.SkeletonPlaceholder
 import dev.chirpboard.app.core.ui.components.StatsPillRow
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.ui.components.StatusBarProtection
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.recording.R
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -111,6 +112,9 @@ fun HomeScreen(
     val quickStarts by viewModel.quickStartProfiles.collectAsStateWithLifecycle()
     val recoverableSessions by viewModel.recoverableSessions.collectAsStateWithLifecycle()
     val playbackRowState by viewModel.playbackRowState.collectAsStateWithLifecycle()
+    // LOAD-3: distinguishes "first DB load not yet resolved" from "loaded and genuinely empty" so
+    // the empty illustration never flashes for a user who actually has recordings.
+    val contentLoaded by viewModel.contentLoaded.collectAsStateWithLifecycle()
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -234,10 +238,17 @@ fun HomeScreen(
         )
     }
 
-    val showEmptyState =
-        stats.totalRecordings == 0 &&
-            searchQuery.isBlank() &&
-            listFilter == ListFilterMode.ALL
+    // LOAD-3: three-state home content. Until the first Room emission resolves (`contentLoaded`),
+    // hold a skeleton instead of flashing the empty illustration then crossfading to the list. Only
+    // once the first load is known do we choose between the genuine empty state and the list.
+    val homeContentPhase =
+        homeContentPhase(
+            contentLoaded = contentLoaded,
+            totalRecordings = stats.totalRecordings,
+            searchBlank = searchQuery.isBlank(),
+            filterAll = listFilter == ListFilterMode.ALL,
+        )
+    val showEmptyState = homeContentPhase == HomeContentPhase.EMPTY
     val hasActiveListFilter = listFilter != ListFilterMode.ALL || searchQuery.isNotBlank()
     val appBarScrollBehavior = if (searchActive) null else scrollBehavior
 
@@ -293,7 +304,7 @@ fun HomeScreen(
                         if (!searchActive) {
                             IconButton(onClick = { searchActive = true }) {
                                 Icon(
-                                    imageVector = Icons.Default.Search,
+                                    imageVector = Icons.Rounded.Search,
                                     contentDescription = stringResource(R.string.desc_search),
                                     tint =
                                         if (searchQuery.isNotBlank()) {
@@ -306,7 +317,7 @@ fun HomeScreen(
                         } else {
                             IconButton(onClick = { searchActive = false }) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
+                                    imageVector = Icons.Rounded.Close,
                                     contentDescription = stringResource(R.string.desc_close),
                                 )
                             }
@@ -315,7 +326,7 @@ fun HomeScreen(
                         Box {
                             IconButton(onClick = { showImportMenu = true }) {
                                 Icon(
-                                    imageVector = Icons.Default.Add,
+                                    imageVector = Icons.Rounded.Add,
                                     contentDescription = stringResource(R.string.rec_import_audio),
                                 )
                             }
@@ -331,7 +342,7 @@ fun HomeScreen(
                                     },
                                     leadingIcon = {
                                         Icon(
-                                            imageVector = Icons.Default.AudioFile,
+                                            imageVector = Icons.Rounded.AudioFile,
                                             contentDescription = null,
                                         )
                                     },
@@ -341,7 +352,7 @@ fun HomeScreen(
 
                         IconButton(onClick = onSettingsClick) {
                             Icon(
-                                imageVector = Icons.Default.Settings,
+                                imageVector = Icons.Rounded.Settings,
                                 contentDescription = stringResource(R.string.desc_settings),
                             )
                         }
@@ -367,7 +378,7 @@ fun HomeScreen(
                         placeholder = { Text(stringResource(R.string.search_recordings)) },
                         leadingIcon = {
                             Icon(
-                                imageVector = Icons.Default.Search,
+                                imageVector = Icons.Rounded.Search,
                                 contentDescription = stringResource(R.string.desc_search),
                             )
                         },
@@ -382,7 +393,7 @@ fun HomeScreen(
                                 },
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
+                                    imageVector = Icons.Rounded.Close,
                                     contentDescription =
                                         stringResource(
                                             if (searchQuery.isNotEmpty()) {
@@ -404,7 +415,11 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.animatePushDownLayout(),
             ) {
-                PushDownReveal(visible = !showEmptyState && shouldShowHomeQuickStartSurface(quickStarts)) {
+                PushDownReveal(
+                    visible =
+                        homeContentPhase == HomeContentPhase.LIST &&
+                            shouldShowHomeQuickStartSurface(quickStarts),
+                ) {
                     HomeQuickStartSurface(
                         quickStarts = quickStarts,
                         onQuickStartClick = onQuickStartClick,
@@ -430,7 +445,7 @@ fun HomeScreen(
                         .fillMaxSize()
                         .consumeWindowInsets(paddingValues)
                         .animatePushDownLayout(),
-                targetState = showEmptyState,
+                targetState = homeContentPhase,
             transitionSpec = {
                 fadeIn(ChirpMotion.studioAlphaTween) togetherWith
                     fadeOut(
@@ -441,23 +456,42 @@ fun HomeScreen(
                     )
             },
             label = "home_content",
-        ) { showEmpty ->
-            if (showEmpty) {
+        ) { phase ->
+            when (phase) {
+                HomeContentPhase.LOADING ->
+                    HomeListSkeleton(
+                        modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .padding(paddingValues),
+                    )
+
+                HomeContentPhase.EMPTY ->
                 AnimatedEmptyState(
                     onRecordClick = onRecordClick,
                     onQuickStartClick = onQuickStartClick,
                     quickStarts = quickStarts,
                     isRecordEntryChecking = isRecordEntryChecking,
-                    modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 8.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(paddingValues)
+                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
                 )
-            } else {
+
+                HomeContentPhase.LIST ->
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
                     contentPadding =
                         PaddingValues(
                             top = paddingValues.calculateTopPadding(),
-                            bottom = paddingValues.calculateBottomPadding() + 96.dp,
+                            // INS-7: reserve clearance for BOTH the Record FAB and the global
+                            // mini-player bar (a layout sibling below this screen) so the last row
+                            // is never cramped under the now-playing transport when it is visible.
+                            bottom =
+                                paddingValues.calculateBottomPadding() +
+                                    HOME_LIST_BOTTOM_CLEARANCE,
                         ),
                 ) {
                     item(key = "recovery_banner", contentType = "recovery_banner") {
@@ -466,15 +500,18 @@ fun HomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                        .padding(
+                                            horizontal = ChirpSpacing.ScreenHorizontal,
+                                            vertical = ChirpSpacing.Small,
+                                        ),
                                 colors =
                                     CardDefaults.cardColors(
                                         containerColor = MaterialTheme.colorScheme.errorContainer,
                                     ),
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(ChirpSpacing.Large),
+                                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
                                 ) {
                                     Text(
                                         text = stringResource(R.string.rec_recovery_banner_title),
@@ -516,10 +553,14 @@ fun HomeScreen(
                                 processingCount = stats.processingCount,
                                 onProcessingClick = { viewModel.onProcessingClick() },
                                 processingFilterActive = listFilter == ListFilterMode.PROCESSING,
+                                // VIS-4: no horizontal inset here — StatsPillRow applies
+                                // ChirpSpacing.ScreenHorizontal internally, so the pills' left edge
+                                // lines up with the list rows below (the old 8dp + internal 16dp
+                                // double-inset pushed them to 24dp).
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                        .padding(vertical = ChirpSpacing.Small),
                             )
                         }
                     }
@@ -535,8 +576,11 @@ fun HomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        .padding(
+                                            horizontal = ChirpSpacing.ScreenHorizontal,
+                                            vertical = ChirpSpacing.ExtraSmall,
+                                        ),
+                                horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 InputChip(
@@ -545,7 +589,7 @@ fun HomeScreen(
                                     label = { Text(stringResource(R.string.rec_filter_processing)) },
                                     trailingIcon = {
                                         Icon(
-                                            imageVector = Icons.Default.Close,
+                                            imageVector = Icons.Rounded.Close,
                                             contentDescription = stringResource(R.string.rec_filter_clear),
                                             modifier = Modifier.size(18.dp),
                                         )
@@ -566,16 +610,19 @@ fun HomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        .padding(
+                                            horizontal = ChirpSpacing.ScreenHorizontal,
+                                            vertical = ChirpSpacing.ExtraSmall,
+                                        ),
                                 horizontalArrangement = Arrangement.End,
                             ) {
                                 FilledTonalButton(onClick = { viewModel.recoverAllStuck() }) {
                                     Icon(
-                                        imageVector = Icons.Default.Refresh,
+                                        imageVector = Icons.Rounded.Refresh,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp),
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Spacer(modifier = Modifier.width(ChirpSpacing.Small))
                                     Text(stringResource(R.string.rec_recover_stuck, stuckCount))
                                 }
                             }
@@ -590,7 +637,10 @@ fun HomeScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier =
                                     Modifier
-                                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                                        .padding(
+                                            horizontal = ChirpSpacing.ScreenHorizontal,
+                                            vertical = ChirpSpacing.Small,
+                                        ),
                             )
                         }
                     }
@@ -601,9 +651,12 @@ fun HomeScreen(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                                        .padding(
+                                            horizontal = ChirpSpacing.ExtraLarge,
+                                            vertical = ChirpSpacing.ExtraExtraLarge,
+                                        ),
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
                             ) {
                                 Text(
                                     text = stringResource(R.string.rec_filter_empty_title),
@@ -638,7 +691,7 @@ fun HomeScreen(
                                 onLongClick = { selectedItem = item },
                             )
                             HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
+                                modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             )
                         }
@@ -723,6 +776,88 @@ fun HomeScreen(
                             null
                         },
                 )
+            }
+        }
+    }
+}
+
+/**
+ * The three top-level states of the home content area (LOAD-3).
+ *
+ * [LOADING] is held until the first Room emission resolves so the empty illustration is never
+ * flashed for a user who actually has recordings; only once the first load is known does the screen
+ * resolve to [EMPTY] or [LIST].
+ */
+internal enum class HomeContentPhase {
+    LOADING,
+    EMPTY,
+    LIST,
+}
+
+/**
+ * Resolve the home content phase (LOAD-3). Extracted as a pure function so the gating logic — the
+ * part that prevents the empty-state flash — is unit-tested without a Compose runtime.
+ *
+ * @param contentLoaded true once the first recordings emission has resolved.
+ * @param totalRecordings the loaded recording count (only meaningful once [contentLoaded]).
+ * @param searchBlank true when there is no active search query.
+ * @param filterAll true when the list filter is [ListFilterMode.ALL].
+ */
+internal fun homeContentPhase(
+    contentLoaded: Boolean,
+    totalRecordings: Int,
+    searchBlank: Boolean,
+    filterAll: Boolean,
+): HomeContentPhase =
+    when {
+        // Never claim "empty" before the first load resolves: hold the skeleton instead.
+        !contentLoaded -> HomeContentPhase.LOADING
+        totalRecordings == 0 && searchBlank && filterAll -> HomeContentPhase.EMPTY
+        else -> HomeContentPhase.LIST
+    }
+
+/**
+ * Bottom clearance reserved by the home list (INS-7). Covers the Record FAB AND the global
+ * mini-player bar (a layout sibling below this screen, ~72dp tall when visible) so the last row is
+ * never cramped under the now-playing transport. Slightly larger than the previous FAB-only 96dp.
+ */
+private val HOME_LIST_BOTTOM_CLEARANCE = 112.dp
+
+/** Number of shimmer placeholder rows shown in the first-load skeleton (LOAD-3). */
+private const val HOME_SKELETON_ROW_COUNT = 4
+
+/**
+ * First-load skeleton for the home list (LOAD-3).
+ *
+ * Shown only while the first DB emission is pending. Renders a faint stats-pill placeholder plus a
+ * few shimmering [SkeletonPlaceholder] rows that mirror the real row layout (title bar + metadata
+ * pill row), so the wait reads as intentional loading rather than a blank screen or a wrong-state
+ * empty flash. Crossfades to the real list (or empty state) once the load resolves.
+ */
+@Composable
+private fun HomeListSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier =
+            modifier.padding(
+                horizontal = ChirpSpacing.ScreenHorizontal,
+                vertical = ChirpSpacing.Small,
+            ),
+        verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+    ) {
+        // Faint stats-pill placeholder mirroring the StatsPillRow that lands first.
+        Row(horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small)) {
+            repeat(3) {
+                SkeletonPlaceholder(width = 64.dp, height = 32.dp, shape = MaterialTheme.shapes.large)
+            }
+        }
+        Spacer(modifier = Modifier.size(ChirpSpacing.Small))
+        repeat(HOME_SKELETON_ROW_COUNT) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = ChirpSpacing.Small),
+                verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+            ) {
+                SkeletonPlaceholder(width = 180.dp, height = 20.dp)
+                SkeletonPlaceholder(width = 220.dp, height = 16.dp)
             }
         }
     }

@@ -86,6 +86,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.2")
 
+    // LOAD-6: branded cold-start splash (AndroidX core-splashscreen).
+    implementation("androidx.core:core-splashscreen:1.0.1")
+
+    // DataStore — backs the "Use system colors (Material You)" appearance preference (DECISIONS).
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
+
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
 

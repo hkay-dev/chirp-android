@@ -301,6 +301,70 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun `homeContentPhase holds LOADING until first load resolves`() {
+        // LOAD-3: before the first emission, never claim EMPTY even with a zero count + no filter.
+        assertEquals(
+            HomeContentPhase.LOADING,
+            homeContentPhase(
+                contentLoaded = false,
+                totalRecordings = 0,
+                searchBlank = true,
+                filterAll = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `homeContentPhase is EMPTY only once loaded and genuinely empty`() {
+        assertEquals(
+            HomeContentPhase.EMPTY,
+            homeContentPhase(
+                contentLoaded = true,
+                totalRecordings = 0,
+                searchBlank = true,
+                filterAll = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `homeContentPhase is LIST once loaded with recordings`() {
+        assertEquals(
+            HomeContentPhase.LIST,
+            homeContentPhase(
+                contentLoaded = true,
+                totalRecordings = 3,
+                searchBlank = true,
+                filterAll = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `homeContentPhase is LIST when a search or filter is active even if empty`() {
+        // An active search/filter with no matches is a filter-empty case handled inside the list,
+        // not the first-run empty illustration.
+        assertEquals(
+            HomeContentPhase.LIST,
+            homeContentPhase(
+                contentLoaded = true,
+                totalRecordings = 0,
+                searchBlank = false,
+                filterAll = true,
+            ),
+        )
+        assertEquals(
+            HomeContentPhase.LIST,
+            homeContentPhase(
+                contentLoaded = true,
+                totalRecordings = 0,
+                searchBlank = true,
+                filterAll = false,
+            ),
+        )
+    }
+
+    @Test
     fun `playback row state ignores progress ticks`() {
         val recordingId = UUID.randomUUID()
         val first =
@@ -782,6 +846,25 @@ class HomeViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(recordingId, viewModel.openStudioForRecordingId.value)
+        }
+
+    @Test
+    fun `contentLoaded flips true once the first recordings emission lands`() =
+        runTest {
+            // LOAD-3: the gate stays false until Room emits, so Home holds the skeleton rather than
+            // flashing the empty state, then latches true on the first emission (here, an empty list
+            // — a genuinely-empty load is still a "loaded" signal).
+            every { recordingRepository.getAllRecordings() } returns
+                flowOf(RepositoryFlowState(emptyList()))
+
+            val localViewModel = createHomeViewModel()
+            assertFalse(localViewModel.contentLoaded.value)
+
+            val collector = launch { localViewModel.contentLoaded.collect { } }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(localViewModel.contentLoaded.value)
+            collector.cancel()
         }
 
     private fun createHomeViewModel(

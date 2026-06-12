@@ -1,10 +1,10 @@
 package dev.chirpboard.app.ui.settings
 
 import android.app.Application
-import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import io.mockk.coEvery
 import io.mockk.every
@@ -14,6 +14,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -25,6 +26,7 @@ class SettingsViewModelTest {
     private val application = mockk<Application>()
     private val packageManager = mockk<PackageManager>()
     private val obsidianPreferences = mockk<ObsidianPreferences>()
+    private val dynamicColorPreference = mockk<DynamicColorPreference>(relaxed = true)
 
     private val testDispatcher = UnconfinedTestDispatcher()
 
@@ -33,6 +35,7 @@ class SettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         every { application.packageManager } returns packageManager
         every { application.packageName } returns "dev.chirpboard.app"
+        every { dynamicColorPreference.useDynamicColor } returns MutableStateFlow(false)
     }
 
     @After
@@ -55,12 +58,46 @@ class SettingsViewModelTest {
         val vaultUriFlow = MutableStateFlow<String?>("content://test")
         every { obsidianPreferences.globalVaultUri } returns vaultUriFlow
 
-        val viewModel = SettingsViewModel(application, obsidianPreferences)
+        val viewModel = SettingsViewModel(application, obsidianPreferences, dynamicColorPreference)
 
         val state = viewModel.uiState.value
         assertEquals("1.0.0", state.appVersion)
         assertEquals("100", state.buildNumber)
         assertEquals(true, state.isDebugBuild)
         assertEquals(true, state.isObsidianConnected)
+    }
+
+    @Test
+    fun `dynamic color defaults to off and reflects the preference flow`() {
+        stubAppInfo()
+        every { obsidianPreferences.globalVaultUri } returns MutableStateFlow<String?>(null)
+        every { dynamicColorPreference.useDynamicColor } returns MutableStateFlow(true)
+
+        val viewModel = SettingsViewModel(application, obsidianPreferences, dynamicColorPreference)
+
+        assertEquals(true, viewModel.uiState.value.useDynamicColor)
+    }
+
+    @Test
+    fun `setUseDynamicColor delegates to the preference`() = runTest {
+        stubAppInfo()
+        every { obsidianPreferences.globalVaultUri } returns MutableStateFlow<String?>(null)
+        coEvery { dynamicColorPreference.setUseDynamicColor(any()) } returns Unit
+
+        val viewModel = SettingsViewModel(application, obsidianPreferences, dynamicColorPreference)
+        viewModel.setUseDynamicColor(true)
+
+        io.mockk.coVerify { dynamicColorPreference.setUseDynamicColor(true) }
+    }
+
+    private fun stubAppInfo() {
+        val packageInfo = mockk<PackageInfo>()
+        packageInfo.versionName = "1.0.0"
+        packageInfo.versionCode = 1
+        every { packageInfo.longVersionCode } returns 1L
+        val appInfo = mockk<ApplicationInfo>()
+        appInfo.flags = 0
+        every { application.applicationInfo } returns appInfo
+        every { packageManager.getPackageInfo("dev.chirpboard.app", 0) } returns packageInfo
     }
 }

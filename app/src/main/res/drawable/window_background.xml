@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  LOAD-6: the activity's starting/window background. Before the first Compose frame the OS paints
+  this, so tinting it the brand surface (instead of the default Material window background) removes
+  the flat unbranded flash on cold launch. Day/night via @color/chirp_splash_background.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/chirp_splash_background" />
+</shape>

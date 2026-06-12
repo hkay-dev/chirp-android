@@ -14,12 +14,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -85,7 +83,7 @@ fun DevMenuScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(CoreR.string.desc_navigate_back),
                         )
                     }
@@ -112,7 +110,7 @@ fun DevMenuScreen(
             item {
                 DevSection(
                     title = "Dummy Recordings",
-                    icon = Icons.AutoMirrored.Filled.PlaylistAdd,
+                    icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
                 ) {
                     Text(
                         text = "Generate fake recordings for testing UI states. These have no audio but are otherwise identical to real recordings.",
@@ -215,7 +213,7 @@ fun DevMenuScreen(
             item {
                 DevSection(
                     title = "Reliability Timeline",
-                    icon = Icons.Default.BugReport,
+                    icon = Icons.Rounded.BugReport,
                 ) {
                     Text(
                         text = "Latest structured reliability lifecycle events (debug only).",
@@ -255,7 +253,7 @@ fun DevMenuScreen(
             item {
                 DevSection(
                     title = "Danger Zone",
-                    icon = Icons.Default.Delete,
+                    icon = Icons.Rounded.Delete,
                     containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
                 ) {
                     Text(
@@ -275,7 +273,7 @@ fun DevMenuScreen(
                         enabled = !uiState.isGenerating,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = Icons.Rounded.Delete,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )

@@ -7,6 +7,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -19,6 +20,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.ui.theme.chirpAccents
 import kotlin.math.pow
 
 /**
@@ -29,14 +31,18 @@ import kotlin.math.pow
  * height flicker when the newest bar becomes historical.
  *
  * Displays vertical bars when recording, or a subtle dotted line when idle or paused.
+ *
+ * [color] defaults to the cohesive brand "recording/live" accent
+ * ([ChirpAccents.recordingLive][dev.chirpboard.app.core.ui.theme.ChirpAccents.recordingLive]) so
+ * every consumer reads on-brand without re-specifying it (PRM-7); callers may still override it.
  */
 @Composable
 fun AudioWaveform(
     waveformBuffer: WaveformBuffer,
     sampleCount: Long,
     isActive: Boolean,
-    color: Color,
     modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
     barCount: Int = 42,
     minBarHeight: Dp = 4.dp,
     maxBarHeight: Dp = 120.dp,

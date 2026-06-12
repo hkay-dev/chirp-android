@@ -183,6 +183,23 @@ class HomeViewModel
                 .unwrapRepositoryFlow { _errorMessage.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+        /**
+         * LOAD-3: false until the first recordings emission from Room resolves, then latches true.
+         *
+         * Distinguishes "not loaded yet" from "loaded and genuinely empty" so the home screen holds
+         * a skeleton on cold launch instead of flashing the empty illustration (and then crossfading
+         * to the list) for a user who actually has recordings. Derived from the same source flow as
+         * [allRecordingsRaw]; the [allRecordingsRaw] StateFlow's seeded `emptyList()` cannot itself
+         * distinguish the two cases, so a dedicated first-emission signal is required.
+         */
+        val contentLoaded: StateFlow<Boolean> =
+            recordingRepository
+                .getAllRecordings()
+                .unwrapRepositoryFlow { _errorMessage.value = it }
+                .map { true }
+                .distinctUntilChanged()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
         private val allRecordingsList: StateFlow<List<Recording>> =
             combine(allRecordingsRaw, recordingManager.state) { recordings, recordingState ->
                 recordings.filter { shouldShowRecordingOnHomeList(it, recordingState) }

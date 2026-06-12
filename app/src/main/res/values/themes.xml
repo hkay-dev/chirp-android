@@ -4,5 +4,18 @@
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">true</item>
+        <!-- LOAD-6: a branded window background so the OS-painted starting window (before the first
+             Compose frame) reads as Chirpboard rather than a flat default Material surface. -->
+        <item name="android:windowBackground">@drawable/window_background</item>
+    </style>
+
+    <!-- LOAD-6: AndroidX core-splashscreen starting theme. Installed in MainActivity.onCreate so a
+         cold launch shows the branded parakeet mark on the brand surface, then hands off to the
+         app via postSplashScreenTheme (Theme.Chirp). -->
+    <style name="Theme.Chirp.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/chirp_splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_chirp_parakeet</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/chirp_splash_background</item>
+        <item name="postSplashScreenTheme">@style/Theme.Chirp</item>
     </style>
 </resources>

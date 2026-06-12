@@ -6,32 +6,26 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.automirrored.rounded.Label
+import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.RecordVoiceOver
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,6 +34,8 @@ import dev.chirpboard.app.core.ui.components.SettingsBadge
 import dev.chirpboard.app.core.ui.components.ChirpSettingsHubScaffold
 import dev.chirpboard.app.core.ui.components.SettingsListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
 
 /**
  * Main settings hub screen that organizes all app settings by category.
@@ -62,6 +58,7 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val context = LocalContext.current
 
     ChirpSettingsHubScaffold(
         title = stringResource(R.string.settings_title),
@@ -139,6 +136,27 @@ fun SettingsScreen(
                     onClick = onNavigateToAudioSettings,
                 )
             }
+
+            // Appearance Section — "Use system colors (Material You)" (DECISIONS Color/brand).
+            // Default OFF so the brand lavender palette stays the default; opting in derives color
+            // from the wallpaper for both the app and the keyboard.
+            item {
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_appearance))
+            }
+            item {
+                SettingsSwitchItem(
+                    icon = Icons.Rounded.Palette,
+                    title = stringResource(R.string.settings_dynamic_color_title),
+                    subtitle = stringResource(R.string.settings_dynamic_color_subtitle),
+                    checked = uiState.useDynamicColor,
+                    onCheckedChange = { enabled ->
+                        // PRM-7: a light confirming tick on toggle, the app-level haptic language.
+                        ChirpHaptics.tap(context)
+                        viewModel.setUseDynamicColor(enabled)
+                    },
+                )
+            }
+
             // Organization Section
             item {
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_organization))
@@ -202,10 +220,17 @@ fun SettingsScreen(
                 }
             }
 
-            // Bottom padding
+            // INS-7: reserve bottom space for the global mini-player. The bar is a layout sibling
+            // that shrinks the NavHost area, so the last settings row can otherwise butt right up
+            // against it. A generous bottom spacer keeps a Home-like breathing room (96dp ~ mini
+            // player + margin) regardless of whether the bar is currently visible.
             item {
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(SettingsBottomSpacing))
             }
         }
     }
 }
+
+/** INS-7: bottom inset reserved under settings lists so the global mini-player never crowds the
+ *  last row. Mirrors the Home list's 96dp FAB/mini-player clearance. */
+private val SettingsBottomSpacing = 96.dp

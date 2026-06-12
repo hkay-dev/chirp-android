@@ -12,9 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -34,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
@@ -53,7 +53,8 @@ fun ProcessingPromptSettingsScreen(
     var presetToDelete by remember { mutableStateOf<ProcessingPromptPreset?>(null) }
 
     presetToDelete?.let { preset ->
-        AlertDialog(
+        // VIS-7: route through the shared AnimatedAlertDialog so every dialog shares one entrance.
+        AnimatedAlertDialog(
             onDismissRequest = { presetToDelete = null },
             title = { Text(stringResource(R.string.llm_prompt_delete_title)) },
             text = { Text(stringResource(R.string.llm_prompt_delete_body, preset.name)) },
@@ -114,7 +115,7 @@ fun ProcessingPromptSettingsScreen(
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     headlineContent = { Text(stringResource(R.string.llm_prompt_add)) },
                     leadingContent = {
-                        Icon(Icons.Default.Add, contentDescription = null)
+                        Icon(Icons.Rounded.Add, contentDescription = null)
                     },
                 )
             }
@@ -180,7 +181,7 @@ private fun PromptPresetListItem(
         },
         trailingContent = {
             if (preset.canEditPrompt) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null)
             }
         },
     )

@@ -22,15 +22,15 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +72,8 @@ import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.MetadataPillRow
+import dev.chirpboard.app.core.ui.components.SkeletonPlaceholder
+import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
 import dev.chirpboard.app.core.ui.playback.RecordingFullPlayer
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -193,21 +195,21 @@ fun ProcessingStudioScreen(
                     title = { Text(stringResource(R.string.rec_details)) },
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(CoreR.string.desc_navigate_back))
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(CoreR.string.desc_navigate_back))
                         }
                     },
                     actions = {
                         if (state.isEditingTranscript) {
                             IconButton(onClick = viewModel::cancelEditingTranscript) {
-                                Icon(Icons.Default.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
+                                Icon(Icons.Rounded.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
                             }
                             IconButton(onClick = viewModel::saveTranscriptCorrection) {
-                                Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
+                                Icon(Icons.Rounded.Check, contentDescription = stringResource(CoreR.string.desc_save))
                             }
                         } else {
                         Box {
                             IconButton(onClick = { showShareMenu = true }) {
-                                Icon(Icons.Default.Share, contentDescription = stringResource(CoreR.string.desc_share))
+                                Icon(Icons.Rounded.Share, contentDescription = stringResource(CoreR.string.desc_share))
                             }
                             DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
                                 DropdownMenuItem(
@@ -244,7 +246,7 @@ fun ProcessingStudioScreen(
                                 enabled = canRetranscribe,
                             ) {
                                 Icon(
-                                    Icons.Default.Refresh,
+                                    Icons.Rounded.Refresh,
                                     contentDescription = stringResource(R.string.rec_retranscribe_desc),
                                 )
                             }
@@ -253,14 +255,14 @@ fun ProcessingStudioScreen(
                                 enabled = canEditTranscript,
                             ) {
                                 Icon(
-                                    Icons.Default.Edit,
+                                    Icons.Rounded.Edit,
                                     contentDescription = stringResource(R.string.rec_edit_transcript),
                                 )
                             }
                         }
                         Box {
                             IconButton(onClick = { showOptionsMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = stringResource(CoreR.string.desc_more_options))
+                                Icon(Icons.Rounded.MoreVert, contentDescription = stringResource(CoreR.string.desc_more_options))
                             }
                             DropdownMenu(expanded = showOptionsMenu, onDismissRequest = { showOptionsMenu = false }) {
                                 DropdownMenuItem(
@@ -269,17 +271,19 @@ fun ProcessingStudioScreen(
                                         showOptionsMenu = false
                                         viewModel.startEditingTitle()
                                     },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = stringResource(CoreR.string.desc_edit)) },
+                                    leadingIcon = { Icon(Icons.Rounded.Edit, contentDescription = stringResource(CoreR.string.desc_edit)) },
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(CoreR.string.rec_delete)) },
                                     onClick = {
                                         showOptionsMenu = false
+                                        // PRM-1: heavy thunk on the destructive confirm.
+                                        ChirpHaptics.delete(context)
                                         viewModel.deleteRecording { onNavigateBack() }
                                     },
                                     leadingIcon = {
                                         Icon(
-                                            Icons.Default.Delete,
+                                            Icons.Rounded.Delete,
                                             contentDescription = stringResource(CoreR.string.desc_delete),
                                             tint = MaterialTheme.colorScheme.error,
                                         )
@@ -343,19 +347,20 @@ fun ProcessingStudioScreen(
                                         ),
                                 )
                                 IconButton(onClick = viewModel::cancelEditingTitle) {
-                                    Icon(Icons.Default.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
+                                    Icon(Icons.Rounded.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
                                 }
                                 IconButton(onClick = viewModel::saveTitle) {
-                                    Icon(Icons.Default.Check, contentDescription = stringResource(CoreR.string.desc_save))
+                                    Icon(Icons.Rounded.Check, contentDescription = stringResource(CoreR.string.desc_save))
                                 }
                             }
                         }
 
                         skeleton -> {
-                            Text(
-                                text = stringResource(R.string.rec_studio_loading_title),
-                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            // LOAD-8: a shimmering title-shaped placeholder reads more premium than
+                            // the literal word "Loading…". Size it like a headlineSmall title line.
+                            SkeletonPlaceholder(
+                                width = 200.dp,
+                                height = 28.dp,
                             )
                         }
 
@@ -374,12 +379,13 @@ fun ProcessingStudioScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        // LOAD-8: shimmering pill placeholders, cohesive with the title skeleton.
                         repeat(3) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
+                            SkeletonPlaceholder(
+                                width = 88.dp,
+                                height = 28.dp,
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                modifier = Modifier.size(width = 88.dp, height = 28.dp),
-                            ) {}
+                            )
                         }
                     }
                 } else {
@@ -417,7 +423,11 @@ fun ProcessingStudioScreen(
                         screenRecordingId = screenRecordingId!!,
                         screenTitle = state.title,
                         alternateAudioNotice = alternateNotice,
-                        onPlayPause = viewModel::togglePlayPause,
+                        onPlayPause = {
+                            // PRM-1: confirming tick on play/pause, matching the keyboard's tactile language.
+                            ChirpHaptics.tap(context)
+                            viewModel.togglePlayPause()
+                        },
                         onSeek = viewModel::seekTo,
                         onSkipBackward = viewModel::skipBackward,
                         onSkipForward = viewModel::skipForward,
@@ -455,7 +465,7 @@ fun ProcessingStudioScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Error,
+                                imageVector = Icons.Rounded.Error,
                                 contentDescription = stringResource(R.string.rec_processing_error),
                             )
                             Text(
@@ -469,7 +479,7 @@ fun ProcessingStudioScreen(
                                 enabled = state.recoveryActions.actionsEnabled,
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Refresh,
+                                    imageVector = Icons.Rounded.Refresh,
                                     contentDescription = null,
                                     modifier = Modifier.size(18.dp),
                                 )
@@ -577,7 +587,7 @@ private fun ProcessingStudioBarrierScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
+                            Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(CoreR.string.desc_navigate_back),
                         )
                     }
@@ -586,7 +596,7 @@ private fun ProcessingStudioBarrierScreen(
         },
     ) { paddingValues ->
         EmptyState(
-            icon = Icons.Default.Error,
+            icon = Icons.Rounded.Error,
             title = title,
             description = description,
             modifier = Modifier.padding(paddingValues),

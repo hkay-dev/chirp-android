@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -241,7 +241,7 @@ private fun TranscriptCopyActions(
                 enabled = enabled && rawTranscriptText.isNotBlank(),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.ContentCopy,
+                    imageVector = Icons.Rounded.ContentCopy,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
@@ -253,7 +253,7 @@ private fun TranscriptCopyActions(
                 enabled = enabled && enhancedTranscriptText.isNotBlank(),
             ) {
                 Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
+                    imageVector = Icons.Rounded.AutoAwesome,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )
@@ -266,7 +266,7 @@ private fun TranscriptCopyActions(
                 enabled = enabled && effectiveTranscriptText.isNotBlank(),
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.ContentCopy,
+                    imageVector = Icons.Rounded.ContentCopy,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
                 )

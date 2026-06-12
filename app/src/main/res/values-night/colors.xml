@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LOAD-6: dark-mode splash surface mirrors the static brand dark scheme (surface 0xFF1C1B1F);
+         the icon keeps a soft lavender (primaryContainer 0xFFEADDFF) so the mark stays legible. -->
+    <color name="chirp_splash_background">#1C1B1F</color>
+    <color name="chirp_brand_primary">#EADDFF</color>
+</resources>

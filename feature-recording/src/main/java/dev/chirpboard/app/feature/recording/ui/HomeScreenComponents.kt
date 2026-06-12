@@ -28,15 +28,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Summarize
-import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Summarize
+import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -76,7 +77,10 @@ import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
 import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
+import dev.chirpboard.app.core.ui.theme.chirpAccents
 import kotlinx.coroutines.delay
 import java.util.UUID
 
@@ -113,13 +117,13 @@ internal fun RecordingListItem(
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = onLongClick,
-                ).padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+                ).padding(horizontal = ChirpSpacing.ScreenHorizontal, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
         ) {
             Text(
                 text = item.title,
@@ -140,13 +144,28 @@ internal fun RecordingListItem(
                         ),
                 ) {
                     Icon(
-                        imageVector = if (isPlayingCurrent) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        imageVector = if (isPlayingCurrent) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         contentDescription =
                             if (isPlayingCurrent) {
                                 stringResource(R.string.desc_pause)
                             } else {
                                 stringResource(R.string.desc_play)
                             },
+                    )
+                }
+                // PRM-4: a visible, discoverable overflow affordance. Premium lists expose row
+                // actions (share/delete/…) without forcing the user to guess at a long-press; this
+                // kebab opens the SAME actions sheet that long-press does (long-press stays as the
+                // secondary path). The button has its own click target so it does not trigger the
+                // row's onClick (open studio).
+                IconButton(
+                    onClick = onLongClick,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreVert,
+                        contentDescription = stringResource(R.string.rec_more_actions),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -282,18 +301,21 @@ private fun LiveCaptureHomeBanner(isPaused: Boolean) {
                 label = "live_capture_pulse_alpha",
             )
         }
-    val dotColor = MaterialTheme.colorScheme.error
+    // PRM-2 / DECISIONS: the "live" row uses the shared recording accent, not raw Material error-red,
+    // so the home live indicator is cohesive with the keyboard glow, the record screen and the dialog.
+    val accents = MaterialTheme.colorScheme.chirpAccents
+    val dotColor = accents.recordingLive
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+        color = accents.recordingLiveContainer.copy(alpha = 0.45f),
     ) {
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = ChirpSpacing.Medium, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -312,7 +334,7 @@ private fun LiveCaptureHomeBanner(isPaused: Boolean) {
                 Text(
                     text = stringResource(R.string.rec_live_capture_banner_title),
                     style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.error,
+                    color = accents.recordingLive,
                 )
                 Text(
                     text =
@@ -396,14 +418,18 @@ internal fun RecordingActionsSheet(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(bottom = 32.dp),
+                .padding(bottom = ChirpSpacing.ExtraExtraLarge),
     ) {
         // Header
         Text(
             text = item.title,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+            modifier =
+                Modifier.padding(
+                    horizontal = ChirpSpacing.ExtraLarge,
+                    vertical = ChirpSpacing.Large,
+                ),
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
@@ -412,18 +438,18 @@ internal fun RecordingActionsSheet(
 
         // Share
         SheetActionItem(
-            icon = Icons.Default.Share,
+            icon = Icons.Rounded.Share,
             text = stringResource(CoreR.string.rec_share),
             onClick = onShare,
         )
 
         // AI Options (for completed recordings)
         if (onGenerateTitle != null || onGenerateSummary != null) {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
+            HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
 
             if (onGenerateTitle != null) {
                 SheetActionItem(
-                    icon = Icons.Default.Title,
+                    icon = Icons.Rounded.Title,
                     text = stringResource(R.string.rec_gen_title),
                     onClick = onGenerateTitle,
                     tint = MaterialTheme.colorScheme.tertiary,
@@ -432,7 +458,7 @@ internal fun RecordingActionsSheet(
 
             if (onGenerateSummary != null) {
                 SheetActionItem(
-                    icon = Icons.Default.Summarize,
+                    icon = Icons.Rounded.Summarize,
                     text = stringResource(R.string.rec_gen_summary),
                     onClick = onGenerateSummary,
                     tint = MaterialTheme.colorScheme.tertiary,
@@ -442,28 +468,28 @@ internal fun RecordingActionsSheet(
 
         // Retry (for failed recordings)
         if (onRetryTranscription != null) {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
+            HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
             SheetActionItem(
-                icon = Icons.Default.Refresh,
+                icon = Icons.Rounded.Refresh,
                 text = stringResource(R.string.rec_retry_transcription),
                 onClick = onRetryTranscription,
             )
         }
 
         if (onRecoverStuck != null) {
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
+            HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
             SheetActionItem(
-                icon = Icons.Default.Refresh,
+                icon = Icons.Rounded.Refresh,
                 text = stringResource(R.string.rec_recover_stuck_processing),
                 onClick = onRecoverStuck,
             )
         }
 
-        HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
+        HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.ExtraLarge))
 
         // Delete
         SheetActionItem(
-            icon = Icons.Default.Delete,
+            icon = Icons.Rounded.Delete,
             text = stringResource(CoreR.string.rec_delete),
             onClick = onDelete,
             tint = MaterialTheme.colorScheme.error,
@@ -485,9 +511,9 @@ private fun SheetActionItem(
                 .fillMaxWidth()
                 .semantics(mergeDescendants = true) {}
                 .combinedClickable(onClick = onClick)
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                .padding(horizontal = ChirpSpacing.ExtraLarge, vertical = ChirpSpacing.Large),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Large),
     ) {
         Icon(
             imageVector = icon,
@@ -544,7 +570,7 @@ internal fun HomeQuickStartSurface(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Default.Person,
+                                imageVector = Icons.Rounded.Person,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -572,6 +598,7 @@ fun BreathingExtendedFab(
     onClick: () -> Unit,
     isScrollInProgress: Boolean = false,
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val scaleAnimation =
         if (!isChecking && expanded && !isScrollInProgress) {
             val infiniteTransition = rememberInfiniteTransition(label = "breathing")
@@ -592,6 +619,9 @@ fun BreathingExtendedFab(
     ChirpPrimaryExtendedFab(
         onClick = {
             if (isRecordEntryActionEnabled(isChecking)) {
+                // PRM-1: a confirming tick on the primary Record CTA. Fired only when the action is
+                // actually enabled so a tap during the entry-check gives no false feedback.
+                ChirpHaptics.tap(context)
                 onClick()
             }
         },
@@ -611,7 +641,7 @@ fun BreathingExtendedFab(
                 )
             } else {
                 Icon(
-                    imageVector = Icons.Default.Mic,
+                    imageVector = Icons.Rounded.Mic,
                     contentDescription = null,
                 )
             }
@@ -635,7 +665,7 @@ fun AnimatedEmptyState(
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         EmptyState(
-            icon = Icons.Default.Mic,
+            icon = Icons.Rounded.Mic,
             title = stringResource(R.string.rec_empty_state_title),
             description = stringResource(R.string.rec_empty_state_subtitle),
             animateIcon = true,
@@ -650,7 +680,10 @@ fun AnimatedEmptyState(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(
+                            horizontal = ChirpSpacing.ScreenHorizontal,
+                            vertical = ChirpSpacing.Small,
+                        ),
             )
         }
     }

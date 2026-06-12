@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.transcription.settings
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.animation.animateColorAsState
@@ -25,15 +24,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -65,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.transcription.R
@@ -116,7 +113,7 @@ fun TranscriptionSettingsScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = stringResource(CoreR.string.desc_navigate_back),
                         )
                     }
@@ -176,20 +173,14 @@ fun TranscriptionSettingsScreen(
                     modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp),
                 )
             }
-            item { Spacer(modifier = Modifier.height(24.dp)) }
+            // INS-7: reserve space under the list for the global mini-player sibling bar.
+            item { Spacer(modifier = Modifier.height(96.dp)) }
         }
     }
 
-    // Delete Confirmation Dialog
-    AnimatedVisibility(
-        visible = uiState.showDeleteConfirmation,
-        enter =
-            fadeIn(tween(200, easing = FastOutSlowInEasing)) +
-                scaleIn(tween(200), initialScale = 0.85f),
-        exit =
-            fadeOut(tween(200)) +
-                scaleOut(tween(200), targetScale = 0.85f),
-    ) {
+    // VIS-7: the bespoke AnimatedVisibility(scaleIn/scaleOut) wrapper is removed; the dialog now
+    // shares the app-wide entrance by routing through AnimatedAlertDialog directly.
+    if (uiState.showDeleteConfirmation) {
         DeleteConfirmationDialog(
             modelName = uiState.modelName,
             onConfirm = viewModel::deleteModel,
@@ -276,7 +267,7 @@ private fun ModelManagementCard(
                             }
                             "downloaded" -> {
                                 Icon(
-                                    imageVector = Icons.Default.CheckCircle,
+                                    imageVector = Icons.Rounded.CheckCircle,
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp),
                                     tint = statusTint,
@@ -284,7 +275,7 @@ private fun ModelManagementCard(
                             }
                             else -> {
                                 Icon(
-                                    imageVector = Icons.Default.CloudDownload,
+                                    imageVector = Icons.Rounded.CloudDownload,
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp),
                                     tint = statusTint,
@@ -368,7 +359,7 @@ private fun ModelManagementCard(
                             Text(stringResource(R.string.transcription_downloading))
                         } else {
                             Icon(
-                                imageVector = Icons.Default.CloudDownload,
+                                imageVector = Icons.Rounded.CloudDownload,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                             )
@@ -384,7 +375,7 @@ private fun ModelManagementCard(
                         ),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = Icons.Rounded.Delete,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
@@ -415,7 +406,7 @@ private fun ErrorCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Default.Warning,
+                imageVector = Icons.Rounded.Warning,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onErrorContainer,
             )
@@ -439,11 +430,11 @@ private fun DeleteConfirmationDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
+    AnimatedAlertDialog(
         onDismissRequest = onDismiss,
         icon = {
             Icon(
-                imageVector = Icons.Default.Warning,
+                imageVector = Icons.Rounded.Warning,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.error,
             )

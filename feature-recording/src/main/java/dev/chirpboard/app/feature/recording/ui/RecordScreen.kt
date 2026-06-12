@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +44,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
+import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
+import dev.chirpboard.app.core.ui.theme.chirpAccents
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.session.RecoverableRecordingSession
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
@@ -299,7 +301,7 @@ fun RecordScreen(
                             }
                         },
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.desc_close))
+                        Icon(Icons.Rounded.Close, contentDescription = stringResource(R.string.desc_close))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -397,15 +399,25 @@ fun RecordScreen(
                 onTogglePausePlay = {
                     if (isPaused || !isActive) {
                         if (isActive) {
+                            // PRM-1: resume — a record-start tick, matching the keyboard's tactile
+                            // language so the two halves of the product feel identical.
+                            ChirpHaptics.recordStart(context)
                             viewModel.resumeRecording()
                         } else if (isProfileHandoffResolved) {
+                            ChirpHaptics.recordStart(context)
                             viewModel.startRecording()
                         }
                     } else {
+                        // Pausing is a light tap, distinct from the start tick.
+                        ChirpHaptics.tap(context)
                         viewModel.pauseRecording()
                     }
                 },
-                onStopRecording = { completeRecordingWithHandoff() },
+                onStopRecording = {
+                    // PRM-1: finishing the capture — the keyboard's distinct double-tick.
+                    ChirpHaptics.recordStop(context)
+                    completeRecordingWithHandoff()
+                },
                 onRestartRecording = { showRestartDialog = true },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -443,7 +455,7 @@ private fun ActiveProfileSessionBadge(
                     )
                 } else {
                     Icon(
-                        imageVector = Icons.Default.Person,
+                        imageVector = Icons.Rounded.Person,
                         contentDescription = null,
                     )
                 }
@@ -472,7 +484,9 @@ private fun RecordingWaveform(
         waveformBuffer = viewModel.waveformBuffer,
         sampleCount = amplitudeSampleCount,
         isActive = isRecording,
-        color = MaterialTheme.colorScheme.error,
+        // PRM-2 / DECISIONS: the single shared "live/recording" accent, cohesive with the keyboard
+        // glow, the home live row and the recognition dialog — not raw Material error-red.
+        color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
         modifier = modifier,
     )
 }

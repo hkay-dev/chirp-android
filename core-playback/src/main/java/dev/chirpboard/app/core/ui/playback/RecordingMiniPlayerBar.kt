@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -51,6 +51,9 @@ private val seekTrackExitTransition =
             animationSpec = tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
         )
 
+/** Lift the persistent now-playing bar off scrolling content with a subtle shadow (INS-5). */
+private val MiniPlayerElevation = 3.dp
+
 @Composable
 fun RecordingMiniPlayerBar(
     state: RecordingPlaybackState,
@@ -60,11 +63,14 @@ fun RecordingMiniPlayerBar(
     onOpenRecording: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val seekTrackVisible = state.durationMs > 0 && state.errorMessage == null
     Surface(
         modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
+        // INS-5 / PRM-6: a tonally-distinct container plus a small shadow so the bar reads as a
+        // floating transport over the list rather than merging into the same `surface` background.
+        color = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+        shadowElevation = MiniPlayerElevation,
     ) {
         Column(
             modifier =
@@ -72,13 +78,18 @@ fun RecordingMiniPlayerBar(
                     .navigationBarsPadding()
                     .animateContentSize(),
         ) {
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                thickness = 0.5.dp,
-            )
+            // INS-6: when the seek track is shown it already delineates the bar's top edge, so the
+            // hairline divider stacked directly above it read as an unintentional double border.
+            // Drop the divider whenever the seek track is visible; the shadow provides separation.
+            if (!seekTrackVisible) {
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                    thickness = 0.5.dp,
+                )
+            }
 
             AnimatedVisibility(
-                visible = state.durationMs > 0 && state.errorMessage == null,
+                visible = seekTrackVisible,
                 enter = seekTrackEnterTransition,
                 exit = seekTrackExitTransition,
             ) {
@@ -112,7 +123,7 @@ fun RecordingMiniPlayerBar(
                         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     } else {
                         Icon(
-                            imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            imageVector = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription =
                                 if (state.isPlaying) {
                                     stringResource(R.string.playback_pause)
@@ -154,7 +165,11 @@ fun RecordingMiniPlayerBar(
                                     state.positionMs.formatAsDuration(),
                                     state.durationMs.formatAsDuration(),
                                 ),
-                            style = MaterialTheme.typography.labelSmall,
+                            // PRM-8: tabular figures so the advancing position does not jitter width.
+                            style =
+                                MaterialTheme.typography.labelSmall.copy(
+                                    fontFeatureSettings = "tnum",
+                                ),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                         )
@@ -163,7 +178,7 @@ fun RecordingMiniPlayerBar(
 
                 IconButton(onClick = onStop, modifier = Modifier.size(40.dp)) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.playback_stop),
                         modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -276,8 +276,12 @@ fun KeyboardScreen(
     onMoveCursor: (Int) -> Unit = {},
     onOpenApp: () -> Unit = {},
     onDismissError: () -> Unit = {},
+    // DECISIONS (Color/brand): brand lavender is the default; the host service collects the user's
+    // "Use system colors (Material You)" preference and passes it through so the keyboard matches
+    // the app's chosen palette.
+    dynamicColor: Boolean = false,
 ) {
-    KeyboardTheme {
+    KeyboardTheme(dynamicColor = dynamicColor) {
         val outlineColor = MaterialTheme.colorScheme.outlineVariant
         val voicePhase = uiState.voicePanel
         val recordingVisual by animateFloatAsState(

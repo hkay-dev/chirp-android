@@ -155,7 +155,8 @@ fun AudioSettingsScreen(
                 )
             }
 
-            item { Spacer(modifier = Modifier.height(24.dp)) }
+            // INS-7: reserve space under the list for the global mini-player sibling bar.
+            item { Spacer(modifier = Modifier.height(96.dp)) }
         }
     }
 }

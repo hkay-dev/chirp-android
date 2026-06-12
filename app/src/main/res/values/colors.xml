@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LOAD-6: branded cold-start splash. Light surface + brand-lavender icon tint so the
+         starting window reads as Chirpboard, not a flat unbranded Material window. Mirrors the
+         static brand ChirpColorScheme (surface 0xFFFFFBFE, primary 0xFF6750A4). -->
+    <color name="chirp_splash_background">#FFFBFE</color>
+    <color name="chirp_brand_primary">#6750A4</color>
+</resources>

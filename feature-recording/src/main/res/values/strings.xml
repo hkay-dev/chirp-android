@@ -58,6 +58,7 @@
 
     <string name="desc_play">Play</string>
     <string name="desc_pause">Pause</string>
+    <string name="rec_more_actions">More actions</string>
 
 
     <string name="rec_edit_profile">Edit Profile</string>

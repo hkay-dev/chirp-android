@@ -3,7 +3,6 @@ package dev.chirpboard.app.feature.llm.settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -16,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.feature.llm.R
 
 enum class LlmPassphraseDialogMode {
@@ -36,7 +36,9 @@ internal fun LlmApiKeyPassphraseDialog(
         passphrase.length >= MIN_PASSPHRASE_LENGTH &&
             (!requiresConfirmation || passphrase == confirmPassphrase)
 
-    AlertDialog(
+    // VIS-7: route through the shared AnimatedAlertDialog so this dialog scales+fades in like the
+    // rest of the app's dialogs instead of popping in instantly.
+    AnimatedAlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(

@@ -16,10 +16,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Policy
+import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.Policy
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -70,9 +69,10 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // App icon
+                // PRM-7 brand identity: the Chirpboard parakeet mark stands in for a generic app
+                // glyph here, the natural spot for the brand on the About screen.
                 Icon(
-                    imageVector = Icons.Default.Mic,
+                    painter = painterResource(R.drawable.ic_chirp_parakeet),
                     contentDescription = null,
                     modifier = Modifier.size(80.dp),
                     tint = MaterialTheme.colorScheme.primary,
@@ -127,7 +127,7 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
             item {
                 // Legal links
                 SettingsListItem(
-                    icon = Icons.Default.Policy,
+                    icon = Icons.Rounded.Policy,
                     title = stringResource(R.string.about_privacy_title),
                     subtitle = stringResource(R.string.about_privacy_subtitle),
                     onClick = {
@@ -136,7 +136,7 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
                 )
 
                 SettingsListItem(
-                    icon = Icons.Default.Code,
+                    icon = Icons.Rounded.Code,
                     title = stringResource(R.string.about_open_source_title),
                     subtitle = stringResource(R.string.about_open_source_subtitle),
                     onClick = {

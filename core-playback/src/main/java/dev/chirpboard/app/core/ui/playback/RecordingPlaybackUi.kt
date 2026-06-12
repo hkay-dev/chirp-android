@@ -1,6 +1,7 @@
 package dev.chirpboard.app.core.ui.playback
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,14 +13,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,10 +43,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.util.formatAsDuration
+
+/** Tabular-figure time readout style so advancing playback digits do not jitter (PRM-8). */
+@Composable
+private fun timeReadoutStyle(): TextStyle =
+    MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum")
 
 @Composable
 internal fun playbackSliderColors() =
@@ -103,12 +112,12 @@ internal fun PlaybackTimelineRow(
         ) {
             Text(
                 text = displayedPositionMs.formatAsDuration(),
-                style = MaterialTheme.typography.labelSmall,
+                style = timeReadoutStyle(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 text = durationMs.formatAsDuration(),
-                style = MaterialTheme.typography.labelSmall,
+                style = timeReadoutStyle(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -138,7 +147,7 @@ internal fun PlaybackTransportRow(
             modifier = Modifier.size(40.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.Replay10,
+                imageVector = Icons.Rounded.Replay10,
                 contentDescription = stringResource(R.string.playback_skip_back),
                 modifier = Modifier.size(22.dp),
             )
@@ -164,7 +173,7 @@ internal fun PlaybackTransportRow(
 
                 isError -> {
                     Icon(
-                        imageVector = Icons.Filled.Error,
+                        imageVector = Icons.Rounded.Error,
                         contentDescription = stringResource(R.string.playback_error),
                         modifier = Modifier.size(24.dp),
                     )
@@ -177,7 +186,7 @@ internal fun PlaybackTransportRow(
                         label = "playPauseIcon",
                     ) { playing ->
                         Icon(
-                            imageVector = if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            imageVector = if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             contentDescription =
                                 if (playing) {
                                     stringResource(R.string.playback_pause)
@@ -197,7 +206,7 @@ internal fun PlaybackTransportRow(
             modifier = Modifier.size(40.dp),
         ) {
             Icon(
-                imageVector = Icons.Filled.Forward10,
+                imageVector = Icons.Rounded.Forward10,
                 contentDescription = stringResource(R.string.playback_skip_forward),
                 modifier = Modifier.size(22.dp),
             )
@@ -256,6 +265,7 @@ internal fun MiniPlayerProgressTrack(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MiniPlayerSeekTrack(
     positionMs: Long,
@@ -307,18 +317,34 @@ internal fun MiniPlayerSeekTrack(
             modifier = Modifier.fillMaxWidth(),
             colors =
                 SliderDefaults.colors(
-                    thumbColor =
-                        if (isDragging) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            Color.Transparent
-                        },
+                    // The custom MiniPlayerProgressTrack draws the visible track, so keep the
+                    // Slider's own track transparent; only the custom thumb is rendered.
                     activeTrackColor = Color.Transparent,
                     inactiveTrackColor = Color.Transparent,
-                    disabledThumbColor = Color.Transparent,
                     disabledActiveTrackColor = Color.Transparent,
                     disabledInactiveTrackColor = Color.Transparent,
                 ),
+            // PRM-5: a resting thumb so the hairline reads as scrubbable instead of a dead 2dp line.
+            thumb = { MiniPlayerSeekThumb(isDragging = isDragging) },
         )
     }
 }
+
+/** Resting scrub thumb for the mini-player (PRM-5): a small dot that grows while dragging. */
+@Composable
+private fun MiniPlayerSeekThumb(isDragging: Boolean) {
+    val diameter by animateDpAsState(
+        targetValue = if (isDragging) MiniThumbDraggingDiameter else MiniThumbRestingDiameter,
+        animationSpec = tween(120),
+        label = "miniSeekThumb",
+    )
+    Box(
+        modifier =
+            Modifier
+                .size(diameter)
+                .background(color = MaterialTheme.colorScheme.primary, shape = CircleShape),
+    )
+}
+
+private val MiniThumbRestingDiameter = 8.dp
+private val MiniThumbDraggingDiameter = 14.dp

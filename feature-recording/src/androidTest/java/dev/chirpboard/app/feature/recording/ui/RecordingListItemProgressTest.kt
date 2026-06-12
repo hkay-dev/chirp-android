@@ -3,12 +3,15 @@ package dev.chirpboard.app.feature.recording.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -51,5 +54,41 @@ class RecordingListItemProgressTest {
         composeRule.onNodeWithText(
             "Your transcript will appear here when processing finishes.",
         ).assertIsDisplayed()
+    }
+
+    @Test
+    fun recordingListItem_exposesDiscoverableMoreActionsAffordance() {
+        // PRM-4: the row must expose a visible, discoverable affordance (not only long-press) that
+        // opens the actions sheet. The overflow button reuses onLongClick as its handler.
+        val item =
+            RecordingDisplayItem(
+                recording =
+                    Recording(
+                        title = "Quarterly review",
+                        audioPath = "/tmp/test.m4a",
+                        status = RecordingStatus.COMPLETED,
+                        source = RecordingSource.APP,
+                        createdAt = Date(),
+                        durationMs = 30_000L,
+                    ),
+            )
+        var actionsOpened = false
+
+        composeRule.setContent {
+            MaterialTheme {
+                RecordingListItem(
+                    item = item,
+                    playbackState = RecordingPlaybackRowState(),
+                    recordingState = RecordingState.Idle,
+                    onClick = {},
+                    onPlayClick = {},
+                    onLongClick = { actionsOpened = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithContentDescription("More actions").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("More actions").performClick()
+        assertTrue(actionsOpened)
     }
 }

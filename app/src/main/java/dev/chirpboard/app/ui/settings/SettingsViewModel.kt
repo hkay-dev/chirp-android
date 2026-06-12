@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,12 +22,14 @@ class SettingsViewModel
     constructor(
         private val application: android.app.Application,
         private val obsidianPreferences: ObsidianPreferences,
+        private val dynamicColorPreference: DynamicColorPreference,
     ) : ViewModel() {
         data class UiState(
             val appVersion: String = "",
             val buildNumber: String = "",
             val isObsidianConnected: Boolean = false,
             val isDebugBuild: Boolean = false,
+            val useDynamicColor: Boolean = DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR,
         )
 
         private val _uiState = MutableStateFlow(UiState())
@@ -35,6 +38,7 @@ class SettingsViewModel
         init {
             loadAppInfo()
             observeObsidianConnection()
+            observeDynamicColor()
         }
 
         private fun loadAppInfo() {
@@ -66,6 +70,26 @@ class SettingsViewModel
                         state.copy(isObsidianConnected = vaultUri != null)
                     }
                 }
+            }
+        }
+
+        private fun observeDynamicColor() {
+            viewModelScope.launch {
+                dynamicColorPreference.useDynamicColor.collect { enabled ->
+                    _uiState.update { state ->
+                        state.copy(useDynamicColor = enabled)
+                    }
+                }
+            }
+        }
+
+        /**
+         * Persist the "Use system colors (Material You)" choice. The new value is reflected back
+         * through [observeDynamicColor]; the app + keyboard recompose against the chosen palette.
+         */
+        fun setUseDynamicColor(enabled: Boolean) {
+            viewModelScope.launch {
+                dynamicColorPreference.setUseDynamicColor(enabled)
             }
         }
     }

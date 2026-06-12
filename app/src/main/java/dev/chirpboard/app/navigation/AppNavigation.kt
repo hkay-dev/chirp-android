@@ -23,7 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.rounded.AudioFile
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -347,7 +347,7 @@ private fun SharedAudioIntakeFailure(
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         EmptyState(
-            icon = Icons.Default.AudioFile,
+            icon = Icons.Rounded.AudioFile,
             title = stringResource(R.string.shared_audio_handoff_failed_title),
             description = message,
             actionLabel = stringResource(R.string.shared_audio_handoff_retry),
