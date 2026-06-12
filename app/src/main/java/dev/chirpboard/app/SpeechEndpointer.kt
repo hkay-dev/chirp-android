@@ -13,7 +13,27 @@ package dev.chirpboard.app
  *    (drives `beginningOfSpeech`, which must reflect detected speech — IME-20);
  *  - [Event.END_OF_SPEECH] once speech was detected and the trailing silence reaches
  *    [completeSilenceMs] (honors `EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS`);
- *  - [Event.NO_SPEECH_TIMEOUT] when no speech is ever detected within [noSpeechTimeoutMs].
+ *  - [Event.NO_SPEECH_TIMEOUT] when no utterance is ever *completed* within the
+ *    no-speech budget.
+ *
+ * ## Why amplitude alone is not enough (the live no-speech hang)
+ *
+ * This is a NON-STREAMING offline recognizer: it cannot tell ambient room noise from
+ * speech until the capture is stopped and transcribed. The amplitude path is therefore a
+ * heuristic fast-path only. In a room with mild ambient noise the recorder's mean-abs
+ * amplitude — amplified by the user's microphone-gain multiplier — drifts above
+ * [speechAmplitudeThreshold], so [lastSpeechMs] gets set even though nobody spoke. Once
+ * that happens the no-speech branch (which keyed on `lastSpeechMs == null`) could never
+ * fire again, and intermittent noise kept resetting the trailing-silence window, so neither
+ * terminal event was reachable and the session listened indefinitely.
+ *
+ * The backstop is an ABSOLUTE no-speech cap that is independent of amplitude: if no
+ * utterance has been *completed* ([Event.END_OF_SPEECH] never fired) within
+ * [noSpeechTimeoutMs] of the first frame, the session terminates with
+ * [Event.NO_SPEECH_TIMEOUT] regardless of how loud the ambient noise is. Amplitude still
+ * provides the fast path — a genuinely quiet room ends a never-started session at the same
+ * budget, and a real utterance ends sooner on its trailing silence — but ambient noise can
+ * no longer defeat termination.
  *
  * No terminal event fires before [minimumUtteranceMs] has elapsed since the first sample
  * (honors `EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS`). After a terminal event the
@@ -27,6 +47,7 @@ internal class SpeechEndpointer(
     private val minimumUtteranceMs: Long = 0L,
     private val noSpeechTimeoutMs: Long = DEFAULT_NO_SPEECH_TIMEOUT_MS,
     private val speechAmplitudeThreshold: Float = DEFAULT_SPEECH_AMPLITUDE_THRESHOLD,
+    private val minSustainedSpeechMs: Long = DEFAULT_MIN_SUSTAINED_SPEECH_MS,
 ) {
     internal enum class Event {
         NONE,
@@ -37,6 +58,19 @@ internal class SpeechEndpointer(
 
     private var sessionStartMs: Long? = null
     private var lastSpeechMs: Long? = null
+
+    /** Start of the current contiguous above-threshold run; null while below threshold. */
+    private var speechRunStartMs: Long? = null
+
+    /**
+     * True once an above-threshold run has lasted at least [minSustainedSpeechMs] — the
+     * point at which the input is treated as a genuine *speech session* rather than ambient
+     * flicker. Once set, the no-speech cap is disabled: the session can only end on the
+     * trailing-silence [Event.END_OF_SPEECH], the client minimum, or the owner's own stop
+     * (manual stop / recorder 10-minute cap). Never cleared, so a real utterance is never
+     * downgraded to a no-speech timeout by a later quiet stretch.
+     */
+    private var speechEstablished = false
     private var finished = false
 
     /**
@@ -52,22 +86,61 @@ internal class SpeechEndpointer(
         }
         val startMs = sessionStartMs ?: nowMs.also { sessionStartMs = it }
 
-        if (amplitude >= speechAmplitudeThreshold) {
-            val firstSpeech = lastSpeechMs == null
+        // Amplitude fast-path: a frame above the threshold marks speech and restarts the
+        // trailing-silence window. SPEECH_STARTED is reported only on the first such frame.
+        // This is a heuristic — ambient noise can trip it — so on its own it never *prevents*
+        // the absolute no-speech cap below from terminating a session: only a *sustained*
+        // above-threshold run (real speech) does, by setting speechEstablished.
+        val speaking = amplitude >= speechAmplitudeThreshold
+        var event = Event.NONE
+        if (speaking) {
+            if (lastSpeechMs == null) {
+                event = Event.SPEECH_STARTED
+            }
             lastSpeechMs = nowMs
-            return if (firstSpeech) Event.SPEECH_STARTED else Event.NONE
+            val runStart = speechRunStartMs ?: nowMs.also { speechRunStartMs = it }
+            if (nowMs - runStart >= minSustainedSpeechMs) {
+                // An above-threshold run that has lasted minSustainedSpeechMs is real speech,
+                // not an ambient flicker: lock the session into the speech path so a later
+                // quiet stretch ends it on trailing silence, never as a no-speech timeout.
+                speechEstablished = true
+            }
+        } else {
+            // The run ended; the next above-threshold frame starts a fresh run that must
+            // again last minSustainedSpeechMs to count — so isolated ambient flickers never
+            // accumulate into an established speech session.
+            speechRunStartMs = null
         }
 
+        // The client's minimum-length extra (and the implicit floor) holds back every
+        // terminal event, including the absolute cap, so a session can never be ended before
+        // the caller's minimum utterance length.
         if (nowMs - startMs < minimumUtteranceMs) {
-            return Event.NONE
+            return event
         }
 
+        // Fast path: a detected utterance ended on its trailing silence.
         val speechMs = lastSpeechMs
-        return when {
-            speechMs == null && nowMs - startMs >= noSpeechTimeoutMs -> terminal(Event.NO_SPEECH_TIMEOUT)
-            speechMs != null && nowMs - speechMs >= completeSilenceMs -> terminal(Event.END_OF_SPEECH)
-            else -> Event.NONE
+        if (speechMs != null && nowMs - speechMs >= completeSilenceMs) {
+            return terminal(Event.END_OF_SPEECH)
         }
+
+        // Absolute backstop, independent of amplitude: no *sustained* speech was established
+        // within the no-speech budget. For a genuinely silent session this is the only
+        // terminal; for an ambient-noise session that kept tripping the amplitude heuristic
+        // (brief flickers, no sustained run) this is what guarantees the session still ends.
+        // The caller treats it as the SpeechRecognizer ERROR_SPEECH_TIMEOUT convention.
+        //
+        // Disabled once speech is established (a real utterance is in progress or has paused):
+        // such a session ends on the trailing-silence END_OF_SPEECH, the client minimum, or
+        // the owner's stop (manual / recorder 10-minute cap) — never cut short here. Because
+        // the cap keys on speechEstablished, not on the current frame's amplitude, intermittent
+        // ambient noise cannot hold it open the way a trailing-silence window can.
+        if (!speechEstablished && nowMs - startMs >= noSpeechTimeoutMs) {
+            return terminal(Event.NO_SPEECH_TIMEOUT)
+        }
+
+        return event
     }
 
     private fun terminal(event: Event): Event {
@@ -80,9 +153,11 @@ internal class SpeechEndpointer(
         const val DEFAULT_COMPLETE_SILENCE_MS = 2_000L
 
         /**
-         * Default initial-silence budget in which some speech must be detected before the
-         * session terminates with ERROR_SPEECH_TIMEOUT (~8-12s per platform convention; a
-         * 5s budget cut off slow starters on-device).
+         * Default no-speech budget: the absolute cap within which an utterance must be
+         * *completed* (trailing-silence END_OF_SPEECH) before the session terminates with
+         * ERROR_SPEECH_TIMEOUT (~8-12s per platform convention; a 5s budget cut off slow
+         * starters on-device). Independent of amplitude so ambient room noise cannot defeat
+         * it (see the class doc).
          */
         const val DEFAULT_NO_SPEECH_TIMEOUT_MS = 10_000L
 
@@ -91,6 +166,16 @@ internal class SpeechEndpointer(
          * noise sits around 0.001-0.005 on phone mics; voiced speech around 0.02-0.15.
          */
         const val DEFAULT_SPEECH_AMPLITUDE_THRESHOLD = 0.01f
+
+        /**
+         * Minimum duration a contiguous above-threshold run must last to be treated as a
+         * genuine *speech session* rather than ambient flicker (which disables the no-speech
+         * cap). At ~15 Hz frames this is a handful of consecutive voiced frames — short
+         * enough that no real slow starter is ever misclassified as ambient noise, long
+         * enough that the isolated, varying flickers of room noise (which dip below the
+         * threshold between frames) never establish.
+         */
+        const val DEFAULT_MIN_SUSTAINED_SPEECH_MS = 300L
 
         /** Bounds applied to client-provided silence/minimum-length extras. */
         const val MIN_CLIENT_SILENCE_MS = 500L
