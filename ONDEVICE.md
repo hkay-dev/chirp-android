@@ -189,3 +189,30 @@ R8 minification + Gson keep rules + arm64-only native libs all shipped tonight. 
 - [ ] Re-import with MERGE → counts unchanged, nothing duplicated
 - [ ] REPLACE restore: recording-tag assignments and profile links on existing recordings SURVIVE for re-created same-name items (the fixed diff-aware replace)
 - [ ] Import a corrupted file → clean rejection, nothing changed
+
+## Added 2026-06-12 PM — mic-switcher reliability audit fixes (MIC-001..021)
+
+Unit tests + detekt + assembleRelease are all green; these are the behaviors that can ONLY be proven on hardware.
+
+### Classic Bluetooth SCO mic — MIC-006 (NEEDS a non-LE-audio BT headset; ~15 min) — HIGHEST PRIORITY
+`setCommunicationDevice` acceptance + SCO link bring-up are OEM/version-dependent and unprovable in CI. Test on **at least one Samsung AND one Pixel**, with a **classic (non-LE-audio) BT headset**, on **all three surfaces** (recording service, keyboard dictation, recognition dialog), under **both Manual selection and Automatic policy**:
+- [ ] logcat `Effective capture route:` names the **SCO** device (not built-in) once capture is live
+- [ ] Audio is audibly captured from the **headset mic** (speak only into it; built-in covered)
+- [ ] After stop: `AudioManager.getCommunicationDevice()` is back to default — phone is NOT stranded in headset/communication routing
+- [ ] Media playback routing is unaffected during AND after capture (no app-wide MODE_IN_COMMUNICATION side effect)
+- [ ] Timeout-fallback: if SCO activation fails/stalls (~2 s), capture falls back to a non-BT mic with the "using X instead" notice (force-fail activation if you can)
+- [ ] Latency watch: SCO selections add up to ~2 s/init attempt (~6 s worst case across the 3× retry) — acceptable, just confirm it's not worse
+
+### Pause → swap → resume — MIC-009 / MIC-010 (USB mic, ~5 min)
+- [ ] Record on USB mic → **Pause** → unplug USB → session STAYS paused (no auto-stop-and-save) → plug built-in path / pick a device → **Resume** → continues, and a "device changed on resume" advisory shows (it no longer swaps silently)
+- [ ] Record → real transient focus loss (trigger a notification chime / brief assistant) DURING segment rotation → recording auto-resumes, never gets stuck Paused (MIC-001)
+
+### Keyboard dictation races — MIC-008 / MIC-017 (~5 min)
+- [ ] Dictate a long sentence → tap **Stop**, then tap mic again within ~1 s → NO "microphone in use by keyboard" toast; it just waits for the previous dictation to finish
+- [ ] Tap **Stop** then immediately **Cancel** (within the teardown window) → text is NOT committed to the field (cancel wins); with save-preference ON, the cancelled capture is discarded, not saved
+- [ ] Recognition dialog: swipe-away / destroy WHILE cancelling → no crash, rescue still correct
+
+### Cross-surface device-loss & no-speech — MIC-014 / MIC-018 (~5 min)
+- [ ] Dictate on keyboard with BT mic → power the headset off mid-dictation → a transient hint appears (chip/route corrects); dictation does not silently lie about the device
+- [ ] Recognition dialog with mic gain at 5× next to steady noise (fan) and say nothing → session still times out to the no-speech/retry state (continuous-noise no longer defeats the endpointer)
+- [ ] Recognition with a wedged/stalled route (no frames) → the wall-clock watchdog fires the no-speech terminal instead of listening forever
