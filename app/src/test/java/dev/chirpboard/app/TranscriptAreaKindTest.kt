@@ -18,6 +18,7 @@ class TranscriptAreaKindTest {
             transcriptAreaKind(
                 hasText = true,
                 modelState = VoiceRecognitionModelState.Initializing,
+                preRollComplete = false,
                 isRecording = false,
                 isProcessing = false,
             ),
@@ -27,6 +28,7 @@ class TranscriptAreaKindTest {
             transcriptAreaKind(
                 hasText = true,
                 modelState = VoiceRecognitionModelState.Ready,
+                preRollComplete = true,
                 isRecording = true,
                 isProcessing = true,
             ),
@@ -40,6 +42,7 @@ class TranscriptAreaKindTest {
             transcriptAreaKind(
                 hasText = false,
                 modelState = VoiceRecognitionModelState.Initializing,
+                preRollComplete = false,
                 isRecording = false,
                 isProcessing = false,
             ),
@@ -53,6 +56,7 @@ class TranscriptAreaKindTest {
             transcriptAreaKind(
                 hasText = false,
                 modelState = VoiceRecognitionModelState.Unavailable,
+                preRollComplete = false,
                 isRecording = true,
                 isProcessing = false,
             ),
@@ -66,6 +70,7 @@ class TranscriptAreaKindTest {
             transcriptAreaKind(
                 hasText = false,
                 modelState = VoiceRecognitionModelState.Ready,
+                preRollComplete = true,
                 isRecording = true,
                 isProcessing = false,
             ),
@@ -79,6 +84,7 @@ class TranscriptAreaKindTest {
             transcriptAreaKind(
                 hasText = false,
                 modelState = VoiceRecognitionModelState.Ready,
+                preRollComplete = true,
                 isRecording = true,
                 isProcessing = true,
             ),
@@ -86,12 +92,31 @@ class TranscriptAreaKindTest {
     }
 
     @Test
-    fun `idle ready state with no text is empty`() {
+    fun `ready model before capture shows the calm pre-roll beat`() {
+        // Model is Ready but the pre-roll beat has not elapsed and capture has not begun: the calm
+        // "Ready to listen" frame is shown instead of jumping straight to the timer (DLG-4/LOAD-5).
+        assertEquals(
+            TranscriptAreaKind.Ready,
+            transcriptAreaKind(
+                hasText = false,
+                modelState = VoiceRecognitionModelState.Ready,
+                preRollComplete = false,
+                isRecording = false,
+                isProcessing = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `idle ready state after pre-roll with no text and not recording is empty`() {
+        // Pre-roll done, model ready, not yet recording (the brief gap before Starting lands):
+        // empty rather than re-showing the pre-roll copy.
         assertEquals(
             TranscriptAreaKind.Empty,
             transcriptAreaKind(
                 hasText = false,
                 modelState = VoiceRecognitionModelState.Ready,
+                preRollComplete = true,
                 isRecording = false,
                 isProcessing = false,
             ),

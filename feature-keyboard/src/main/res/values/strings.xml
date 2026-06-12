@@ -16,7 +16,7 @@
     <string name="keyboard_status_recording">Recording</string>
     <string name="keyboard_llm_enable">Enhance with AI</string>
     <string name="keyboard_llm_mode">AI: %1$s</string>
-    <string name="keyboard_downloading_model_progress">Downloading model... %1$d%%</string>
+    <string name="keyboard_downloading_model_progress">Downloading model… %1$d%%</string>
     <string name="keyboard_loading_speech_model">Loading speech model…</string>
     <string name="keyboard_model_not_ready">Model not ready</string>
     <string name="keyboard_sensitive_input_disabled">Dictation is disabled for sensitive fields</string>
@@ -28,6 +28,6 @@
     <string name="keyboard_mode_email">Email</string>
     <string name="keyboard_mode_code">Code</string>
     <string name="keyboard_mode_smart">Smart</string>
-    <string name="keyboard_transcribing">Transcribing...</string>
-    <string name="keyboard_polishing">Polishing...</string>
+    <string name="keyboard_transcribing">Transcribing…</string>
+    <string name="keyboard_polishing">Polishing…</string>
 </resources>

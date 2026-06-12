@@ -64,9 +64,6 @@ class RecordingService : Service() {
     lateinit var recordingRepository: RecordingRepository
 
     @Inject
-    lateinit var transcriberProvider: dev.chirpboard.app.core.transcription.TranscriberProvider
-
-    @Inject
     lateinit var audioSettingsStore: AudioSettingsStore
 
     @Inject
@@ -344,10 +341,13 @@ class RecordingService : Service() {
         startLog.started("service_start")
 
         try {
-            withContext(Dispatchers.Default) {
-                transcriberProvider.release()
-            }
-
+            // LOAD-1: do NOT release the shared speech recognizer here. This service only
+            // captures audio (transcription runs later in TranscriptionWorker, which loads the
+            // model itself), so releasing the ~660MB Parakeet model on every record-start bought
+            // no headroom for capture yet forced the next keyboard dictation to cold-reload the
+            // model (the user's "it loads the model again" complaint). The recognizer is kept warm
+            // while the keyboard is enabled and is released only under genuine memory pressure
+            // (RecognizerManager.releaseRecognizer via the app's ComponentCallbacks2 trim hook).
             ensureStartNotCancelled()
 
             withContext(Dispatchers.IO) {

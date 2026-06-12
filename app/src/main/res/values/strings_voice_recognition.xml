@@ -2,4 +2,16 @@
 <resources>
     <string name="voice_recognition_model_loading">Preparing speech model…</string>
     <string name="voice_recognition_model_unavailable">Speech model unavailable. Open Chirp to download it.</string>
+    <!-- Calm pre-roll status shown for a beat before auto-start so the dialog opens on-brand. -->
+    <string name="voice_recognition_ready">Ready to listen</string>
+    <!-- Status line shown while actively capturing, mirroring the keyboard's calm "Recording" label. -->
+    <string name="voice_recognition_listening">Listening…</string>
+    <!-- Status line shown while the captured audio is being transcribed/polished. -->
+    <string name="voice_recognition_processing">Working on it…</string>
+    <!-- Accessible label + state descriptions for the shared AI/LLM toggle in the dialog. -->
+    <string name="voice_recognition_ai_settings">AI enhancement settings</string>
+    <string name="voice_recognition_ai_state_on">On</string>
+    <string name="voice_recognition_ai_state_off">Off</string>
+    <string name="voice_recognition_ai_enable">Enable AI enhancement</string>
+    <string name="voice_recognition_ai_disable">Disable AI enhancement</string>
 </resources>

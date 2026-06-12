@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.keyboard.session
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.llm.ProcessingMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -97,6 +98,24 @@ class KeyboardUiStateTest {
                 permissionError = "Microphone permission required",
             )
         assertEquals(ModelBannerState.None, state.modelBanner)
+    }
+
+    @Test
+    fun `only NotDownloaded and InitFailed require the action banner`() {
+        // KBD-2: the warming (Initializing) state is masked on the mic, never shown as a banner.
+        assertFalse(ModelBannerState.None.requiresActionBanner())
+        assertFalse(ModelBannerState.Initializing.requiresActionBanner())
+        assertTrue(ModelBannerState.NotDownloaded.requiresActionBanner())
+        assertTrue(ModelBannerState.InitFailed.requiresActionBanner())
+    }
+
+    @Test
+    fun `only Initializing is the masked warming state`() {
+        // KBD-2/KBD-3: warming drives the mic shimmer/pulse; nothing else does.
+        assertTrue(ModelBannerState.Initializing.isWarming())
+        assertFalse(ModelBannerState.None.isWarming())
+        assertFalse(ModelBannerState.NotDownloaded.isWarming())
+        assertFalse(ModelBannerState.InitFailed.isWarming())
     }
 
     @Test

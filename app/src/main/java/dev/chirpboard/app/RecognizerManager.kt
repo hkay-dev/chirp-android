@@ -24,6 +24,9 @@ object RecognizerManager {
 
     fun peekReadyRecognizer(): SherpaRecognizer? = recognizer?.takeIf { it.isReady }
 
+    /** True when the shared recognizer is currently resident in memory and ready (LOAD-1). */
+    fun isResident(): Boolean = recognizer?.isReady == true
+
     suspend fun initializeRecognizer(context: Context): Boolean =
         withContext(Dispatchers.IO) {
             mutex.withLock {
@@ -49,9 +52,30 @@ object RecognizerManager {
             }
         }
 
+    /**
+     * Frees the shared recognizer (~660MB Parakeet model) from memory.
+     *
+     * LOAD-1 / KBD-1: this MUST NOT be called from a single surface's start/teardown (a keyboard
+     * dictation, a recording start, an Activity finish). Doing so forced the next keyboard
+     * dictation to cold-reload the model — the user's "it loads the model again" complaint. The
+     * recognizer is a process-global singleton shared by the keyboard IME and the recognition
+     * Activity; it is meant to stay warm while the keyboard is enabled.
+     *
+     * Call this ONLY for a genuine "free model memory" intent:
+     *  - the OS reporting real memory pressure (ComponentCallbacks2.onTrimMemory at one of the
+     *    levels allowlisted by [ChirpApplication.shouldReleaseRecognizerOnTrim], or onLowMemory),
+     *    wired in [ChirpApplication]; or
+     *  - an explicit user action (delete model / "free memory").
+     *
+     * The model reloads lazily (or eagerly on the next IME bind) afterward, so correctness is
+     * preserved; this only trades steady-state RAM for warmth.
+     */
     suspend fun releaseRecognizer() {
         mutex.withLock {
-            Log.d(TAG, "Releasing SherpaRecognizer singleton from memory...")
+            if (recognizer == null) {
+                return
+            }
+            Log.d(TAG, "Releasing SherpaRecognizer singleton from memory (explicit free / memory pressure)...")
             recognizer?.release()
             recognizer = null
         }

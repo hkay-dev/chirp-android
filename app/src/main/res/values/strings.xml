@@ -16,8 +16,6 @@
     <string name="recording_in_progress_text">Would you like to save or discard this recording?</string>
     <string name="save">Save</string>
     <string name="keyboard_settings_title">Keyboard Settings</string>
-    <string name="voice_recognition_llm_enable">Enhance with AI</string>
-    <string name="voice_recognition_llm_mode">AI: %1$s</string>
     <string name="keyboard_settings_save_recordings_title">Save Recordings</string>
     <string name="keyboard_settings_save_recordings_description">Keep audio files of keyboard voice inputs in your history.</string>
     <string name="keyboard_settings_enable_llm_title">Enable AI Formatting</string>

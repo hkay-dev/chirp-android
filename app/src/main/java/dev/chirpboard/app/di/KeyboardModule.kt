@@ -62,6 +62,14 @@ class SherpaRecognizerProvider(
             ?: TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
     }
 
+    /**
+     * Frees the shared recognizer from memory. LOAD-1 / KBD-1: this releases the process-global
+     * [RecognizerManager] singleton shared by the keyboard and the recognition Activity, so it must
+     * only be reached from a genuine "free model memory" intent (OS memory pressure via
+     * [ChirpApplication]'s trim hook, or an explicit user free/delete) — never from a single
+     * surface's start/teardown, which would force the next keyboard dictation to cold-reload the
+     * model.
+     */
     override suspend fun release() {
         recognizer = null
         RecognizerManager.releaseRecognizer()

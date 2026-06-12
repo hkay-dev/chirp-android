@@ -1,6 +1,7 @@
 package dev.chirpboard.app
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.pm.ApplicationInfo
 import android.util.Log
 import androidx.hilt.work.HiltWorkerFactory
@@ -110,9 +111,65 @@ class ChirpApplication : Application(), Configuration.Provider {
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
-    
+
+    /**
+     * LOAD-1 / KBD-1: the ~660MB Parakeet recognizer is kept warm while the keyboard is enabled
+     * (it is never released on a single surface's start/teardown anymore). The ONLY production
+     * path that frees it is genuine OS memory pressure: when the system asks the process to trim
+     * at a level that signals real pressure ([shouldReleaseRecognizerOnTrim]), release the shared
+     * singleton so this RAM-heavy process is a less attractive low-memory-killer target. The model
+     * reloads lazily / eagerly on the next IME bind, so dictation correctness is preserved.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (shouldReleaseRecognizerOnTrim(level)) {
+            releaseRecognizerForMemoryPressure(reason = "onTrimMemory(level=$level)")
+        }
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        releaseRecognizerForMemoryPressure(reason = "onLowMemory")
+    }
+
+    private fun releaseRecognizerForMemoryPressure(reason: String) {
+        applicationScope.launch {
+            try {
+                if (RecognizerManager.isResident()) {
+                    Log.i(TAG, "Releasing speech recognizer under memory pressure: $reason")
+                    RecognizerManager.releaseRecognizer()
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to release recognizer under memory pressure", e)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "ChirpApplication"
+
+        /**
+         * Whether an [onTrimMemory] level signals enough memory pressure to free the resident
+         * speech recognizer.
+         *
+         * The `TRIM_MEMORY_*` constants are NOT a single ordered scale, so this is an explicit
+         * allowlist, not a `>=` threshold. We release only on genuine pressure:
+         *  - the foreground `TRIM_MEMORY_RUNNING_LOW`/`_CRITICAL` levels (the app is still running
+         *    but the system is actively tight); and
+         *  - `TRIM_MEMORY_COMPLETE` (the process is backgrounded and about to be killed — freeing
+         *    660MB makes it a far less attractive low-memory-killer target).
+         *
+         * Deliberately EXCLUDED are the routine background-LRU levels `TRIM_MEMORY_UI_HIDDEN`,
+         * `TRIM_MEMORY_BACKGROUND`, `TRIM_MEMORY_MODERATE` and the gentle `TRIM_MEMORY_RUNNING_MODERATE`:
+         * the keyboard goes UI-hidden between dictations and apps are routinely background-LRU'd, so
+         * trimming there would reintroduce the cold model reload the user complained about (LOAD-1).
+         * Extracted as a pure function so the policy is unit-testable without an Application.
+         */
+        internal fun shouldReleaseRecognizerOnTrim(level: Int): Boolean =
+            level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW ||
+                level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+                level == ComponentCallbacks2.TRIM_MEMORY_COMPLETE
 
         /**
          * Delay before kicking off the deferrable startup recovery/janitorial work, to keep it

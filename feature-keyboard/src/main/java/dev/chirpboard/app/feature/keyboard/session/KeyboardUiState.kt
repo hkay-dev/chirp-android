@@ -23,6 +23,24 @@ enum class ModelBannerState {
     InitFailed,
 }
 
+/**
+ * Whether this banner is an actionable state the user must SEE as a banner (KBD-2).
+ *
+ * Only [ModelBannerState.NotDownloaded] (user must open the app to download) and
+ * [ModelBannerState.InitFailed] (load failed, retry) warrant the explicit text banner. The
+ * [ModelBannerState.Initializing] "model is warming into RAM" case is no longer surfaced as a
+ * jarring progress-bar banner; it is masked as a subtle shimmer/pulse on the mic affordance via
+ * [ModelBannerState.isWarming]. [ModelBannerState.None] needs no banner.
+ */
+fun ModelBannerState.requiresActionBanner(): Boolean =
+    this == ModelBannerState.NotDownloaded || this == ModelBannerState.InitFailed
+
+/**
+ * Whether the speech model is warming into memory (KBD-2 / KBD-3) — the masked-load case. Drives
+ * the idle mic's shimmer/pulse + "warming" affordance instead of an abrupt progress banner.
+ */
+fun ModelBannerState.isWarming(): Boolean = this == ModelBannerState.Initializing
+
 data class KeyboardUiState(
     val voicePanel: VoicePanelPhase,
     val modelLoadProgress: Float?,

@@ -30,12 +30,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -97,13 +100,17 @@ import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.core.ui.components.ChirpLlmToggle
 import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
 import dev.chirpboard.app.core.ui.components.ThinkingDots
+import dev.chirpboard.app.core.ui.components.brandedPulse
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
+import dev.chirpboard.app.core.ui.theme.chirpAccents
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.session.KeyboardUiState
 import dev.chirpboard.app.feature.keyboard.session.ModelBannerState
 import dev.chirpboard.app.feature.keyboard.session.VoicePanelPhase
+import dev.chirpboard.app.feature.keyboard.session.isWarming
+import dev.chirpboard.app.feature.keyboard.session.requiresActionBanner
 import dev.chirpboard.app.feature.keyboard.theme.KeyboardTheme
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -117,11 +124,45 @@ private val ModelBannerMinHeight = 44.dp
 private const val VoiceTransitionMs = 280
 private val SpaceCursorDragStep = 10.dp
 
+/**
+ * Minimum bottom clearance reserved under the keyboard for the system IME-nav strip (INS-1).
+ *
+ * Samsung draws an IME-switcher glyph + a collapse-keyboard chevron along the very bottom edge of
+ * the IME window. With Good Lock hiding the gesture-nav hint, `WindowInsets.navigationBars` /
+ * `systemGestures` can report 0, so a naive inset would leave those system buttons overlapping the
+ * backspace/Space keys. This floor guarantees clearance regardless; the dynamic system inset (when
+ * present, e.g. a 3-button nav bar) is taken as the larger of the two.
+ */
+private val KeyboardImeNavMinStrip = 30.dp
+
+/**
+ * Subtle shadow lifting the keyboard panel off the host app content (INS-8).
+ *
+ * The IME window sits directly atop the host's content with only a 1dp top divider; a small
+ * shadowElevation gives the panel a gentle drop shadow along its top edge so it reads as a floating
+ * surface rather than a flat seam, without the heavy lift of a dialog.
+ */
+private val KeyboardTopShadowElevation = 6.dp
+
 internal fun shouldStartSpaceCursorDrag(
     dx: Float,
     dy: Float,
     thresholdPx: Float,
 ): Boolean = abs(dx) > thresholdPx && abs(dx) > abs(dy)
+
+/**
+ * Resolve the keyboard's reserved bottom inset (in px) as the max of the dispatched system insets
+ * and the [minStripPx] floor (INS-1). Pure so the Good-Lock-zeroing edge case is unit-testable.
+ *
+ * @param navBarsBottomPx WindowInsets.navigationBars bottom (0 when Good Lock hides the hint).
+ * @param systemGesturesBottomPx WindowInsets.systemGestures bottom (also 0 under Good Lock here).
+ * @param minStripPx the [KeyboardImeNavMinStrip] floor in px.
+ */
+internal fun resolveKeyboardBottomInsetPx(
+    navBarsBottomPx: Int,
+    systemGesturesBottomPx: Int,
+    minStripPx: Int,
+): Int = maxOf(navBarsBottomPx, systemGesturesBottomPx, minStripPx)
 
 internal fun isPointerInsideKey(
     position: Offset,
@@ -245,11 +286,27 @@ fun KeyboardScreen(
             label = "recordingActionsVisual",
         )
 
+        // INS-1: reserve a bottom inset for the system IME-nav strip so Samsung's IME-switcher +
+        // collapse buttons no longer overlap backspace/Space. Floor it with KeyboardImeNavMinStrip
+        // because Good Lock can zero the gesture inset; take the larger of that and the dispatched
+        // system insets (a real 3-button nav bar reports more).
+        val density = LocalDensity.current
+        val navBarsBottomPx = WindowInsets.navigationBars.getBottom(density)
+        val systemGesturesBottomPx = WindowInsets.systemGestures.getBottom(density)
+        val bottomInset =
+            with(density) {
+                resolveKeyboardBottomInsetPx(
+                    navBarsBottomPx = navBarsBottomPx,
+                    systemGesturesBottomPx = systemGesturesBottomPx,
+                    minStripPx = KeyboardImeNavMinStrip.roundToPx(),
+                ).toDp()
+            }
+
         Surface(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 284.dp, max = 320.dp)
+                    .heightIn(min = 284.dp + bottomInset, max = 320.dp + bottomInset)
                     .drawBehind {
                         drawLine(
                             color = outlineColor,
@@ -261,12 +318,14 @@ fun KeyboardScreen(
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface,
             tonalElevation = 0.dp,
+            shadowElevation = KeyboardTopShadowElevation,
         ) {
             KeyboardMainPanel(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(bottom = bottomInset),
             ) {
                 KeyboardTopBar(
                     uiState = uiState,
@@ -274,14 +333,20 @@ fun KeyboardScreen(
                     onModeChange = onModeChange,
                 )
 
+                // KBD-2: only the actionable banners (NotDownloaded / InitFailed) appear as a
+                // text banner. The "warming into RAM" (Initializing) case is masked on the mic
+                // itself (shimmer/pulse) instead of an abrupt progress-bar banner below the toggle.
                 val bannerVisible =
-                    uiState.modelBanner != ModelBannerState.None && voicePhase == VoicePanelPhase.Idle
-                // Latch the last non-None banner so the shrink/fade-out exit still has content to
+                    uiState.modelBanner.requiresActionBanner() && voicePhase == VoicePanelPhase.Idle
+                // Latch the last actionable banner so the shrink/fade-out exit still has content to
                 // animate when the banner is cleared, instead of blanking in one frame.
                 var lastBanner by remember { mutableStateOf(uiState.modelBanner) }
-                if (uiState.modelBanner != ModelBannerState.None) {
+                if (uiState.modelBanner.requiresActionBanner()) {
                     lastBanner = uiState.modelBanner
                 }
+                // KBD-2/KBD-3: the model is loading into memory but the files are present — mask
+                // the wait as a calm shimmer/pulse on the idle mic rather than a progress bar.
+                val modelWarming = uiState.modelBanner.isWarming() && voicePhase == VoicePanelPhase.Idle
                 AnimatedVisibility(
                     visible = bannerVisible,
                     enter = expandVertically(animationSpec = tween(VoiceTransitionMs)) + fadeIn(),
@@ -340,6 +405,7 @@ fun KeyboardScreen(
                                     phase = voicePhase,
                                     recordingVisual = recordingVisual,
                                     modelLoadProgress = uiState.modelLoadProgress,
+                                    modelWarming = modelWarming,
                                     waveformBuffer = waveformBuffer,
                                     sampleCountFlow = sampleCountFlow,
                                     onStart = onMicTap,
@@ -524,12 +590,14 @@ private fun KeyboardModelBanner(
     onOpenApp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (modelBanner == ModelBannerState.None) {
+    // KBD-2: only the actionable banners reach here; the "warming into RAM" (Initializing) state
+    // is masked on the mic affordance, never as a banner. None/Initializing render nothing.
+    if (!modelBanner.requiresActionBanner()) {
         return
     }
-    // All three banner variants share one container (same background, shape and min-height) so
-    // swapping between Initializing/NotDownloaded/InitFailed only changes the inner content rather
-    // than reflowing or flashing a differently-styled component below the mic FAB (UI-4).
+    // Both actionable variants share one container (same background, shape and min-height) so
+    // swapping between NotDownloaded/InitFailed only changes the inner content rather than
+    // reflowing or flashing a differently-styled component below the mic FAB (UI-4).
     Row(
         modifier =
             modifier
@@ -541,18 +609,9 @@ private fun KeyboardModelBanner(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         when (modelBanner) {
-            ModelBannerState.None -> Unit
-
-            ModelBannerState.Initializing -> {
-                LinearProgressIndicator(
-                    modifier = Modifier.weight(1f).height(3.dp),
-                )
-                Text(
-                    stringResource(R.string.keyboard_loading_speech_model),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            ModelBannerState.None,
+            ModelBannerState.Initializing,
+            -> Unit
 
             ModelBannerState.NotDownloaded -> {
                 Text(
@@ -586,6 +645,7 @@ private fun UnifiedVoicePanel(
     phase: VoicePanelPhase,
     recordingVisual: Float,
     modelLoadProgress: Float?,
+    modelWarming: Boolean,
     waveformBuffer: WaveformBuffer,
     sampleCountFlow: StateFlow<Long>,
     onStart: () -> Unit,
@@ -627,7 +687,10 @@ private fun UnifiedVoicePanel(
                     waveformBuffer = waveformBuffer,
                     sampleCount = sampleCount,
                     isActive = phase == VoicePanelPhase.Recording,
-                    color = MaterialTheme.colorScheme.error,
+                    // KBD-7: recording is the happy path, not an error — drive the waveform from the
+                    // brand "recording/live" accent so it is cohesive with the rest of the app
+                    // instead of the off-brand Material error red.
+                    color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
                     minBarHeight = 4.dp,
                     maxBarHeight = 40.dp,
@@ -664,6 +727,12 @@ private fun UnifiedVoicePanel(
         }
 
         if (phase == VoicePanelPhase.Idle && idleVisual > 0.01f) {
+            // KBD-6: a calm always-on aura behind the resting mic so the hero affordance reads as
+            // present/premium even at rest, not only while recording.
+            KeyboardIdleMicGlow(
+                modifier = Modifier.matchParentSize(),
+                strength = idleVisual,
+            )
             Box(
                 modifier =
                     Modifier
@@ -675,9 +744,14 @@ private fun UnifiedVoicePanel(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // KBD-2/KBD-3: while the model warms into RAM, the mic breathes (brandedPulse)
+                    // so the wait reads as "getting ready" rather than a dead tap. The mic stays
+                    // tappable — onStart drives the warm forward and owns the delay visually — so a
+                    // tap during warmup never no-ops (we mask the wait, never hard-disable it).
                     ChirpVoiceTriggerButton(
                         onClick = onStart,
                         contentDescription = stringResource(R.string.keyboard_desc_start_recording),
+                        modifier = if (modelWarming) Modifier.brandedPulse() else Modifier,
                     )
                     Text(
                         stringResource(R.string.keyboard_tap_to_speak),
@@ -1015,8 +1089,12 @@ private fun KeyboardRecordingGlow(
             ),
         label = "keyboardGlowAlpha",
     )
-    val errorContainer = MaterialTheme.colorScheme.errorContainer
-    val error = MaterialTheme.colorScheme.error
+    // KBD-7: the active-recording glow uses the brand "recording/live" accent (not Material error
+    // red) so "we are capturing" reads as live + premium and matches the waveform, the recognition
+    // dialog and the record screen rather than signalling danger.
+    val accents = MaterialTheme.colorScheme.chirpAccents
+    val liveContainer = accents.recordingLiveContainer
+    val live = accents.recordingLive
 
     Canvas(modifier = modifier) {
         val glowAlpha = pulseAlpha.value * strength
@@ -1027,8 +1105,8 @@ private fun KeyboardRecordingGlow(
                 Brush.radialGradient(
                     colors =
                         listOf(
-                            error.copy(alpha = glowAlpha),
-                            errorContainer.copy(alpha = glowAlpha * 0.45f),
+                            live.copy(alpha = glowAlpha),
+                            liveContainer.copy(alpha = glowAlpha * 0.45f),
                             Color.Transparent,
                         ),
                     center = Offset(size.width / 2f, size.height * 0.72f),
@@ -1042,11 +1120,60 @@ private fun KeyboardRecordingGlow(
                     colors =
                         listOf(
                             Color.Transparent,
-                            errorContainer.copy(alpha = glowAlpha * 0.25f),
-                            error.copy(alpha = glowAlpha * 0.4f),
+                            liveContainer.copy(alpha = glowAlpha * 0.25f),
+                            live.copy(alpha = glowAlpha * 0.4f),
                         ),
                     startY = size.height * 0.35f,
                     endY = size.height,
+                ),
+            cornerRadius = cornerRadius,
+        )
+    }
+}
+
+/**
+ * A calm, always-on aura behind the resting mic (KBD-6).
+ *
+ * A soft radial brand-primary glow at low alpha with a very slow breathing pulse, so the idle hero
+ * mic reads as present and premium rather than an inert flat square. Deliberately understated and
+ * tinted with the brand `primary` family (distinct from the warmer recording-live glow), and
+ * draw-phase-only like [KeyboardRecordingGlow] so the breathing never recomposes the panel.
+ */
+@Composable
+private fun KeyboardIdleMicGlow(
+    modifier: Modifier = Modifier,
+    strength: Float = 1f,
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "keyboardIdleMicGlow")
+    val breath = infiniteTransition.animateFloat(
+        initialValue = 0.08f,
+        targetValue = 0.16f,
+        animationSpec =
+            infiniteRepeatable(
+                animation = tween(2600, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+        label = "keyboardIdleGlowAlpha",
+    )
+    val glow = MaterialTheme.colorScheme.primary
+    val glowContainer = MaterialTheme.colorScheme.primaryContainer
+
+    Canvas(modifier = modifier) {
+        val glowAlpha = breath.value * strength
+        val cornerPx = ChirpShapes.KeyboardPanelCornerRadius.toPx()
+        val cornerRadius = CornerRadius(cornerPx, cornerPx)
+        drawRoundRect(
+            brush =
+                Brush.radialGradient(
+                    colors =
+                        listOf(
+                            glow.copy(alpha = glowAlpha),
+                            glowContainer.copy(alpha = glowAlpha * 0.5f),
+                            Color.Transparent,
+                        ),
+                    // Center on the mic FAB (slightly above panel center where the mic sits).
+                    center = Offset(size.width / 2f, size.height * 0.42f),
+                    radius = size.maxDimension * 0.55f,
                 ),
             cornerRadius = cornerRadius,
         )

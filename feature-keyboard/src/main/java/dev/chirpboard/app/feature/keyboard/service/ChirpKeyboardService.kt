@@ -16,6 +16,8 @@ import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.compositionContext
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -236,6 +238,19 @@ class ChirpKeyboardService :
             view.compositionContext = recomposer
             view.setViewTreeLifecycleOwner(this@ChirpKeyboardService)
             view.setViewTreeSavedStateRegistryOwner(this@ChirpKeyboardService)
+            // INS-1: insets are not auto-dispatched to a ComposeView inside an IME window, so
+            // WindowInsets.navigationBars/systemGestures would read 0 in Compose and the keyboard
+            // root would draw flush to the bottom edge — letting Samsung's IME-switcher + collapse
+            // buttons overlap backspace/Space. Opt out of decor-fitting and re-request the apply so
+            // the system bottom inset (when present) reaches Compose. The KeyboardScreen still
+            // floors the bottom pad with a minimum IME-nav strip, which is the load-bearing clear
+            // because this device (Good Lock hiding the gesture hint) reports a zero gesture inset.
+            window?.window?.let { imeWindow ->
+                WindowCompat.setDecorFitsSystemWindows(imeWindow, false)
+            }
+            ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+                ViewCompat.onApplyWindowInsets(v, insets)
+            }
             view.setContent {
                 val uiState by coordinator.uiState.collectAsStateWithLifecycle()
                 KeyboardScreen(
@@ -292,6 +307,11 @@ class ChirpKeyboardService :
         }
         coordinator.setPermissionError(null)
         coordinator.refreshModelStatus()
+        // LOAD-1/LOAD-2: warm the shared recognizer into RAM the instant the keyboard appears
+        // (idempotent — initializeModel() no-ops when already ready or a load is in flight), so a
+        // post-process-death bind reloads it under the masked "warming" mic instead of stalling
+        // the user's first dictation on the in-memory load after they have already spoken.
+        coordinator.initializeModel()
         drainPendingKeyboardStopIfNeeded()
     }
 
@@ -369,6 +389,10 @@ class ChirpKeyboardService :
             return
         }
         modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+        // KBD-3: a tap while the model is still warming must drive the load forward rather than
+        // dead-end. initializeModel() is idempotent (guards on isReady()/in-flight job), so this
+        // promotes the user's intent into a warm even if the IME-bind warm has not landed yet.
+        coordinator.initializeModel()
         coordinator.onMicTap { text -> commitToInputSession(session, text) }
     }
 

@@ -2,77 +2,96 @@ package dev.chirpboard.app
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.EaseInOut
+import androidx.compose.animation.core.EaseInOutQuad
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
-import dev.chirpboard.app.core.recording.RecordingState
-import dev.chirpboard.app.core.ui.components.ThinkingDots
-import dev.chirpboard.app.core.recording.WaveformBuffer
-import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
-import dev.chirpboard.app.core.ui.components.recording.RecordingGlowBackground
-import dev.chirpboard.app.core.ui.components.recording.RecordingTimer
 import dev.chirpboard.app.core.llm.ProcessingMode
+import dev.chirpboard.app.core.llm.ProcessingModeDefaults
+import dev.chirpboard.app.core.llm.ProcessingModeListItem
+import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.ui.components.ChirpLlmToggle
+import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
+import dev.chirpboard.app.core.ui.components.ThinkingDots
+import dev.chirpboard.app.core.ui.components.brandedPulse
+import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
-import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
-import kotlinx.coroutines.flow.StateFlow
+import dev.chirpboard.app.core.ui.theme.ChirpShapes
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
+import dev.chirpboard.app.core.ui.theme.chirpAccents
+import dev.chirpboard.app.core.ui.theme.recordingTimerStyle
+import dev.chirpboard.app.core.util.formatAsDuration
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 internal fun VoiceRecognitionDialog(
@@ -84,11 +103,13 @@ internal fun VoiceRecognitionDialog(
     modelStateFlow: StateFlow<VoiceRecognitionModelState>,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
+    selectableModes: List<ProcessingModeListItem>,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit,
     onDismissComplete: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
+    onModeChange: (String) -> Unit,
 ) {
     val recordingState by recordingStateFlow.collectAsStateWithLifecycle(RecordingState.Idle)
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
@@ -100,9 +121,15 @@ internal fun VoiceRecognitionDialog(
     // entire content body on every tick. They are passed down as flows and collected at the
     // leaf composables that actually render them (CMP-11), matching RecordScreen/KeyboardUI.
 
-    // Auto-start only once the transcription model is actually ready.
+    // Auto-start is preserved (per DECISIONS: this is a one-shot quick capture and the user's
+    // intent to dictate is already explicit). DLG-4/DLG-8/LOAD-5: rather than jumping straight
+    // from a grey "loading" frame to red recording, hold a brief calm "ready" beat after the
+    // model is ready so the first on-screen frame is on-brand, then begin capture.
+    var preRollComplete by remember { mutableStateOf(false) }
     LaunchedEffect(modelState) {
-        if (modelState == VoiceRecognitionModelState.Ready) {
+        if (modelState == VoiceRecognitionModelState.Ready && !preRollComplete) {
+            delay(READY_PRE_ROLL_MS)
+            preRollComplete = true
             onStart()
         }
     }
@@ -137,11 +164,21 @@ internal fun VoiceRecognitionDialog(
                     ),
             )
 
+    // The window is MATCH_PARENT (so FLAG_DIM_BEHIND can scrim the host); the host dim is drawn by
+    // the window. This transparent full-height layer above the sheet captures taps on the dimmed
+    // area to cancel, replacing the old FLAG_WATCH_OUTSIDE_TOUCH path that no longer fires once the
+    // window covers the whole screen (DLG-5/DLG-6).
     Box(
-        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onCancel,
+                ),
         contentAlignment = Alignment.BottomCenter,
     ) {
-
         AnimatedVisibility(
             visible = isVisible,
             enter = enterTransition,
@@ -153,16 +190,15 @@ internal fun VoiceRecognitionDialog(
                 sampleCountFlow = sampleCountFlow,
                 partialTranscriptFlow = partialTranscriptFlow,
                 modelState = modelState,
+                preRollComplete = preRollComplete,
                 llmEnabled = llmEnabled,
                 currentMode = currentMode,
-                onStart = {
-                    onStart()
-                },
-                onStop = {
-                    onStop()
-                },
+                selectableModes = selectableModes,
+                onStart = onStart,
+                onStop = onStop,
                 onCancel = onCancel,
                 onToggleLlm = onToggleLlm,
+                onModeChange = onModeChange,
             )
         }
     }
@@ -175,180 +211,397 @@ private fun VoiceRecognitionDialogContent(
     sampleCountFlow: StateFlow<Long>,
     partialTranscriptFlow: StateFlow<String>,
     modelState: VoiceRecognitionModelState,
+    preRollComplete: Boolean,
     llmEnabled: Boolean,
     currentMode: ProcessingMode,
+    selectableModes: List<ProcessingModeListItem>,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onCancel: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
+    onModeChange: (String) -> Unit,
 ) {
-    val isRecording = recordingState is RecordingState.Recording || recordingState is RecordingState.Starting || recordingState is RecordingState.Stopping
+    val isRecording =
+        recordingState is RecordingState.Recording ||
+            recordingState is RecordingState.Starting ||
+            recordingState is RecordingState.Stopping
     val isProcessing = recordingState is RecordingState.Stopping
     val isModelReady = modelState == VoiceRecognitionModelState.Ready
     val showRecordingVisuals = isRecording && !isProcessing
     val recordingVisualEnter =
-        fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+        fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS, easing = FastOutSlowInEasing)) +
             expandVertically(
-                animationSpec = tween(ChirpMotion.STUDIO_REVEAL_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                animationSpec = tween(ChirpMotion.STUDIO_REVEAL_MS, easing = FastOutSlowInEasing),
             )
     val recordingVisualExit =
-        fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+        fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing)) +
             shrinkVertically(
-                animationSpec = tween(ChirpMotion.STUDIO_HIDE_MS, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                animationSpec = tween(ChirpMotion.STUDIO_HIDE_MS, easing = FastOutSlowInEasing),
             )
-    val containerSize by animateDpAsState(
-        targetValue = if (isRecording && !isProcessing) 96.dp else 80.dp,
-        animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
-        label = "mic_container_size",
-    )
 
+    // Robust nav-bar inset: Samsung Good Lock can zero WindowInsets.navigationBars even while the
+    // system still occupies the bottom strip, so floor the bottom pad at a minimum so the sheet's
+    // content never sits flush against the very bottom edge (INS-3/INS-4).
+    val density = LocalDensity.current
+    val navBottomPx = WindowInsets.navigationBars.getBottom(density)
+    val bottomInset =
+        with(density) {
+            maxOf(navBottomPx, DialogNavInsetFloor.roundToPx()).toDp()
+        }
+
+    // The rounded-top sheet silhouette (DialogSheetShape) plus the window dim scrim give the sheet
+    // its separation from the host; a straight hairline divider would protrude past the rounded
+    // corners, so the cohesion comes from the rounded sheet + inner panel instead (DLG-5/INS-2).
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 200.dp, max = 280.dp),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                // Absorb taps on the sheet body so they do not fall through to the scrim's
+                // tap-to-cancel (the window is full-screen, so the sheet is a sibling of the scrim).
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {},
+                ),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 2.dp,
+        shape = DialogSheetShape,
     ) {
+        // Inner rounded panel (surfaceContainer) inside the outer surfaceContainerHigh sheet, the
+        // keyboard's two-layer "soft elevated panel" treatment (DLG-5). The bottom nav inset is
+        // reserved here so the panel's content clears the system strip.
         Box(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .navigationBarsPadding(), // Ensures we draw above the system nav bar
+                    .padding(
+                        start = ChirpSpacing.Medium,
+                        end = ChirpSpacing.Medium,
+                        top = ChirpSpacing.Medium,
+                        bottom = ChirpSpacing.Medium,
+                    )
+                    .padding(bottom = bottomInset)
+                    .clip(ChirpShapes.KeyboardPanel)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .heightIn(min = DialogPanelMinHeight),
         ) {
-            IconButton(
-                onClick = onCancel,
-                modifier =
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(48.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = stringResource(R.string.desc_cancel),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
+            // Brand "recording/live" glow while capturing (DLG-3/VIS-8): replaces the off-brand
+            // red error glow with the cohesive recordingLive accent used across all surfaces.
             AnimatedVisibility(
                 visible = showRecordingVisuals,
                 enter = fadeIn(tween(ChirpMotion.STUDIO_REVEAL_MS)),
                 exit = fadeOut(tween(ChirpMotion.STUDIO_HIDE_MS)),
             ) {
-                RecordingGlowBackground(modifier = Modifier.fillMaxSize())
+                RecordingLiveGlow(modifier = Modifier.fillMaxSize())
             }
+
             Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .animatePushDownLayout()
                         .padding(
-                            top = 32.dp,
-                            bottom = 24.dp,
-                            start = 24.dp,
-                            end = 24.dp,
+                            horizontal = ChirpSpacing.Medium,
+                            vertical = ChirpSpacing.Small,
                         ),
-                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // Transcript Area. partialTranscriptFlow is collected inside this leaf so a
-                // per-token partial update recomposes only the transcript scope (CMP-11).
-                VoiceRecognitionTranscriptArea(
-                    partialTranscriptFlow = partialTranscriptFlow,
-                    recordingState = recordingState,
-                    modelState = modelState,
-                    isRecording = isRecording,
-                    isProcessing = isProcessing,
-                )
-
-                AnimatedVisibility(
-                    visible = showRecordingVisuals,
-                    enter = recordingVisualEnter,
-                    exit = recordingVisualExit,
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        VoiceRecognitionWaveform(
-                            waveformBuffer = waveformBuffer,
-                            sampleCountFlow = sampleCountFlow,
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(if (showRecordingVisuals) 0.dp else 32.dp))
-
-                // Mic Button Area
-                Box(
-                    modifier =
-                        Modifier
-                            .size(120.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val buttonColor =
-                        when {
-                            isRecording && !isProcessing -> MaterialTheme.colorScheme.errorContainer
-                            !isModelReady -> MaterialTheme.colorScheme.surfaceVariant
-                            else -> MaterialTheme.colorScheme.primaryContainer
-                        }
-                    val iconColor =
-                        when {
-                            isRecording && !isProcessing -> MaterialTheme.colorScheme.onErrorContainer
-                            !isModelReady -> MaterialTheme.colorScheme.onSurfaceVariant
-                            else -> MaterialTheme.colorScheme.onPrimaryContainer
-                        }
-
-                    Box(
-                        modifier =
-                            Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(buttonColor)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = ripple(bounded = false, radius = 56.dp),
-                                    enabled = !isProcessing && isModelReady,
-                                    onClick = {
-                                        if (isRecording) {
-                                            onStop()
-                                        } else {
-                                            onStart()
-                                        }
-                                    },
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (isProcessing) {
-                            ThinkingDots(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else {
-                            Icon(
-                                imageVector = if (isRecording) Icons.Filled.Stop else Icons.Filled.Mic,
-                                contentDescription =
-                                    if (isRecording) {
-                                        stringResource(R.string.desc_stop)
-                                    } else {
-                                        stringResource(R.string.desc_start)
-                                    },
-                                modifier = Modifier.size(32.dp),
-                                tint = iconColor,
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // LLM Control Chip
-                VoiceRecognitionLlmControlSection(
+                // Top bar: AI control top-start (always visible regardless of phase, mirroring the
+                // keyboard's KeyboardTopBar), close X top-end (DLG-1/DLG-2/parity).
+                VoiceRecognitionTopBar(
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
-                    isRecording = isRecording,
+                    selectableModes = selectableModes,
+                    settingsEnabled = !isProcessing,
                     onToggleLlm = onToggleLlm,
+                    onModeChange = onModeChange,
+                    onCancel = onCancel,
+                )
+
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .animatePushDownLayout()
+                            .padding(bottom = ChirpSpacing.Medium),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // Transcript / status area. partialTranscriptFlow is collected inside this leaf
+                    // so a per-token partial update recomposes only the transcript scope (CMP-11).
+                    VoiceRecognitionTranscriptArea(
+                        partialTranscriptFlow = partialTranscriptFlow,
+                        recordingState = recordingState,
+                        modelState = modelState,
+                        preRollComplete = preRollComplete,
+                        isRecording = isRecording,
+                        isProcessing = isProcessing,
+                    )
+
+                    AnimatedVisibility(
+                        visible = showRecordingVisuals,
+                        enter = recordingVisualEnter,
+                        exit = recordingVisualExit,
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            VoiceRecognitionWaveform(
+                                waveformBuffer = waveformBuffer,
+                                sampleCountFlow = sampleCountFlow,
+                            )
+                            Spacer(modifier = Modifier.height(ChirpSpacing.Large))
+                        }
+                    }
+
+                    Spacer(
+                        modifier =
+                            Modifier.height(if (showRecordingVisuals) ChirpSpacing.Small else ChirpSpacing.ExtraExtraLarge),
+                    )
+
+                    VoiceRecognitionMicControl(
+                        isRecording = isRecording,
+                        isProcessing = isProcessing,
+                        isModelReady = isModelReady,
+                        onStart = onStart,
+                        onStop = onStop,
+                    )
+
+                    Spacer(modifier = Modifier.height(ChirpSpacing.ExtraLarge))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Top bar mirroring the keyboard's [KeyboardTopBar]: the shared [ChirpLlmToggle] sparkle (which
+ * opens a mode-selector dropdown) at the start, the close X at the end. Living in a fixed top bar
+ * keeps the AI control visible in every phase — it can never be pushed below the sheet and clipped
+ * the way the old bottom chip was while recording (DLG-1/DLG-2).
+ */
+@Composable
+private fun VoiceRecognitionTopBar(
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode,
+    selectableModes: List<ProcessingModeListItem>,
+    settingsEnabled: Boolean,
+    onToggleLlm: (Boolean) -> Unit,
+    onModeChange: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        VoiceRecognitionAiControl(
+            llmEnabled = llmEnabled,
+            currentMode = currentMode,
+            selectableModes = selectableModes,
+            enabled = settingsEnabled,
+            onToggleLlm = onToggleLlm,
+            onModeChange = onModeChange,
+        )
+
+        IconButton(
+            onClick = onCancel,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription = stringResource(R.string.desc_cancel),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * The shared AI/LLM affordance for the dialog (DLG-1/VIS-2/DLG-7): the same [ChirpLlmToggle]
+ * sparkle the keyboard uses, opening a [DropdownMenu] that toggles AI and lets the user pick the
+ * processing mode — the keyboard's [KeyboardAiSettingsMenu] pattern, so the two surfaces present
+ * the AI control identically. Modes are selectable only when AI is enabled, matching the keyboard.
+ */
+@Composable
+private fun VoiceRecognitionAiControl(
+    llmEnabled: Boolean,
+    currentMode: ProcessingMode,
+    selectableModes: List<ProcessingModeListItem>,
+    enabled: Boolean,
+    onToggleLlm: (Boolean) -> Unit,
+    onModeChange: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val modes = selectableModes.ifEmpty { defaultDialogModeOptions() }
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            expanded = false
+        }
+    }
+
+    Box {
+        ChirpLlmToggle(
+            enabled = llmEnabled,
+            onClick = { if (enabled) expanded = true },
+            contentDescription = stringResource(R.string.voice_recognition_ai_settings),
+            interactionEnabled = enabled,
+            onStateDescription = stringResource(R.string.voice_recognition_ai_state_on),
+            offStateDescription = stringResource(R.string.voice_recognition_ai_state_off),
+        )
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (llmEnabled) {
+                            stringResource(R.string.voice_recognition_ai_disable)
+                        } else {
+                            stringResource(R.string.voice_recognition_ai_enable)
+                        },
+                    )
+                },
+                onClick = {
+                    if (enabled) {
+                        onToggleLlm(!llmEnabled)
+                        expanded = false
+                    }
+                },
+                enabled = enabled,
+                leadingIcon = {
+                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null)
+                },
+                trailingIcon = {
+                    if (llmEnabled) {
+                        Icon(Icons.Rounded.Check, contentDescription = null)
+                    }
+                },
+            )
+
+            HorizontalDivider()
+
+            modes.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.name) },
+                    enabled = enabled && llmEnabled,
+                    onClick = {
+                        if (enabled && llmEnabled) {
+                            onModeChange(option.id)
+                            expanded = false
+                        }
+                    },
+                    leadingIcon =
+                        if (currentMode.id == option.id) {
+                            { Icon(Icons.Rounded.Check, contentDescription = null) }
+                        } else {
+                            null
+                        },
                 )
             }
+        }
+    }
+}
+
+/** Built-in mode list, used when the port has not yet emitted its selectable modes. */
+private fun defaultDialogModeOptions(): List<ProcessingModeListItem> =
+    ProcessingModeDefaults.builtInSelectableIds.map { id ->
+        ProcessingModeListItem(id = id, name = ProcessingModeDefaults.displayName(id))
+    }
+
+/**
+ * The mic affordance. Idle/ready uses the shared [ChirpVoiceTriggerButton] (the same FAB the
+ * keyboard idle uses, DLG-MIC); recording uses a recordingLive-tinted FAB with the keyboard's
+ * [RecordingActionsRow] stop-pulse so the live button breathes. During model load the idle FAB is
+ * masked with a [brandedPulse] instead of a dead grey static mic (DLG-3/LOAD-5).
+ */
+@Composable
+private fun VoiceRecognitionMicControl(
+    isRecording: Boolean,
+    isProcessing: Boolean,
+    isModelReady: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val recordingLiveContainer = MaterialTheme.colorScheme.chirpAccents.recordingLiveContainer
+    val onRecordingLiveContainer = MaterialTheme.colorScheme.chirpAccents.onRecordingLiveContainer
+    val containerColor by animateColorAsState(
+        targetValue =
+            if (isRecording && !isProcessing) {
+                recordingLiveContainer
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            },
+        animationSpec = tween(durationMillis = 300, easing = EaseInOut),
+        label = "mic_container_color",
+    )
+    val contentColor by animateColorAsState(
+        targetValue =
+            if (isRecording && !isProcessing) {
+                onRecordingLiveContainer
+            } else {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            },
+        animationSpec = tween(durationMillis = 300, easing = EaseInOut),
+        label = "mic_content_color",
+    )
+
+    Box(
+        modifier = Modifier.size(96.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            isProcessing ->
+                Box(
+                    modifier = Modifier.size(MicSize),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ThinkingDots(color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+
+            isRecording -> {
+                val infiniteTransition = rememberInfiniteTransition(label = "recordingStopPulse")
+                val stopPulse =
+                    infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.06f,
+                        animationSpec = infiniteRepeatable(tween(1000, easing = EaseInOutQuad), RepeatMode.Reverse),
+                        label = "stopPulse",
+                    )
+                FloatingActionButton(
+                    onClick = onStop,
+                    modifier =
+                        Modifier
+                            .size(MicSize)
+                            .graphicsLayer {
+                                scaleX = stopPulse.value
+                                scaleY = stopPulse.value
+                            },
+                    containerColor = containerColor,
+                    contentColor = contentColor,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Stop,
+                        contentDescription = stringResource(R.string.desc_stop),
+                        modifier = Modifier.size(32.dp),
+                    )
+                }
+            }
+
+            else ->
+                // Idle/ready (or still loading): the shared trigger button, pulsing while the model
+                // is not yet ready so the wait reads "warming" rather than a dead grey mic.
+                ChirpVoiceTriggerButton(
+                    onClick = onStart,
+                    contentDescription = stringResource(R.string.desc_start),
+                    modifier = if (isModelReady) Modifier else Modifier.brandedPulse(),
+                    size = MicSize,
+                    iconSize = 32.dp,
+                    containerColor = containerColor,
+                    contentColor = contentColor,
+                )
         }
     }
 }
@@ -356,11 +609,26 @@ private fun VoiceRecognitionDialogContent(
 private const val VOICE_RECOGNITION_EXIT_MS = 250L
 private const val TRANSCRIPT_CROSSFADE_MS = 200
 
+/** Calm "ready to listen" beat before auto-start so the first frame is on-brand (DLG-4/LOAD-5). */
+private const val READY_PRE_ROLL_MS = 300L
+
+private val MicSize = 64.dp
+
+/** Minimum sheet bottom inset so content never sits flush against the edge when Good Lock zeroes it. */
+private val DialogNavInsetFloor = 16.dp
+
+/** Minimum height of the inner panel so a short status line does not collapse the sheet. */
+private val DialogPanelMinHeight = 200.dp
+
+/** Bottom-sheet silhouette: rounded TOP corners so the sheet reads as rising from the bottom (INS-2). */
+private val DialogSheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+
 /** The kind of content shown in the transcript area; the crossfade keys on this, not the text. */
 internal enum class TranscriptAreaKind {
     Transcript,
     ModelLoading,
     ModelUnavailable,
+    Ready,
     Timer,
     Empty,
 }
@@ -368,6 +636,7 @@ internal enum class TranscriptAreaKind {
 internal fun transcriptAreaKind(
     hasText: Boolean,
     modelState: VoiceRecognitionModelState,
+    preRollComplete: Boolean,
     isRecording: Boolean,
     isProcessing: Boolean,
 ): TranscriptAreaKind =
@@ -375,7 +644,10 @@ internal fun transcriptAreaKind(
         hasText -> TranscriptAreaKind.Transcript
         modelState == VoiceRecognitionModelState.Initializing -> TranscriptAreaKind.ModelLoading
         modelState == VoiceRecognitionModelState.Unavailable -> TranscriptAreaKind.ModelUnavailable
-        isRecording && !isProcessing -> TranscriptAreaKind.Timer
+        isProcessing -> TranscriptAreaKind.Empty
+        isRecording -> TranscriptAreaKind.Timer
+        // Model is Ready but capture has not begun yet: the calm pre-roll beat (DLG-4).
+        !preRollComplete -> TranscriptAreaKind.Ready
         else -> TranscriptAreaKind.Empty
     }
 
@@ -390,6 +662,7 @@ private fun VoiceRecognitionTranscriptArea(
     partialTranscriptFlow: StateFlow<String>,
     recordingState: RecordingState,
     modelState: VoiceRecognitionModelState,
+    preRollComplete: Boolean,
     isRecording: Boolean,
     isProcessing: Boolean,
 ) {
@@ -398,6 +671,7 @@ private fun VoiceRecognitionTranscriptArea(
         transcriptAreaKind(
             hasText = partialTranscript.isNotBlank(),
             modelState = modelState,
+            preRollComplete = preRollComplete,
             isRecording = isRecording,
             isProcessing = isProcessing,
         )
@@ -406,7 +680,7 @@ private fun VoiceRecognitionTranscriptArea(
             Modifier
                 .fillMaxWidth()
                 .height(80.dp)
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = ChirpSpacing.Small),
         contentAlignment = Alignment.Center,
     ) {
         AnimatedContent(
@@ -445,17 +719,16 @@ private fun VoiceRecognitionTranscriptArea(
                         textAlign = TextAlign.Center,
                     )
 
-                TranscriptAreaKind.Timer ->
-                    RecordingTimer(
-                        recordingState = recordingState,
-                        isRecording = true,
-                        textStyle =
-                            MaterialTheme.typography.displaySmall.copy(
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                fontWeight = androidx.compose.ui.text.font.FontWeight.Light,
-                                letterSpacing = 2.sp,
-                            ),
+                TranscriptAreaKind.Ready ->
+                    Text(
+                        text = stringResource(R.string.voice_recognition_ready),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
                     )
+
+                TranscriptAreaKind.Timer ->
+                    VoiceRecognitionTimer(recordingState = recordingState)
 
                 TranscriptAreaKind.Empty -> Unit
             }
@@ -464,8 +737,64 @@ private fun VoiceRecognitionTranscriptArea(
 }
 
 /**
+ * Calm recording timer (DLG-3/DLG-8/VIS-8): a compact variant of the shared [recordingTimerStyle]
+ * timer token, tinted with the brand recordingLive accent (not raw error red) and without the loud
+ * all-caps "DURATION" caption — a quiet "we are listening" indicator, not a stopwatch. Renders the
+ * duration locally because the shared RecordingTimer hardcodes the red color + caption.
+ */
+@Composable
+private fun VoiceRecognitionTimer(recordingState: RecordingState) {
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(recordingState) {
+        when (val state = recordingState) {
+            is RecordingState.Starting -> {
+                previousSegmentsMs = 0L
+                elapsedMs = 0L
+            }
+
+            is RecordingState.Recording -> {
+                val segmentStart = state.startTimeMs
+                while (true) {
+                    val raw = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    elapsedMs = raw - (raw % MILLIS_PER_SECOND)
+                    delay(ChirpMotion.TIMER_TICK_MS)
+                }
+            }
+
+            is RecordingState.Paused -> {
+                previousSegmentsMs = state.accumulatedMs
+                elapsedMs = state.accumulatedMs
+            }
+
+            is RecordingState.Idle -> {
+                previousSegmentsMs = 0L
+                elapsedMs = 0L
+            }
+
+            else -> Unit
+        }
+    }
+
+    Text(
+        text = elapsedMs.formatAsDuration(),
+        // A restrained compact size of the same Light/tnum family as the shared timer token, so the
+        // dialog timer and the in-app recorder read as one family rather than a one-off monospace.
+        style = recordingTimerStyle.copy(fontSize = DIALOG_TIMER_FONT_SIZE),
+        color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
+    )
+}
+
+private const val MILLIS_PER_SECOND = 1000L
+
+/** Compact recording-timer size: a calm counterpart to the 72sp in-app recorder timer. */
+private val DIALOG_TIMER_FONT_SIZE = 40.sp
+
+/**
  * Waveform leaf. Collects the 10 Hz sample-count tick here so amplitude updates recompose
- * only the waveform scope, not the whole dialog content (CMP-11).
+ * only the waveform scope, not the whole dialog content (CMP-11). Uses the brand recordingLive
+ * accent and hides the idle placeholder so the resting state reads as a calm baseline rather than
+ * a row of alarming red dots (DLG-3/VIS-8 / waveform polish).
  */
 @Composable
 private fun VoiceRecognitionWaveform(
@@ -477,44 +806,50 @@ private fun VoiceRecognitionWaveform(
         waveformBuffer = waveformBuffer,
         sampleCount = sampleCount,
         isActive = true,
-        color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-        maxBarHeight = 64.dp,
+        color = MaterialTheme.colorScheme.chirpAccents.recordingLive,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ChirpSpacing.ExtraLarge),
+        maxBarHeight = 48.dp,
+        showIdlePlaceholder = false,
     )
 }
 
+/**
+ * Brand "recording/live" glow behind the recording content (DLG-3/VIS-8). A local copy of the
+ * vertical-gradient glow tinted with the cohesive recordingLive accent instead of the shared red
+ * [RecordingGlowBackground], so the dialog's recording state reads on-brand.
+ */
 @Composable
-private fun VoiceRecognitionLlmControlSection(
-    llmEnabled: Boolean,
-    currentMode: ProcessingMode,
-    isRecording: Boolean, // Can still toggle while recording
-    onToggleLlm: (Boolean) -> Unit,
-) {
-    FilterChip(
-        selected = llmEnabled,
-        onClick = { onToggleLlm(!llmEnabled) },
-        label = {
-            Text(
-                text =
-                    if (llmEnabled) {
-                        stringResource(R.string.voice_recognition_llm_mode, currentMode.displayName)
-                    } else {
-                        stringResource(R.string.voice_recognition_llm_enable)
-                    },
-                style = MaterialTheme.typography.labelLarge,
-            )
-        },
-        leadingIcon =
-            if (llmEnabled) {
-                {
-                    Icon(
-                        imageVector = Icons.Filled.AutoAwesome,
-                        contentDescription = null,
-                        modifier = Modifier.size(FilterChipDefaults.IconSize),
-                    )
-                }
-            } else {
-                null
-            },
-    )
+private fun RecordingLiveGlow(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "recordingLiveGlow")
+    val glow =
+        transition.animateFloat(
+            initialValue = GLOW_MID_ALPHA,
+            targetValue = GLOW_PEAK_ALPHA,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(GLOW_TWEEN_MS, easing = EaseInOut),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+            label = "recordingLiveGlowAlpha",
+        )
+    val accent = MaterialTheme.colorScheme.chirpAccents.recordingLive
+    Canvas(modifier = modifier) {
+        drawRect(
+            brush =
+                Brush.verticalGradient(
+                    colors =
+                        listOf(
+                            Color.Transparent,
+                            accent.copy(alpha = glow.value * 0.5f),
+                            accent.copy(alpha = glow.value),
+                        ),
+                    startY = 0f,
+                    endY = size.height,
+                ),
+        )
+    }
 }
+
+private const val GLOW_TWEEN_MS = 1200
+private const val GLOW_MID_ALPHA = 0.10f
+private const val GLOW_PEAK_ALPHA = 0.22f

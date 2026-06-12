@@ -132,10 +132,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
         val params = window.attributes
         params.gravity = android.view.Gravity.BOTTOM
         params.width = android.view.WindowManager.LayoutParams.MATCH_PARENT
-        params.height = android.view.WindowManager.LayoutParams.WRAP_CONTENT
-        // Don't dim the background and watch for outside touches to dismiss
-        params.flags = params.flags or android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-        params.flags = params.flags and android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
+        // MATCH_PARENT (not WRAP_CONTENT) so the window covers the whole screen and FLAG_DIM_BEHIND
+        // can scrim the host app behind the sheet (DLG-5/INS-2/LOAD-7). The Compose root still pins
+        // the sheet to the bottom via Alignment.BottomCenter, so the visible sheet keeps its height.
+        params.height = android.view.WindowManager.LayoutParams.MATCH_PARENT
+        // Dim the host app behind the sheet with the Material modal scrim (~32%) so the dialog reads
+        // as a focused modal rather than a leaky overlay, while still watching for outside touches so
+        // a tap on the dimmed area cancels (DLG-5/DLG-6/INS-2).
+        params.flags = params.flags or
+            android.view.WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+            android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
+        params.dimAmount = DIALOG_DIM_AMOUNT
         window.attributes = params
 
         // Ensure transcriber is initialized; surface a model-not-ready state instead of
@@ -164,6 +171,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
             ChirpTheme {
                 val llmEnabled by llmPreferences.llmEnabled.collectAsStateWithLifecycle(initialValue = true)
                 val currentMode by modePort.currentMode.collectAsStateWithLifecycle(initialValue = ProcessingMode.Proofread)
+                // Selectable modes for the dialog's mode picker — the same source the keyboard's
+                // mode selector reads (DLG-1/VIS-2). Defaults to empty so the dialog falls back to
+                // the built-in mode list until the port emits.
+                val selectableModes by modePort.selectableModes.collectAsStateWithLifecycle(initialValue = emptyList())
 
                 VoiceRecognitionDialog(
                     waveformBuffer = recorder.waveformBuffer,
@@ -174,6 +185,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     modelStateFlow = _modelState,
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
+                    selectableModes = selectableModes,
                     onStart = ::startRecording,
                     onStop = { stopRecording(llmEnabled, currentMode) },
                     onCancel = ::cancelRecording,
@@ -181,6 +193,11 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     onToggleLlm = { enabled ->
                         lifecycleScope.launch {
                             llmPreferences.setLlmEnabled(enabled)
+                        }
+                    },
+                    onModeChange = { modeId ->
+                        lifecycleScope.launch {
+                            modePort.setModeById(modeId)
                         }
                     },
                 )
@@ -438,6 +455,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
     companion object {
         private const val TAG = "VoiceRecognitionActivity"
         private const val ACTIVITY_AUDIO_PATH_LABEL = "voice_recognition_activity_temp_recording"
+
+        /** Material modal-scrim dim level for the host app behind the sheet (DLG-5/INS-2). */
+        private const val DIALOG_DIM_AMOUNT = 0.32f
     }
 }
 
