@@ -239,13 +239,15 @@ internal fun resolveKeyboardPanelContent(
     when {
         errorOverlay != null ->
             KeyboardPanelContent.ErrorOverlay(errorOverlay.message, errorOverlay.showOpenApp)
+        // IME-4: password/blocked fields show a calm "dictation off" notice in place of the mic —
+        // never an error panel, and never a Retry that resurrects dictation controls. The notice
+        // outranks phase-derived errors: dictation cannot start in a sensitive field, so any such
+        // error is leftover from a previous field and its Retry would be a dead control here.
+        sensitiveInputNotice -> KeyboardPanelContent.SensitiveNotice
         voicePanel == VoicePanelPhase.LlmError && llmErrorMessage != null ->
             KeyboardPanelContent.LlmError(llmErrorMessage)
         voicePanel == VoicePanelPhase.Error && errorMessage != null ->
             KeyboardPanelContent.RecognitionError(errorMessage)
-        // IME-4: password/blocked fields show a calm "dictation off" notice in place of the mic —
-        // never an error panel, and never a Retry that resurrects dictation controls.
-        sensitiveInputNotice -> KeyboardPanelContent.SensitiveNotice
         else -> KeyboardPanelContent.Panel
     }
 

@@ -558,6 +558,13 @@ class HomeViewModel
         fun deleteRecording(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 try {
+                    // Stop the mini player first when it is playing the row being deleted —
+                    // otherwise it keeps playing (and holding) audio for a recording that no
+                    // longer exists. Mirrors ProcessingStudioViewModel.deleteRecording.
+                    if (playbackController.state.value.recordingId == recording.id) {
+                        playbackController.stop()
+                    }
+
                     // Step 0: cancel any queued/running transcription or enhancement work so
                     // an orphaned worker never spins up for the deleted row (PIPE-07).
                     transcriptionRecovery.cancelProcessing(recording.id)

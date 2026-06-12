@@ -28,9 +28,14 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -39,6 +44,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.PackageInfoCompat
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpLeafScaffold
 import dev.chirpboard.app.core.ui.components.SettingsListItem
 
@@ -50,6 +56,11 @@ import dev.chirpboard.app.core.ui.components.SettingsListItem
 fun AboutScreen(onNavigateBack: () -> Unit) {
     val context = LocalContext.current
     val appInfo = remember { getAppInfo(context) }
+    var showPrivacyNotice by rememberSaveable { mutableStateOf(false) }
+
+    if (showPrivacyNotice) {
+        PrivacyNoticeDialog(onDismiss = { showPrivacyNotice = false })
+    }
 
     ChirpLeafScaffold(
         title = stringResource(R.string.about_title),
@@ -130,9 +141,7 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
                     icon = Icons.Rounded.Policy,
                     title = stringResource(R.string.about_privacy_title),
                     subtitle = stringResource(R.string.about_privacy_subtitle),
-                    onClick = {
-                        // Show in-app privacy notice
-                    },
+                    onClick = { showPrivacyNotice = true },
                 )
 
                 SettingsListItem(
@@ -155,6 +164,54 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * PLH-9: the in-app Privacy Notice — on-device transcription, local-only storage, the optional
+ * cloud AI providers, and backup/restore behavior. The backup paragraph is the user-facing
+ * wording for the policy documented in res/xml/data_extraction_rules.xml; keep them in sync.
+ */
+@Composable
+private fun PrivacyNoticeDialog(onDismiss: () -> Unit) {
+    AnimatedAlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Rounded.Policy,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        },
+        title = { Text(stringResource(R.string.about_privacy_title)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.about_privacy_notice_transcription),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.about_privacy_notice_storage),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.about_privacy_notice_cloud),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    text = stringResource(R.string.about_privacy_notice_backup),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.about_privacy_notice_confirm))
+            }
+        },
+    )
 }
 
 private data class AppInfo(

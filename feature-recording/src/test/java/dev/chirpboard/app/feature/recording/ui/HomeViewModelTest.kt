@@ -1029,12 +1029,10 @@ class HomeViewModelTest {
         )
 
     @Test
-    fun `deleteRecording currently leaves the mini player running for the deleted item`() =
+    fun `deleteRecording stops the mini player when deleting the playing recording`() =
         runTest(testDispatcher) {
-            // BUG (documents CURRENT behavior, do not "fix" this test without fixing the code):
-            // unlike ProcessingStudioViewModel.deleteRecording, the home delete path never
-            // stops playback when the deleted recording is the one playing — the mini player
-            // keeps playing a row that no longer exists. Reported for the verify wave.
+            // Matches ProcessingStudioViewModel.deleteRecording: the mini player must never
+            // keep playing (and holding) audio for a row that no longer exists.
             val audioFile = File.createTempFile("home-delete", ".m4a").apply { writeText("audio") }
             val item = displayItemFor(audioFile.absolutePath)
             val playbackController =
@@ -1045,6 +1043,31 @@ class HomeViewModelTest {
                                 recordingId = item.id,
                                 title = item.title,
                                 audioPath = item.audioPath,
+                                isPlaying = true,
+                            ),
+                        )
+                }
+            viewModel = createHomeViewModel(playbackControllerOverride = playbackController)
+
+            runDeleteToCompletion(item)
+
+            coVerify { recordingRepository.deleteById(item.id) }
+            io.mockk.verify(exactly = 1) { playbackController.stop() }
+        }
+
+    @Test
+    fun `deleteRecording leaves the mini player alone when a different recording is playing`() =
+        runTest(testDispatcher) {
+            val audioFile = File.createTempFile("home-delete", ".m4a").apply { writeText("audio") }
+            val item = displayItemFor(audioFile.absolutePath)
+            val playbackController =
+                mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns
+                        MutableStateFlow(
+                            dev.chirpboard.app.core.playback.RecordingPlaybackState(
+                                recordingId = UUID.randomUUID(),
+                                title = "Some other recording",
+                                audioPath = "/tmp/other.m4a",
                                 isPlaying = true,
                             ),
                         )

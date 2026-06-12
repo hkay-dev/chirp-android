@@ -104,6 +104,13 @@
     <string name="about_description_body">Transcribe your voice locally using the Parakeet TDT model, then optionally polish your text with your choice of AI provider.</string>
     <string name="about_privacy_title">Privacy Notice</string>
     <string name="about_privacy_subtitle">All transcription happens on-device</string>
+    <!-- PLH-9: in-app Privacy Notice dialog. Wording for backups must stay in sync with the
+         policy documented in res/xml/data_extraction_rules.xml. -->
+    <string name="about_privacy_notice_transcription">Transcription is fully on-device. Speech recognition runs locally with the downloaded model — your voice audio is never uploaded to transcribe it.</string>
+    <string name="about_privacy_notice_storage">Recordings, transcripts, and settings are stored only in this app\'s private storage on this device. Deleting a recording removes its audio and transcript.</string>
+    <string name="about_privacy_notice_cloud">Optional AI processing (text polish, titles, summaries) sends only the transcript text to the cloud provider you configure with your own API key — never the audio. With no provider configured, no recording data leaves the device.</string>
+    <string name="about_privacy_notice_backup">Android backups and device transfers include settings only. Recordings, transcripts, and API keys are never backed up — after a restore you keep your settings but start with an empty library, and Obsidian vault access must be granted again.</string>
+    <string name="about_privacy_notice_confirm">Got it</string>
     <string name="about_open_source_title">Open Source</string>
     <string name="about_open_source_subtitle">Built with sherpa-onnx and Jetpack Compose</string>
     <string name="about_footer">Made with care</string>

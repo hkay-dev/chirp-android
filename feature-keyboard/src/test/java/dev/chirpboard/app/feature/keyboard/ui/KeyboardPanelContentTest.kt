@@ -60,8 +60,8 @@ class KeyboardPanelContentTest {
     }
 
     @Test
-    fun `sensitive notice replaces the panel but not error content`() {
-        // IME-4: the dictation-off notice owns the center panel on password fields...
+    fun `sensitive notice replaces the panel`() {
+        // IME-4: the dictation-off notice owns the center panel on password fields.
         val notice =
             resolveKeyboardPanelContent(
                 errorOverlay = null,
@@ -71,9 +71,14 @@ class KeyboardPanelContentTest {
                 sensitiveInputNotice = true,
             )
         assertEquals(KeyboardPanelContent.SensitiveNotice, notice)
+    }
 
-        // ...but an in-flight error (e.g. commit-refused rescue note) still takes precedence.
-        val error =
+    @Test
+    fun `sensitive notice outranks stale phase-derived errors`() {
+        // IME-4 regression: dictation cannot start in a sensitive field, so an Error/LlmError
+        // phase there is always leftover from a previous field — showing it would pair a
+        // misleading message with a Retry that is a guaranteed no-op (no commit session).
+        val recognitionError =
             resolveKeyboardPanelContent(
                 errorOverlay = null,
                 voicePanel = VoicePanelPhase.Error,
@@ -81,7 +86,17 @@ class KeyboardPanelContentTest {
                 llmErrorMessage = null,
                 sensitiveInputNotice = true,
             )
-        assertEquals(KeyboardPanelContent.RecognitionError("recognition failed"), error)
+        assertEquals(KeyboardPanelContent.SensitiveNotice, recognitionError)
+
+        val llmError =
+            resolveKeyboardPanelContent(
+                errorOverlay = null,
+                voicePanel = VoicePanelPhase.LlmError,
+                errorMessage = null,
+                llmErrorMessage = "llm failed",
+                sensitiveInputNotice = true,
+            )
+        assertEquals(KeyboardPanelContent.SensitiveNotice, llmError)
     }
 
     @Test

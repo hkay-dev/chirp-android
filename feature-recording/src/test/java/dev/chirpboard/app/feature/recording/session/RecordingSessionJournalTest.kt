@@ -291,4 +291,34 @@ class RecordingSessionJournalTest {
         assertTrue(entry?.lastSegmentFinalizedAtEpochMs != null)
         assertTrue(entry?.activeSegmentStartedAtEpochMs != null)
     }
+
+    @Test
+    fun beginNextSegment_refusesToRepointAStoppingEntry() {
+        // AUD-05 race regression: a resume that lost the race with a gated stop must not
+        // repoint the STOPPING entry's audioPath at a new live segment — the finalize
+        // worker already owns the entry (same guard updateHeartbeat has).
+        val sessionId = UUID.randomUUID()
+        val finalPath = File(context.filesDir, "recordings/recording_test.m4a").absolutePath
+        val firstSegment = File(context.filesDir, "recordings/.capture/$sessionId/seg-000.m4a").absolutePath
+        val racingSegment = File(context.filesDir, "recordings/.capture/$sessionId/seg-001.m4a").absolutePath
+
+        journal.createSession(
+            sessionId = sessionId,
+            audioPath = firstSegment,
+            origin = RecordingOrigin.APP,
+            profileId = null,
+            recordingId = UUID.randomUUID(),
+            correlationId = "corr-1",
+            finalAudioPath = finalPath,
+        )
+        journal.commitPausedSegment(sessionId, firstSegment, 1024L)
+        journal.markStopping(sessionId)
+
+        journal.beginNextSegment(sessionId, racingSegment)
+
+        val entry = journal.findBySessionId(sessionId)
+        assertEquals(SessionJournalState.STOPPING, entry?.state)
+        assertEquals(firstSegment, entry?.audioPath)
+        assertEquals(listOf(firstSegment), entry?.segmentPaths)
+    }
 }

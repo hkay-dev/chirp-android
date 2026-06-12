@@ -228,12 +228,20 @@ class RecordingSessionJournal
             nextSegmentPath: String,
         ) {
             updateEntry(sessionId) { entry ->
-                val now = System.currentTimeMillis()
-                entry.copy(
-                    audioPath = nextSegmentPath,
-                    lastHeartbeatEpochMs = now,
-                    activeSegmentStartedAtEpochMs = now,
-                )
+                if (entry.state == SessionJournalState.STOPPING) {
+                    // Same guard as updateHeartbeat: a resume that lost the race with a
+                    // gated stop must not repoint the STOPPING entry's audioPath at a new
+                    // live segment — the finalize worker already owns this entry and would
+                    // otherwise consume a half-written capture.
+                    entry
+                } else {
+                    val now = System.currentTimeMillis()
+                    entry.copy(
+                        audioPath = nextSegmentPath,
+                        lastHeartbeatEpochMs = now,
+                        activeSegmentStartedAtEpochMs = now,
+                    )
+                }
             }
         }
 

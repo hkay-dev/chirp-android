@@ -208,11 +208,20 @@ class RecordingService : Service() {
     /**
      * Auto-resume after a transient focus interruption ends (AUD-05): only when the
      * session is still Paused and that pause was focus-initiated — never over a manual
-     * pause or after a permanent loss (which already stopped with save).
+     * pause or after a permanent loss (which already stopped with save), and never while
+     * a gated stop owns the session ([RecordingResumeGuard]): a focus-paused session
+     * stays Paused until the stop's capture handoff lands, so without the gate check the
+     * interrupting audio ending in that window would auto-start an orphaned engine.
      */
     private fun resumeAfterFocusRegained() {
         if (!pausedByFocusLoss) return
-        if (recordingStateManager.state.value !is RecordingState.Paused) return
+        if (!RecordingResumeGuard.canResume(
+                state = recordingStateManager.state.value,
+                stopInProgress = stopRequestGate.isInProgress(),
+            )
+        ) {
+            return
+        }
         ReliabilityEventLogger
             .scoped(
                 stage = ReliabilityStage.RECORDING_START,
@@ -624,11 +633,40 @@ class RecordingService : Service() {
     }
 
     private fun resumeRecording() {
+        if (stopRequestGate.isInProgress()) {
+            // A gated stop owns the session (AUD-05 race): starting a new engine now would
+            // orphan it — nothing in the stop path rolls a freshly started capture back.
+            // Bail before touching the pause flags so the stop lifecycle stays untouched.
+            ReliabilityEventLogger
+                .scoped(
+                    stage = ReliabilityStage.RECORDING_START,
+                    correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                ).skipped("resume_ignored_stop_in_progress")
+            return
+        }
         pausedByFocusLoss = false
         serviceEvents.setAutoPauseReason(null)
         serviceScope.launch {
             try {
                 segmentTransitionMutex.withLock {
+                    // Re-checked INSIDE the mutex: a stop can claim the gate between the
+                    // entry check above and this lock (a Paused session's stop holds the
+                    // mutex only briefly and the state stays Paused until the handoff
+                    // lands), and a duplicate Resume could race a live Recording state.
+                    // Past this point a new capture engine starts and nothing downstream
+                    // would ever stop it, so the guard must be airtight here.
+                    if (!RecordingResumeGuard.canResume(
+                            state = recordingStateManager.state.value,
+                            stopInProgress = stopRequestGate.isInProgress(),
+                        )
+                    ) {
+                        ReliabilityEventLogger
+                            .scoped(
+                                stage = ReliabilityStage.RECORDING_START,
+                                correlationId = currentCorrelationId ?: ReliabilityEventLogger.newCorrelationId("record"),
+                            ).skipped("resume_skipped_not_resumable")
+                        return@withLock
+                    }
                     val sessionId = currentSessionId ?: return@withLock
                     val entry = sessionJournal.findBySessionId(sessionId) ?: return@withLock
                     val nextSegment = capturePaths.durableSegmentFile(sessionId, entry.segmentPaths.size)

@@ -393,8 +393,11 @@ class ChirpKeyboardService :
                 )
             }
             // IME-4: a password field is not an error — typing aids stay usable; only the voice
-            // panel swaps to a neutral "dictation off" notice (no Retry).
+            // panel swaps to a neutral "dictation off" notice (no Retry). Reset the transcription
+            // phase too: a sticky Error from a previous field would otherwise outrank the notice
+            // with a Retry that is a guaranteed no-op here (no capture-commit session).
             coordinator.clearErrorOverlay()
+            inlineTranscription.resetPhase()
             coordinator.setSensitiveInput(true)
             return
         }
