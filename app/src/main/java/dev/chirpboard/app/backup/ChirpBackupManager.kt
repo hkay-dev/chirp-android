@@ -11,9 +11,11 @@ import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
+import dev.chirpboard.app.feature.llm.repository.ProcessingPresetBackupItem
 import dev.chirpboard.app.feature.llm.settings.LlmApiKeyBackupManager
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -83,7 +85,13 @@ class ChirpBackupManager
             /** API-keys section: wrong passphrase or corrupted CHIRPKEY payload. */
             KEYS_REJECTED,
 
-            /** Anything else; details are logged, the section was rolled back/not applied. */
+            /**
+             * Anything else; details are logged. Room sections (each a single @Transaction)
+             * and presets (a single DataStore commit) are rolled back/not applied. The
+             * SETTINGS section applies each preference as its own commit across several
+             * stores, so it can fail partially — the result UI words that section's
+             * failure accordingly.
+             */
             FAILED,
         }
 
@@ -231,6 +239,12 @@ class ChirpBackupManager
          * Applies the selected sections. Order matters only for reference repair: tags before
          * profiles (default-tag names), presets before profiles/settings (processing-mode id
          * remap). Every section is independent — one failure never rolls back another.
+         *
+         * Runs under [NonCancellable]: the caller's scope is a screen-bound viewModelScope,
+         * and a back-navigation mid-import must not cancel a section between its destructive
+         * and constructive steps (the multi-commit settings delegate) or silently skip the
+         * remaining selected sections. The import is short and local, so completing it is
+         * always preferable to abandoning it half-applied.
          */
         suspend fun applyImport(
             contents: ChirpBackupContents,
@@ -238,7 +252,7 @@ class ChirpBackupManager
             mode: BackupImportMode,
             passphrase: CharArray?,
         ): ImportSummary =
-            withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO + NonCancellable) {
                 val results = mutableListOf<SectionResult>()
                 val selected = sections intersect contents.availableSections
 
@@ -332,57 +346,35 @@ class ChirpBackupManager
         }
 
         /**
-         * Applies preset items through ProcessingModeRepository's public API. Returns the
-         * applied counts plus a source-id -> target-id remap used to repair processing-mode
-         * references in profiles and keyboard settings.
+         * Applies preset items through [ProcessingModeRepository.applyBackupPresets], which
+         * commits the whole section in ONE DataStore edit. Looping the public single-preset
+         * setters here (the old shape) was not transactional: each call was its own commit,
+         * so a failure between the REPLACE deletes and the re-inserts permanently lost the
+         * user's custom presets while the result card claimed nothing had changed. Returns
+         * the applied counts plus a source-id -> target-id remap used to repair
+         * processing-mode references in profiles and keyboard settings.
          *
          * MERGE: built-ins update by mode id (when editable); customs upsert by name.
-         * REPLACE: deletes all custom presets and resets modified built-ins first.
+         * REPLACE: drops all custom presets and resets modified built-ins first.
          */
         private suspend fun applyPresets(
             items: List<BackupPresetItem>,
             mode: BackupImportMode,
         ): Pair<BackupUpsertCounts, Map<String, String>> {
-            if (mode == BackupImportMode.REPLACE) {
-                val current = processingModeRepository.promptPresets.first()
-                current.filterNot { it.isBuiltIn }.forEach { preset ->
-                    processingModeRepository.deleteCustomPreset(preset.id)
-                }
-                current.filter { it.isBuiltIn && it.isModified && it.canEditPrompt }.forEach { preset ->
-                    processingModeRepository.resetPresetPrompt(preset.id)
-                }
-            }
-
-            val existing = processingModeRepository.promptPresets.first()
-            val remap = mutableMapOf<String, String>()
-            var inserted = 0
-            var updated = 0
-
-            for (item in items) {
-                if (item.builtIn) {
-                    val target = existing.firstOrNull { it.isBuiltIn && it.id == item.id }
-                    if (target?.canEditPrompt == true) {
-                        processingModeRepository.updatePresetPrompt(item.id, item.prompt)
-                        remap[item.id] = item.id
-                        updated++
-                    }
-                    // Unknown or non-editable built-in ids are skipped: they cannot be applied
-                    // on this app version and must not fail the section.
-                } else {
-                    val match = existing.firstOrNull { !it.isBuiltIn && it.name == item.name }
-                    if (match != null) {
-                        processingModeRepository.updatePresetPrompt(match.id, item.prompt)
-                        remap[item.id] = match.id
-                        updated++
-                    } else {
-                        val newId = processingModeRepository.addCustomPreset(item.name, item.prompt)
-                        remap[item.id] = newId
-                        inserted++
-                    }
-                }
-            }
-
-            return BackupUpsertCounts(inserted = inserted, updated = updated) to remap
+            val result =
+                processingModeRepository.applyBackupPresets(
+                    items =
+                        items.map { item ->
+                            ProcessingPresetBackupItem(
+                                id = item.id,
+                                name = item.name,
+                                prompt = item.prompt,
+                                builtIn = item.builtIn,
+                            )
+                        },
+                    replaceExisting = mode == BackupImportMode.REPLACE,
+                )
+            return BackupUpsertCounts(inserted = result.inserted, updated = result.updated) to result.idRemap
         }
 
         private suspend fun applyApiKeys(

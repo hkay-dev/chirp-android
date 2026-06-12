@@ -16,6 +16,12 @@ import javax.inject.Singleton
  * Restore goes through the same public setters the settings screens use, so every value is
  * range-clamped/normalized exactly once (gain coercion, playback-speed snapping, enum
  * fallback via storage values) and takes effect live — all consumers observe these flows.
+ *
+ * NOT atomic: the preferences span four independent DataStores, so [apply] is one commit
+ * per field and can fail partially. That is acceptable here (each field is idempotent and
+ * non-destructive — nothing is deleted before being re-written), but the import result UI
+ * must word a settings failure as "may have been partially applied", never "left
+ * unchanged" (see [ChirpBackupManager.SectionFailure.FAILED]).
  */
 @Singleton
 class SettingsBackupDelegate

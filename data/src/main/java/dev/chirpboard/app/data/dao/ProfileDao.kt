@@ -7,6 +7,12 @@ import dev.chirpboard.app.data.entity.Tag
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
+/** A recording→profile assignment keyed by the profile's NAME, for re-linking across a REPLACE restore. */
+data class RecordingProfileNameLink(
+    val recordingId: UUID,
+    val profileName: String,
+)
+
 @Dao
 interface ProfileDao {
     @Query("SELECT * FROM profiles ORDER BY sortOrder ASC, name ASC")
@@ -134,20 +140,52 @@ interface ProfileDao {
         return true
     }
 
+    @Query(
+        """
+        SELECT r.id AS recordingId, p.name AS profileName
+        FROM recordings r
+        INNER JOIN profiles p ON p.id = r.profileId
+    """,
+    )
+    suspend fun getRecordingProfileLinksByName(): List<RecordingProfileNameLink>
+
+    @Query("UPDATE recordings SET profileId = :profileId WHERE id IN (:recordingIds)")
+    suspend fun assignRecordingsToProfile(
+        profileId: UUID,
+        recordingIds: List<UUID>,
+    )
+
     /**
      * Backup restore, REPLACE semantics: clears every profile, then inserts the backup's
-     * profiles. Deleting a profile relies on the recordings FK (profileId, SET_NULL on
-     * delete), so recordings that referenced a removed profile become unassigned rather
-     * than orphaned; profile_default_tags rows cascade away. Profiles are re-inserted in
-     * backup order, so sortOrder is rewritten to the list position.
+     * profiles. Deleting a profile fires the recordings FK (profileId, SET_NULL on delete)
+     * for EVERY recording — including ones whose profile the backup re-creates — so the
+     * recording→profile assignments are snapshotted by profile NAME (the same natural key
+     * the MERGE path uses) before the delete and re-bound to the inserted profiles
+     * afterwards, all inside the one transaction. Only recordings whose profile is NOT in
+     * the backup end up unassigned, exactly what the import UI promises; nothing is ever
+     * orphaned. profile_default_tags rows cascade away and are rebuilt from the backup's
+     * own default-tag lists. Profiles are re-inserted in backup order, so sortOrder is
+     * rewritten to the list position.
      */
     @Transaction
     suspend fun replaceAllProfiles(entries: List<ProfileBackupEntry>): BackupUpsertCounts {
+        val recordingLinks = getRecordingProfileLinksByName()
         deleteAllProfiles()
         entries.forEachIndexed { index, entry ->
             insert(entry.profile.copy(sortOrder = index))
             insertExistingDefaultTags(entry.profile.id, entry.defaultTagIds)
         }
+        val profileIdsByName = entries.associate { it.profile.name to it.profile.id }
+        recordingLinks
+            .groupBy({ profileIdsByName[it.profileName] }, { it.recordingId })
+            .forEach { (profileId, recordingIds) ->
+                if (profileId != null) {
+                    // SQLite caps bind variables per statement; chunk large libraries.
+                    recordingIds.chunked(REBIND_CHUNK_SIZE).forEach { chunk ->
+                        assignRecordingsToProfile(profileId, chunk)
+                    }
+                }
+            }
         return BackupUpsertCounts(inserted = entries.size, updated = 0)
     }
 
@@ -207,5 +245,10 @@ interface ProfileDao {
             "Default tag IDs must reference existing tags: ${missingTagIds.joinToString()}"
         }
         return uniqueTagIds
+    }
+
+    companion object {
+        /** Stays under SQLite's 999 bind-variable limit (one slot is the profileId itself). */
+        const val REBIND_CHUNK_SIZE = 900
     }
 }

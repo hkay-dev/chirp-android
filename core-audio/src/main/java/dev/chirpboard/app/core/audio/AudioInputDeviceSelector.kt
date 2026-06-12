@@ -262,7 +262,7 @@ class AudioInputDeviceSelector
                 val ranked = rankDevices(devices)
                 return when (policy) {
                     AudioInputDevicePolicy.Manual -> {
-                        val preferred = devices.firstOrNull { summaryMatchesSelectionKey(it, manualKey) }
+                        val preferred = findDeviceForSelectionKey(devices, manualKey)
                         InputDeviceChoice(
                             device = preferred ?: ranked.firstOrNull(),
                             preferredMissing = preferred == null && !manualKey.isNullOrBlank(),
@@ -328,6 +328,59 @@ class AudioInputDeviceSelector
             }
 
             /**
+             * The connected device a persisted manual key refers to: an exact key/address
+             * match wins; otherwise [bluetoothIdentityFallbackMatches] resolves composite
+             * keys across BLUETOOTH_CONNECT grant/revoke transitions. Every surface that
+             * picks ONE device for a stored key (capture-start selection, picker checkmark)
+             * must go through this so exact matches always take precedence over the
+             * relaxed fallback.
+             */
+            fun findDeviceForSelectionKey(
+                devices: List<AudioInputDeviceSummary>,
+                key: String?,
+            ): AudioInputDeviceSummary? {
+                if (key.isNullOrBlank()) return null
+                return devices.firstOrNull { summaryMatchesSelectionKey(it, key) }
+                    ?: devices.firstOrNull { bluetoothIdentityFallbackMatches(it, key) }
+            }
+
+            /**
+             * Relaxed match for composite keys whose Bluetooth identity is hidden on either
+             * side, because granting or revoking BLUETOOTH_CONNECT changes what
+             * [selectionKeyFor] produces for the SAME physical device:
+             *
+             * - Key persisted pre-grant ("device:<type>:<own model>" or blank name, since
+             *   the platform hides the real name/address): after the grant the device
+             *   reports its MAC + real name, so only the type can still identify it.
+             * - Key persisted post-grant with a real name but no address: after a revoke
+             *   the device's name degrades to the phone's model, so again only the type
+             *   survives the transition.
+             *
+             * Matching by Bluetooth type mirrors the precision the picker had when the
+             * hidden side was persisted/observed — pre-grant the user could only ever
+             * distinguish devices by type label anyway. Address-based (MAC) keys are never
+             * relaxed: after a revoke no device exposes an address, so a MAC key reports
+             * its device as missing (named via the persisted display name) rather than
+             * guessing.
+             */
+            fun bluetoothIdentityFallbackMatches(
+                summary: AudioInputDeviceSummary,
+                key: String?,
+                ownModelName: String? = Build.MODEL,
+            ): Boolean {
+                if (key == null || !key.startsWith(COMPOSITE_KEY_PREFIX)) return false
+                val parts = key.split(":", limit = COMPOSITE_KEY_PARTS)
+                val keyType = parts.getOrNull(1)?.toIntOrNull() ?: return false
+                val keyKind = kindFor(keyType)
+                val keyIsBluetooth =
+                    keyKind == AudioInputDeviceKind.Bluetooth || keyKind == AudioInputDeviceKind.BluetoothLe
+                if (!keyIsBluetooth || summary.kind != keyKind) return false
+                val keyName = parts.getOrNull(2).orEmpty()
+                val keyNameHidden = keyName.isBlank() || keyName == ownModelName
+                return keyNameHidden || summary.bluetoothNameHidden
+            }
+
+            /**
              * Best-effort display name recovered from a composite selection key, used to
              * name a missing preferred device when no display name was persisted with it.
              */
@@ -341,11 +394,14 @@ class AudioInputDeviceSelector
 
             /**
              * Builds the UI summary for a device. The selection key is always derived from
-             * the RAW product name so persisted manual selections stay stable; only the
-             * displayed name degrades. A Bluetooth device whose name is unavailable
-             * (blank, or the platform substituted the phone's own model because the app
-             * lacks BLUETOOTH_CONNECT) is labeled by its type and flagged so pickers can
-             * offer the permission rationale.
+             * the RAW product name so persisted manual selections stay stable within one
+             * permission state; only the displayed name degrades. A Bluetooth device whose
+             * name is unavailable (blank, or the platform substituted the phone's own model
+             * because the app lacks BLUETOOTH_CONNECT) is labeled by its type and flagged so
+             * pickers can offer the permission rationale. Granting/revoking BLUETOOTH_CONNECT
+             * changes a Bluetooth device's raw name AND address, so keys persisted across
+             * that transition are resolved by [bluetoothIdentityFallbackMatches] via
+             * [findDeviceForSelectionKey].
              */
             fun summaryFor(
                 device: AudioDeviceInfo,

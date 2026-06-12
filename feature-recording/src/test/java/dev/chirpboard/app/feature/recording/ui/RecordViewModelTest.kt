@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.recording.ui
 
 import android.database.sqlite.SQLiteException
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
@@ -23,6 +24,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
@@ -672,6 +674,72 @@ class RecordViewModelTest {
         advanceUntilIdle()
 
         assertEquals("Written before browsing home", notesViewModel.noteDraft.value)
+    }
+
+    /**
+     * Destroys [viewModel] exactly the way androidx does: viewModelScope (and any pending
+     * debounced flush) is cancelled BEFORE onCleared() runs. A rescue that checks the flush
+     * job's liveness inside onCleared can therefore never fire — the regression these
+     * clear-ordering tests guard against.
+     */
+    private fun clearLikeAndroidx(viewModel: RecordViewModel) {
+        viewModel.viewModelScope.cancel()
+        val onCleared = RecordViewModel::class.java.getDeclaredMethod("onCleared")
+        onCleared.isAccessible = true
+        onCleared.invoke(viewModel)
+    }
+
+    @Test
+    fun `ViewModel cleared inside the debounce window still persists the typed note`() = runTest(testDispatcher) {
+        // Browse Home while typing: the debounce keeps resetting, so nothing has been written
+        // through yet when the back stack entry (and ViewModel) is destroyed.
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Typed right before Browse Home")
+        testDispatcher.scheduler.runCurrent() // Debounce still pending; nothing persisted yet.
+        coVerify(exactly = 0) { recordingRepository.updateNotes(any(), any()) }
+
+        clearLikeAndroidx(notesViewModel)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            recordingRepository.updateNotes(recordingId, "Typed right before Browse Home")
+        }
+    }
+
+    @Test
+    fun `ViewModel cleared right after a user clear persists the blank note`() = runTest(testDispatcher) {
+        // The inverse hazard: clearing the note then leaving within the debounce window must
+        // not resurrect the old note on the row.
+        val recordingId = UUID.randomUUID()
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        notesViewModel.updateNoteDraft("Soon deleted")
+        advanceUntilIdle() // First draft written through.
+        notesViewModel.updateNoteDraft("")
+        testDispatcher.scheduler.runCurrent() // Clear still inside the debounce window.
+
+        clearLikeAndroidx(notesViewModel)
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { recordingRepository.updateNotes(recordingId, "") }
+    }
+
+    @Test
+    fun `ViewModel cleared with no unconfirmed edit never rewrites the row`() = runTest(testDispatcher) {
+        // A hydrated-but-untouched draft has nothing to rescue; clearing must not write.
+        val recordingId = UUID.randomUUID()
+        coEvery { recordingRepository.getNotes(recordingId) } returns "Already on the row"
+        val notesViewModel = noteViewModel(recordingStateOf(recordingId))
+        advanceUntilIdle()
+
+        clearLikeAndroidx(notesViewModel)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { recordingRepository.updateNotes(any(), any()) }
     }
 
     @Test

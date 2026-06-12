@@ -16,6 +16,7 @@ class AudioInputDeviceSelectorTest {
         name: String = "Device $id",
         address: String? = null,
         type: Int = typeFor(kind),
+        bluetoothNameHidden: Boolean = false,
     ): AudioInputDeviceSummary =
         AudioInputDeviceSummary(
             id = id,
@@ -24,6 +25,7 @@ class AudioInputDeviceSelectorTest {
             kind = kind,
             address = address,
             selectionKey = AudioInputDeviceSelector.selectionKeyFor(type, address, name),
+            bluetoothNameHidden = bluetoothNameHidden,
         )
 
     private fun typeFor(kind: AudioInputDeviceKind): Int =
@@ -231,6 +233,123 @@ class AudioInputDeviceSelectorTest {
 
         assertTrue(AudioInputDeviceSelector.matchesSelectionKey(device, "card=1;device=0"))
         assertFalse(AudioInputDeviceSelector.matchesSelectionKey(device, "card=2;device=0"))
+    }
+
+    // --- Identity across BLUETOOTH_CONNECT grant/revoke ---------------------------------
+
+    @Test
+    fun choose_manualKeyPersistedBeforeBluetoothGrant_stillSelectsTheDeviceAfterGrant() {
+        // Pre-grant the BLE device persisted a composite key (blank/hidden name). After the
+        // grant it reports a MAC + real name; the stored key must still route to it instead
+        // of silently falling back to the ranked-first USB mic.
+        val preGrantKey =
+            AudioInputDeviceSelector.selectionKeyFor(
+                type = AudioDeviceInfo.TYPE_BLE_HEADSET,
+                address = "",
+                productName = "",
+            )
+        val usb = summary(3, AudioInputDeviceKind.Usb, name = "USB Mic", address = "card=1;device=0")
+        val grantedBle =
+            summary(7, AudioInputDeviceKind.BluetoothLe, name = "Buds Pro", address = "AA:BB:CC:DD:EE:FF")
+
+        val choice =
+            AudioInputDeviceSelector.chooseInputDevice(
+                devices = listOf(usb, grantedBle),
+                policy = AudioInputDevicePolicy.Manual,
+                manualKey = preGrantKey,
+            )
+
+        assertEquals(grantedBle.id, choice.device?.id)
+        assertFalse(choice.preferredMissing)
+    }
+
+    @Test
+    fun bluetoothIdentityFallback_modelNamedCompositeKey_matchesVisibleDeviceOfSameType() {
+        // Without BLUETOOTH_CONNECT the platform substitutes the phone's own model for the
+        // device name, so that is what old persisted keys contain.
+        val key = "device:${AudioDeviceInfo.TYPE_BLE_HEADSET}:Pixel 9 Pro"
+        val grantedBle =
+            summary(7, AudioInputDeviceKind.BluetoothLe, name = "Buds Pro", address = "AA:BB:CC:DD:EE:FF")
+
+        assertTrue(
+            AudioInputDeviceSelector.bluetoothIdentityFallbackMatches(
+                summary = grantedBle,
+                key = key,
+                ownModelName = "Pixel 9 Pro",
+            ),
+        )
+        // A composite key naming a REAL device must not match a different visible device.
+        assertFalse(
+            AudioInputDeviceSelector.bluetoothIdentityFallbackMatches(
+                summary = grantedBle,
+                key = "device:${AudioDeviceInfo.TYPE_BLE_HEADSET}:Other Buds",
+                ownModelName = "Pixel 9 Pro",
+            ),
+        )
+    }
+
+    @Test
+    fun choose_manualKeyPersistedAfterGrant_matchesHiddenDeviceOfSameTypeAfterRevoke() {
+        // Reverse transition: a composite key persisted with the real name (visible name,
+        // blank address) must keep matching once the name degrades to hidden post-revoke.
+        val postGrantKey =
+            AudioInputDeviceSelector.selectionKeyFor(
+                type = AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                address = "",
+                productName = "Buds Pro",
+            )
+        val hiddenSco =
+            summary(8, AudioInputDeviceKind.Bluetooth, name = "Bluetooth", bluetoothNameHidden = true)
+
+        val choice =
+            AudioInputDeviceSelector.chooseInputDevice(
+                devices = listOf(summary(1, AudioInputDeviceKind.BuiltIn), hiddenSco),
+                policy = AudioInputDevicePolicy.Manual,
+                manualKey = postGrantKey,
+            )
+
+        assertEquals(hiddenSco.id, choice.device?.id)
+        assertFalse(choice.preferredMissing)
+    }
+
+    @Test
+    fun findDeviceForSelectionKey_exactMatchAlwaysBeatsTheRelaxedFallback() {
+        val hiddenFirst =
+            summary(5, AudioInputDeviceKind.Bluetooth, name = "Bluetooth", bluetoothNameHidden = true)
+        val exact = summary(6, AudioInputDeviceKind.Bluetooth, name = "Buds", address = "")
+
+        val found =
+            AudioInputDeviceSelector.findDeviceForSelectionKey(
+                devices = listOf(hiddenFirst, exact),
+                key = exact.selectionKey,
+            )
+
+        assertEquals(exact.id, found?.id)
+    }
+
+    @Test
+    fun bluetoothIdentityFallback_neverCrossesTypesAndNeverRelaxesAddressKeys() {
+        val hiddenBleKey = "device:${AudioDeviceInfo.TYPE_BLE_HEADSET}:"
+        val sco = summary(8, AudioInputDeviceKind.Bluetooth, name = "SCO Headset")
+        val wired = summary(4, AudioInputDeviceKind.WiredHeadset)
+        val hiddenBle =
+            summary(9, AudioInputDeviceKind.BluetoothLe, name = "Bluetooth LE", bluetoothNameHidden = true)
+
+        // A hidden BLE key must not match a different Bluetooth type or a wired device.
+        assertFalse(AudioInputDeviceSelector.bluetoothIdentityFallbackMatches(sco, hiddenBleKey))
+        assertFalse(AudioInputDeviceSelector.bluetoothIdentityFallbackMatches(wired, hiddenBleKey))
+        // MAC keys carry no type information; they are reported missing instead of guessed.
+        assertNull(
+            AudioInputDeviceSelector.findDeviceForSelectionKey(listOf(hiddenBle), "AA:BB:CC:DD:EE:FF"),
+        )
+        // Wired composite keys are never relaxed either — only Bluetooth identity is
+        // permission-dependent.
+        assertFalse(
+            AudioInputDeviceSelector.bluetoothIdentityFallbackMatches(
+                summary(11, AudioInputDeviceKind.WiredHeadset, name = "Other Headset"),
+                "device:${AudioDeviceInfo.TYPE_WIRED_HEADSET}:Old Headset",
+            ),
+        )
     }
 
     @Test

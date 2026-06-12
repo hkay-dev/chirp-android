@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.UUID
@@ -19,8 +20,11 @@ import java.util.UUID
  * The logic under test lives in the DAOs' @Transaction default methods, which run as plain
  * Kotlin on the JVM when the abstract query methods are stubbed with in-memory fakes — so
  * these tests exercise the REAL production merge/replace code, not a re-implementation.
- * (Room only contributes the transaction wrapper, which has no behavior to assert here;
- * FK side effects like recordings.profileId SET_NULL are schema-level and device-tested.)
+ * (Room only contributes the transaction wrapper, which has no behavior to assert here.)
+ * The fakes emulate the schema-level FK side effects the REPLACE paths must survive —
+ * deleting all tags CASCADE-deletes every recording_tags/profile_default_tags row, deleting
+ * all profiles SET-NULLs every recordings.profileId — so the snapshot-and-relink logic is
+ * verified against the destruction it exists to repair.
  */
 class BackupRestoreDaoSemanticsTest {
     // region Tags
@@ -78,6 +82,44 @@ class BackupRestoreDaoSemanticsTest {
 
             assertEquals(BackupUpsertCounts(inserted = 1, updated = 0), counts)
             assertEquals(listOf(incoming), dao.tags)
+        }
+
+    @Test
+    fun `tag replace relinks recording and profile assignments for tags kept by name`() =
+        runTest {
+            // The tags delete CASCADE-drops every junction row, even for tags the backup
+            // re-creates; assignments must be snapshotted and re-linked by tag name.
+            val dao = FakeTagDao()
+            val recordingId = UUID.randomUUID()
+            val profileId = UUID.randomUUID()
+            val kept = Tag(name = "work", color = "#111111")
+            val dropped = Tag(name = "scratch")
+            dao.insert(kept)
+            dao.insert(dropped)
+            dao.recordingTags += RecordingTag(recordingId, kept.id)
+            dao.recordingTags += RecordingTag(recordingId, dropped.id)
+            dao.profileDefaultTags += ProfileDefaultTag(profileId, kept.id)
+
+            // Cross-device restore: the backup's "work" tag has a DIFFERENT id.
+            val incoming = Tag(name = "work", color = "#999999")
+            dao.replaceAllTags(listOf(incoming))
+
+            assertEquals(listOf(RecordingTag(recordingId, incoming.id)), dao.recordingTags)
+            assertEquals(listOf(ProfileDefaultTag(profileId, incoming.id)), dao.profileDefaultTags)
+        }
+
+    @Test
+    fun `tag replace drops assignments only for tags absent from the backup`() =
+        runTest {
+            val dao = FakeTagDao()
+            val recordingId = UUID.randomUUID()
+            val removed = Tag(name = "gone")
+            dao.insert(removed)
+            dao.recordingTags += RecordingTag(recordingId, removed.id)
+
+            dao.replaceAllTags(listOf(Tag(name = "unrelated")))
+
+            assertTrue(dao.recordingTags.isEmpty())
         }
 
     // endregion
@@ -210,6 +252,32 @@ class BackupRestoreDaoSemanticsTest {
         }
 
     @Test
+    fun `profile replace keeps recording assignments for profiles kept by name`() =
+        runTest {
+            // The profiles delete SET-NULLs every recordings.profileId, even for profiles
+            // the backup re-creates; assignments must be snapshotted and re-bound by name.
+            val dao = FakeProfileDao()
+            val kept = Profile(name = "Meetings")
+            val dropped = Profile(name = "Scratch")
+            dao.insert(kept)
+            dao.insert(dropped)
+            val keptRecording = UUID.randomUUID()
+            val droppedRecording = UUID.randomUUID()
+            val neverAssigned = UUID.randomUUID()
+            dao.recordings[keptRecording] = kept.id
+            dao.recordings[droppedRecording] = dropped.id
+            dao.recordings[neverAssigned] = null
+
+            // Cross-device restore: the backup's "Meetings" profile has a DIFFERENT id.
+            val incoming = ProfileBackupEntry(Profile(name = "Meetings"), emptyList())
+            dao.replaceAllProfiles(listOf(incoming))
+
+            assertEquals(incoming.profile.id, dao.recordings[keptRecording])
+            assertNull(dao.recordings[droppedRecording])
+            assertNull(dao.recordings[neverAssigned])
+        }
+
+    @Test
     fun `profile merge keeps backup id for new profiles unless it collides`() =
         runTest {
             val dao = FakeProfileDao()
@@ -237,6 +305,8 @@ class BackupRestoreDaoSemanticsTest {
 
 private class FakeTagDao : TagDao {
     val tags = mutableListOf<Tag>()
+    val recordingTags = mutableListOf<RecordingTag>()
+    val profileDefaultTags = mutableListOf<ProfileDefaultTag>()
 
     override suspend fun insert(tag: Tag) {
         check(tags.none { it.id == tag.id }) { "PK collision" }
@@ -258,7 +328,29 @@ private class FakeTagDao : TagDao {
 
     override suspend fun getTagByName(name: String): Tag? = tags.firstOrNull { it.name == name }
 
-    override suspend fun deleteAllTags() = tags.clear()
+    override suspend fun deleteAllTags() {
+        // Schema emulation: tagId FKs in both junction tables are onDelete = CASCADE.
+        tags.clear()
+        recordingTags.clear()
+        profileDefaultTags.clear()
+    }
+
+    override suspend fun getRecordingTagLinksByName(): List<RecordingTagNameLink> =
+        recordingTags.mapNotNull { link ->
+            tags.firstOrNull { it.id == link.tagId }?.let { RecordingTagNameLink(link.recordingId, it.name) }
+        }
+
+    override suspend fun getProfileDefaultTagLinksByName(): List<ProfileDefaultTagNameLink> =
+        profileDefaultTags.mapNotNull { link ->
+            tags.firstOrNull { it.id == link.tagId }?.let { ProfileDefaultTagNameLink(link.profileId, it.name) }
+        }
+
+    override suspend fun insertProfileDefaultTagLinks(links: List<ProfileDefaultTag>) {
+        // @Insert(IGNORE) semantics on the (profileId, tagId) primary key.
+        links.forEach { link ->
+            if (profileDefaultTags.none { it == link }) profileDefaultTags += link
+        }
+    }
 
     override fun getAllTags(): Flow<List<Tag>> = unused()
 
@@ -282,7 +374,12 @@ private class FakeTagDao : TagDao {
 
     override suspend fun addTagToRecording(recordingTag: RecordingTag) = unused()
 
-    override suspend fun addTagsToRecording(tags: List<RecordingTag>) = unused()
+    override suspend fun addTagsToRecording(tags: List<RecordingTag>) {
+        // @Insert(IGNORE) semantics on the (recordingId, tagId) primary key.
+        tags.forEach { link ->
+            if (recordingTags.none { it == link }) recordingTags += link
+        }
+    }
 
     override suspend fun removeTagFromRecording(recordingTag: RecordingTag) = unused()
 
@@ -351,6 +448,9 @@ private class FakeProfileDao : ProfileDao {
     val defaultTags = mutableMapOf<UUID, MutableList<UUID>>()
     val existingTagIds = mutableSetOf<UUID>()
 
+    /** recordings.id → recordings.profileId (the only column the DAO touches). */
+    val recordings = mutableMapOf<UUID, UUID?>()
+
     override suspend fun insert(profile: Profile) {
         check(profiles.none { it.id == profile.id }) { "PK collision" }
         profiles += profile
@@ -370,8 +470,25 @@ private class FakeProfileDao : ProfileDao {
     override suspend fun getMaxSortOrder(): Int? = profiles.maxOfOrNull(Profile::sortOrder)
 
     override suspend fun deleteAllProfiles() {
+        // Schema emulation: recordings.profileId is onDelete = SET_NULL,
+        // profile_default_tags.profileId is onDelete = CASCADE.
         profiles.clear()
         defaultTags.clear()
+        recordings.keys.forEach { recordings[it] = null }
+    }
+
+    override suspend fun getRecordingProfileLinksByName(): List<RecordingProfileNameLink> =
+        recordings.entries.mapNotNull { (recordingId, profileId) ->
+            profiles
+                .firstOrNull { it.id == profileId }
+                ?.let { RecordingProfileNameLink(recordingId, it.name) }
+        }
+
+    override suspend fun assignRecordingsToProfile(
+        profileId: UUID,
+        recordingIds: List<UUID>,
+    ) {
+        recordingIds.forEach { recordings[it] = profileId }
     }
 
     override suspend fun getExistingTagIds(ids: List<UUID>): List<UUID> = ids.filter(existingTagIds::contains)

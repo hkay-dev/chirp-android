@@ -121,6 +121,8 @@
         <item quantity="other">%d keys restored</item>
     </plurals>
     <string name="backup_result_section_failed">Failed — existing data was left unchanged</string>
+    <!-- Settings restore is applied one preference at a time, so a failure can leave some of them applied. -->
+    <string name="backup_result_settings_failed">Failed — some settings may have been applied</string>
     <string name="backup_result_keys_rejected">Wrong passphrase or damaged data — keys were not changed</string>
     <string name="backup_result_done">Done</string>
     <string name="backup_passphrase_export_title">Protect Your API Keys</string>

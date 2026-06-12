@@ -252,6 +252,39 @@ class ProcessingModeRepository
             }
         }
 
+        /**
+         * Applies a backup's presets ATOMICALLY: the final custom-preset list and override
+         * map are planned in memory ([planProcessingPresetBackup]) and committed in ONE
+         * DataStore edit. Backup restore must use this instead of looping the public
+         * single-preset setters — each of those is its own commit, so a failure or
+         * cancellation between commits would leave presets half-restored (e.g. customs
+         * deleted but not re-inserted), violating the import UI's "existing data was left
+         * unchanged" failure contract. Throws (and commits nothing) on invalid items.
+         */
+        suspend fun applyBackupPresets(
+            items: List<ProcessingPresetBackupItem>,
+            replaceExisting: Boolean,
+        ): ProcessingPresetBackupResult {
+            var result: ProcessingPresetBackupResult? = null
+            context.dataStore.edit { preferences ->
+                val plan =
+                    planProcessingPresetBackup(
+                        existingCustomPresets = readCustomPresets(preferences),
+                        existingOverrides = readOverrides(preferences),
+                        currentModeId = preferences[KEY_MODE_ID] ?: ProcessingModeDefaults.DEFAULT_MODE_ID,
+                        items = items,
+                        replaceExisting = replaceExisting,
+                    )
+                preferences[KEY_CUSTOM_PRESETS] = ProcessingModeStoreCodec.encodePresets(plan.customPresets)
+                preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(plan.overrides)
+                if (plan.resetModeToDefault) {
+                    preferences[KEY_MODE_ID] = ProcessingModeDefaults.DEFAULT_MODE_ID
+                }
+                result = plan.result
+            }
+            return requireNotNull(result) { "DataStore edit completed without running the transform" }
+        }
+
         private fun buildMode(
             modeId: String,
             preferences: Preferences,

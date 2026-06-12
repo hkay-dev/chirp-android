@@ -197,6 +197,16 @@ class RecordViewModel
         private var noteRecordingId: UUID? = null
         private var noteFlushJob: Job? = null
 
+        /**
+         * True while the draft holds a user edit that has not been confirmed on the recording
+         * row. Set on every [updateNoteDraft], cleared only after a persist succeeds with the
+         * draft unchanged (or when the draft is explicitly discarded/flushed detached). This is
+         * deliberately NOT derived from [noteFlushJob]'s liveness: androidx cancels
+         * [viewModelScope] (and the pending flush with it) BEFORE [onCleared] runs, so job
+         * liveness is always false by the time the rescue path needs the answer.
+         */
+        private var noteDraftDirty = false
+
         init {
             viewModelScope.launch {
                 try {
@@ -386,6 +396,7 @@ class RecordViewModel
             setNoteDraftState(text)
             val recordingId = recordingState.value.activeRecordingId ?: return
             noteRecordingId = recordingId
+            noteDraftDirty = true
             noteFlushJob?.cancel()
             noteFlushJob =
                 viewModelScope.launch {
@@ -428,6 +439,7 @@ class RecordViewModel
         private fun discardNoteDraft() {
             noteFlushJob?.cancel()
             noteRecordingId = null
+            noteDraftDirty = false
             setNoteDraftState("")
         }
 
@@ -445,12 +457,16 @@ class RecordViewModel
          * Persists the draft unless it is blank with no edit pending. The blank+untouched case
          * is skipped both to avoid a pointless write on every stop and because a blank draft
          * that merely has not HYDRATED yet (stop racing [initializeNoteForRecording]) must never
-         * wipe a note already on the row. A blank draft from an actual user clear always has a
-         * pending debounced flush, so the clear still persists.
+         * wipe a note already on the row. A blank draft from an actual user clear leaves
+         * [noteDraftDirty] set until the clear is confirmed persisted, so the clear still lands.
+         * The dirty flag is reset here because the detached persist is NonCancellable — it
+         * completes even if the ViewModel is cleared right after — and a stale flag must not
+         * let a later [onCleared] wipe a not-yet-hydrated row with a blank draft.
          */
         private fun flushNoteDraftIfMeaningful(recordingId: UUID) {
-            val hasPendingEdit = noteFlushJob?.isActive == true
+            val hasPendingEdit = noteDraftDirty
             noteFlushJob?.cancel()
+            noteDraftDirty = false
             val draft = _noteDraft.value
             if (draft.isNotBlank() || hasPendingEdit) {
                 persistNoteDetached(recordingId, draft)
@@ -476,6 +492,11 @@ class RecordViewModel
         ) {
             try {
                 recordingRepository.updateNotes(recordingId, draft)
+                // Only confirm the exact draft that was written; an edit made while the write
+                // was in flight must keep the dirty flag for the next flush/rescue.
+                if (_noteDraft.value == draft) {
+                    noteDraftDirty = false
+                }
             } catch (e: SQLiteException) {
                 // ERR-18-style guard: a full disk or a row deleted mid-write must not crash
                 // the bare launch; surface it like the tag failures.
@@ -485,12 +506,14 @@ class RecordViewModel
         }
 
         override fun onCleared() {
-            // Browse Home (or any navigation) inside the debounce window: the pending flush
-            // would be cancelled with the scope, so run it detached instead. When no flush is
-            // pending the row already holds the latest draft.
+            // Browse Home (or any navigation) inside the debounce window: androidx cancels
+            // viewModelScope — killing the pending debounced flush — BEFORE this runs, so the
+            // flush job can never be observed alive here. The dirty flag is the durable record
+            // of an unconfirmed edit; persist it detached ([persistNoteDetached] parents the
+            // write to NonCancellable, not the dead scope, so it still executes).
             val recordingId = noteRecordingId
-            if (recordingId != null && noteFlushJob?.isActive == true) {
-                noteFlushJob?.cancel()
+            if (recordingId != null && noteDraftDirty) {
+                noteDraftDirty = false
                 persistNoteDetached(recordingId, _noteDraft.value)
             }
             super.onCleared()

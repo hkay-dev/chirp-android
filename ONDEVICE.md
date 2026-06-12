@@ -161,3 +161,31 @@ R8 minification + Gson keep rules + arm64-only native libs all shipped tonight. 
 - **Rollback point:** git tag `pre-overnight-audit` is the pre-ultra-fix state (`git diff pre-overnight-audit -- <path>` to inspect, or check out the tag to rebuild the old APK).
 - **Each wave is a separate commit** — `git log --oneline pre-overnight-audit..HEAD` and revert just the offending wave instead of the whole night.
 - Don't hot-fix from the phone: note the failing item + exact repro here, fix in the repo, rebuild, re-run only the affected section.
+
+---
+## Added 2026-06-12 PM — notes / input devices / backup (Waves A+B)
+
+### Visual re-check (2 min)
+- [ ] Launcher + splash + About show the real waveform-bird icon (not the purple parakeet); app name reads "Chirp"
+- [ ] Home: three stat pills share one baseline; row titles larger/semibold; divider under the pills; AI Processing has no NEW badge
+
+### Notes journey (5 min)
+- [ ] Record → "Add note" pill → type while recording → rotate (draft survives) → Browse Home → re-enter via live row (draft restored) → Done → Studio shows Note card (collapsed, first line) → edit + save → Home row shows note glyph
+- [ ] Type a note then IMMEDIATELY Browse Home (<1s): note must still persist (the fixed onCleared rescue)
+- [ ] Discard a recording with a typed note: note gone, no glyph
+- [ ] `./gradlew :data:connectedDebugAndroidTest` — migrate10To11 + full 1→11 chain
+
+### Input devices (needs earbuds + USB mic, ~10 min)
+- [ ] Record screen mic chip → sheet lists built-in + earbuds (+ USB when plugged); "Show Bluetooth device names" grants BLUETOOTH_CONNECT; names appear; selection CHECKMARK SURVIVES the grant (the fixed key-matching)
+- [ ] Manual-select earbuds → record → logcat shows effective route = BT; repeat for USB
+- [ ] Automatic: with USB + BT both present, USB wins; unplug USB → BT; disconnect BT → built-in
+- [ ] Preferred device absent at start → records on fallback + transient notice naming what was used
+- [ ] Mid-recording BT disconnect → stop-with-save, reason names the device
+- [ ] Keyboard panel + voice-typing dialog show the compact device chip; switching applies on next dictation
+- [ ] Silence hint names the active device
+
+### Backup & Restore (5 min)
+- [ ] Export all sections (incl. API keys w/ passphrase) → file created; open JSON: no plaintext key material
+- [ ] Re-import with MERGE → counts unchanged, nothing duplicated
+- [ ] REPLACE restore: recording-tag assignments and profile links on existing recordings SURVIVE for re-created same-name items (the fixed diff-aware replace)
+- [ ] Import a corrupted file → clean rejection, nothing changed

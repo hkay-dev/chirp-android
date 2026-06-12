@@ -10,8 +10,9 @@ import dev.chirpboard.app.data.entity.WordReplacement
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
-import dev.chirpboard.app.feature.llm.model.ProcessingPromptPreset
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
+import dev.chirpboard.app.feature.llm.repository.ProcessingPresetBackupItem
+import dev.chirpboard.app.feature.llm.repository.ProcessingPresetBackupResult
 import dev.chirpboard.app.feature.llm.settings.LlmApiKeyBackupManager
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import io.mockk.coEvery
@@ -21,7 +22,6 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkStatic
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -137,8 +137,8 @@ class ChirpBackupManagerTest {
 
             // Custom preset "Standup" exists on the source device as user_old; this device
             // has no custom presets, so it is inserted and receives user_new.
-            every { processingModeRepository.promptPresets } returns flowOf(emptyList())
-            coEvery { processingModeRepository.addCustomPreset("Standup", "prompt") } returns "user_new"
+            coEvery { processingModeRepository.applyBackupPresets(any(), replaceExisting = false) } returns
+                ProcessingPresetBackupResult(inserted = 1, updated = 0, idRemap = mapOf("user_old" to "user_new"))
 
             val profile = Profile(name = "Meetings", defaultProcessingMode = "user_old")
             val entriesSlot = slot<List<ProfileBackupEntry>>()
@@ -166,8 +166,8 @@ class ChirpBackupManagerTest {
     @Test
     fun `preset remap also reaches the settings section`() =
         runTest {
-            every { processingModeRepository.promptPresets } returns flowOf(emptyList())
-            coEvery { processingModeRepository.addCustomPreset("Standup", "prompt") } returns "user_new"
+            coEvery { processingModeRepository.applyBackupPresets(any(), replaceExisting = false) } returns
+                ProcessingPresetBackupResult(inserted = 1, updated = 0, idRemap = mapOf("user_old" to "user_new"))
 
             val settings = BackupSettingsPayload(keyboardProcessingMode = "user_old")
             val remapSlot = slot<Map<String, String>>()
@@ -189,20 +189,16 @@ class ChirpBackupManagerTest {
         }
 
     @Test
-    fun `merge updates an existing custom preset matched by name`() =
+    fun `merge dispatches presets as one atomic apply with replaceExisting false`() =
         runTest {
-            val existing =
-                ProcessingPromptPreset(
-                    id = "user_local",
-                    name = "Standup",
-                    prompt = "old prompt",
-                    originalPrompt = "old prompt",
-                    isBuiltIn = false,
-                    isModified = false,
-                    canEditPrompt = true,
-                )
-            every { processingModeRepository.promptPresets } returns flowOf(listOf(existing))
-            coEvery { processingModeRepository.updatePresetPrompt("user_local", "new prompt") } returns Unit
+            // The by-name/built-in matching semantics live in planProcessingPresetBackup
+            // (tested in feature-llm); the manager's contract is a SINGLE atomic repository
+            // call so a mid-restore failure can never leave presets half-applied.
+            val itemsSlot = slot<List<ProcessingPresetBackupItem>>()
+            coEvery {
+                processingModeRepository.applyBackupPresets(capture(itemsSlot), replaceExisting = false)
+            } returns
+                ProcessingPresetBackupResult(inserted = 0, updated = 1, idRemap = mapOf("user_src" to "user_local"))
 
             val summary =
                 manager().applyImport(
@@ -217,51 +213,54 @@ class ChirpBackupManagerTest {
                 )
 
             assertEquals(1, summary.results.single().updated)
-            coVerify(exactly = 1) { processingModeRepository.updatePresetPrompt("user_local", "new prompt") }
+            assertEquals(
+                listOf(ProcessingPresetBackupItem(id = "user_src", name = "Standup", prompt = "new prompt", builtIn = false)),
+                itemsSlot.captured,
+            )
+            coVerify(exactly = 1) { processingModeRepository.applyBackupPresets(any(), replaceExisting = false) }
         }
 
     @Test
-    fun `replace clears custom presets and modified built-ins before applying`() =
+    fun `replace dispatches presets as one atomic apply with replaceExisting true`() =
         runTest {
-            val custom =
-                ProcessingPromptPreset(
-                    id = "user_gone",
-                    name = "Old Custom",
-                    prompt = "x",
-                    originalPrompt = "x",
-                    isBuiltIn = false,
-                    isModified = false,
-                    canEditPrompt = true,
-                )
-            val modifiedBuiltIn =
-                ProcessingPromptPreset(
-                    id = "email",
-                    name = "Email",
-                    prompt = "tweaked",
-                    originalPrompt = "default",
-                    isBuiltIn = true,
-                    isModified = true,
-                    canEditPrompt = true,
-                )
-            every { processingModeRepository.promptPresets } returns flowOf(listOf(custom, modifiedBuiltIn))
-            coEvery { processingModeRepository.deleteCustomPreset("user_gone") } returns Unit
-            coEvery { processingModeRepository.resetPresetPrompt("email") } returns Unit
-            coEvery { processingModeRepository.addCustomPreset("Imported", "p") } returns "user_new"
+            coEvery { processingModeRepository.applyBackupPresets(any(), replaceExisting = true) } returns
+                ProcessingPresetBackupResult(inserted = 1, updated = 0, idRemap = mapOf("user_i" to "user_new"))
 
-            manager().applyImport(
-                contents =
-                    contents(
-                        processingPresets =
-                            listOf(BackupPresetItem(id = "user_i", name = "Imported", prompt = "p", builtIn = false)),
-                    ),
-                sections = setOf(BackupSection.PROCESSING_PRESETS),
-                mode = BackupImportMode.REPLACE,
-                passphrase = null,
-            )
+            val summary =
+                manager().applyImport(
+                    contents =
+                        contents(
+                            processingPresets =
+                                listOf(BackupPresetItem(id = "user_i", name = "Imported", prompt = "p", builtIn = false)),
+                        ),
+                    sections = setOf(BackupSection.PROCESSING_PRESETS),
+                    mode = BackupImportMode.REPLACE,
+                    passphrase = null,
+                )
 
-            coVerify(exactly = 1) { processingModeRepository.deleteCustomPreset("user_gone") }
-            coVerify(exactly = 1) { processingModeRepository.resetPresetPrompt("email") }
-            coVerify(exactly = 1) { processingModeRepository.addCustomPreset("Imported", "p") }
+            assertEquals(1, summary.results.single().inserted)
+            coVerify(exactly = 1) { processingModeRepository.applyBackupPresets(any(), replaceExisting = true) }
+        }
+
+    @Test
+    fun `a failing presets apply reports FAILED without leaking the exception`() =
+        runTest {
+            coEvery { processingModeRepository.applyBackupPresets(any(), any()) } throws
+                IllegalArgumentException("Prompt cannot be empty")
+
+            val summary =
+                manager().applyImport(
+                    contents =
+                        contents(
+                            processingPresets =
+                                listOf(BackupPresetItem(id = "user_i", name = "Imported", prompt = " ", builtIn = false)),
+                        ),
+                    sections = setOf(BackupSection.PROCESSING_PRESETS),
+                    mode = BackupImportMode.REPLACE,
+                    passphrase = null,
+                )
+
+            assertEquals(ChirpBackupManager.SectionFailure.FAILED, summary.results.single().failure)
         }
 
     @Test

@@ -64,12 +64,13 @@ data class InputDevicePickerUiState(
     /** True while a capture is live on this surface — selection applies to the NEXT start. */
     val sessionLive: Boolean = false,
 ) {
-    /** The connected device matching the manual preference, if any. */
+    /**
+     * The connected device matching the manual preference, if any. Resolved through the
+     * grant/revoke-tolerant finder so a selection persisted before a BLUETOOTH_CONNECT
+     * change still resolves (exact key matches always win).
+     */
     val manualDevice: AudioInputDeviceSummary?
-        get() =
-            devices.firstOrNull {
-                AudioInputDeviceSelector.summaryMatchesSelectionKey(it, manualKey)
-            }
+        get() = AudioInputDeviceSelector.findDeviceForSelectionKey(devices, manualKey)
 
     /** Whether a manual preference exists but its device is not currently connected. */
     val manualDeviceMissing: Boolean
@@ -352,8 +353,9 @@ fun isDeviceSelected(
     device: AudioInputDeviceSummary,
 ): Boolean =
     when (state.policy) {
-        AudioInputDevicePolicy.Manual ->
-            AudioInputDeviceSelector.summaryMatchesSelectionKey(device, state.manualKey)
+        // Resolved against the whole list (not per-row key matching) so the relaxed
+        // Bluetooth fallback can never check more than one row.
+        AudioInputDevicePolicy.Manual -> state.manualDevice?.id == device.id
         AudioInputDevicePolicy.PreferBuiltIn -> device.kind == AudioInputDeviceKind.BuiltIn
         AudioInputDevicePolicy.Automatic -> false
     }

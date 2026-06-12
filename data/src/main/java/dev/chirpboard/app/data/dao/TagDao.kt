@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import dev.chirpboard.app.data.entity.ProfileDefaultTag
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.Tag
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,18 @@ data class RecordingTagRow(
     val id: UUID,
     val name: String,
     val color: String?,
+)
+
+/** A recording→tag assignment keyed by the tag's NAME, for re-linking across a REPLACE restore. */
+data class RecordingTagNameLink(
+    val recordingId: UUID,
+    val tagName: String,
+)
+
+/** A profile→default-tag link keyed by the tag's NAME, for re-linking across a REPLACE restore. */
+data class ProfileDefaultTagNameLink(
+    val profileId: UUID,
+    val tagName: String,
 )
 
 @Dao
@@ -57,15 +70,56 @@ interface TagDao {
     @Query("DELETE FROM tags")
     suspend fun deleteAllTags()
 
+    @Query(
+        """
+        SELECT rt.recordingId AS recordingId, t.name AS tagName
+        FROM recording_tags rt
+        INNER JOIN tags t ON t.id = rt.tagId
+    """,
+    )
+    suspend fun getRecordingTagLinksByName(): List<RecordingTagNameLink>
+
+    @Query(
+        """
+        SELECT pdt.profileId AS profileId, t.name AS tagName
+        FROM profile_default_tags pdt
+        INNER JOIN tags t ON t.id = pdt.tagId
+    """,
+    )
+    suspend fun getProfileDefaultTagLinksByName(): List<ProfileDefaultTagNameLink>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertProfileDefaultTagLinks(links: List<ProfileDefaultTag>)
+
     /**
      * Backup restore, REPLACE semantics: clears every tag, then inserts the backup's tags.
-     * Deleting a tag cascades its recording_tags and profile_default_tags rows, so assignments
-     * to tags that are not re-created are dropped by design (documented in the import UI).
+     * Deleting a tag cascades its recording_tags and profile_default_tags rows — including
+     * for tags the backup re-creates — so existing assignments are snapshotted by tag NAME
+     * (the same natural key the MERGE path uses) before the delete and re-linked to the
+     * inserted tags afterwards, all inside the one transaction. Only assignments to tags
+     * that are NOT in the backup are dropped, exactly what the import UI promises.
      */
     @Transaction
     suspend fun replaceAllTags(tags: List<Tag>): BackupUpsertCounts {
+        val recordingLinks = getRecordingTagLinksByName()
+        val profileLinks = getProfileDefaultTagLinksByName()
         deleteAllTags()
         insertTags(tags)
+        val tagIdsByName = tags.associateBy(Tag::name, Tag::id)
+        val keptRecordingLinks =
+            recordingLinks.mapNotNull { link ->
+                tagIdsByName[link.tagName]?.let { tagId -> RecordingTag(link.recordingId, tagId) }
+            }
+        if (keptRecordingLinks.isNotEmpty()) {
+            addTagsToRecording(keptRecordingLinks)
+        }
+        val keptProfileLinks =
+            profileLinks.mapNotNull { link ->
+                tagIdsByName[link.tagName]?.let { tagId -> ProfileDefaultTag(link.profileId, tagId) }
+            }
+        if (keptProfileLinks.isNotEmpty()) {
+            insertProfileDefaultTagLinks(keptProfileLinks)
+        }
         return BackupUpsertCounts(inserted = tags.size, updated = 0)
     }
 

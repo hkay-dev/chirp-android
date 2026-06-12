@@ -129,9 +129,15 @@ fun AudioSettingsScreen(
             item(key = "manual_input_devices") {
                 PushDownReveal(visible = inputDevicePolicy == AudioInputDevicePolicy.Manual) {
                     Column(modifier = Modifier.animatePushDownLayout()) {
+                        // Resolved once against the whole list so the grant/revoke-tolerant
+                        // Bluetooth fallback checks at most one row (exact matches win).
+                        val selectedDevice =
+                            AudioInputDeviceSelector.findDeviceForSelectionKey(
+                                availableInputDevices,
+                                manualDeviceKey,
+                            )
                         availableInputDevices.forEach { device ->
-                            val selected =
-                                AudioInputDeviceSelector.summaryMatchesSelectionKey(device, manualDeviceKey)
+                            val selected = device.id == selectedDevice?.id
                             ListItem(
                                 modifier =
                                     Modifier
