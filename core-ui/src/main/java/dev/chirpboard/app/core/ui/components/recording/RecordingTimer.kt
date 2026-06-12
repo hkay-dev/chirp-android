@@ -36,6 +36,18 @@ private const val SECONDS_PER_MINUTE = 60L
  */
 internal fun snapToSecond(elapsedMs: Long): Long = elapsedMs - (elapsedMs % MILLIS_PER_SECOND)
 
+/**
+ * Whole minutes and leftover seconds for the spoken (TalkBack) duration, e.g. 72_000 ms ->
+ * (1, 12) -> "1 minute 12 seconds". Pure so the boundary math is JVM-testable.
+ */
+internal fun accessibleDurationParts(elapsedMs: Long): Pair<Int, Int> {
+    val totalSeconds = elapsedMs / MILLIS_PER_SECOND
+    return Pair(
+        (totalSeconds / SECONDS_PER_MINUTE).toInt(),
+        (totalSeconds % SECONDS_PER_MINUTE).toInt(),
+    )
+}
+
 @Composable
 fun RecordingTimer(
     recordingState: RecordingState,
@@ -114,9 +126,7 @@ fun RecordingTimer(
 /** Human-readable elapsed time for screen readers ("5 seconds", "1 minute 12 seconds"). */
 @Composable
 private fun accessibleDurationText(elapsedMs: Long): String {
-    val totalSeconds = elapsedMs / MILLIS_PER_SECOND
-    val minutes = (totalSeconds / SECONDS_PER_MINUTE).toInt()
-    val seconds = (totalSeconds % SECONDS_PER_MINUTE).toInt()
+    val (minutes, seconds) = accessibleDurationParts(elapsedMs)
     val secondsText = pluralStringResource(R.plurals.rec_duration_seconds, seconds, seconds)
     if (minutes == 0) {
         return secondsText

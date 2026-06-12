@@ -89,6 +89,22 @@ class RecordingStateManager @Inject constructor() {
     @VisibleForTesting
     internal var stoppingTimeoutMsOverrideForTest: Long? = null
 
+    /**
+     * Test-only scope override so the stopping-timeout coroutine runs under a test
+     * scheduler (virtual time) instead of the real Default dispatcher (TST-012).
+     */
+    @VisibleForTesting
+    internal var timeoutScopeOverrideForTest: CoroutineScope? = null
+
+    /**
+     * Test-only clock override so duration accumulation and the amplitude throttle are
+     * deterministic in unit tests (TST-012). Production always reads the real clock.
+     */
+    @VisibleForTesting
+    internal var nowMsOverrideForTest: (() -> Long)? = null
+
+    private fun nowMs(): Long = nowMsOverrideForTest?.invoke() ?: System.currentTimeMillis()
+
     companion object {
         private const val TAG = "RecordingStateManager"
         private const val AMPLITUDE_HISTORY_SIZE = 150
@@ -168,6 +184,7 @@ class RecordingStateManager @Inject constructor() {
                     RecordingState.Recording(
                         origin = current.origin,
                         profileId = current.profileId,
+                        startTimeMs = nowMs(),
                         audioFilePath = audioFilePath,
                         recordingId = recordingId ?: current.recordingId,
                     )
@@ -191,7 +208,7 @@ class RecordingStateManager @Inject constructor() {
                 Log.w(TAG, "pauseRecording called in wrong state: ${current::class.simpleName}")
                 break
             }
-            val elapsedThisSegment = System.currentTimeMillis() - current.startTimeMs
+            val elapsedThisSegment = nowMs() - current.startTimeMs
             val totalAccumulated = accumulatedSegmentMs.get() + elapsedThisSegment
             val nextState = RecordingState.Paused(
                 origin = current.origin,
@@ -220,7 +237,7 @@ class RecordingStateManager @Inject constructor() {
                     RecordingState.Recording(
                         origin = current.origin,
                         profileId = current.profileId,
-                        startTimeMs = System.currentTimeMillis(),
+                        startTimeMs = nowMs(),
                         audioFilePath = newAudioFilePath ?: current.audioFilePath,
                         recordingId = current.recordingId,
                     )
@@ -318,7 +335,7 @@ class RecordingStateManager @Inject constructor() {
         val timeoutMs = stoppingTimeoutMsOverrideForTest ?: computeStoppingTimeoutMs(fileSizeBytes)
         timeoutJob?.cancel()
         timeoutJob =
-            scope.launch {
+            (timeoutScopeOverrideForTest ?: scope).launch {
                 delay(timeoutMs)
                 val stoppingState = _state.value
                 if (stoppingState !is RecordingState.Stopping) {
@@ -508,13 +525,13 @@ class RecordingStateManager @Inject constructor() {
                 Log.w(TAG, "rotateSegment called in wrong state: ${current::class.simpleName}")
                 break
             }
-            val elapsedThisSegment = System.currentTimeMillis() - current.startTimeMs
+            val elapsedThisSegment = nowMs() - current.startTimeMs
             val totalAccumulated = accumulatedSegmentMs.get() + elapsedThisSegment
             val nextState =
                 RecordingState.Recording(
                     origin = current.origin,
                     profileId = current.profileId,
-                    startTimeMs = System.currentTimeMillis(),
+                    startTimeMs = nowMs(),
                     audioFilePath = newAudioFilePath,
                     recordingId = current.recordingId,
                 )
@@ -533,7 +550,7 @@ class RecordingStateManager @Inject constructor() {
      * @param amplitude Normalized amplitude value (0-1)
      */
     fun updateAmplitude(amplitude: Float) {
-        val now = System.currentTimeMillis()
+        val now = nowMs()
         if (now - lastAmplitudeEmitMs < AMPLITUDE_THROTTLE_MS) {
             return
         }
@@ -570,7 +587,7 @@ class RecordingStateManager @Inject constructor() {
     fun getCurrentDurationMs(): Long {
         return when (val currentState = _state.value) {
             is RecordingState.Recording -> {
-                accumulatedSegmentMs.get() + (System.currentTimeMillis() - currentState.startTimeMs)
+                accumulatedSegmentMs.get() + (nowMs() - currentState.startTimeMs)
             }
             is RecordingState.Paused -> {
                 currentState.accumulatedMs

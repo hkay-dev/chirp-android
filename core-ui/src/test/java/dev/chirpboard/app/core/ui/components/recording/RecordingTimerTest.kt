@@ -29,4 +29,16 @@ class RecordingTimerTest {
         assertEquals(60_000L, snapToSecond(60_950L))
         assertEquals(61_000L, snapToSecond(61_000L))
     }
+
+    @Test
+    fun accessibleDurationParts_splitsMinutesAndSecondsForTalkBack() {
+        assertEquals(0 to 0, accessibleDurationParts(0L))
+        assertEquals(0 to 5, accessibleDurationParts(5_000L))
+        // Sub-second millis never round a spoken duration up.
+        assertEquals(0 to 59, accessibleDurationParts(59_999L))
+        assertEquals(1 to 0, accessibleDurationParts(60_000L))
+        assertEquals(1 to 12, accessibleDurationParts(72_400L))
+        // Hour-long recordings keep counting minutes (the spoken form has no hours unit).
+        assertEquals(60 to 1, accessibleDurationParts(3_601_000L))
+    }
 }

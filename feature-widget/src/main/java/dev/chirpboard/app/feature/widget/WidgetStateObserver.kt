@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.widget
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
@@ -28,7 +29,9 @@ class WidgetStateObserver @Inject constructor(
     @ApplicationContext private val context: Context,
     private val recordingStateManager: RecordingStateManager
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Test seam (TST-014): replaced with a TestScope so the collection loop is deterministic. */
+    @VisibleForTesting
+    internal var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     fun startObserving() {
         scope.launch {

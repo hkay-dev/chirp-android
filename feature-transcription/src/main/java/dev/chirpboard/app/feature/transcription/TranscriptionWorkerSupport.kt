@@ -4,6 +4,7 @@ import android.app.ForegroundServiceStartNotAllowedException
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.util.Log
@@ -167,6 +168,68 @@ private fun ensureEnhancementProgressChannel(context: Context) {
             setShowBadge(false)
         }
     notificationManager.createNotificationChannel(channel)
+}
+
+private const val TRANSCRIPTION_ERROR_CHANNEL_ID = "transcription_errors"
+private const val TRANSCRIPTION_ERROR_GROUP = "transcription_error_group"
+private const val TRANSCRIPTION_ERROR_SUMMARY_NOTIFICATION_ID = 2003
+
+/**
+ * PIPE-04: terminal-failure notification with a branded small icon, a tap action into
+ * the app, and a group summary so a backlog failing on a shared root cause collapses
+ * into one stack instead of dozens of loose notifications. Posted for every terminal
+ * FAILED path so coverage is consistent; silently no-ops if POST_NOTIFICATIONS was
+ * denied (the recording row still surfaces the FAILED state in-app).
+ *
+ * Top-level (rather than a private worker method) so worker tests can stub the post
+ * through the established mockkStatic harness for this file.
+ */
+internal fun showTranscriptionErrorNotification(
+    context: Context,
+    recordingId: UUID,
+    errorMessage: String,
+) {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    val channelId = TRANSCRIPTION_ERROR_CHANNEL_ID
+    if (notificationManager.getNotificationChannel(channelId) == null) {
+        val channel = NotificationChannel(
+            channelId,
+            context.getString(R.string.transcription_error_channel_name),
+            NotificationManager.IMPORTANCE_DEFAULT,
+        )
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    val contentIntent =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+            PendingIntent.getActivity(
+                context,
+                recordingId.hashCode(),
+                launchIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        }
+
+    val notification = NotificationCompat.Builder(context, channelId)
+        .setSmallIcon(R.drawable.ic_notif_transcription)
+        .setContentTitle(context.getString(R.string.transcription_error_notification_title))
+        .setContentText(errorMessage)
+        .setStyle(NotificationCompat.BigTextStyle().bigText(errorMessage))
+        .setGroup(TRANSCRIPTION_ERROR_GROUP)
+        .setAutoCancel(true)
+        .apply { contentIntent?.let(::setContentIntent) }
+        .build()
+    notificationManager.notify(recordingId.hashCode(), notification)
+
+    val groupSummary = NotificationCompat.Builder(context, channelId)
+        .setSmallIcon(R.drawable.ic_notif_transcription)
+        .setContentTitle(context.getString(R.string.transcription_error_group_summary))
+        .setGroup(TRANSCRIPTION_ERROR_GROUP)
+        .setGroupSummary(true)
+        .setAutoCancel(true)
+        .apply { contentIntent?.let(::setContentIntent) }
+        .build()
+    notificationManager.notify(TRANSCRIPTION_ERROR_SUMMARY_NOTIFICATION_ID, groupSummary)
 }
 
 internal fun buildTranscriptionFailureResult(errorMessage: String): androidx.work.ListenableWorker.Result {

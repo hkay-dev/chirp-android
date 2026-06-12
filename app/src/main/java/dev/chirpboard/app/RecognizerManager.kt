@@ -2,6 +2,7 @@ package dev.chirpboard.app
 
 import android.content.Context
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -194,15 +195,27 @@ object RecognizerManager {
         return decision
     }
 
+    /** Test seam: recency stamps use this clock so idle-window tests can run on virtual time. */
+    @VisibleForTesting
+    internal var clock: () -> Long = System::currentTimeMillis
+
     private fun touch() {
-        lastUsedAtMillis = System.currentTimeMillis()
+        lastUsedAtMillis = clock()
+    }
+
+    /** Test-only: install a (mock) recognizer so JVM tests can exercise residency gating. */
+    @VisibleForTesting
+    internal fun installRecognizerForTest(instance: SherpaRecognizer?) {
+        recognizer = instance
     }
 
     /** Test-only: reset usage bookkeeping so JVM tests are order-independent. */
     internal fun resetUsageStateForTest() {
+        recognizer = null
         lastUsedAtMillis = 0L
         activeLeases.set(0)
         residencyListener = null
+        clock = System::currentTimeMillis
     }
 }
 

@@ -5,6 +5,7 @@ import android.util.Log
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -39,6 +40,7 @@ class RecordingPlaybackControllerTest {
         mockkStatic(Log::class)
         every { Log.d(any(), any<String>()) } returns 0
         every { Log.w(any(), any<String>()) } returns 0
+        every { Log.w(any(), any<String>(), any()) } returns 0
         every { Log.e(any(), any<String>()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -176,6 +178,51 @@ class RecordingPlaybackControllerTest {
         controller.stop()
 
         assertEquals(2.0f, controller.state.value.playbackSpeed)
+    }
+
+    @Test
+    fun play_refusalWhileRecording_preservesSelectedPlaybackSpeed() {
+        val context = testContext()
+        every { context.getString(R.string.playback_blocked_while_recording) } returns BLOCKED_MESSAGE
+        val controller = controller(context)
+        controller.setPlaybackSpeed(1.5f)
+        recordingStateManager.tryStartRecording(RecordingOrigin.APP)
+
+        controller.play(UUID.randomUUID(), "Clip", "/does/not/exist.m4a")
+
+        val state = controller.state.value
+        assertEquals(BLOCKED_MESSAGE, state.errorMessage)
+        assertEquals(1.5f, state.playbackSpeed)
+    }
+
+    @Test
+    fun togglePlayPause_whileRecordingIsActive_staysRefused() {
+        val context = testContext()
+        every { context.getString(R.string.playback_blocked_while_recording) } returns BLOCKED_MESSAGE
+        val controller = controller(context)
+        val recordingId = UUID.randomUUID()
+        val audioFile = temporaryFolder.newFile("toggle.m4a")
+        recordingStateManager.tryStartRecording(RecordingOrigin.APP)
+        controller.play(recordingId, "Clip", audioFile.absolutePath)
+
+        // The user taps play/pause again while the recorder still owns the mic: the
+        // toggle re-routes through play() and must hit the same gate, never the session.
+        controller.togglePlayPause()
+
+        val state = controller.state.value
+        assertEquals(BLOCKED_MESSAGE, state.errorMessage)
+        assertFalse(state.isPlaying)
+        verify(exactly = 0) { context.startForegroundService(any()) }
+    }
+
+    @Test
+    fun setPlaybackSpeed_persistenceFailure_stillAppliesTheSpeed() {
+        coEvery { audioSettingsStore.setPlaybackSpeed(any()) } throws RuntimeException("datastore offline")
+        val controller = controller(testContext())
+
+        controller.setPlaybackSpeed(1.5f)
+
+        assertEquals(1.5f, controller.state.value.playbackSpeed)
     }
 
     private fun controller(context: Context): RecordingPlaybackController =

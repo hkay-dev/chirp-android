@@ -1,11 +1,13 @@
 package dev.chirpboard.app.feature.recording.service
 
 import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Process
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.WavFileWriter
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -327,6 +329,75 @@ class GaplessWavSegmentCaptureTest {
             // 1000 / 32767 * 2 = ~0.061: well below the soft-limit knee, so exactly doubled
             // (within one LSB of the float round-trip).
             assertTrue("firstSample=$firstSample", firstSample in 1_999..2_001)
+        }
+
+    @Test
+    fun captureSoftLimitsLoudBoostedPeaks_insteadOfClippingOrWrapping() =
+        runTest {
+            // 30,000 * 2 = 60,000 — far past PCM16 full scale. Without the soft limiter
+            // this either hard-clips (audible distortion) or wraps negative (garbage).
+            val loudSample = 30_000
+            val firstReadDone = AtomicBoolean(false)
+            val stopSignal = CountDownLatch(1)
+            every { audioRecord.stop() } answers { stopSignal.countDown() }
+            every {
+                audioRecord.read(any<ByteArray>(), any<Int>(), any<Int>(), any())
+            } answers {
+                val buffer = firstArg<ByteArray>()
+                if (!firstReadDone.getAndSet(true)) {
+                    var index = 0
+                    while (index + 1 < buffer.size) {
+                        buffer[index] = (loudSample and 0xFF).toByte()
+                        buffer[index + 1] = ((loudSample shr 8) and 0xFF).toByte()
+                        index += 2
+                    }
+                    buffer.size
+                } else {
+                    stopSignal.await(6, TimeUnit.SECONDS)
+                    0
+                }
+            }
+
+            val capture =
+                GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000, gainMultiplier = 2f)
+            val segment = File(temporaryFolder.root, "soft-limit.wav")
+
+            capture.start(segment)
+            capture.stopAndFinalize()
+
+            val payload = segment.readBytes()
+            val firstSample =
+                (
+                    (payload[WavFileWriter.WAV_HEADER_BYTES + 1].toInt() shl 8) or
+                        (payload[WavFileWriter.WAV_HEADER_BYTES].toInt() and 0xFF)
+                ).toShort().toInt()
+            val kneeFloor = (0.85f * Short.MAX_VALUE).toInt()
+            assertTrue("firstSample=$firstSample wrapped negative", firstSample > 0)
+            assertTrue("firstSample=$firstSample below the knee", firstSample > kneeFloor)
+            assertTrue("firstSample=$firstSample exceeds full scale", firstSample <= Short.MAX_VALUE.toInt())
+        }
+
+    @Test
+    fun captureUsesTheNaturalMicSource_notTheRecognitionTunedOne() =
+        runTest {
+            // Deliberate asymmetry: recorder-app captures keep natural audio (MIC), while
+            // ASR surfaces (VoiceRecorder) use VOICE_RECOGNITION. A silent swap here would
+            // change the sound of every saved recording.
+            val capture = GaplessWavSegmentCapture(inputDeviceSelector, sampleRate = 16_000)
+            val segment = File(temporaryFolder.root, "source.wav")
+
+            capture.start(segment)
+            capture.stopAndFinalize()
+
+            coVerify {
+                inputDeviceSelector.buildAudioRecord(
+                    audioSource = MediaRecorder.AudioSource.MIC,
+                    sampleRate = any(),
+                    channelConfig = any(),
+                    audioFormat = any(),
+                    bufferSize = any(),
+                )
+            }
         }
 
     @Test

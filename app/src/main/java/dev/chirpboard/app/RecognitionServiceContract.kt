@@ -80,6 +80,57 @@ internal fun recognizerIntentResultCodeFor(speechRecognizerErrorCode: Int): Int 
         else -> RecognizerIntent.RESULT_CLIENT_ERROR
     }
 
+/**
+ * What [ChirpRecognitionService] sends a client for a stopped capture (TST-005):
+ * either a single-hypothesis results bundle or one terminal SpeechRecognizer error code.
+ */
+internal sealed interface ServiceRecognitionDelivery {
+    data class Results(
+        val text: String,
+    ) : ServiceRecognitionDelivery
+
+    data class Error(
+        val errorCode: Int,
+        /** Developer diagnostic for the service log; never user-facing. */
+        val logReason: String,
+    ) : ServiceRecognitionDelivery
+}
+
+/**
+ * Pure decision for [ChirpRecognitionService]'s transcribe-and-deliver step (IME-7/TST-005):
+ * an empty capture is benign silence (ERROR_NO_MATCH, not a broken audio system), a
+ * recognizer that is not ready is a server-side failure, and failed outcomes map through
+ * [recognitionErrorCodeFor]. [transcribe] is only invoked once both preconditions hold,
+ * mirroring the service's sequencing.
+ */
+internal suspend fun resolveServiceRecognitionDelivery(
+    samplesEmpty: Boolean,
+    recognizerReady: Boolean,
+    transcribe: suspend () -> TranscriptionOutcome,
+): ServiceRecognitionDelivery {
+    if (samplesEmpty) {
+        return ServiceRecognitionDelivery.Error(SpeechRecognizer.ERROR_NO_MATCH, "no audio samples")
+    }
+    if (!recognizerReady) {
+        return ServiceRecognitionDelivery.Error(SpeechRecognizer.ERROR_SERVER, "recognizer not ready")
+    }
+    return when (val outcome = transcribe()) {
+        is TranscriptionOutcome.Success -> ServiceRecognitionDelivery.Results(outcome.text)
+        else -> {
+            val reason =
+                when (outcome) {
+                    is TranscriptionOutcome.ModelUnavailable -> outcome.reason
+                    is TranscriptionOutcome.EngineError -> outcome.reason
+                    else -> "no speech detected"
+                }
+            ServiceRecognitionDelivery.Error(
+                errorCode = recognitionErrorCodeFor(outcome) ?: SpeechRecognizer.ERROR_SERVER,
+                logReason = "${outcome::class.simpleName}: $reason",
+            )
+        }
+    }
+}
+
 /** Lower clamp so silence still produces a finite dB value. */
 private const val MIN_RMS_AMPLITUDE = 1e-4f
 

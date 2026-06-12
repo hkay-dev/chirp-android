@@ -4,7 +4,10 @@ import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -70,5 +73,59 @@ class LlmClientImplTest {
         val result = client.generateChatResponse("transcript", emptyList())
 
         assertTrue(result.isSuccess)
+    }
+
+    @Test
+    fun `structured outcome prompt carries a valid json schema example and ends with the transcript`() = runTest {
+        // PIPE-09: the schema example shown to the model must itself be VALID JSON — escaped
+        // quotes (\" from a non-raw string) get echoed back by compliant models and then
+        // break Gson parsing of the response.
+        val promptSlot = slot<String>()
+        coEvery { chatService.completePrompt(capture(promptSlot)) } returns
+            Result.success("""{"tasks":["ship it"],"decisions":[],"followUps":[]}""")
+
+        client.generateStructuredOutcomeExtraction("we agreed to ship it")
+
+        val prompt = promptSlot.captured
+        assertFalse(prompt.contains("\\\""))
+        val schemaExample = prompt.substring(prompt.indexOf('{'), prompt.indexOf('}') + 1)
+        val parsedSchema =
+            com.google.gson.Gson().fromJson(schemaExample, com.google.gson.JsonObject::class.java)
+        assertEquals(setOf("tasks", "decisions", "followUps"), parsedSchema.keySet())
+        assertTrue(prompt.endsWith("Transcript:\nwe agreed to ship it"))
+    }
+
+    @Test
+    fun `structured outcome extraction parses a fenced model response end to end`() = runTest {
+        coEvery { chatService.completePrompt(any()) } returns
+            Result.success(
+                """
+                ```json
+                {"tasks":["follow up with QA"],"decisions":["launch friday"],"follow_ups":["book retro"]}
+                ```
+                """.trimIndent(),
+            )
+
+        val result = client.generateStructuredOutcomeExtraction("transcript")
+
+        assertEquals(
+            StructuredOutcomeExtraction(
+                tasks = listOf("follow up with QA"),
+                decisions = listOf("launch friday"),
+                followUps = listOf("book retro"),
+            ),
+            result.getOrNull(),
+        )
+    }
+
+    @Test
+    fun `structured outcome extraction propagates chat service failure`() = runTest {
+        coEvery { chatService.completePrompt(any()) } returns
+            Result.failure(IllegalStateException("no api key"))
+
+        val result = client.generateStructuredOutcomeExtraction("transcript")
+
+        assertTrue(result.isFailure)
+        assertEquals("no api key", result.exceptionOrNull()?.message)
     }
 }

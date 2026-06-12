@@ -156,6 +156,64 @@ class AudioSettingsStoreTest {
         assertEquals(2.0f, AudioSettingsStore.nearestPlaybackSpeed(99f))
     }
 
+    // The audio-settings DataStore is included in Auto Backup (data_extraction_rules.xml),
+    // so values written by other devices or app versions arrive unvalidated; every read
+    // must degrade to a safe in-range value, never crash or feed garbage into capture.
+
+    @Test
+    fun `restored out-of-range microphone gain is coerced into the supported range on read`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_restored_gain.preferences_pb")
+            dataStore.edit { preferences ->
+                preferences[floatPreferencesKey("microphone_gain")] = 99f
+                preferences[booleanPreferencesKey("audio_settings_migration_complete")] = true
+            }
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            assertEquals(MAX_MICROPHONE_GAIN, store.currentMicrophoneGain())
+        }
+
+    @Test
+    fun `restored arbitrary playback speed snaps to a supported option on read`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_restored_speed.preferences_pb")
+            dataStore.edit { preferences ->
+                preferences[floatPreferencesKey("playback_speed")] = 3.7f
+                preferences[booleanPreferencesKey("audio_settings_migration_complete")] = true
+            }
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            assertEquals(2.0f, store.currentPlaybackSpeed())
+        }
+
+    @Test
+    fun `restored unknown output format and device policy fall back to defaults`() =
+        testScope.runTest {
+            val dataStore = createDataStore("audio_settings_restored_enums.preferences_pb")
+            dataStore.edit { preferences ->
+                preferences[stringPreferencesKey("output_format")] = "ogg"
+                preferences[stringPreferencesKey("input_device_policy")] = "from-the-future"
+                preferences[booleanPreferencesKey("audio_settings_migration_complete")] = true
+            }
+            val store =
+                AudioSettingsStore(
+                    dataStore = dataStore,
+                    migrationSource = FakeAudioSettingsMigrationSource(),
+                )
+
+            val settings = store.currentSettings()
+            assertEquals(RecordingOutputFormat.M4A, settings.outputFormat)
+            assertEquals(AudioInputDevicePolicy.Automatic, settings.inputDevicePolicy)
+        }
+
     private fun createDataStore(fileName: String) =
         PreferenceDataStoreFactory.create(
             scope = testScope,

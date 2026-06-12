@@ -111,6 +111,40 @@ class ChunkedAudioProcessorTest {
     }
 
     @Test
+    fun `joinTranscripts dedupes an overlap spanning the full eight word window`() = runTest {
+        // The dedup window is 8 words — comfortably above the ~5-6 words a 2s overlap
+        // re-transcribes. An overlap that fills the whole window must still collapse.
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf(
+            "Before the boundary one two three four five six seven eight",
+            "one two three four five six seven eight after the boundary",
+        )
+        val joined = processor.joinTranscripts(parts)
+        assertEquals(
+            "Before the boundary one two three four five six seven eight after the boundary",
+            joined,
+        )
+    }
+
+    @Test
+    fun `joinTranscripts never deletes repetition reaching beyond the dedup window`() = runTest {
+        // A repeat LONGER than the 8-word window has no suffix-prefix match inside the
+        // window, so nothing is deduplicated: the join must fail safe by keeping words
+        // (a duplicated phrase) rather than ever deleting non-overlap speech.
+        val processor = ChunkedAudioProcessor()
+        val parts = listOf(
+            "zero one two three four five six seven eight",
+            "zero one two three four five six seven eight and more",
+        )
+        val joined = processor.joinTranscripts(parts)
+        assertEquals(
+            "zero one two three four five six seven eight " +
+                "zero one two three four five six seven eight and more",
+            joined,
+        )
+    }
+
+    @Test
     fun `processAndJoin processes and joins all chunks`() = runTest {
         val processor = ChunkedAudioProcessor(
             chunkDurationMs = 2000,

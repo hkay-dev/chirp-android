@@ -19,7 +19,6 @@ import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.transcription.TranscriberProvider
-import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
@@ -405,34 +404,20 @@ class ChirpRecognitionService : RecognitionService() {
         secureSession: Boolean,
     ) {
         try {
-            if (samples.isEmpty()) {
-                Log.w(TAG, "No audio samples")
-                // IME-7: an empty capture is benign silence, not a broken audio system.
-                listener.error(SpeechRecognizer.ERROR_NO_MATCH)
+            // Empty capture -> benign NO_MATCH, not-ready -> SERVER, failed outcomes map per
+            // the platform contract (IME-7). The decision is the extracted, unit-tested
+            // resolveServiceRecognitionDelivery (TST-005).
+            val delivery =
+                resolveServiceRecognitionDelivery(
+                    samplesEmpty = samples.isEmpty(),
+                    recognizerReady = transcriberProvider.isReady(),
+                ) { transcriberProvider.transcribe(samples) }
+            if (delivery is ServiceRecognitionDelivery.Error) {
+                Log.w(TAG, "Recognition not delivered (${delivery.logReason})")
+                listener.error(delivery.errorCode)
                 return
             }
-
-            // Check if recognizer is ready
-            if (!transcriberProvider.isReady()) {
-                Log.w(TAG, "Recognizer not ready")
-                listener.error(SpeechRecognizer.ERROR_SERVER)
-                return
-            }
-
-            // Transcribe with typed outcome; failures map per the platform contract (IME-7).
-            val outcome = transcriberProvider.transcribe(samples)
-            if (outcome !is TranscriptionOutcome.Success) {
-                val reason =
-                    when (outcome) {
-                        is TranscriptionOutcome.ModelUnavailable -> outcome.reason
-                        is TranscriptionOutcome.EngineError -> outcome.reason
-                        else -> "no speech detected"
-                    }
-                Log.w(TAG, "Transcription did not produce text (${outcome::class.simpleName}): $reason")
-                listener.error(recognitionErrorCodeFor(outcome) ?: SpeechRecognizer.ERROR_SERVER)
-                return
-            }
-            val text = outcome.text
+            val text = (delivery as ServiceRecognitionDelivery.Results).text
 
             // Never log transcript content: this is an IME-adjacent surface and the text
             // can include anything the user dictates into other apps. Log only its length.

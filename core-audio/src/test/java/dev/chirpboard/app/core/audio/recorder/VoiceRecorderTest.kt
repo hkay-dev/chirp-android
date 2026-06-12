@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
+import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -419,6 +420,67 @@ class VoiceRecorderTest {
             recorder.collectSamples()
 
             assertEquals(listOf(true, false), transitions.toList())
+        }
+
+    @Test
+    fun `configured gain boosts quiet samples linearly and soft-limits loud peaks`() =
+        runBlocking {
+            recorder.gainMultiplier = 4f
+            var captured: FloatArray? = null
+            var reads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads++
+                if (reads == 1) {
+                    val buffer = firstArg<FloatArray>()
+                    // First half quiet (well below the knee after boost), second half loud
+                    // (4x would hard-clip past full scale without the soft limiter).
+                    for (i in buffer.indices) {
+                        buffer[i] = if (i < buffer.size / 2) 0.1f else 0.3f
+                    }
+                    buffer.size
+                } else {
+                    captured = recorder.stop()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(recorder.start())
+            recorder.collectSamples()
+
+            val samples = captured ?: error("no samples captured")
+            // Below the knee the gain is applied exactly.
+            assertEquals(0.4f, samples.first(), 0.0001f)
+            // Above the knee the boosted peak is compressed, never clipped to or past 1.0.
+            val boostedPeak = samples.last()
+            assertTrue("peak=$boostedPeak", boostedPeak > AudioGain.SOFT_LIMIT_KNEE)
+            assertTrue("peak=$boostedPeak", boostedPeak < 1.0f)
+        }
+
+    @Test
+    fun `zero input shorter than the warning threshold never reports silence`() =
+        runBlocking {
+            // 62 all-zero reads = 63,488 samples, just below SILENCE_WARNING_SAMPLES (4s
+            // at 16kHz = 64,000): the warning must not fire for brief quiet stretches.
+            val zeroReadsJustBelowThreshold =
+                (VoiceRecorder.SILENCE_WARNING_SAMPLES / READ_BUFFER_SIZE).toInt() - 1
+            val transitions = java.util.concurrent.CopyOnWriteArrayList<Boolean>()
+            recorder.onSilenceStateChanged = { transitions.add(it) }
+            var reads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads++
+                if (reads <= zeroReadsJustBelowThreshold) {
+                    firstArg<FloatArray>().fill(0f)
+                    READ_BUFFER_SIZE
+                } else {
+                    recorder.stop()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(recorder.start())
+            recorder.collectSamples()
+
+            assertTrue("unexpected silence transitions: $transitions", transitions.isEmpty())
         }
 
     private fun fileBackedRecorder(): VoiceRecorder {

@@ -4,8 +4,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -55,7 +55,7 @@ internal fun LlmSettingsProcessingSection(
         )
 
         SettingsSwitchItem(
-            icon = Icons.Default.List,
+            icon = Icons.AutoMirrored.Filled.List,
             title = stringResource(R.string.llm_auto_summary_title),
             subtitle = if (!uiState.isKeyConfigured) "Requires API key to be configured." else stringResource(R.string.llm_auto_summary_subtitle),
             checked = uiState.autoSummary,

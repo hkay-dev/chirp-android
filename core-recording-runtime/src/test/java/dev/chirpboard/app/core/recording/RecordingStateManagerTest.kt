@@ -1,9 +1,12 @@
 package dev.chirpboard.app.core.recording
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -184,22 +187,26 @@ class RecordingStateManagerTest {
     }
 
     @Test
-    fun onCaptureStopHandoff_staleRecordingIdDoesNotCancelStoppingTimeout() {
-        manager.stoppingTimeoutMsOverrideForTest = 10L
-        val staleRecordingId = UUID.randomUUID()
-        val activeRecordingId = UUID.randomUUID()
-        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
-        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
-        manager.transitionToStopping()
-        manager.startStoppingTimeout(fileSizeBytes = 0L)
+    fun onCaptureStopHandoff_staleRecordingIdDoesNotCancelStoppingTimeout() =
+        runTest {
+            // TST-012: virtual time replaces the former Thread.sleep(100) real-time wait.
+            manager.timeoutScopeOverrideForTest = this
+            manager.stoppingTimeoutMsOverrideForTest = 10L
+            val staleRecordingId = UUID.randomUUID()
+            val activeRecordingId = UUID.randomUUID()
+            manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+            manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+            manager.transitionToStopping()
+            manager.startStoppingTimeout(fileSizeBytes = 0L)
 
-        manager.onCaptureStopHandoff(staleRecordingId)
-        Thread.sleep(100)
+            manager.onCaptureStopHandoff(staleRecordingId)
+            advanceTimeBy(11L)
+            runCurrent()
 
-        assertTrue(manager.state.value is RecordingState.Error)
-        manager.clearError()
-        assertTrue(manager.canStartRecording())
-    }
+            assertTrue(manager.state.value is RecordingState.Error)
+            manager.clearError()
+            assertTrue(manager.canStartRecording())
+        }
 
 
     @Test
@@ -261,24 +268,35 @@ class RecordingStateManagerTest {
 
     @Test
     fun pauseAndResume_preservesAccumulatedDuration() {
+        // TST-012: a controlled clock replaces the former Thread.sleep(20) so the
+        // accumulated duration is exact instead of wall-clock dependent.
+        var now = 1_000L
+        manager.nowMsOverrideForTest = { now }
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.onRecordingStarted(audioFilePath = "path")
-        Thread.sleep(20)
+        now = 1_020L
         manager.pauseRecording()
         val pausedDuration = manager.getCurrentDurationMs()
         assertTrue(pausedDuration >= 0L)
+        assertEquals(20L, pausedDuration)
         manager.resumeRecording()
+        now = 1_025L
         assertTrue(manager.getCurrentDurationMs() >= pausedDuration)
+        assertEquals(25L, manager.getCurrentDurationMs())
     }
 
     @Test
     fun amplitudeUpdates_areTracked() {
+        // TST-012: a controlled clock steps past the 100ms waveform throttle instead of
+        // the former Thread.sleep(110) real-time wait.
+        var now = 1_000L
+        manager.nowMsOverrideForTest = { now }
         manager.updateAmplitude(0.5f)
         assertEquals(0.5f, manager.amplitudeFlow.value)
         assertEquals(0.5f, manager.waveformBuffer.get(0))
         assertEquals(1, manager.waveformBuffer.count)
 
-        Thread.sleep(110)
+        now = 1_110L
         manager.updateAmplitude(0.8f)
         assertEquals(0.8f, manager.amplitudeFlow.value)
         assertEquals(0.5f, manager.waveformBuffer.get(0))
@@ -291,78 +309,108 @@ class RecordingStateManagerTest {
     }
 
     @Test
-    fun stoppingTimeout_handlerTransitioningOutOfStoppingPreventsErrorState() {
-        manager.stoppingTimeoutMsOverrideForTest = 10L
-        manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
-        manager.transitionToStopping()
+    fun amplitudeUpdates_insideThrottleWindowAreDropped() {
+        // The 100ms throttle itself, pinned with the controlled clock.
+        var now = 1_000L
+        manager.nowMsOverrideForTest = { now }
+        manager.updateAmplitude(0.5f)
+        now = 1_099L
+        manager.updateAmplitude(0.9f)
 
-        val handlerRan = java.util.concurrent.CountDownLatch(1)
-        manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD) { _ ->
-            // Rescue handlers recover the state machine themselves instead of failing.
-            manager.onRecordingCompleted()
-            handlerRan.countDown()
-        }
-
-        manager.startStoppingTimeout(fileSizeBytes = 0L)
-        assertTrue(handlerRan.await(2, java.util.concurrent.TimeUnit.SECONDS))
-        Thread.sleep(100)
-
-        assertTrue(manager.state.value is RecordingState.Idle)
-        val restart = manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
-        assertTrue(restart is RecordingStartResult.Success)
+        assertEquals(0.5f, manager.amplitudeFlow.value)
+        assertEquals(1, manager.waveformBuffer.count)
     }
 
     @Test
-    fun clearStoppingTimeoutHandler_removesOnlyTheRegisteredHandler() {
-        manager.stoppingTimeoutMsOverrideForTest = 10L
-        var staleHandlerRan = false
-        var activeHandlerRan = false
-        val staleHandler: suspend (RecordingState.Stopping) -> Unit = { _ -> staleHandlerRan = true }
-        val activeHandler: suspend (RecordingState.Stopping) -> Unit = { _ -> activeHandlerRan = true }
+    fun stoppingTimeout_handlerTransitioningOutOfStoppingPreventsErrorState() =
+        runTest {
+            // TST-012: virtual time replaces the former CountDownLatch + Thread.sleep(100).
+            manager.timeoutScopeOverrideForTest = this
+            manager.stoppingTimeoutMsOverrideForTest = 10L
+            manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+            manager.transitionToStopping()
 
-        manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, staleHandler)
-        manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, activeHandler)
-        // The stale owner clearing its old handler must not remove the active one.
-        manager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, staleHandler)
+            var handlerRan = false
+            manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD) { _ ->
+                // Rescue handlers recover the state machine themselves instead of failing.
+                manager.onRecordingCompleted()
+                handlerRan = true
+            }
 
-        manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
-        manager.transitionToStopping()
-        manager.startStoppingTimeout(fileSizeBytes = 0L)
-        Thread.sleep(100)
+            manager.startStoppingTimeout(fileSizeBytes = 0L)
+            advanceTimeBy(11L)
+            runCurrent()
+            assertTrue(handlerRan)
 
-        assertFalse(staleHandlerRan)
-        assertTrue(activeHandlerRan)
-
-        manager.clearError()
-        manager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, activeHandler)
-    }
-
-    @Test
-    fun stoppingTimeout_awaitsHandlerBeforeErrorTransition() {
-        manager.stoppingTimeoutMsOverrideForTest = 10L
-        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
-        manager.transitionToStopping()
-
-        val handlerGate = java.util.concurrent.CountDownLatch(1)
-        val handlerMayProceed = java.util.concurrent.CountDownLatch(1)
-        var handlerCompletedBeforeError = false
-
-        manager.setStoppingTimeoutHandler(RecordingOrigin.APP) { _ ->
-            handlerGate.countDown()
-            assertTrue(handlerMayProceed.await(2, java.util.concurrent.TimeUnit.SECONDS))
-            handlerCompletedBeforeError = true
+            assertTrue(manager.state.value is RecordingState.Idle)
+            val restart = manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+            assertTrue(restart is RecordingStartResult.Success)
         }
 
-        manager.startStoppingTimeout(fileSizeBytes = 0L)
-        assertTrue(handlerGate.await(2, java.util.concurrent.TimeUnit.SECONDS))
-        assertTrue(manager.state.value is RecordingState.Stopping)
-        handlerMayProceed.countDown()
-        Thread.sleep(100)
+    @Test
+    fun clearStoppingTimeoutHandler_removesOnlyTheRegisteredHandler() =
+        runTest {
+            // TST-012: virtual time replaces the former Thread.sleep(100) real-time wait.
+            manager.timeoutScopeOverrideForTest = this
+            manager.stoppingTimeoutMsOverrideForTest = 10L
+            var staleHandlerRan = false
+            var activeHandlerRan = false
+            val staleHandler: suspend (RecordingState.Stopping) -> Unit = { _ -> staleHandlerRan = true }
+            val activeHandler: suspend (RecordingState.Stopping) -> Unit = { _ -> activeHandlerRan = true }
 
-        assertTrue(handlerCompletedBeforeError)
-        assertTrue(manager.state.value is RecordingState.Error)
-        manager.clearError()
-        val restart = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
-        assertTrue(restart is RecordingStartResult.Success)
-    }
+            manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, staleHandler)
+            manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, activeHandler)
+            // The stale owner clearing its old handler must not remove the active one.
+            manager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, staleHandler)
+
+            manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+            manager.transitionToStopping()
+            manager.startStoppingTimeout(fileSizeBytes = 0L)
+            advanceTimeBy(11L)
+            runCurrent()
+
+            assertFalse(staleHandlerRan)
+            assertTrue(activeHandlerRan)
+
+            manager.clearError()
+            manager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, activeHandler)
+        }
+
+    @Test
+    fun stoppingTimeout_awaitsHandlerBeforeErrorTransition() =
+        runTest {
+            // TST-012: a CompletableDeferred under virtual time replaces the former
+            // CountDownLatch pair + Thread.sleep(100); the ordering contract is unchanged —
+            // handler cleanup must complete before the Error transition releases the lock.
+            manager.timeoutScopeOverrideForTest = this
+            manager.stoppingTimeoutMsOverrideForTest = 10L
+            manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+            manager.transitionToStopping()
+
+            val handlerMayProceed = CompletableDeferred<Unit>()
+            var handlerStarted = false
+            var handlerCompletedBeforeError = false
+
+            manager.setStoppingTimeoutHandler(RecordingOrigin.APP) { _ ->
+                handlerStarted = true
+                handlerMayProceed.await()
+                handlerCompletedBeforeError = true
+            }
+
+            manager.startStoppingTimeout(fileSizeBytes = 0L)
+            advanceTimeBy(11L)
+            runCurrent()
+            assertTrue(handlerStarted)
+            // The handler is still suspended, so the Error transition must not have fired.
+            assertTrue(manager.state.value is RecordingState.Stopping)
+
+            handlerMayProceed.complete(Unit)
+            runCurrent()
+
+            assertTrue(handlerCompletedBeforeError)
+            assertTrue(manager.state.value is RecordingState.Error)
+            manager.clearError()
+            val restart = manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+            assertTrue(restart is RecordingStartResult.Success)
+        }
 }

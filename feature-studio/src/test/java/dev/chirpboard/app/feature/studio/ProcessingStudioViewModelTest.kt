@@ -18,12 +18,16 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.repository.WordReplacementRepository
+import android.util.Log
 import dev.chirpboard.app.feature.llm.client.LlmClient
+import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -41,9 +45,11 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 import java.util.Date
 import java.util.UUID
 
@@ -55,6 +61,16 @@ class ProcessingStudioViewModelTest {
 
     @Before
     fun setup() {
+        // feature-studio has no test-support dependency; stub Log inline so failure-path
+        // logging (deleteRecording, selection actions) does not abort JVM tests.
+        mockkStatic(Log::class)
+        every { Log.v(any<String>(), any<String>()) } returns 0
+        every { Log.d(any<String>(), any<String>()) } returns 0
+        every { Log.i(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>(), any()) } returns 0
+        every { Log.e(any<String>(), any<String>()) } returns 0
+        every { Log.e(any<String>(), any<String>(), any()) } returns 0
         repository = mockk(relaxed = true)
         transcriptionRecovery = mockk(relaxed = true)
         coEvery { transcriptionRecovery.getRecoveryDiagnostics(any()) } returns
@@ -69,10 +85,13 @@ class ProcessingStudioViewModelTest {
             "Re-queued for transcription"
         every { context.getString(dev.chirpboard.app.core.ui.R.string.rec_msg_transcription_cancelled) } returns
             "Transcription cancelled"
+        every { context.getString(dev.chirpboard.app.core.ui.R.string.rec_msg_delete_failed) } returns
+            "Couldn't delete the recording"
     }
 
     @After
     fun teardown() {
+        unmockkStatic(Log::class)
         Dispatchers.resetMain()
     }
 
@@ -587,17 +606,19 @@ class ProcessingStudioViewModelTest {
                 every { state } returns MutableStateFlow(RecordingPlaybackState())
             },
         savedStateHandle: SavedStateHandle = SavedStateHandle(mapOf("recordingId" to recordingId)),
+        llmClient: LlmClient = mockk(relaxed = true),
+        hasApiKey: Boolean = false,
     ): ProcessingStudioViewModel {
         val llmPreferences =
             mockk<LlmPreferences>(relaxed = true) {
                 every { llmEnabled } returns MutableStateFlow(false)
-                every { hasApiKey() } returns false
+                every { hasApiKey() } returns hasApiKey
             }
         return ProcessingStudioViewModel(
             context = context,
             savedStateHandle = savedStateHandle,
             repository = repository,
-            llmClient = mockk(relaxed = true),
+            llmClient = llmClient,
             llmPreferences = llmPreferences,
             wordReplacementRepository = mockk(relaxed = true),
             transcriptionRecovery = transcriptionRecovery,
@@ -607,6 +628,212 @@ class ProcessingStudioViewModelTest {
             transcriptBuildDispatcher = StandardTestDispatcher(testScheduler)
         }
     }
+
+    // --- TST-003: studio delete journey (cascade call + playback stop + navigation callback) ---
+
+    @Test
+    fun `deleteRecording stops playback of the deleted recording deletes the row and notifies`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val audioFile = File.createTempFile("studio-delete", ".m4a").apply { writeText("audio") }
+            val recording = sampleRecording(recordingId).copy(audioPath = audioFile.absolutePath)
+            every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(recording))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.getRecording(recordingId) } returns recording
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns
+                        MutableStateFlow(
+                            RecordingPlaybackState(
+                                recordingId = recordingId,
+                                title = "Meeting",
+                                audioPath = audioFile.absolutePath,
+                                isPlaying = true,
+                            ),
+                        )
+                }
+            val viewModel = createViewModel(recordingId = recordingId.toString(), playbackController = playbackController)
+            advanceUntilIdle()
+
+            val deleted = CompletableDeferred<Unit>()
+            viewModel.deleteRecording { deleted.complete(Unit) }
+            advanceUntilIdle()
+            // The file removal hops to Dispatchers.IO; runTest keeps draining the shared
+            // scheduler while awaiting the onDeleted signal (bounded by runTest's timeout).
+            deleted.await()
+
+            verify { playbackController.stop() }
+            coVerify { repository.delete(recording) }
+            assertFalse(audioFile.exists())
+            assertNull(viewModel.message.value)
+        }
+
+    @Test
+    fun `deleteRecording leaves playback of a different recording running`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val otherRecordingId = UUID.randomUUID()
+            val audioFile = File.createTempFile("studio-delete", ".m4a").apply { writeText("audio") }
+            val recording = sampleRecording(recordingId).copy(audioPath = audioFile.absolutePath)
+            every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(recording))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.getRecording(recordingId) } returns recording
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns
+                        MutableStateFlow(
+                            RecordingPlaybackState(
+                                recordingId = otherRecordingId,
+                                title = "Other",
+                                audioPath = "/tmp/other.m4a",
+                                isPlaying = true,
+                            ),
+                        )
+                }
+            val viewModel = createViewModel(recordingId = recordingId.toString(), playbackController = playbackController)
+            advanceUntilIdle()
+
+            val deleted = CompletableDeferred<Unit>()
+            viewModel.deleteRecording { deleted.complete(Unit) }
+            advanceUntilIdle()
+            deleted.await()
+
+            verify(exactly = 0) { playbackController.stop() }
+            coVerify { repository.delete(recording) }
+        }
+
+    @Test
+    fun `deleteRecording db failure keeps the audio file and skips the navigation callback`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val audioFile = File.createTempFile("studio-delete", ".m4a").apply { writeText("audio") }
+            val recording = sampleRecording(recordingId).copy(audioPath = audioFile.absolutePath)
+            every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(recording))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.getRecording(recordingId) } returns recording
+            coEvery { repository.delete(recording) } throws RuntimeException("db down")
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            var onDeletedInvoked = false
+            viewModel.deleteRecording { onDeletedInvoked = true }
+            advanceUntilIdle()
+
+            // Data-loss guard: if the row could not be deleted, the audio must survive and
+            // the screen must not navigate away as if the delete had succeeded.
+            assertFalse(onDeletedInvoked)
+            assertTrue(audioFile.exists())
+            assertEquals("Couldn't delete the recording", viewModel.message.value)
+            audioFile.delete()
+        }
+
+    // --- PLH-6: studio selection-mode action lifecycle at the ViewModel level ---
+
+    @Test
+    fun `selection action success lands the result and clears the in-flight marker`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "alpha beta gamma")))
+            val llmClient =
+                mockk<LlmClient>(relaxed = true) {
+                    coEvery { generateTranscriptPassageResponse(TranscriptPassageAction.SUMMARIZE, "alpha beta") } returns
+                        Result.success(" Brief summary ")
+                }
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), llmClient = llmClient, hasApiKey = true)
+            advanceUntilIdle()
+
+            viewModel.enterTranscriptSelectionMode()
+            viewModel.onTranscriptSelectionChanged("alpha beta")
+            viewModel.runTranscriptSelectionAction(TranscriptPassageAction.SUMMARIZE)
+            assertEquals(TranscriptPassageAction.SUMMARIZE, viewModel.uiState.value.transcriptSelectionActionInFlight)
+            advanceUntilIdle()
+
+            assertEquals(
+                TranscriptSelectionResult(action = TranscriptPassageAction.SUMMARIZE, text = "Brief summary"),
+                viewModel.uiState.value.transcriptSelectionResult,
+            )
+            assertNull(viewModel.uiState.value.transcriptSelectionActionInFlight)
+        }
+
+    @Test
+    fun `selection action failure clears the in-flight marker and surfaces a friendly message`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            every { context.getString(R.string.rec_ai_failure_generic) } returns
+                "Couldn't reach the AI service"
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "alpha beta gamma")))
+            val llmClient =
+                mockk<LlmClient>(relaxed = true) {
+                    coEvery { generateTranscriptPassageResponse(any(), any()) } returns
+                        Result.failure(IllegalStateException("HTTP 500"))
+                }
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), llmClient = llmClient, hasApiKey = true)
+            advanceUntilIdle()
+
+            viewModel.enterTranscriptSelectionMode()
+            viewModel.onTranscriptSelectionChanged("alpha beta")
+            viewModel.runTranscriptSelectionAction(TranscriptPassageAction.EXPLAIN)
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.transcriptSelectionResult)
+            assertNull(viewModel.uiState.value.transcriptSelectionActionInFlight)
+            assertEquals("Couldn't reach the AI service", viewModel.message.value)
+        }
+
+    @Test
+    fun `selection action result is dropped when the selection changed mid-flight`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "alpha beta gamma")))
+            val response = CompletableDeferred<Result<String>>()
+            val llmClient =
+                mockk<LlmClient>(relaxed = true) {
+                    coEvery { generateTranscriptPassageResponse(any(), any()) } coAnswers { response.await() }
+                }
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), llmClient = llmClient, hasApiKey = true)
+            advanceUntilIdle()
+
+            viewModel.enterTranscriptSelectionMode()
+            viewModel.onTranscriptSelectionChanged("alpha beta")
+            viewModel.runTranscriptSelectionAction(TranscriptPassageAction.SUMMARIZE)
+            runCurrent()
+
+            // The user re-selects while the request is in flight; the stale response must
+            // not land on the new selection.
+            viewModel.onTranscriptSelectionChanged("gamma")
+            response.complete(Result.success("Stale summary"))
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.transcriptSelectionResult)
+        }
 
     private fun stubEmptyRecordingFlows(recordingId: UUID) {
         every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(null))

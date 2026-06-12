@@ -44,4 +44,16 @@ class RecordingStorageMonitorTest {
         val result = monitor.checkAvailableStorage()
         assertEquals(StorageCheckLevel.LOW, result.level)
     }
+
+    @Test
+    fun checkAvailableStorage_returnsOkAboveThresholdsAndReportsBytes() {
+        mockkObject(RecordingStorageMonitor)
+        val plentyOfRoom = RecordingStorageMonitor.LOW_THRESHOLD_BYTES + 1
+        every { RecordingStorageMonitor.availableBytes(any()) } returns plentyOfRoom
+
+        val result = monitor.checkAvailableStorage()
+
+        assertEquals(StorageCheckLevel.OK, result.level)
+        assertEquals(plentyOfRoom, result.availableBytes)
+    }
 }

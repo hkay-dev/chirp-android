@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationCompat
 import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingState
@@ -195,7 +196,8 @@ class RecordingNotificationFactory
                 .notify(AUTO_STOP_NOTIFICATION_ID, notification)
         }
 
-        private fun launchPendingIntent(service: Service): PendingIntent? {
+        @VisibleForTesting
+        internal fun launchPendingIntent(service: Service): PendingIntent? {
             cachedLaunchPendingIntent?.let { return it }
             val launchIntent =
                 service.packageManager.getLaunchIntentForPackage(service.packageName)?.apply {
@@ -214,21 +216,24 @@ class RecordingNotificationFactory
             }
         }
 
-        private fun stopActionPendingIntent(service: Service): PendingIntent =
+        @VisibleForTesting
+        internal fun stopActionPendingIntent(service: Service): PendingIntent =
             cachedStopPendingIntent ?: serviceActionPendingIntent(
                 service,
                 STOP_REQUEST_CODE,
                 RecordingServiceCommands.ACTION_STOP_RECORDING,
             ).also { cachedStopPendingIntent = it }
 
-        private fun resumeActionPendingIntent(service: Service): PendingIntent =
+        @VisibleForTesting
+        internal fun resumeActionPendingIntent(service: Service): PendingIntent =
             cachedResumePendingIntent ?: serviceActionPendingIntent(
                 service,
                 RESUME_REQUEST_CODE,
                 RecordingServiceCommands.ACTION_RESUME_RECORDING,
             ).also { cachedResumePendingIntent = it }
 
-        private fun pauseActionPendingIntent(service: Service): PendingIntent =
+        @VisibleForTesting
+        internal fun pauseActionPendingIntent(service: Service): PendingIntent =
             cachedPausePendingIntent ?: serviceActionPendingIntent(
                 service,
                 PAUSE_REQUEST_CODE,

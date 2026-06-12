@@ -18,37 +18,48 @@ import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.repository.TagRepository
+import androidx.lifecycle.viewModelScope
+import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.feature.recording.RecordingManager
 import dev.chirpboard.app.feature.recording.importing.AudioImportOrchestrator
 import dev.chirpboard.app.feature.recording.importing.AudioImportResult
+import dev.chirpboard.app.feature.recording.service.RecordingAutoStopReason
 import dev.chirpboard.app.feature.recording.service.RecordingServiceEvents
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
 import dev.chirpboard.app.feature.recording.session.SessionRecoveryResult
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
+import java.io.File
 import java.util.Date
 import java.util.UUID
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
+    @get:Rule
+    val androidLog = MockAndroidLogRule()
+
     // I18N-08: snackbar copy moved to resources; the mock resolves the ids these tests assert.
     private val appContext =
         mockk<android.content.Context>(relaxed = true) {
@@ -58,6 +69,8 @@ class HomeViewModelTest {
                 "Transcription cancelled"
             every { getString(dev.chirpboard.app.feature.recording.R.string.rec_msg_queued_for_transcription) } returns
                 "Queued for transcription"
+            every { getString(dev.chirpboard.app.core.ui.R.string.rec_msg_delete_failed) } returns
+                "Couldn't delete the recording"
         }
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var recordingManager: RecordingManager
@@ -617,8 +630,9 @@ class HomeViewModelTest {
 
     @Test
     fun `search includes live capture and finalizing RECORDING title matches`() =
-        runBlocking {
-            Dispatchers.setMain(Dispatchers.Unconfined)
+        runTest(testDispatcher) {
+            // TST-004: virtual time past the search debounce replaces the former
+            // runBlocking + Dispatchers.Unconfined + delay(300) real-time wait.
             val liveRecordingId = UUID.randomUUID()
             val finalizingRecordingId = UUID.randomUUID()
             val recordingStateFlow =
@@ -664,32 +678,14 @@ class HomeViewModelTest {
                 flowOf(
                     RepositoryFlowState(listOf(completed)),
                 )
-            coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
-            coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
 
-            val localViewModel =
-                HomeViewModel(
-                    appContext,
-                    recordingRepository,
-                    localRecordingManager,
-                    tagRepository,
-                    profileRepository,
-                    transcriptionQueueManager,
-                    recordingTextEnrichment,
-                    audioImportOrchestrator,
-                    sessionRecovery,
-                    playbackController =
-                        mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
-                            every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
-                        },
-                    savedStateHandle = SavedStateHandle(),
-                    defaultDispatcher = Dispatchers.Unconfined,
-                    serviceEvents = serviceEvents,
-                )
+            val localViewModel = createHomeViewModel(recordingManagerOverride = localRecordingManager)
             val collector = launch { localViewModel.displayItems.collect { } }
+            runCurrent()
 
             localViewModel.onSearchQueryChange("team")
-            delay(300)
+            advanceTimeBy(SEARCH_DEBOUNCE_MS + 1)
+            testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
                 setOf(completed.id, liveRecordingId, finalizingRecordingId),
@@ -753,8 +749,9 @@ class HomeViewModelTest {
 
     @Test
     fun `displayItems includes background finalize recording while idle`() =
-        runBlocking {
-            Dispatchers.setMain(Dispatchers.Unconfined)
+        runTest(testDispatcher) {
+            // TST-004: the blank default query bypasses the debounce, so plain virtual-time
+            // advancement replaces the former runBlocking + delay(300) real-time wait.
             val recordingId = UUID.randomUUID()
             val finalizingRecording =
                 Recording(
@@ -769,31 +766,11 @@ class HomeViewModelTest {
             }
             val idleStateFlow = MutableStateFlow(RecordingState.Idle)
             every { recordingManager.state } returns idleStateFlow
-            coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
-            coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
 
-            val localViewModel =
-                HomeViewModel(
-                    appContext,
-                    recordingRepository,
-                    recordingManager,
-                    tagRepository,
-                    profileRepository,
-                    transcriptionQueueManager,
-                    recordingTextEnrichment,
-                    audioImportOrchestrator,
-                    sessionRecovery,
-                    playbackController =
-                        mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
-                            every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
-                        },
-                    savedStateHandle = SavedStateHandle(),
-                    defaultDispatcher = Dispatchers.Unconfined,
-                    serviceEvents = serviceEvents,
-                )
+            val localViewModel = createHomeViewModel()
 
             val collector = launch { localViewModel.displayItems.collect { } }
-            delay(300)
+            testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(listOf(recordingId), localViewModel.displayItems.value.map { it.id })
             assertFalse(localViewModel.displayItems.value.single().isLiveCapture)
@@ -802,8 +779,8 @@ class HomeViewModelTest {
 
     @Test
     fun `displayItems includes finalizing recording while stop is in progress`() =
-        runBlocking {
-            Dispatchers.setMain(Dispatchers.Unconfined)
+        runTest(testDispatcher) {
+            // TST-004: virtual time replaces the former runBlocking + delay(300) wait.
             val recordingId = UUID.randomUUID()
             val finalizingRecording =
                 Recording(
@@ -824,31 +801,11 @@ class HomeViewModelTest {
                     ),
                 )
             every { recordingManager.state } returns stoppingStateFlow
-            coEvery { tagRepository.getTagsForRecordingIds(any()) } returns emptyMap()
-            coEvery { recordingRepository.getTranscripts(any()) } returns emptyMap()
 
-            val localViewModel =
-                HomeViewModel(
-                    appContext,
-                    recordingRepository,
-                    recordingManager,
-                    tagRepository,
-                    profileRepository,
-                    transcriptionQueueManager,
-                    recordingTextEnrichment,
-                    audioImportOrchestrator,
-                    sessionRecovery,
-                    playbackController =
-                        mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
-                            every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
-                        },
-                    savedStateHandle = SavedStateHandle(),
-                    defaultDispatcher = Dispatchers.Unconfined,
-                    serviceEvents = serviceEvents,
-                )
+            val localViewModel = createHomeViewModel()
 
             val collector = launch { localViewModel.displayItems.collect { } }
-            delay(300)
+            testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(listOf(recordingId), localViewModel.displayItems.value.map { it.id })
             collector.cancel()
@@ -992,9 +949,134 @@ class HomeViewModelTest {
             collector.cancel()
         }
 
+    // --- TST-003: delete journey (no undo exists; the ordering contract is the safety net) ---
+
+    @Test
+    fun `deleteRecording cancels work and deletes the db row before the audio file`() =
+        runTest(testDispatcher) {
+            val audioFile = File.createTempFile("home-delete", ".m4a").apply { writeText("audio-bytes") }
+            val item = displayItemFor(audioFile.absolutePath)
+
+            runDeleteToCompletion(item)
+
+            // Ordering contract: queued/running work is cancelled, then the DB row goes
+            // first (cascade deletes the transcript); the file is only best-effort cleanup.
+            coVerifyOrder {
+                transcriptionQueueManager.cancelProcessing(item.id)
+                recordingRepository.deleteById(item.id)
+            }
+            assertFalse(audioFile.exists())
+            assertNull(viewModel.errorMessage.value)
+        }
+
+    @Test
+    fun `deleteRecording db failure keeps the audio file and surfaces the error`() =
+        runTest(testDispatcher) {
+            val audioFile = File.createTempFile("home-delete", ".m4a").apply { writeText("audio-bytes") }
+            val item = displayItemFor(audioFile.absolutePath)
+            coEvery { recordingRepository.deleteById(item.id) } throws RuntimeException("db down")
+
+            viewModel.deleteRecording(item)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // Data-loss guard: if the row could not be deleted, the audio must survive.
+            assertTrue(audioFile.exists())
+            assertEquals("Couldn't delete the recording", viewModel.errorMessage.value)
+            audioFile.delete()
+        }
+
+    @Test
+    fun `deleteRecording file-delete failure is non-fatal`() =
+        runTest(testDispatcher) {
+            // A directory with content makes File.delete() return false — the undeletable-file case.
+            val undeletable = createTempDir(prefix = "home-delete-dir")
+            File(undeletable, "child.bin").writeText("x")
+            val item = displayItemFor(undeletable.absolutePath)
+
+            runDeleteToCompletion(item)
+
+            coVerify { recordingRepository.deleteById(item.id) }
+            assertNull(viewModel.errorMessage.value)
+            undeletable.deleteRecursively()
+        }
+
+    /**
+     * Runs deleteRecording and deterministically awaits its launched coroutine, which hops to
+     * Dispatchers.IO for the file deletion. runTest shares [testDispatcher]'s scheduler, so
+     * while [Job.join] suspends the test body, runTest keeps draining the scheduler — including
+     * the continuation the IO dispatcher posts back. Bounded by runTest's own timeout; no
+     * wall-clock sleeps or polling.
+     */
+    private suspend fun runDeleteToCompletion(item: RecordingDisplayItem) {
+        val before = viewModel.viewModelScope.coroutineContext.job.children.toSet()
+        viewModel.deleteRecording(item)
+        val deleteJob: Job =
+            viewModel.viewModelScope.coroutineContext.job.children.first { it !in before }
+        deleteJob.join()
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    private fun displayItemFor(audioPath: String): RecordingDisplayItem =
+        RecordingDisplayItem(
+            recording =
+                Recording(
+                    id = UUID.randomUUID(),
+                    title = "To delete",
+                    audioPath = audioPath,
+                    source = RecordingSource.APP,
+                    status = RecordingStatus.COMPLETED,
+                ),
+        )
+
+    @Test
+    fun `deleteRecording currently leaves the mini player running for the deleted item`() =
+        runTest(testDispatcher) {
+            // BUG (documents CURRENT behavior, do not "fix" this test without fixing the code):
+            // unlike ProcessingStudioViewModel.deleteRecording, the home delete path never
+            // stops playback when the deleted recording is the one playing — the mini player
+            // keeps playing a row that no longer exists. Reported for the verify wave.
+            val audioFile = File.createTempFile("home-delete", ".m4a").apply { writeText("audio") }
+            val item = displayItemFor(audioFile.absolutePath)
+            val playbackController =
+                mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns
+                        MutableStateFlow(
+                            dev.chirpboard.app.core.playback.RecordingPlaybackState(
+                                recordingId = item.id,
+                                title = item.title,
+                                audioPath = item.audioPath,
+                                isPlaying = true,
+                            ),
+                        )
+                }
+            viewModel = createHomeViewModel(playbackControllerOverride = playbackController)
+
+            runDeleteToCompletion(item)
+
+            coVerify { recordingRepository.deleteById(item.id) }
+            io.mockk.verify(exactly = 0) { playbackController.stop() }
+        }
+
+    // ERR-13/ERR-14: Home surfaces the same service auto-stop channel as the record screen.
+    @Test
+    fun `auto-stop events pass through and clear on consume`() =
+        runTest(testDispatcher) {
+            assertNull(viewModel.autoStopEvent.value)
+
+            serviceEvents.publishAutoStop(RecordingAutoStopReason.STORAGE_CRITICAL)
+            assertEquals(RecordingAutoStopReason.STORAGE_CRITICAL, viewModel.autoStopEvent.value?.reason)
+
+            viewModel.consumeAutoStopEvent()
+            assertNull(viewModel.autoStopEvent.value)
+        }
+
     private fun createHomeViewModel(
         savedStateHandle: SavedStateHandle = SavedStateHandle(),
         recordingManagerOverride: RecordingManager = recordingManager,
+        playbackControllerOverride: dev.chirpboard.app.core.playback.RecordingPlaybackController =
+            mockk(relaxed = true) {
+                every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
+            },
     ): HomeViewModel =
         HomeViewModel(
             appContext,
@@ -1006,10 +1088,7 @@ class HomeViewModelTest {
             recordingTextEnrichment,
             audioImportOrchestrator,
             sessionRecovery,
-            playbackController =
-                mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
-                    every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
-                },
+            playbackController = playbackControllerOverride,
             savedStateHandle = savedStateHandle,
             defaultDispatcher = testDispatcher,
             serviceEvents = serviceEvents,
@@ -1026,3 +1105,6 @@ class HomeViewModelTest {
             previewText = previewText,
         )
 }
+
+/** Test-side mirror of HomeViewModel.SEARCH_DEBOUNCE_MS (private in production). */
+private const val SEARCH_DEBOUNCE_MS = 200L

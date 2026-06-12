@@ -14,6 +14,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -51,6 +52,86 @@ class AudioImportOrchestratorTest {
     @After
     fun tearDown() {
         tempDir.deleteRecursively()
+    }
+
+    @Test
+    fun `successful import copies the stream creates an IMPORTED recording and queues it`() =
+        runTest {
+            // TST-006: the success contract — byte-for-byte copy into recordings/, an
+            // IMPORTED row pointing at that file, a transcription enqueue for that exact
+            // recording id, and a SavedAndQueued result carrying the same id.
+            val recordingId = UUID.randomUUID()
+            val audioBytes = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
+            var capturedAudioPath: String? = null
+
+            every { contentResolver.openInputStream(uri) } returns ByteArrayInputStream(audioBytes)
+            coEvery {
+                recordingRepository.createRecording(any(), any(), RecordingSource.IMPORTED, any(), any())
+            } answers {
+                capturedAudioPath = invocation.args[1] as String
+                Recording(
+                    id = recordingId,
+                    title = invocation.args[0] as String,
+                    audioPath = capturedAudioPath!!,
+                    source = RecordingSource.IMPORTED,
+                    durationMs = invocation.args[4] as Long,
+                )
+            }
+
+            val result = orchestrator.import(uri)
+
+            assertTrue(result is AudioImportResult.SavedAndQueued)
+            assertEquals(recordingId, (result as AudioImportResult.SavedAndQueued).recordingId)
+            val copiedFile = File(capturedAudioPath!!)
+            assertEquals(File(tempDir, "recordings"), copiedFile.parentFile)
+            assertTrue(audioBytes.contentEquals(copiedFile.readBytes()))
+            coVerify(exactly = 1) { transcriptionQueueManager.enqueue(recordingId, any()) }
+            coVerify(exactly = 0) { transcriptionQueueManager.markPendingForQueueRecovery(any(), any(), any()) }
+        }
+
+    @Test
+    fun `import file extension resolves from the resolver mime subtype`() =
+        runTest {
+            every { contentResolver.getType(uri) } returns "audio/x-wav"
+            val capturedPath = importAndCapturePath()
+
+            // SEC-9 sanitization strips the '-' from the subtype; no path separators survive.
+            assertTrue(capturedPath.endsWith(".xwav"))
+        }
+
+    @Test
+    fun `import file extension falls back to the uri segment then the default`() =
+        runTest {
+            // No MIME type: the (sanitized, lowercased) uri extension wins.
+            every { contentResolver.getType(uri) } returns null
+            every { uri.lastPathSegment } returns "Voice Memo.MP3"
+            assertTrue(importAndCapturePath().endsWith(".mp3"))
+
+            // Nothing usable anywhere: the m4a default applies.
+            every { uri.lastPathSegment } returns null
+            assertTrue(importAndCapturePath().endsWith(".m4a"))
+        }
+
+    private suspend fun importAndCapturePath(): String {
+        var capturedAudioPath: String? = null
+        every { contentResolver.openInputStream(uri) } returns ByteArrayInputStream("audio-data".toByteArray())
+        coEvery {
+            recordingRepository.createRecording(any(), any(), RecordingSource.IMPORTED, any(), any())
+        } answers {
+            capturedAudioPath = invocation.args[1] as String
+            Recording(
+                id = UUID.randomUUID(),
+                title = invocation.args[0] as String,
+                audioPath = capturedAudioPath!!,
+                source = RecordingSource.IMPORTED,
+                durationMs = invocation.args[4] as Long,
+            )
+        }
+
+        val result = orchestrator.import(uri)
+
+        assertTrue(result is AudioImportResult.SavedAndQueued)
+        return capturedAudioPath!!
     }
 
     @Test

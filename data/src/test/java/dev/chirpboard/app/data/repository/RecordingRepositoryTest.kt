@@ -492,4 +492,41 @@ class RecordingRepositoryTest {
 
             coVerify(exactly = 0) { enhancementSnapshotDao.deleteByRecordingId(any()) }
         }
+
+    @Test
+    fun `getPendingRecordings loads only queue states so awaiting-manual rows are never auto-recovered`() =
+        runTest {
+            // Recover-stuck/startup recovery feed exclusively from this query: parking a
+            // recording in AWAITING_MANUAL_TRANSCRIPTION (profile opt-out / user cancel)
+            // only sticks if automatic recovery can never see it here.
+            val expected = listOf(recording(status = RecordingStatus.PENDING_TRANSCRIPTION))
+            val statuses = slot<List<RecordingStatus>>()
+            coEvery { recordingDao.getRecordingsByStatuses(capture(statuses)) } returns expected
+
+            val result = repository.getPendingRecordings()
+
+            assertEquals(expected, result)
+            assertEquals(
+                listOf(RecordingStatus.PENDING_TRANSCRIPTION, RecordingStatus.PENDING_ENHANCEMENT),
+                statuses.captured,
+            )
+            assertFalse(statuses.captured.contains(RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION))
+        }
+
+    @Test
+    fun `updateExportInfo stamps the export path and a current export time on the row`() =
+        runTest {
+            // Export bookkeeping: the studio surfaces "exported to ..." from these two
+            // columns, so a successful Obsidian export must record both.
+            val id = UUID.randomUUID()
+            val exportedAt = slot<java.util.Date>()
+            coEvery { recordingDao.updateExportInfo(id, "vault/Note.md", capture(exportedAt)) } returns Unit
+
+            val before = System.currentTimeMillis()
+            repository.updateExportInfo(id, "vault/Note.md")
+            val after = System.currentTimeMillis()
+
+            coVerify(exactly = 1) { recordingDao.updateExportInfo(id, "vault/Note.md", any()) }
+            assertTrue(exportedAt.captured.time in before..after)
+        }
 }

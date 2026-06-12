@@ -19,14 +19,19 @@ class RecordingStateManagerSegmentTest {
 
     @Test
     fun rotateSegment_preservesAccumulatedDuration() {
+        // TST-012: a controlled clock replaces the former Thread.sleep(20) so the
+        // accumulated duration across the rotation is exact instead of wall-clock dependent.
+        var now = 1_000L
+        manager.nowMsOverrideForTest = { now }
         manager.tryStartRecording(RecordingOrigin.APP)
         manager.onRecordingStarted("/tmp/seg-000.m4a")
-        Thread.sleep(20)
+        now = 1_020L
         manager.rotateSegment("/tmp/seg-001.m4a")
 
         val durationAfterRotation = manager.getCurrentDurationMs()
         assertEquals("/tmp/seg-001.m4a", (manager.state.value as RecordingState.Recording).audioFilePath)
         assert(durationAfterRotation >= 15L)
+        assertEquals(20L, durationAfterRotation)
     }
 
     @Test
