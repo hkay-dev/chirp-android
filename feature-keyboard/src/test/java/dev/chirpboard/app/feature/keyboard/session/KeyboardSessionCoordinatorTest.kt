@@ -1142,7 +1142,6 @@ class KeyboardSessionCoordinatorTest {
                 transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
             } coAnswers {
                 val sessionPersistence = arg<InlineCapturePersistence?>(1)
-                seenPersistence.complete(sessionPersistence)
                 sessionPersistence?.persist(
                     samples = null,
                     rawText = "secret",
@@ -1157,6 +1156,10 @@ class KeyboardSessionCoordinatorTest {
                     errorMessage = "interrupted",
                     reason = InlineCapturePersistReason.RESCUE,
                 )
+                // Complete AFTER both persists so the test's await() happens-after the RESCUE
+                // forward lands on the real persistence. The pipeline runs on Dispatchers.Default
+                // (off the test scheduler), so completing first raced the assertion (flaky).
+                seenPersistence.complete(sessionPersistence)
             }
             val coordinator = buildCoordinator()
             coordinator.historyPersistenceSuppressed = { true }
