@@ -358,6 +358,15 @@ private class FakeTagDao : TagDao {
 
     override suspend fun getExistingTagIds(ids: List<UUID>): List<UUID> = tags.map(Tag::id).filter(ids::contains)
 
+    // Live swipe-delete undo reads (PROP-11) — not exercised by the backup-restore default methods.
+    override suspend fun getRecordingIdsForTag(tagId: UUID): List<UUID> = unused()
+
+    override suspend fun getProfileIdsForTag(tagId: UUID): List<UUID> = unused()
+
+    override suspend fun getExistingRecordingIds(ids: List<UUID>): List<UUID> = unused()
+
+    override suspend fun getExistingProfileIds(ids: List<UUID>): List<UUID> = unused()
+
     override suspend fun getRecordingCount(recordingId: UUID): Int = unused()
 
     override suspend fun delete(tag: Tag) = unused()

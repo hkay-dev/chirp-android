@@ -148,9 +148,8 @@
 
     <!-- PROP-11: undo on swipe-delete. -->
     <string name="rec_undo">Undo</string>
-    <!-- %1$s is the deleted tag's name. The note is honest: re-creating the tag restores its name
-         and color but not the recordings it had been applied to. -->
-    <string name="rec_tag_deleted">Deleted \"%1$s\". Its recording assignments aren\'t restored by Undo.</string>
+    <!-- %1$s is the deleted tag's name. Undo restores the tag and its recording/profile assignments. -->
+    <string name="rec_tag_deleted">Deleted \"%1$s\"</string>
     <!-- %1$s is the deleted replacement's "from" word/phrase. -->
     <string name="rec_replacement_deleted">Deleted replacement for \"%1$s\".</string>
     <!-- PROP-12: row affordances for TalkBack. -->

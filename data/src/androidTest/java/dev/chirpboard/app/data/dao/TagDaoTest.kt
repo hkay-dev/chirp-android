@@ -101,4 +101,42 @@ class TagDaoTest {
 
         assertTrue(dao.getTagsForRecordingList(recording.id).isEmpty())
     }
+
+    @Test
+    fun tagAssignmentSnapshotReads_thenReLink_giveALosslessUndoAcrossTheFkCascade() = runTest {
+        // PROP-11 lossless undo: snapshot a tag's recording + profile-default assignments before
+        // the delete cascade, then re-link them on Undo.
+        val recording = Recording(title = "r", audioPath = "/tmp/r.m4a", source = RecordingSource.APP)
+        database.recordingDao().insert(recording)
+        val profile = Profile(name = "Meetings")
+        database.profileDao().insert(profile)
+        val tag = Tag(name = "work", color = "#111111")
+        dao.insert(tag)
+        dao.addTagToRecording(RecordingTag(recording.id, tag.id))
+        database.profileDao().insertDefaultTags(listOf(ProfileDefaultTag(profile.id, tag.id)))
+
+        // The new snapshot reads return the tag's assignments.
+        assertEquals(listOf(recording.id), dao.getRecordingIdsForTag(tag.id))
+        assertEquals(listOf(profile.id), dao.getProfileIdsForTag(tag.id))
+
+        // Delete cascades the assignments away.
+        dao.delete(tag)
+        assertTrue(dao.getTagsForRecordingList(recording.id).isEmpty())
+
+        // Re-link (the restore primitives) brings the tag and both assignments back verbatim.
+        dao.insert(tag)
+        dao.addTagsToRecording(listOf(RecordingTag(recording.id, tag.id)))
+        dao.insertProfileDefaultTagLinks(listOf(ProfileDefaultTag(profile.id, tag.id)))
+        assertEquals(listOf(tag.id), dao.getTagsForRecordingList(recording.id).map(Tag::id))
+        assertEquals(listOf(tag.id), database.profileDao().getDefaultTagIds(profile.id))
+    }
+
+    @Test
+    fun getExistingRecordingIds_filtersOutIdsThatNoLongerExist() = runTest {
+        val recording = Recording(title = "r", audioPath = "/tmp/r.m4a", source = RecordingSource.APP)
+        database.recordingDao().insert(recording)
+        val ghost = UUID.randomUUID()
+
+        assertEquals(listOf(recording.id), dao.getExistingRecordingIds(listOf(recording.id, ghost)))
+    }
 }

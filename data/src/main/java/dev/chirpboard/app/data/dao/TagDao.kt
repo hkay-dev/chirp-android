@@ -88,6 +88,22 @@ interface TagDao {
     )
     suspend fun getProfileDefaultTagLinksByName(): List<ProfileDefaultTagNameLink>
 
+    /** Recordings a tag is assigned to — snapshotted before a swipe-delete so an Undo can re-link them. */
+    @Query("SELECT recordingId FROM recording_tags WHERE tagId = :tagId")
+    suspend fun getRecordingIdsForTag(tagId: UUID): List<UUID>
+
+    /** Profiles a tag is a default for — snapshotted before a swipe-delete so an Undo can re-link them. */
+    @Query("SELECT profileId FROM profile_default_tags WHERE tagId = :tagId")
+    suspend fun getProfileIdsForTag(tagId: UUID): List<UUID>
+
+    /** Of the given recording ids, the ones that still exist — so an Undo never re-links a since-deleted recording (FK). */
+    @Query("SELECT id FROM recordings WHERE id IN (:ids)")
+    suspend fun getExistingRecordingIds(ids: List<UUID>): List<UUID>
+
+    /** Of the given profile ids, the ones that still exist — so an Undo never re-links a since-deleted profile (FK). */
+    @Query("SELECT id FROM profiles WHERE id IN (:ids)")
+    suspend fun getExistingProfileIds(ids: List<UUID>): List<UUID>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertProfileDefaultTagLinks(links: List<ProfileDefaultTag>)
 

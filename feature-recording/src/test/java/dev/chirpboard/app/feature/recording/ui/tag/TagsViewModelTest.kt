@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.ui.tag
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.repository.TagRepository
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -64,9 +65,28 @@ class TagsViewModelTest {
         viewModel.undoDelete()
         advanceUntilIdle()
 
-        // The re-insert uses the captured entity verbatim, so the original id/name/color survive.
-        coVerify(exactly = 1) { tagRepository.insert(tag) }
+        // The restore uses the captured entity verbatim, so the original id/name/color survive
+        // (with no assignments, the recording/profile id lists are empty).
+        coVerify(exactly = 1) { tagRepository.restoreTagWithAssignments(tag, emptyList(), emptyList()) }
         assertNull(viewModel.pendingUndo.value)
+    }
+
+    @Test
+    fun `deleteTag snapshots assignments and undoDelete restores them losslessly`() = runTest {
+        val tag = Tag(id = UUID.randomUUID(), name = "Work", color = "#FF5733")
+        val recordingIds = listOf(UUID.randomUUID(), UUID.randomUUID())
+        val profileIds = listOf(UUID.randomUUID())
+        coEvery { tagRepository.getRecordingIdsForTag(tag.id) } returns recordingIds
+        coEvery { tagRepository.getProfileIdsForTag(tag.id) } returns profileIds
+        val viewModel = TagsViewModel(tagRepository)
+
+        viewModel.deleteTag(tag)
+        advanceUntilIdle()
+        viewModel.undoDelete()
+        advanceUntilIdle()
+
+        // Assignments captured before the cascade delete are handed back to the lossless restore.
+        coVerify(exactly = 1) { tagRepository.restoreTagWithAssignments(tag, recordingIds, profileIds) }
     }
 
     @Test
@@ -77,5 +97,6 @@ class TagsViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 0) { tagRepository.insert(any()) }
+        coVerify(exactly = 0) { tagRepository.restoreTagWithAssignments(any(), any(), any()) }
     }
 }
