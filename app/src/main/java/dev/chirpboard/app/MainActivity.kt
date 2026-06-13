@@ -30,17 +30,29 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.ui.components.ChirpScaffoldSurface
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
+import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.navigation.AppNavHost
 import dev.chirpboard.app.navigation.Screen
 import dev.chirpboard.app.navigation.SharedAudioRequest
 import dev.chirpboard.app.navigation.toSharedAudioRequestOrNull
+import dev.chirpboard.app.shortcut.ProfileShortcutManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -50,6 +62,12 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var recordingStateManager: RecordingStateManager
+
+    @Inject
+    lateinit var profileRepository: ProfileRepository
+
+    @Inject
+    lateinit var profileShortcutManager: ProfileShortcutManager
 
     private var sharedAudioRequest by mutableStateOf<SharedAudioRequest?>(null)
 
@@ -130,6 +148,40 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        observeProfilesForShortcuts()
+    }
+
+    /**
+     * Keeps the dynamic per-profile launcher shortcuts in sync with the profile set. Collected on
+     * a background dispatcher (ShortcutManager IPC + icon resource decode) while the activity is at
+     * least STARTED; [ProfileRepository.getAllProfiles] already de-duplicates identical Room
+     * re-emissions, and the profile-name/id projection is distinct-checked so a shortcut rewrite
+     * only happens when something a shortcut shows actually changed.
+     */
+    private fun observeProfilesForShortcuts() {
+        // repeatOnLifecycle must be entered from the main dispatcher; the Room collection and the
+        // ShortcutManager push themselves run on Dispatchers.Default so no IO/IPC touches the UI
+        // thread.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                profileRepository
+                    .getAllProfiles()
+                    .map { state -> state.value }
+                    .distinctUntilChanged()
+                    .flowOn(Dispatchers.Default)
+                    .collect { profiles ->
+                        withContext(Dispatchers.Default) {
+                            try {
+                                profileShortcutManager.pushDynamicShortcuts(profiles)
+                            } catch (e: IllegalStateException) {
+                                // e.g. rate-limited by the launcher; the next change retries.
+                                Log.w(TAG, "Failed to refresh profile shortcuts", e)
+                            }
+                        }
+                    }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -154,13 +206,32 @@ class MainActivity : ComponentActivity() {
      * - the system keyboard-settings gear launches the [KEYBOARD_SETTINGS_ALIAS] activity-alias
      *   (input_method.xml settingsActivity) -> keyboard settings (LIF-15);
      * - the "Start recording" launcher shortcut sends [ACTION_START_RECORDING] -> Record screen
-     *   with autoStart (the shortcut tap is a user interaction, so FGS-mic eligible).
+     *   with autoStart (the shortcut tap is a user interaction, so FGS-mic eligible);
+     * - a per-profile launcher/pinned shortcut sends [ACTION_RECORD_WITH_PROFILE] with an
+     *   [EXTRA_PROFILE_ID] UUID -> Record screen with autoStart pre-selecting that profile. An
+     *   absent or unparseable profile id falls back to a plain autoStart recording.
      */
     private fun Intent.toDeepLinkRouteOrNull(): String? =
         when {
             component?.className == KEYBOARD_SETTINGS_ALIAS -> Screen.KeyboardSettings.route
             action == ACTION_START_RECORDING -> Screen.Record.createRoute(autoStart = true)
+            action == ACTION_RECORD_WITH_PROFILE ->
+                Screen.Record.createRoute(
+                    autoStart = true,
+                    profileId = parseProfileIdOrNull(getStringExtra(EXTRA_PROFILE_ID)),
+                )
             else -> null
+        }
+
+    /** Accepts the extra only when it is a well-formed UUID; otherwise the launch falls back. */
+    private fun parseProfileIdOrNull(raw: String?): String? =
+        raw?.let {
+            try {
+                UUID.fromString(it).toString()
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "Ignoring non-UUID profileId shortcut extra", e)
+                null
+            }
         }
 
     private fun maybeRequestStartupPrompts(canRequest: Boolean) {
@@ -201,11 +272,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val TAG = "MainActivity"
-        const val KEY_STARTUP_PROMPTS_REQUESTED = "startupPromptsRequested"
-        const val KEYBOARD_SETTINGS_ALIAS = "dev.chirpboard.app.KeyboardSettingsLauncherActivity"
-        const val ACTION_START_RECORDING = "dev.chirpboard.app.action.START_RECORDING"
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val KEY_STARTUP_PROMPTS_REQUESTED = "startupPromptsRequested"
+        private const val KEYBOARD_SETTINGS_ALIAS = "dev.chirpboard.app.KeyboardSettingsLauncherActivity"
+        private const val ACTION_START_RECORDING = "dev.chirpboard.app.action.START_RECORDING"
+
+        /**
+         * Explicit-component action a per-profile launcher/pinned shortcut sends to start a
+         * recording pre-selecting [EXTRA_PROFILE_ID]. Read by [ProfileShortcutManager] when it
+         * builds shortcut intents.
+         */
+        const val ACTION_RECORD_WITH_PROFILE = "dev.chirpboard.app.action.RECORD_WITH_PROFILE"
+
+        /** String UUID of the profile to record with, carried by [ACTION_RECORD_WITH_PROFILE]. */
+        const val EXTRA_PROFILE_ID = "profileId"
     }
 }
 

@@ -3,6 +3,8 @@ package dev.chirpboard.app.debug
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chirpboard.app.core.export.TranscriptExportPort
+import dev.chirpboard.app.core.export.TranscriptExportRecording
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Tag
@@ -18,6 +20,7 @@ import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.Date
@@ -39,6 +42,7 @@ class DevMenuViewModel @Inject constructor(
     private val tagRepository: TagRepository,
     private val profileRepository: ProfileRepository,
     private val wordReplacementRepository: WordReplacementRepository,
+    private val transcriptExportPort: TranscriptExportPort,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DevMenuUiState())
@@ -469,5 +473,74 @@ class DevMenuViewModel @Inject constructor(
                 _uiState.update { it.copy(isGenerating = false) }
             }
         }
+    }
+
+    // ===== Obsidian export (debug only) =====
+
+    /**
+     * Picks the most recent COMPLETED recording that has a transcript and force-exports it to the
+     * configured Obsidian vault, so the export pipeline can be exercised without recording fresh
+     * audio. Passes requestedByProfile = true to bypass the global auto-export toggle while still
+     * respecting the "no vault configured" gate; the outcome (success / skipped / error) is
+     * surfaced in [DevMenuUiState.message].
+     */
+    fun exportLatestCompletedToObsidian() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isGenerating = true, message = "Exporting latest to Obsidian…") }
+            try {
+                val recording = findLatestCompletedWithTranscript()
+                if (recording == null) {
+                    _uiState.update { it.copy(message = "No completed recording with a transcript") }
+                    return@launch
+                }
+                val transcriptEntity = recordingRepository.getTranscript(recording.id)
+                val text = transcriptEntity?.processedText?.takeIf { it.isNotBlank() } ?: transcriptEntity?.rawText
+                if (transcriptEntity == null || text.isNullOrBlank()) {
+                    _uiState.update { it.copy(message = "No completed recording with a transcript") }
+                    return@launch
+                }
+                val tagNames = tagRepository.getTagsForRecordingList(recording.id).map { it.name }
+                transcriptExportPort
+                    .exportIfEnabled(
+                        recording =
+                            TranscriptExportRecording(
+                                title = recording.title,
+                                createdAtEpochMs = recording.createdAt.time,
+                                durationMs = recording.durationMs,
+                                sourceName = recording.source.name.lowercase(),
+                                id = recording.id,
+                            ),
+                        transcript = text,
+                        summary = transcriptEntity.summary,
+                        tags = tagNames,
+                        requestedByProfile = true,
+                    ).onSuccess { outcome ->
+                        val message =
+                            if (outcome.exported) {
+                                "Exported \"${recording.title}\" to ${outcome.exportedUri}"
+                            } else {
+                                "No Obsidian vault configured"
+                            }
+                        _uiState.update { it.copy(message = message) }
+                    }.onFailure { error ->
+                        _uiState.update { it.copy(message = "Obsidian export failed: ${error.message}") }
+                    }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                _uiState.update { it.copy(message = "Obsidian export error: ${e.message}") }
+            } finally {
+                _uiState.update { it.copy(isGenerating = false) }
+            }
+        }
+    }
+
+    private suspend fun findLatestCompletedWithTranscript(): Recording? {
+        val completed =
+            recordingRepository
+                .getRecordingsByStatus(RecordingStatus.COMPLETED)
+                .first()
+                .value
+                .sortedByDescending { it.createdAt }
+        return completed.firstOrNull { recordingRepository.getTranscript(it.id) != null }
     }
 }

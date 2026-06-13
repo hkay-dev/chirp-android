@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Code
-import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.automirrored.rounded.Label
@@ -24,13 +23,16 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.ui.R as CoreUiR
 import dev.chirpboard.app.core.ui.components.SettingsBadge
 import dev.chirpboard.app.core.ui.components.ChirpSettingsHubScaffold
 import dev.chirpboard.app.core.ui.components.SettingsListItem
@@ -166,7 +168,7 @@ fun SettingsScreen(
             }
             item {
                 SettingsListItem(
-                    icon = Icons.Rounded.FolderOpen,
+                    icon = ImageVector.vectorResource(CoreUiR.drawable.ic_obsidian),
                     title = stringResource(R.string.settings_obsidian_title),
                     subtitle = stringResource(R.string.settings_obsidian_subtitle),
                     badge = if (uiState.isObsidianConnected) SettingsBadge.CONNECTED else null,

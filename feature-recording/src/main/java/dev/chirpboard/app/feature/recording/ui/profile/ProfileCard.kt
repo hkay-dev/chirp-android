@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -42,6 +43,7 @@ fun ProfileCard(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    onAddToHomeScreen: () -> Unit = {},
 ) {
     var showMenu by remember { mutableStateOf(false) }
     val profile = profileItem.profile
@@ -138,6 +140,19 @@ fun ProfileCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false },
                 ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(R.string.rec_add_profile_to_home)) },
+                        onClick = {
+                            showMenu = false
+                            onAddToHomeScreen()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.AddToHomeScreen,
+                                contentDescription = null,
+                            )
+                        },
+                    )
                     DropdownMenuItem(
                         text = { Text(stringResource(CoreR.string.rec_delete)) },
                         onClick = {

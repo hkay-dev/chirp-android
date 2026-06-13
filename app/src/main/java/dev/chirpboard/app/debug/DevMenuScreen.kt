@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -249,6 +250,45 @@ fun DevMenuScreen(
                             } else {
                                 Text("Fuzz 600")
                             }
+                        }
+                    }
+                }
+            }
+
+            // Obsidian Export
+            item {
+                DevSection(
+                    title = "Obsidian",
+                    icon = Icons.Rounded.Upload,
+                ) {
+                    Text(
+                        text = "Force-export the most recent completed recording (with a transcript) " +
+                            "to the configured Obsidian vault, bypassing the auto-export toggle. " +
+                            "Use this to test the export pipeline without recording fresh audio.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    FilledTonalButton(
+                        onClick = viewModel::exportLatestCompletedToObsidian,
+                        enabled = !uiState.isGenerating,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        if (uiState.isGenerating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.Upload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Export latest to Obsidian")
                         }
                     }
                 }

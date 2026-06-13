@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -34,12 +35,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
@@ -48,6 +53,7 @@ import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.obsidian.R
+import dev.chirpboard.app.core.ui.R as CoreUiR
 
 /**
  * Settings screen for configuring Obsidian vault integration.
@@ -261,10 +267,21 @@ private fun HelpSection() {
         modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
         verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
     ) {
-        Text(
-            text = stringResource(R.string.obsidian_help_title),
-            style = MaterialTheme.typography.titleSmall,
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = ImageVector.vectorResource(CoreUiR.drawable.ic_obsidian),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(BrandGlyphSize),
+            )
+            Text(
+                text = stringResource(R.string.obsidian_help_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
         Text(
             text = stringResource(R.string.obsidian_help_body),
             style = MaterialTheme.typography.bodyMedium,
@@ -277,3 +294,6 @@ private fun HelpSection() {
         )
     }
 }
+
+/** Leading brand glyph size for the help-section title; matches a titleSmall cap height. */
+private val BrandGlyphSize = 20.dp

@@ -19,6 +19,7 @@
     <string name="rec_profile_mode">Default Processing Mode</string>
     <string name="rec_profile_mode_desc">AI processing applied to recordings made with this profile.</string>
     <string name="rec_delete_profile">Delete Profile</string>
+    <string name="rec_add_profile_to_home">Add to Home screen</string>
     <string name="rec_profiles">Profiles</string>
     <string name="rec_home_quick_starts_title">Quick starts</string>
     <string name="rec_profile_quick_start_title">Pin to Home quick starts</string>

@@ -45,6 +45,7 @@ fun ProfileListScreen(
     onProfileClick: (UUID) -> Unit,
     onAddProfile: () -> Unit,
     onNavigateBack: () -> Unit,
+    onAddToHomeScreen: (UUID) -> Unit = {},
 ) {
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
@@ -145,6 +146,7 @@ fun ProfileListScreen(
                             onClick = { onProfileClick(profile.id) },
                             onDelete = { profileToDeleteId = profile.id.toString() },
                             modifier = Modifier.animateItem(),
+                            onAddToHomeScreen = { onAddToHomeScreen(profile.id) },
                         )
                     }
                 }

@@ -20,17 +20,31 @@ import androidx.navigation.navArgument
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
+import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.feature.recording.ui.HomeScreen
 import dev.chirpboard.app.feature.recording.ui.HomeViewModel
 import dev.chirpboard.app.feature.recording.ui.RecordScreen
 import dev.chirpboard.app.feature.studio.ProcessingStudioScreen
 
+/**
+ * What the dialog's confirm button does when the model isn't ready (ERR-22 follow-up):
+ * - [DOWNLOAD_MODEL] routes to the Transcription settings download flow;
+ * - [GRANT_STORAGE] launches the system All-Files-Access page so a previously-downloaded
+ *   model in public storage becomes readable again;
+ * - [DISMISS] just closes the dialog (errors with no actionable follow-up).
+ */
+internal enum class RecordEntryConfirmAction {
+    DOWNLOAD_MODEL,
+    GRANT_STORAGE,
+    DISMISS,
+}
+
 internal data class RecordEntryDialogContent(
     val title: String,
     val message: String,
     val confirmLabelRes: Int,
-    val navigateToTranscriptionDownload: Boolean,
+    val confirmAction: RecordEntryConfirmAction,
 )
 
 internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostController) {
@@ -72,7 +86,7 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                         title = context.getString(R.string.record_entry_model_required_title),
                                         message = context.getString(R.string.record_entry_model_required_message),
                                         confirmLabelRes = R.string.record_entry_download_model,
-                                        navigateToTranscriptionDownload = true,
+                                        confirmAction = RecordEntryConfirmAction.DOWNLOAD_MODEL,
                                     )
                                 }
 
@@ -81,16 +95,19 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                         title = context.getString(R.string.record_entry_model_integrity_failed_title),
                                         message = context.getString(R.string.record_entry_model_integrity_failed_message),
                                         confirmLabelRes = R.string.record_entry_download_model,
-                                        navigateToTranscriptionDownload = true,
+                                        confirmAction = RecordEntryConfirmAction.DOWNLOAD_MODEL,
                                     )
                                 }
 
                                 ModelReadinessUnavailableReason.STORAGE_ACCESS_DENIED -> {
+                                    // ERR-22 follow-up: the model lives in public storage, so the
+                                    // fix is to grant All-Files-Access — offer to open that settings
+                                    // page instead of dead-ending on Dismiss.
                                     RecordEntryDialogContent(
                                         title = context.getString(R.string.record_entry_model_storage_denied_title),
                                         message = context.getString(R.string.record_entry_model_storage_denied_message),
-                                        confirmLabelRes = R.string.dismiss,
-                                        navigateToTranscriptionDownload = false,
+                                        confirmLabelRes = R.string.record_entry_grant_storage_access,
+                                        confirmAction = RecordEntryConfirmAction.GRANT_STORAGE,
                                     )
                                 }
                             }
@@ -105,7 +122,7 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                 title = context.getString(R.string.record_entry_model_check_error_title),
                                 message = context.getString(R.string.record_entry_model_check_error_message),
                                 confirmLabelRes = R.string.dismiss,
-                                navigateToTranscriptionDownload = false,
+                                confirmAction = RecordEntryConfirmAction.DISMISS,
                             )
                     }
                 }
@@ -144,10 +161,19 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            val shouldOpenDownload = content?.navigateToTranscriptionDownload == true
+                            val action = content?.confirmAction ?: RecordEntryConfirmAction.DISMISS
                             dialogContent = null
-                            if (shouldOpenDownload) {
-                                navController.navigate(Screen.TranscriptionSettings.createRoute(autoDownload = true))
+                            when (action) {
+                                RecordEntryConfirmAction.DOWNLOAD_MODEL ->
+                                    navController.navigate(
+                                        Screen.TranscriptionSettings.createRoute(autoDownload = true),
+                                    )
+                                // The model is in public storage; opening the system
+                                // All-Files-Access page lets the user grant read access. The next
+                                // record tap re-runs the readiness check, so no extra state is kept.
+                                RecordEntryConfirmAction.GRANT_STORAGE ->
+                                    AllFilesAccessRequester.openSettings(context)
+                                RecordEntryConfirmAction.DISMISS -> Unit
                             }
                         },
                     ) {

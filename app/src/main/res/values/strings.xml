@@ -42,6 +42,9 @@
     <string name="record_entry_model_integrity_failed_message">Model files are corrupted. Re-download the model in Settings.</string>
     <string name="record_entry_model_storage_denied_title">Storage Access Needed</string>
     <string name="record_entry_model_storage_denied_message">A downloaded model from a previous install was found, but Chirp can’t access it. Allow \"All files access\" for Chirp in system settings (Apps → Special app access → All files access), then try again.</string>
+    <!-- ERR-22 follow-up: confirm button on the storage-denied dialog opens the system
+         All-Files-Access page for Chirp so the existing model becomes readable. -->
+    <string name="record_entry_grant_storage_access">Open Settings</string>
     <string name="record_entry_model_check_error_title">Model Check Error</string>
     <!-- I18N-05: no raw exception text; actionable guidance only (details stay in logs). -->
     <string name="record_entry_model_check_error_message">Could not verify model readiness. Try again, or re-download the model in Settings.</string>
@@ -228,6 +231,10 @@
     <string name="shortcut_record_short">Record</string>
     <string name="shortcut_record_long">Start recording</string>
     <string name="shortcut_record_disabled">Recording unavailable</string>
+    <!-- Long label for a per-profile launcher/home-screen shortcut; %1$s is the profile name. -->
+    <string name="shortcut_record_with_profile_long">Record with %1$s</string>
+    <!-- Shown when the launcher does not support pinning shortcuts to the home screen. -->
+    <string name="add_to_home_unsupported">This launcher doesn’t support adding shortcuts to the Home screen</string>
 
     <!-- Notifications-off banner (PLT-06): shown while a recording runs without a visible
          foreground notification because POST_NOTIFICATIONS is denied/disabled -->
