@@ -209,6 +209,51 @@ fun DevMenuScreen(
                 }
             }
 
+            // Fuzz / Stress Seeding
+            item {
+                DevSection(
+                    title = "Fuzz / Stress",
+                    icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                ) {
+                    Text(
+                        text = "Seed a large adversarial dataset: hundreds of recordings with emoji / RTL / " +
+                            "long / formatted titles & notes, plus tags, word replacements and profiles. " +
+                            "Stresses the home list, search, stats and rendering.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        FilledTonalButton(
+                            onClick = { viewModel.fuzzSeed(50) },
+                            enabled = !uiState.isGenerating,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Fuzz 50")
+                        }
+                        FilledTonalButton(
+                            onClick = { viewModel.fuzzSeed(600) },
+                            enabled = !uiState.isGenerating,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            if (uiState.isGenerating) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Text("Fuzz 600")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Reliability Timeline
             item {
                 DevSection(
@@ -279,6 +324,21 @@ fun DevMenuScreen(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(stringResource(R.string.dev_delete_all))
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = viewModel::clearAllData,
+                        enabled = !uiState.isGenerating,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Clear ALL (recordings, tags, replacements, profiles)")
                     }
                 }
             }
