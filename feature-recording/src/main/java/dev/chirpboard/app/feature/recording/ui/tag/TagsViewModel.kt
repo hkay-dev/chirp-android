@@ -23,6 +23,11 @@ class TagsViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+        // PROP-11: the most recently swipe-deleted tag, captured in full so an Undo can re-insert
+        // it with its original id, name, and color preserved.
+        private val _pendingUndo = MutableStateFlow<Tag?>(null)
+        val pendingUndo: StateFlow<Tag?> = _pendingUndo.asStateFlow()
+
         val tags: StateFlow<List<Tag>> =
             tagRepository
                 .getAllTags()
@@ -49,8 +54,27 @@ class TagsViewModel
         }
 
         fun deleteTag(tag: Tag) {
+            // Capture the whole entity before deletion so Undo can re-insert it verbatim. Deleting
+            // a tag cascades its recording_tags rows; the available repository API can re-create the
+            // tag (id preserved) but cannot restore those assignments, so the UI's undo snackbar is
+            // worded to say so honestly (see rec_tag_deleted_undo_note).
+            _pendingUndo.value = tag
             viewModelScope.launch {
                 tagRepository.delete(tag)
             }
+        }
+
+        /** PROP-11: re-insert the last swipe-deleted tag, preserving its original id/name/color. */
+        fun undoDelete() {
+            val tag = _pendingUndo.value ?: return
+            _pendingUndo.value = null
+            viewModelScope.launch {
+                tagRepository.insert(tag)
+            }
+        }
+
+        /** Clears the pending-undo entity once its snackbar is no longer showing. */
+        fun clearPendingUndo() {
+            _pendingUndo.value = null
         }
     }

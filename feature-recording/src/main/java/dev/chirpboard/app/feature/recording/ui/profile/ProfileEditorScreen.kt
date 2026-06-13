@@ -9,20 +9,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Summarize
+import androidx.compose.material.icons.filled.Title
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -30,7 +31,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.ChirpPrimaryExtendedFab
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
+import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
@@ -154,171 +157,78 @@ fun ProfileEditorScreen(
                         modifier = Modifier.fillMaxWidth(),
                         supportingText = { Text(stringResource(R.string.rec_profile_icon_desc)) },
                     )
-
-                    SettingToggle(
-                        title = stringResource(R.string.rec_profile_quick_start_title),
-                        description = stringResource(R.string.rec_profile_quick_start_description),
-                        checked = uiState.quickStartPinned,
-                        onCheckedChange = { viewModel.updateQuickStartPinned(it) },
-                    )
                 }
+
+                // PROP-9: pinning is a per-profile automation toggle; it renders as a shared flat
+                // switch row (its own padding) rather than inside the padded text-field column.
+                SettingsSwitchItem(
+                    icon = Icons.Default.PushPin,
+                    title = stringResource(R.string.rec_profile_quick_start_title),
+                    subtitle = stringResource(R.string.rec_profile_quick_start_description),
+                    checked = uiState.quickStartPinned,
+                    onCheckedChange = { viewModel.updateQuickStartPinned(it) },
+                )
 
                 SettingsSectionHeader(title = stringResource(R.string.rec_profile_automation_settings))
 
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
-                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Large),
-                ) {
-                    // Auto Transcribe toggle
-                    SettingToggle(
-                        title = stringResource(R.string.rec_profile_auto_transcribe_title),
-                        description = stringResource(R.string.rec_profile_auto_transcribe_description),
-                        checked = uiState.autoTranscribe,
-                        onCheckedChange = { viewModel.updateAutoTranscribe(it) },
-                    )
+                SettingsSwitchItem(
+                    icon = Icons.Default.RecordVoiceOver,
+                    title = stringResource(R.string.rec_profile_auto_transcribe_title),
+                    subtitle = stringResource(R.string.rec_profile_auto_transcribe_description),
+                    checked = uiState.autoTranscribe,
+                    onCheckedChange = { viewModel.updateAutoTranscribe(it) },
+                )
 
-                    // Auto Title toggle
-                    SettingToggle(
-                        title = stringResource(R.string.rec_profile_auto_title_title),
-                        description = stringResource(R.string.rec_profile_auto_title_description),
-                        checked = uiState.autoTitle,
-                        onCheckedChange = { viewModel.updateAutoTitle(it) },
-                    )
+                SettingsSwitchItem(
+                    icon = Icons.Default.Title,
+                    title = stringResource(R.string.rec_profile_auto_title_title),
+                    subtitle = stringResource(R.string.rec_profile_auto_title_description),
+                    checked = uiState.autoTitle,
+                    onCheckedChange = { viewModel.updateAutoTitle(it) },
+                )
 
-                    // Auto Summary toggle
-                    SettingToggle(
-                        title = stringResource(R.string.rec_profile_auto_summary_title),
-                        description = stringResource(R.string.rec_profile_auto_summary_description),
-                        checked = uiState.autoSummary,
-                        onCheckedChange = { viewModel.updateAutoSummary(it) },
-                    )
-                }
+                SettingsSwitchItem(
+                    icon = Icons.Default.Summarize,
+                    title = stringResource(R.string.rec_profile_auto_summary_title),
+                    subtitle = stringResource(R.string.rec_profile_auto_summary_description),
+                    checked = uiState.autoSummary,
+                    onCheckedChange = { viewModel.updateAutoSummary(it) },
+                )
 
                 SettingsSectionHeader(title = stringResource(R.string.rec_profile_processing_section))
 
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
-                ) {
-                    // Processing mode dropdown
-                    ProcessingModeDropdown(
-                        selectedMode = uiState.defaultProcessingMode,
-                        onModeSelected = { viewModel.updateDefaultProcessingMode(it) },
-                    )
-                }
+                // Processing mode dropdown
+                SettingsDropdownListItem(
+                    title = stringResource(R.string.rec_profile_mode),
+                    supportingText = stringResource(R.string.rec_profile_mode_desc),
+                    options = ProfileProcessingModeIds,
+                    selectedOption = uiState.defaultProcessingMode,
+                    optionLabel = { mode -> profileProcessingModeLabel(mode) },
+                    onOptionSelected = { viewModel.updateDefaultProcessingMode(it) },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                )
 
                 SettingsSectionHeader(title = stringResource(R.string.rec_profile_obsidian_integration))
 
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
-                ) {
-                    // Auto Export to Obsidian toggle
-                    SettingToggle(
-                        title = stringResource(R.string.rec_profile_auto_export_title),
-                        description = stringResource(R.string.rec_profile_auto_export_description),
-                        checked = uiState.autoExportToObsidian,
-                        onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
-                    )
+                SettingsSwitchItem(
+                    icon = Icons.Default.Upload,
+                    title = stringResource(R.string.rec_profile_auto_export_title),
+                    subtitle = stringResource(R.string.rec_profile_auto_export_description),
+                    checked = uiState.autoExportToObsidian,
+                    onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
+                )
 
-                    // PLH-5: the free-text vault path override was removed — exports go through
-                    // SAF, so a typed filesystem path can never be used; the export destination
-                    // is the vault chosen in Obsidian settings.
-                }
+                // PLH-5: the free-text vault path override was removed — exports go through
+                // SAF, so a typed filesystem path can never be used; the export destination
+                // is the vault chosen in Obsidian settings.
 
                 Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingToggle(
-    title: String,
-    description: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    ListItem(
-        headlineContent = {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-        },
-        supportingContent = {
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        trailingContent = {
-            Switch(
-                checked = checked,
-                onCheckedChange = null, // Handled by toggleable modifier on the parent
-            )
-        },
-        modifier =
-            modifier
-                .semantics(mergeDescendants = true) {}
-                .toggleable(
-                    value = checked,
-                    onValueChange = onCheckedChange,
-                    role = Role.Switch,
-                ),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProcessingModeDropdown(
-    selectedMode: String?,
-    onModeSelected: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        OutlinedTextField(
-            value = profileProcessingModeLabel(selectedMode),
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(stringResource(R.string.rec_profile_mode)) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .menuAnchor(MenuAnchorType.PrimaryEditable, true),
-        )
-
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            ProfileProcessingModeIds.forEach { mode ->
-                DropdownMenuItem(
-                    text = { Text(profileProcessingModeLabel(mode)) },
-                    onClick = {
-                        onModeSelected(mode)
-                        expanded = false
-                    },
-                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
-                )
             }
         }
     }

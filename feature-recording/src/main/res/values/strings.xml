@@ -17,6 +17,7 @@
     <string name="rec_profile_icon">Icon</string>
     <string name="rec_profile_icon_desc">Optional emoji to identify this profile</string>
     <string name="rec_profile_mode">Default Processing Mode</string>
+    <string name="rec_profile_mode_desc">AI processing applied to recordings made with this profile.</string>
     <string name="rec_delete_profile">Delete Profile</string>
     <string name="rec_profiles">Profiles</string>
     <string name="rec_home_quick_starts_title">Quick starts</string>
@@ -80,6 +81,10 @@
     <string name="rec_profile_chip_auto_title">Auto Title</string>
     <string name="rec_profile_chip_auto_summary">Auto Summary</string>
     <string name="rec_profile_chip_obsidian">Obsidian</string>
+    <!-- PROP-10: overflow chip when a profile has more feature chips than fit; %1$d is the count hidden. -->
+    <string name="rec_profile_chip_overflow">+%1$d</string>
+    <!-- PROP-10: TalkBack description for the overflow chip; %1$s is a comma-separated list of the hidden features. -->
+    <string name="rec_profile_chip_overflow_desc">%1$s</string>
     <string name="rec_word_replacements_empty_title">No word replacements</string>
     <string name="rec_filter_empty_title">No recordings match this filter</string>
     <string name="rec_filter_clear">Clear Filter</string>
@@ -140,6 +145,18 @@
     <string name="rec_edit_tag_title">Edit Tag</string>
     <string name="rec_create_tag_title">Create Tag</string>
     <string name="rec_empty_tags_description">Create tags to organize your recordings.</string>
+
+    <!-- PROP-11: undo on swipe-delete. -->
+    <string name="rec_undo">Undo</string>
+    <!-- %1$s is the deleted tag's name. The note is honest: re-creating the tag restores its name
+         and color but not the recordings it had been applied to. -->
+    <string name="rec_tag_deleted">Deleted \"%1$s\". Its recording assignments aren\'t restored by Undo.</string>
+    <!-- %1$s is the deleted replacement's "from" word/phrase. -->
+    <string name="rec_replacement_deleted">Deleted replacement for \"%1$s\".</string>
+    <!-- PROP-12: row affordances for TalkBack. -->
+    <string name="desc_edit_replacement">Edit replacement</string>
+    <string name="rec_replacement_enabled">Enabled</string>
+    <string name="rec_replacement_disabled">Disabled</string>
 
 
     <!-- I18N-11: quotes around the profile name must be escaped or AAPT strips them. -->

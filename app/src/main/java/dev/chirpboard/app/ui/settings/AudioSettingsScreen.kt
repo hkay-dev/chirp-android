@@ -108,11 +108,23 @@ fun AudioSettingsScreen(
             item {
                 SettingsDropdownListItem(
                     title = stringResource(R.string.audio_settings_input_device_policy),
+                    // PROP-4: a short generic line for every policy; the USB > Bluetooth > wired >
+                    // built-in priority is only meaningful under Automatic, so it surfaces only then.
                     supportingText = stringResource(R.string.audio_settings_input_device_policy_help),
                     options = AudioInputDevicePolicy.entries,
                     selectedOption = inputDevicePolicy,
                     optionLabel = { inputDevicePolicyLabel(it) },
                     onOptionSelected = viewModel::setInputDevicePolicy,
+                    additionalSupportingContent = {
+                        if (inputDevicePolicy == AudioInputDevicePolicy.Automatic) {
+                            Spacer(modifier = Modifier.height(ChirpSpacing.ExtraSmall))
+                            Text(
+                                text = stringResource(R.string.audio_settings_input_device_priority_help),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
                 )
             }
 

@@ -603,7 +603,9 @@ private fun BackupSectionRow(
             ) {
                 Text(
                     text = sectionLabel(section),
+                    // House row scale: title = bodyLarge + Medium (onSurface).
                     style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
                     color =
                         if (enabled) {
                             MaterialTheme.colorScheme.onSurface
@@ -619,7 +621,8 @@ private fun BackupSectionRow(
             if (section == BackupSection.API_KEYS && count == 0) {
                 Text(
                     text = stringResource(R.string.backup_no_keys),
-                    style = MaterialTheme.typography.bodySmall,
+                    // House row scale: supporting line = bodyMedium (onSurfaceVariant).
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

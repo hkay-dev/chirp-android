@@ -19,12 +19,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
+
+/**
+ * PROP-10: cap the feature chips a card renders so a heavily-configured profile can't push the
+ * row's height past a couple of lines at the narrow (~360dp) phone width. Anything past the cap
+ * collapses into a single "+N" overflow chip whose contentDescription names what was hidden.
+ */
+private const val MaxVisibleFeatureChips = 3
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -77,25 +86,41 @@ fun ProfileCard(
             }
         },
         supportingContent = {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
-                verticalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
-            ) {
-                if (profile.autoTranscribe) {
-                    FeatureChip(label = stringResource(R.string.rec_profile_chip_transcribe))
+            val processingMode = profile.defaultProcessingMode
+            val chipLabels =
+                buildList {
+                    if (profile.autoTranscribe) add(stringResource(R.string.rec_profile_chip_transcribe))
+                    if (profile.autoTitle) add(stringResource(R.string.rec_profile_chip_auto_title))
+                    if (profile.autoSummary) add(stringResource(R.string.rec_profile_chip_auto_summary))
+                    if (profile.autoExportToObsidian) add(stringResource(R.string.rec_profile_chip_obsidian))
+                    if (!processingMode.isNullOrBlank() && processingMode != "none") {
+                        add(profileProcessingModeLabel(processingMode))
+                    }
                 }
-                if (profile.autoTitle) {
-                    FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_title))
-                }
-                if (profile.autoSummary) {
-                    FeatureChip(label = stringResource(R.string.rec_profile_chip_auto_summary))
-                }
-                if (profile.autoExportToObsidian) {
-                    FeatureChip(label = stringResource(R.string.rec_profile_chip_obsidian))
-                }
-                val processingMode = profile.defaultProcessingMode
-                if (!processingMode.isNullOrBlank() && processingMode != "none") {
-                    FeatureChip(label = profileProcessingModeLabel(processingMode))
+
+            if (chipLabels.isNotEmpty()) {
+                val visibleLabels = chipLabels.take(MaxVisibleFeatureChips)
+                val hiddenLabels = chipLabels.drop(MaxVisibleFeatureChips)
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
+                ) {
+                    visibleLabels.forEach { label ->
+                        FeatureChip(label = label)
+                    }
+                    if (hiddenLabels.isNotEmpty()) {
+                        val overflowLabel = stringResource(R.string.rec_profile_chip_overflow, hiddenLabels.size)
+                        val overflowDescription =
+                            stringResource(
+                                R.string.rec_profile_chip_overflow_desc,
+                                hiddenLabels.joinToString(", "),
+                            )
+                        FeatureChip(
+                            label = overflowLabel,
+                            modifier = Modifier.semantics { contentDescription = overflowDescription },
+                        )
+                    }
                 }
             }
         },

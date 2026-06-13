@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,9 +29,10 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -46,7 +48,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,13 +81,33 @@ fun TagManagementScreen(
 ) {
     val tags by viewModel.tags.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val pendingUndo by viewModel.pendingUndo.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     RepositoryErrorSnackbarEffect(
         errorMessage = errorMessage,
         snackbarHostState = snackbarHostState,
         onDismiss = viewModel::clearError,
     )
+
+    // PROP-11: surface an Undo snackbar for the most recent swipe-delete. The message is honest
+    // that re-creating the tag does not restore the recordings it had been applied to.
+    val undoLabel = stringResource(R.string.rec_undo)
+    LaunchedEffect(pendingUndo) {
+        val deleted = pendingUndo ?: return@LaunchedEffect
+        val result =
+            snackbarHostState.showSnackbar(
+                message = context.getString(R.string.rec_tag_deleted, deleted.name),
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Long,
+            )
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.undoDelete()
+        } else {
+            viewModel.clearPendingUndo()
+        }
+    }
 
     // LIF-12: open editors survive rotation/process death; the edited tag is keyed by id and
     // re-resolved from the live list so the dialog also closes if the tag is deleted elsewhere.
@@ -245,9 +270,21 @@ private fun TagItemCard(
             tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
         }
     val outlineColor = MaterialTheme.colorScheme.outlineVariant
+    val editTagDescription = stringResource(R.string.desc_edit_tag)
 
+    // PROP-12: the whole row is the primary tap target (opens the rename/recolor editor). The
+    // trailing pencil is now a decorative affordance — the row keeps the tag name as its label and
+    // describes the click action via onClickLabel, so TalkBack announces the name plus "Edit tag".
     ListItem(
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .semantics(mergeDescendants = true) {}
+                .clickable(
+                    onClickLabel = editTagDescription,
+                    role = Role.Button,
+                    onClick = onEdit,
+                ),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         headlineContent = {
             Text(
@@ -268,13 +305,11 @@ private fun TagItemCard(
             )
         },
         trailingContent = {
-            IconButton(onClick = onEdit) {
-                Icon(
-                    imageVector = Icons.Default.Edit,
-                    contentDescription = stringResource(R.string.desc_edit_tag),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     )
 }

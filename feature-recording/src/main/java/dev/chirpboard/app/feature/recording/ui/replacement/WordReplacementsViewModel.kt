@@ -23,6 +23,11 @@ class WordReplacementsViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+        // PROP-11: the most recently swipe-deleted replacement, captured in full so an Undo can
+        // re-insert it verbatim (id, original, replacement, case-sensitivity, enabled all preserved).
+        private val _pendingUndo = MutableStateFlow<WordReplacement?>(null)
+        val pendingUndo: StateFlow<WordReplacement?> = _pendingUndo.asStateFlow()
+
         val replacements: StateFlow<List<WordReplacement>> =
             repository
                 .getAllReplacements()
@@ -55,9 +60,25 @@ class WordReplacementsViewModel
         }
 
         fun delete(item: WordReplacement) {
+            // Capture the whole entity before deletion so Undo can re-insert it verbatim.
+            _pendingUndo.value = item
             viewModelScope.launch {
                 repository.delete(item)
             }
+        }
+
+        /** PROP-11: re-insert the last swipe-deleted replacement, preserving its original id. */
+        fun undoDelete() {
+            val item = _pendingUndo.value ?: return
+            _pendingUndo.value = null
+            viewModelScope.launch {
+                repository.insert(item)
+            }
+        }
+
+        /** Clears the pending-undo entity once its snackbar is no longer showing. */
+        fun clearPendingUndo() {
+            _pendingUndo.value = null
         }
 
         fun toggleEnabled(item: WordReplacement) {

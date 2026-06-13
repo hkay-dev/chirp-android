@@ -75,7 +75,8 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .padding(padding),
         ) {
-            // AI & Processing Section
+            // PROP-2: "Voice & AI" leads; the AI row reads "AI Processing" without echoing the
+            // header (the header was renamed from "AI Processing" to "Voice & AI").
             item {
                 SettingsSectionHeader(title = stringResource(R.string.settings_section_ai_processing))
             }
@@ -99,36 +100,10 @@ fun SettingsScreen(
                 )
             }
 
-            // Integrations Section
+            // PROP-2: "Recording" merges the former single-row Audio and Keyboard sections so
+            // neither row echoes its own section header (Audio/Audio, Keyboard/Keyboard).
             item {
-                SettingsSectionHeader(title = stringResource(R.string.settings_section_integrations))
-            }
-            item {
-                SettingsListItem(
-                    icon = Icons.Rounded.FolderOpen,
-                    title = stringResource(R.string.settings_obsidian_title),
-                    subtitle = stringResource(R.string.settings_obsidian_subtitle),
-                    badge = if (uiState.isObsidianConnected) SettingsBadge.CONNECTED else null,
-                    onClick = onNavigateToObsidianSettings,
-                )
-            }
-
-            // Keyboard Section
-            item {
-                SettingsSectionHeader(title = stringResource(R.string.settings_section_keyboard))
-            }
-            item {
-                SettingsListItem(
-                    icon = Icons.Rounded.Keyboard,
-                    title = stringResource(R.string.settings_keyboard_title),
-                    subtitle = stringResource(R.string.settings_keyboard_subtitle),
-                    onClick = onNavigateToKeyboardSettings,
-                )
-            }
-
-            // Audio Section
-            item {
-                SettingsSectionHeader(title = stringResource(R.string.settings_section_audio))
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_recording))
             }
             item {
                 SettingsListItem(
@@ -138,24 +113,15 @@ fun SettingsScreen(
                     onClick = onNavigateToAudioSettings,
                 )
             }
-
-            // Appearance Section — "Use system colors (Material You)" (DECISIONS Color/brand).
-            // Default OFF so the brand lavender palette stays the default; opting in derives color
-            // from the wallpaper for both the app and the keyboard.
             item {
-                SettingsSectionHeader(title = stringResource(R.string.settings_section_appearance))
+                HorizontalDivider(modifier = Modifier.padding(start = SettingsRowDividerInset))
             }
             item {
-                SettingsSwitchItem(
-                    icon = Icons.Rounded.Palette,
-                    title = stringResource(R.string.settings_dynamic_color_title),
-                    subtitle = stringResource(R.string.settings_dynamic_color_subtitle),
-                    checked = uiState.useDynamicColor,
-                    onCheckedChange = { enabled ->
-                        // PRM-7: a light confirming tick on toggle, the app-level haptic language.
-                        ChirpHaptics.tap(context)
-                        viewModel.setUseDynamicColor(enabled)
-                    },
+                SettingsListItem(
+                    icon = Icons.Rounded.Keyboard,
+                    title = stringResource(R.string.settings_keyboard_title),
+                    subtitle = stringResource(R.string.settings_keyboard_subtitle),
+                    onClick = onNavigateToKeyboardSettings,
                 )
             }
 
@@ -191,6 +157,40 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_word_replacements_title),
                     subtitle = stringResource(R.string.settings_word_replacements_subtitle),
                     onClick = onNavigateToWordReplacements,
+                )
+            }
+
+            // Integrations Section
+            item {
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_integrations))
+            }
+            item {
+                SettingsListItem(
+                    icon = Icons.Rounded.FolderOpen,
+                    title = stringResource(R.string.settings_obsidian_title),
+                    subtitle = stringResource(R.string.settings_obsidian_subtitle),
+                    badge = if (uiState.isObsidianConnected) SettingsBadge.CONNECTED else null,
+                    onClick = onNavigateToObsidianSettings,
+                )
+            }
+
+            // Appearance Section — "Use system colors (Material You)" (DECISIONS Color/brand).
+            // Default OFF so the brand lavender palette stays the default; opting in derives color
+            // from the wallpaper for both the app and the keyboard.
+            item {
+                SettingsSectionHeader(title = stringResource(R.string.settings_section_appearance))
+            }
+            item {
+                SettingsSwitchItem(
+                    icon = Icons.Rounded.Palette,
+                    title = stringResource(R.string.settings_dynamic_color_title),
+                    subtitle = stringResource(R.string.settings_dynamic_color_subtitle),
+                    checked = uiState.useDynamicColor,
+                    onCheckedChange = { enabled ->
+                        // PRM-7: a light confirming tick on toggle, the app-level haptic language.
+                        ChirpHaptics.tap(context)
+                        viewModel.setUseDynamicColor(enabled)
+                    },
                 )
             }
 

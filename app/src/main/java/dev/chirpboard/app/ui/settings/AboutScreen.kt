@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.PackageInfoCompat
@@ -98,14 +99,16 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurface,
                     )
 
+                    // PROP-8: one combined line, e.g. "Version 1.2.3 (456)", instead of separate
+                    // Version and Build rows.
                     Text(
-                        text = stringResource(R.string.about_version, appInfo.versionName),
+                        text =
+                            stringResource(
+                                R.string.about_version_build,
+                                appInfo.versionName,
+                                appInfo.versionCode,
+                            ),
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        text = stringResource(R.string.about_build, appInfo.versionCode),
-                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -192,25 +195,27 @@ private fun PrivacyNoticeDialog(onDismiss: () -> Unit) {
         },
         title = { Text(stringResource(R.string.about_privacy_title)) },
         text = {
+            // PROP-8: short bold lead-in label above each paragraph so the notice scans as
+            // four topics rather than one wall of text.
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
             ) {
-                Text(
-                    text = stringResource(R.string.about_privacy_notice_transcription),
-                    style = MaterialTheme.typography.bodyMedium,
+                PrivacyParagraph(
+                    label = stringResource(R.string.about_privacy_notice_transcription_label),
+                    body = stringResource(R.string.about_privacy_notice_transcription),
                 )
-                Text(
-                    text = stringResource(R.string.about_privacy_notice_storage),
-                    style = MaterialTheme.typography.bodyMedium,
+                PrivacyParagraph(
+                    label = stringResource(R.string.about_privacy_notice_storage_label),
+                    body = stringResource(R.string.about_privacy_notice_storage),
                 )
-                Text(
-                    text = stringResource(R.string.about_privacy_notice_cloud),
-                    style = MaterialTheme.typography.bodyMedium,
+                PrivacyParagraph(
+                    label = stringResource(R.string.about_privacy_notice_cloud_label),
+                    body = stringResource(R.string.about_privacy_notice_cloud),
                 )
-                Text(
-                    text = stringResource(R.string.about_privacy_notice_backup),
-                    style = MaterialTheme.typography.bodyMedium,
+                PrivacyParagraph(
+                    label = stringResource(R.string.about_privacy_notice_backup_label),
+                    body = stringResource(R.string.about_privacy_notice_backup),
                 )
             }
         },
@@ -220,6 +225,27 @@ private fun PrivacyNoticeDialog(onDismiss: () -> Unit) {
             }
         },
     )
+}
+
+/** A scannable privacy paragraph: a small bold lead-in label over its body text. */
+@Composable
+private fun PrivacyParagraph(
+    label: String,
+    body: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
 }
 
 private data class AppInfo(

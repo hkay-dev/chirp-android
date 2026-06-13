@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -28,9 +29,10 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Switch
@@ -46,7 +48,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,13 +77,33 @@ fun WordReplacementsScreen(
 ) {
     val replacements by viewModel.replacements.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val pendingUndo by viewModel.pendingUndo.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
     RepositoryErrorSnackbarEffect(
         errorMessage = errorMessage,
         snackbarHostState = snackbarHostState,
         onDismiss = viewModel::clearError,
     )
+
+    // PROP-11: undo snackbar for the most recent swipe-delete. A word replacement carries no
+    // cascading relationships, so Undo re-inserts the rule verbatim (id and all).
+    val undoLabel = stringResource(R.string.rec_undo)
+    LaunchedEffect(pendingUndo) {
+        val deleted = pendingUndo ?: return@LaunchedEffect
+        val result =
+            snackbarHostState.showSnackbar(
+                message = context.getString(R.string.rec_replacement_deleted, deleted.original),
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Long,
+            )
+        if (result == SnackbarResult.ActionPerformed) {
+            viewModel.undoDelete()
+        } else {
+            viewModel.clearPendingUndo()
+        }
+    }
 
     // LIF-12: the open editor (and which replacement it edits) survives rotation/process death;
     // the entity is id-keyed and re-resolved from the live list.
@@ -284,13 +310,31 @@ private fun ReplacementItemCard(
         label = "to_text_color",
     )
 
+    val editDescription = stringResource(R.string.desc_edit_replacement)
+    val toggleStateDescription =
+        if (replacement.enabled) {
+            stringResource(R.string.rec_replacement_enabled)
+        } else {
+            stringResource(R.string.rec_replacement_disabled)
+        }
+
     // The card carries the surface so the indented divider participates in the swipe and the
     // insert/remove animations instead of bleeding through the delete background as a sibling.
     Column(
         modifier = Modifier.background(MaterialTheme.colorScheme.background),
     ) {
+        // PROP-12: tapping the row now opens the from→to editor (was: toggled enabled). The
+        // enabled/disabled Switch is its OWN toggle target via a scoped toggleable modifier with
+        // Role.Switch, so the two interactions don't collide and TalkBack treats them separately.
         ListItem(
-            modifier = Modifier.fillMaxWidth().clickable { onToggleEnabled() },
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        onClickLabel = editDescription,
+                        role = Role.Button,
+                        onClick = onEdit,
+                    ),
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             headlineContent = {
                 Row(
@@ -332,19 +376,30 @@ private fun ReplacementItemCard(
                 }
             } else null,
             leadingContent = {
+                // PROP-12: the Switch owns its own toggle target. The toggleable wrapper scopes the
+                // enable/disable gesture to the affordance (Role.Switch) and merges the state into a
+                // single TalkBack node ("Enabled/Disabled, switch") distinct from the row's edit tap.
                 Switch(
                     checked = replacement.enabled,
-                    onCheckedChange = null, // Handled by row click
+                    onCheckedChange = null, // Handled by the toggleable wrapper below.
+                    modifier =
+                        Modifier
+                            .semantics(mergeDescendants = true) {
+                                stateDescription = toggleStateDescription
+                            }
+                            .toggleable(
+                                value = replacement.enabled,
+                                onValueChange = { onToggleEnabled() },
+                                role = Role.Switch,
+                            ),
                 )
             },
             trailingContent = {
-                IconButton(onClick = onEdit) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = stringResource(CoreR.string.desc_edit),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         )
         if (showDivider) {

@@ -3,6 +3,7 @@ package dev.chirpboard.app.feature.recording.ui.profile
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -70,5 +71,41 @@ class ProfileCardTest {
 
         composeRule.onNodeWithText("Voice memo").assertIsDisplayed()
         composeRule.onNodeWithText("None (No processing)").assertDoesNotExist()
+    }
+
+    @Test
+    fun profileCard_withManyFeatures_collapsesExtrasIntoAccessibleOverflowChip() {
+        // PROP-10: five feature chips would push the card height past two lines at narrow widths.
+        // Only the first three render as chips; the rest collapse into a single "+N" overflow chip
+        // whose contentDescription names the hidden features for TalkBack.
+        val profile =
+            Profile(
+                name = "Everything",
+                defaultProcessingMode = "meeting_notes",
+                autoTranscribe = true,
+                autoTitle = true,
+                autoSummary = true,
+                autoExportToObsidian = true,
+            )
+
+        composeRule.setContent {
+            MaterialTheme {
+                ProfileCard(
+                    profileItem = ProfileItemState(profile),
+                    onClick = {},
+                    onDelete = {},
+                )
+            }
+        }
+
+        // First three chips are visible.
+        composeRule.onNodeWithText("Transcribe").assertIsDisplayed()
+        composeRule.onNodeWithText("Auto Title").assertIsDisplayed()
+        composeRule.onNodeWithText("Auto Summary").assertIsDisplayed()
+        // The remaining two are hidden behind a "+2" overflow chip.
+        composeRule.onNodeWithText("+2").assertIsDisplayed()
+        composeRule.onNodeWithText("Obsidian").assertDoesNotExist()
+        // The overflow chip's contentDescription names the hidden features.
+        composeRule.onNodeWithContentDescription("Obsidian, Meeting Notes").assertIsDisplayed()
     }
 }
