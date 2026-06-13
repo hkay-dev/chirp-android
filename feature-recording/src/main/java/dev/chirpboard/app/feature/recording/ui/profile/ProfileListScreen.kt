@@ -6,11 +6,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -18,17 +19,17 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpPrimaryFab
+import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.recording.R
 import java.util.UUID
 
@@ -48,7 +49,6 @@ fun ProfileListScreen(
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     RepositoryErrorSnackbarEffect(
         errorMessage = errorMessage,
@@ -92,22 +92,10 @@ fun ProfileListScreen(
         )
     }
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.rec_profiles)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(CoreR.string.desc_navigate_back),
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
-        },
+    ChirpSettingsDetailScaffold(
+        title = stringResource(R.string.rec_profiles),
+        onNavigateBack = onNavigateBack,
+        snackbarHostState = snackbarHostState,
         floatingActionButton = {
             ChirpPrimaryFab(onClick = onAddProfile) {
                 Icon(
@@ -116,7 +104,6 @@ fun ProfileListScreen(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         AnimatedContent(
             modifier = Modifier.animatePushDownLayout(),
@@ -144,8 +131,8 @@ fun ProfileListScreen(
                             .padding(paddingValues),
                     contentPadding =
                         PaddingValues(
-                            top = 8.dp,
-                            bottom = 88.dp, // Extra padding for FAB
+                            top = ChirpSpacing.Small,
+                            bottom = ChirpSpacing.MiniPlayerClearance,
                         ),
                 ) {
                     items(
@@ -159,7 +146,6 @@ fun ProfileListScreen(
                             onDelete = { profileToDeleteId = profile.id.toString() },
                             modifier = Modifier.animateItem(),
                         )
-                        HorizontalDivider()
                     }
                 }
             }

@@ -4,22 +4,23 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.llm.R
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -34,7 +35,7 @@ internal fun LlmSettingsBackupSection(
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
     ) {
         SettingsSectionHeader(title = stringResource(R.string.llm_backup_section_title))
 
@@ -42,16 +43,14 @@ internal fun LlmSettingsBackupSection(
             text = stringResource(R.string.llm_backup_section_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
         )
-
-        Spacer(Modifier.size(8.dp))
 
         Card(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = ChirpSpacing.ScreenHorizontal),
             colors =
                 CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -59,8 +58,8 @@ internal fun LlmSettingsBackupSection(
             shape = MaterialTheme.shapes.large,
         ) {
             Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(ChirpSpacing.Large),
+                verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
             ) {
                 Text(
                     text =
@@ -73,8 +72,8 @@ internal fun LlmSettingsBackupSection(
                 )
 
                 FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
                 ) {
                     FilledTonalButton(
                         onClick = onStartBackup,
@@ -124,20 +123,32 @@ private fun BackupStatusBanner(
             is LlmSettingsViewModel.StatusMessage.Error -> MaterialTheme.colorScheme.onErrorContainer
         }
 
-    androidx.compose.material3.Surface(
+    Surface(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = ChirpSpacing.ScreenHorizontal, vertical = ChirpSpacing.Small),
         shape = MaterialTheme.shapes.medium,
         color = containerColor,
         onClick = onDismiss,
     ) {
-        Text(
-            text = message.text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = contentColor,
-            modifier = Modifier.padding(16.dp),
-        )
+        Column(
+            modifier = Modifier.padding(ChirpSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = message.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = contentColor,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                text = stringResource(R.string.llm_connection_dismiss),
+                style = MaterialTheme.typography.labelMedium,
+                color = contentColor.copy(alpha = 0.8f),
+            )
+        }
     }
 }

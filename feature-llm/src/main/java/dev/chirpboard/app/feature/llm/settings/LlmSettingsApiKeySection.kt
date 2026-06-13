@@ -29,9 +29,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -46,14 +47,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.llm.R
 
@@ -70,9 +73,11 @@ internal fun LlmSettingsApiKeySection(
     onDismissTestResult: () -> Unit,
     onDismissSecureStorageResetNotice: () -> Unit = {},
 ) {
+    var isApiKeyVisible by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
     ) {
         // SEC-2: the secure store had to be wiped (undecryptable keyset) — tell the user once
         // that their saved keys are gone and need re-entering.
@@ -86,16 +91,14 @@ internal fun LlmSettingsApiKeySection(
             text = stringResource(R.string.llm_provider_section_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
         )
-
-        Spacer(Modifier.size(8.dp))
 
         Card(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = ChirpSpacing.ScreenHorizontal),
             colors =
                 CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -109,7 +112,7 @@ internal fun LlmSettingsApiKeySection(
                 )
 
                 HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 16.dp),
+                    modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                 )
 
@@ -121,26 +124,22 @@ internal fun LlmSettingsApiKeySection(
             }
         }
 
-        Spacer(Modifier.size(12.dp))
-
         SettingsSectionHeader(title = stringResource(R.string.llm_credentials_section_title))
 
         Text(
             text = stringResource(R.string.llm_credentials_section_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
         )
-
-        Spacer(Modifier.size(8.dp))
 
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = ChirpSpacing.ScreenHorizontal),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
         ) {
             LlmProviderIconBadge(
                 provider = uiState.activeProvider,
@@ -151,22 +150,13 @@ internal fun LlmSettingsApiKeySection(
                     ),
             )
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = uiState.activeProvider.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text =
-                        if (uiState.isKeyConfigured) {
-                            stringResource(R.string.llm_api_key_configured)
-                        } else {
-                            stringResource(R.string.llm_api_key_not_set)
-                        },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(
+                text = uiState.activeProvider.displayName,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
 
             ApiKeyStatusChip(isConfigured = uiState.isKeyConfigured)
         }
@@ -175,10 +165,33 @@ internal fun LlmSettingsApiKeySection(
             value = uiState.apiKey,
             onValueChange = onApiKeyChanged,
             label = { Text(stringResource(R.string.llm_api_key_label, uiState.activeProvider.displayName)) },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = ChirpSpacing.ScreenHorizontal),
             singleLine = true,
             enabled = uiState.isSecureStorageAvailable,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation =
+                if (isApiKeyVisible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+            trailingIcon = {
+                TextButton(
+                    onClick = { isApiKeyVisible = !isApiKeyVisible },
+                    enabled = uiState.isSecureStorageAvailable,
+                ) {
+                    Text(
+                        text =
+                            if (isApiKeyVisible) {
+                                stringResource(R.string.llm_api_key_hide)
+                            } else {
+                                stringResource(R.string.llm_api_key_show)
+                            },
+                    )
+                }
+            },
             supportingText = {
                 Text(
                     if (uiState.isSecureStorageAvailable) {
@@ -191,9 +204,12 @@ internal fun LlmSettingsApiKeySection(
         )
 
         FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = ChirpSpacing.ScreenHorizontal),
+            horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
         ) {
             Button(
                 onClick = onSave,
@@ -211,7 +227,7 @@ internal fun LlmSettingsApiKeySection(
                         modifier = Modifier.size(16.dp),
                         strokeWidth = 2.dp,
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(ChirpSpacing.Small))
                     Text(stringResource(R.string.llm_testing))
                 } else {
                     Text(stringResource(R.string.llm_test_connection))
@@ -234,9 +250,13 @@ internal fun LlmSettingsApiKeySection(
 
         Text(
             text = stringResource(R.string.llm_api_key_help, uiState.activeProvider.apiKeyHelpUrl),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier =
+                Modifier.padding(
+                    horizontal = ChirpSpacing.ScreenHorizontal,
+                    vertical = ChirpSpacing.Small,
+                ),
         )
     }
 }
@@ -285,7 +305,7 @@ private fun LlmProviderSettingsDropdown(
             supportingContent = {
                 Text(
                     text = stringResource(R.string.llm_provider_row_hint),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
@@ -461,7 +481,7 @@ private fun ConnectionTestBanner(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = ChirpSpacing.ScreenHorizontal, vertical = ChirpSpacing.Small),
         shape = MaterialTheme.shapes.medium,
         color = containerColor,
     ) {
@@ -470,8 +490,8 @@ private fun ConnectionTestBanner(
                 Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onDismiss)
-                    .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(ChirpSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -485,7 +505,7 @@ private fun ConnectionTestBanner(
                     contentDescription = null,
                     tint = contentColor,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(ChirpSpacing.Medium))
                 Text(
                     text =
                         when (result) {
@@ -521,7 +541,7 @@ private fun SecureStorageResetNoticeCard(onDismiss: () -> Unit) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = ChirpSpacing.ScreenHorizontal),
         colors =
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -529,13 +549,19 @@ private fun SecureStorageResetNoticeCard(onDismiss: () -> Unit) {
             ),
         shape = MaterialTheme.shapes.large,
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Column(
+            modifier =
+                Modifier.padding(
+                    horizontal = ChirpSpacing.ScreenHorizontal,
+                    vertical = ChirpSpacing.Medium,
+                ),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Warning,
                     contentDescription = null,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(ChirpSpacing.Medium))
                 Text(
                     text = stringResource(R.string.llm_secure_storage_reset_notice),
                     style = MaterialTheme.typography.bodyMedium,

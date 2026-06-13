@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,24 +14,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.ui.res.painterResource
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,15 +34,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.pm.PackageInfoCompat
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
-import dev.chirpboard.app.core.ui.components.ChirpLeafScaffold
+import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsListItem
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 
 /**
  * About screen showing app information and legal links.
@@ -63,7 +59,7 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
         PrivacyNoticeDialog(onDismiss = { showPrivacyNotice = false })
     }
 
-    ChirpLeafScaffold(
+    ChirpSettingsDetailScaffold(
         title = stringResource(R.string.about_title),
         onNavigateBack = onNavigateBack,
     ) { padding ->
@@ -73,99 +69,110 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
                     .fillMaxSize()
                     .padding(padding),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            contentPadding =
-                androidx.compose.foundation.layout
-                    .PaddingValues(vertical = 16.dp),
+            // Inter-group rhythm only; intra-group spacing is handled by Spacers inside each
+            // item's Column so spacedBy never doubles up.
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Large),
+            contentPadding = PaddingValues(vertical = ChirpSpacing.Large),
         ) {
             item {
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Brand identity: the real app icon (blue waveform-bird on the cream rounded
-                // square, the launcher PNG). Rendered with Image — Icon would tint the
-                // multicolor artwork into a flat silhouette.
-                Image(
-                    painter = painterResource(R.mipmap.ic_launcher),
-                    contentDescription = null,
-                    modifier = Modifier.size(80.dp),
-                )
-
-                // App name
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-
-                // Version info
-                Text(
-                    text = stringResource(R.string.about_version, appInfo.versionName),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = stringResource(R.string.about_build, appInfo.versionCode),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            item {
-                // Description
-                ListItem(
+                // Brand + version block: one Column so spacedBy controls only the gap to the
+                // next group, while the Spacers here set the intra-group rhythm.
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    headlineContent = {
-                        Text(
-                            text = stringResource(R.string.about_description_title),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    },
-                    supportingContent = {
-                        Text(
-                            text = stringResource(R.string.about_description_body),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    },
-                )
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Spacer(modifier = Modifier.height(ChirpSpacing.Small))
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    // Brand identity: the real app icon (blue waveform-bird on the cream rounded
+                    // square, the launcher PNG). Rendered with Image — Icon would tint the
+                    // multicolor artwork into a flat silhouette.
+                    Image(
+                        painter = painterResource(R.mipmap.ic_launcher),
+                        contentDescription = null,
+                        modifier = Modifier.size(80.dp),
+                    )
+
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+
+                    Text(
+                        text = stringResource(R.string.about_version, appInfo.versionName),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.about_build, appInfo.versionCode),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             item {
-                // Legal links
-                SettingsListItem(
-                    icon = Icons.Rounded.Policy,
-                    title = stringResource(R.string.about_privacy_title),
-                    subtitle = stringResource(R.string.about_privacy_subtitle),
-                    onClick = { showPrivacyNotice = true },
-                )
+                // Tagline above body so the headline reads larger than the version line above it.
+                Column(
+                    modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+                ) {
+                    Text(
+                        text = stringResource(R.string.about_description_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = stringResource(R.string.about_description_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
-                SettingsListItem(
-                    icon = Icons.Rounded.Code,
-                    title = stringResource(R.string.about_open_source_title),
-                    subtitle = stringResource(R.string.about_open_source_subtitle),
-                    onClick = {
-                        openUrl(context, "https://github.com/k2-fsa/sherpa-onnx")
-                    },
-                )
+            item {
+                // Legal links + footer block: one Column so the two rows sit at row density and
+                // the spacedBy gap stays between groups only.
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    SettingsListItem(
+                        icon = Icons.Rounded.Policy,
+                        title = stringResource(R.string.about_privacy_title),
+                        subtitle = stringResource(R.string.about_privacy_subtitle),
+                        onClick = { showPrivacyNotice = true },
+                    )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                    HorizontalDivider(modifier = Modifier.padding(start = AboutRowDividerInset))
 
-                // Footer
-                Text(
-                    text = stringResource(R.string.about_footer),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                    SettingsListItem(
+                        icon = Icons.Rounded.Code,
+                        title = stringResource(R.string.about_open_source_title),
+                        subtitle = stringResource(R.string.about_open_source_subtitle),
+                        onClick = {
+                            openUrl(context, "https://github.com/k2-fsa/sherpa-onnx")
+                        },
+                    )
+
+                    Spacer(modifier = Modifier.height(ChirpSpacing.ExtraLarge))
+
+                    Text(
+                        text = stringResource(R.string.about_footer),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                    )
+                }
             }
         }
     }
 }
+
+/** Indent for the About legal-row divider; matches the hub's 72dp inset past the 40dp leading
+ *  icon so the divider starts flush with the row text. */
+private val AboutRowDividerInset = 72.dp
 
 /**
  * PLH-9: the in-app Privacy Notice — on-device transcription, local-only storage, the optional
@@ -187,7 +194,7 @@ private fun PrivacyNoticeDialog(onDismiss: () -> Unit) {
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
             ) {
                 Text(
                     text = stringResource(R.string.about_privacy_notice_transcription),

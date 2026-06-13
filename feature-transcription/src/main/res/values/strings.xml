@@ -21,6 +21,7 @@
     <string name="transcription_storage_choice_internal">Use App Storage</string>
     <string name="transcription_storage_settings_unavailable">Couldn’t open system settings. Allow \"All files access\" for Chirp manually (Settings → Apps → Special app access → All files access), then try again — or download to app storage instead.</string>
     <string name="transcription_size_value">%1$d MB</string>
+    <string name="transcription_status_size_format">%1$s • %2$s</string>
     <string name="transcription_status_downloading">Downloading</string>
     <string name="transcription_status_ready">Ready</string>
     <string name="transcription_status_not_downloaded">Not downloaded</string>

@@ -1,34 +1,48 @@
 package dev.chirpboard.app.feature.recording.ui.profile
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.ui.semantics.Role
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chirpboard.app.core.ui.components.ChirpPrimaryExtendedFab
+import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
+import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.feature.recording.R
 
 private val ProfileProcessingModeIds = listOf(null, "enhance", "summarize", "meeting_notes", "action_items")
 
+/**
+ * Maps a persisted processing-mode id to its localized, human-friendly label. Shared by the
+ * editor dropdown and the [ProfileCard] chip so the list and editor never diverge.
+ */
 @Composable
-private fun profileProcessingModeLabel(modeId: String?): String =
+internal fun profileProcessingModeLabel(modeId: String?): String =
     when (modeId) {
         null -> stringResource(R.string.rec_profile_mode_none)
         "enhance" -> stringResource(R.string.rec_profile_mode_enhance)
@@ -62,36 +76,26 @@ fun ProfileEditorScreen(
         onDismiss = viewModel::clearError,
     )
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (viewModel.isEditing) stringResource(R.string.rec_edit_profile) else stringResource(R.string.rec_new_profile),
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(CoreR.string.desc_navigate_back),
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { viewModel.save() },
-                        enabled = !uiState.isLoading && uiState.name.isNotBlank(),
-                    ) {
+    val canSave = !uiState.isLoading && uiState.name.isNotBlank()
+
+    ChirpSettingsDetailScaffold(
+        title = if (viewModel.isEditing) stringResource(R.string.rec_edit_profile) else stringResource(R.string.rec_new_profile),
+        onNavigateBack = onNavigateBack,
+        snackbarHostState = snackbarHostState,
+        floatingActionButton = {
+            if (canSave) {
+                ChirpPrimaryExtendedFab(
+                    onClick = { viewModel.save() },
+                    icon = {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = stringResource(CoreR.string.desc_save),
+                            contentDescription = null,
                         )
-                    }
-                },
-            )
+                    },
+                    text = { Text(stringResource(CoreR.string.rec_save)) },
+                )
+            }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
         if (uiState.isLoading && viewModel.isEditing && uiState.name.isEmpty()) {
             // Loading state for edit mode
@@ -100,7 +104,7 @@ fun ProfileEditorScreen(
                     Modifier
                         .fillMaxSize()
                         .padding(paddingValues),
-                contentAlignment = androidx.compose.ui.Alignment.Center,
+                contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator()
             }
@@ -110,117 +114,126 @@ fun ProfileEditorScreen(
                     Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                        .verticalScroll(rememberScrollState()),
             ) {
-                // Name field. I18N-18: "Required" is supporting text instead of a "*" baked
-                // into the label, so TalkBack no longer reads "Name star".
-                OutlinedTextField(
-                    value = uiState.name,
-                    onValueChange = { viewModel.updateName(it) },
-                    label = { Text(stringResource(R.string.rec_profile_name)) },
-                    placeholder = { Text(stringResource(R.string.rec_profile_name_placeholder)) },
-                    supportingText = { Text(stringResource(R.string.rec_profile_name_required)) },
-                    singleLine = true,
-                    keyboardOptions =
-                        KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Words,
-                            imeAction = ImeAction.Next,
-                        ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Large),
+                ) {
+                    // Name field. I18N-18: "Required" is supporting text instead of a "*" baked
+                    // into the label, so TalkBack no longer reads "Name star".
+                    OutlinedTextField(
+                        value = uiState.name,
+                        onValueChange = { viewModel.updateName(it) },
+                        label = { Text(stringResource(R.string.rec_profile_name)) },
+                        placeholder = { Text(stringResource(R.string.rec_profile_name_placeholder)) },
+                        supportingText = { Text(stringResource(R.string.rec_profile_name_required)) },
+                        singleLine = true,
+                        keyboardOptions =
+                            KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Words,
+                                imeAction = ImeAction.Next,
+                            ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
-                // Icon field
-                OutlinedTextField(
-                    value = uiState.icon,
-                    onValueChange = { viewModel.updateIcon(it) },
-                    label = { Text(stringResource(R.string.rec_profile_icon)) },
-                    placeholder = { Text(stringResource(R.string.rec_profile_icon_placeholder)) },
-                    singleLine = true,
-                    keyboardOptions =
-                        KeyboardOptions(
-                            imeAction = ImeAction.Next,
-                        ),
-                    modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text(stringResource(R.string.rec_profile_icon_desc)) },
-                )
+                    // Icon field
+                    OutlinedTextField(
+                        value = uiState.icon,
+                        onValueChange = { viewModel.updateIcon(it) },
+                        label = { Text(stringResource(R.string.rec_profile_icon)) },
+                        placeholder = { Text(stringResource(R.string.rec_profile_icon_placeholder)) },
+                        singleLine = true,
+                        keyboardOptions =
+                            KeyboardOptions(
+                                imeAction = ImeAction.Next,
+                            ),
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text(stringResource(R.string.rec_profile_icon_desc)) },
+                    )
 
-                SettingToggle(
-                    title = stringResource(R.string.rec_profile_quick_start_title),
-                    description = stringResource(R.string.rec_profile_quick_start_description),
-                    checked = uiState.quickStartPinned,
-                    onCheckedChange = { viewModel.updateQuickStartPinned(it) },
-                )
+                    SettingToggle(
+                        title = stringResource(R.string.rec_profile_quick_start_title),
+                        description = stringResource(R.string.rec_profile_quick_start_description),
+                        checked = uiState.quickStartPinned,
+                        onCheckedChange = { viewModel.updateQuickStartPinned(it) },
+                    )
+                }
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                SettingsSectionHeader(title = stringResource(R.string.rec_profile_automation_settings))
 
-                Text(
-                    text = stringResource(R.string.rec_profile_automation_settings),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Large),
+                ) {
+                    // Auto Transcribe toggle
+                    SettingToggle(
+                        title = stringResource(R.string.rec_profile_auto_transcribe_title),
+                        description = stringResource(R.string.rec_profile_auto_transcribe_description),
+                        checked = uiState.autoTranscribe,
+                        onCheckedChange = { viewModel.updateAutoTranscribe(it) },
+                    )
 
-                // Auto Transcribe toggle
-                SettingToggle(
-                    title = stringResource(R.string.rec_profile_auto_transcribe_title),
-                    description = stringResource(R.string.rec_profile_auto_transcribe_description),
-                    checked = uiState.autoTranscribe,
-                    onCheckedChange = { viewModel.updateAutoTranscribe(it) },
-                )
+                    // Auto Title toggle
+                    SettingToggle(
+                        title = stringResource(R.string.rec_profile_auto_title_title),
+                        description = stringResource(R.string.rec_profile_auto_title_description),
+                        checked = uiState.autoTitle,
+                        onCheckedChange = { viewModel.updateAutoTitle(it) },
+                    )
 
-                // Auto Title toggle
-                SettingToggle(
-                    title = stringResource(R.string.rec_profile_auto_title_title),
-                    description = stringResource(R.string.rec_profile_auto_title_description),
-                    checked = uiState.autoTitle,
-                    onCheckedChange = { viewModel.updateAutoTitle(it) },
-                )
+                    // Auto Summary toggle
+                    SettingToggle(
+                        title = stringResource(R.string.rec_profile_auto_summary_title),
+                        description = stringResource(R.string.rec_profile_auto_summary_description),
+                        checked = uiState.autoSummary,
+                        onCheckedChange = { viewModel.updateAutoSummary(it) },
+                    )
+                }
 
-                // Auto Summary toggle
-                SettingToggle(
-                    title = stringResource(R.string.rec_profile_auto_summary_title),
-                    description = stringResource(R.string.rec_profile_auto_summary_description),
-                    checked = uiState.autoSummary,
-                    onCheckedChange = { viewModel.updateAutoSummary(it) },
-                )
+                SettingsSectionHeader(title = stringResource(R.string.rec_profile_processing_section))
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                ) {
+                    // Processing mode dropdown
+                    ProcessingModeDropdown(
+                        selectedMode = uiState.defaultProcessingMode,
+                        onModeSelected = { viewModel.updateDefaultProcessingMode(it) },
+                    )
+                }
 
-                Text(
-                    text = stringResource(R.string.rec_profile_processing_section),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                SettingsSectionHeader(title = stringResource(R.string.rec_profile_obsidian_integration))
 
-                // Processing mode dropdown
-                ProcessingModeDropdown(
-                    selectedMode = uiState.defaultProcessingMode,
-                    onModeSelected = { viewModel.updateDefaultProcessingMode(it) },
-                )
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                ) {
+                    // Auto Export to Obsidian toggle
+                    SettingToggle(
+                        title = stringResource(R.string.rec_profile_auto_export_title),
+                        description = stringResource(R.string.rec_profile_auto_export_description),
+                        checked = uiState.autoExportToObsidian,
+                        onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
+                    )
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    // PLH-5: the free-text vault path override was removed — exports go through
+                    // SAF, so a typed filesystem path can never be used; the export destination
+                    // is the vault chosen in Obsidian settings.
+                }
 
-                Text(
-                    text = stringResource(R.string.rec_profile_obsidian_integration),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-
-                // Auto Export to Obsidian toggle
-                SettingToggle(
-                    title = stringResource(R.string.rec_profile_auto_export_title),
-                    description = stringResource(R.string.rec_profile_auto_export_description),
-                    checked = uiState.autoExportToObsidian,
-                    onCheckedChange = { viewModel.updateAutoExportToObsidian(it) },
-                )
-
-                // PLH-5: the free-text vault path override was removed — exports go through
-                // SAF, so a typed filesystem path can never be used; the export destination
-                // is the vault chosen in Obsidian settings.
-
-                // Spacer for bottom padding
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance))
             }
         }
     }
@@ -239,6 +252,7 @@ private fun SettingToggle(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
             )
         },
         supportingContent = {
@@ -262,7 +276,7 @@ private fun SettingToggle(
                     onValueChange = onCheckedChange,
                     role = Role.Switch,
                 ),
-        colors = ListItemDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
 }
 
@@ -289,7 +303,7 @@ private fun ProcessingModeDropdown(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .menuAnchor(androidx.compose.material3.MenuAnchorType.PrimaryEditable, true),
+                    .menuAnchor(MenuAnchorType.PrimaryEditable, true),
         )
 
         ExposedDropdownMenu(

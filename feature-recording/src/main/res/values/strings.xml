@@ -14,7 +14,7 @@
     <string name="rec_profile_name">Name</string>
     <!-- I18N-18: required-field marker as supporting text, not a "*" baked into the label. -->
     <string name="rec_profile_name_required">Required</string>
-    <string name="rec_profile_icon">Icon (emoji)</string>
+    <string name="rec_profile_icon">Icon</string>
     <string name="rec_profile_icon_desc">Optional emoji to identify this profile</string>
     <string name="rec_profile_mode">Default Processing Mode</string>
     <string name="rec_delete_profile">Delete Profile</string>

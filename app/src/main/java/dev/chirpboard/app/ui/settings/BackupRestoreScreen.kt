@@ -18,12 +18,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +50,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -195,7 +196,7 @@ fun BackupRestoreScreen(
 
             // Same bottom clearance as the settings hub so the global mini-player never crowds
             // the last row (INS-7).
-            item { Spacer(modifier = Modifier.height(96.dp)) }
+            item { Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance)) }
         }
     }
 
@@ -273,7 +274,7 @@ private fun ExportCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FilledTonalButton(
+            Button(
                 onClick = onExport,
                 enabled = uiState.exportSelection.isNotEmpty() && !uiState.isExporting,
             ) {
@@ -312,15 +313,25 @@ private fun ImportContent(
     when (importState) {
         ImportState.Idle ->
             Column {
-                Column(modifier = Modifier.padding(horizontal = ChirpSpacing.Large)) {
-                    OutlinedButton(onClick = onChooseFile) {
-                        Icon(
-                            imageVector = Icons.Rounded.CloudDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
+                SectionCard {
+                    Column(
+                        modifier = Modifier.padding(ChirpSpacing.Large),
+                        verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.backup_import_help),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(modifier = Modifier.size(ChirpSpacing.Small))
-                        Text(stringResource(R.string.backup_choose_file))
+                        OutlinedButton(onClick = onChooseFile) {
+                            Icon(
+                                imageVector = Icons.Rounded.CloudDownload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(modifier = Modifier.size(ChirpSpacing.Small))
+                            Text(stringResource(R.string.backup_choose_file))
+                        }
                     }
                 }
                 importMessage?.let { message ->
@@ -366,6 +377,10 @@ private fun ImportReadyCard(
             BackupFileMetadata(contents = ready.contents)
         }
 
+        // Separate the file-metadata block ('what is in the file') from the section rows
+        // ('what to restore'), matching the divider before the action area below.
+        HorizontalDivider(modifier = Modifier.padding(horizontal = ChirpSpacing.Large))
+
         SectionOrder.forEach { section ->
             if (section in ready.contents.availableSections) {
                 BackupSectionRow(
@@ -408,21 +423,19 @@ private fun ImportReadyCard(
                         BackupImportMode.REPLACE -> stringResource(R.string.backup_import_mode_replace_help)
                     },
                 style = MaterialTheme.typography.bodySmall,
-                color =
-                    when (ready.mode) {
-                        BackupImportMode.MERGE -> MaterialTheme.colorScheme.onSurfaceVariant
-                        BackupImportMode.REPLACE -> MaterialTheme.colorScheme.error
-                    },
+                // Informational guidance, not an error — REPLACE is confirmed in the dialog, so the
+                // help body stays calm onSurfaceVariant like the MERGE branch.
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small)) {
-                FilledTonalButton(
+                Button(
                     onClick = onApply,
                     enabled = ready.selection.isNotEmpty(),
                 ) {
                     Text(stringResource(R.string.backup_import_button))
                 }
-                OutlinedButton(onClick = onCancel) {
+                TextButton(onClick = onCancel) {
                     Text(stringResource(R.string.backup_import_cancel))
                 }
             }
@@ -471,27 +484,38 @@ private fun ImportResultCard(
                 fontWeight = FontWeight.Medium,
             )
 
-            summary.results.forEach { result ->
-                Column {
-                    Text(
-                        text = sectionLabel(result.section),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Text(
-                        text = sectionResultText(result),
-                        style = MaterialTheme.typography.bodySmall,
-                        color =
-                            if (result.failure != null) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                    )
+            // Up to six label+detail pairs; thin dividers between them break the dense wall of
+            // small text into scannable rows.
+            Column {
+                summary.results.forEachIndexed { index, result ->
+                    if (index > 0) {
+                        HorizontalDivider()
+                    }
+                    Column(
+                        modifier = Modifier.padding(vertical = ChirpSpacing.Small),
+                    ) {
+                        Text(
+                            text = sectionLabel(result.section),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Text(
+                            text = sectionResultText(result),
+                            style = MaterialTheme.typography.bodySmall,
+                            color =
+                                if (result.failure != null) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                        )
+                    }
                 }
             }
 
-            FilledTonalButton(onClick = onDone) {
+            // Clear gap so the action reads as separate from the result list, not stuck to it.
+            Spacer(modifier = Modifier.height(ChirpSpacing.Medium))
+            Button(onClick = onDone) {
                 Text(stringResource(R.string.backup_result_done))
             }
         }
@@ -530,7 +554,8 @@ private fun SectionCard(content: @Composable () -> Unit) {
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = ChirpSpacing.Large),
+                // Outer gutter tracks the screen-gutter contract (not coincidentally Large).
+                .padding(horizontal = ChirpSpacing.ScreenHorizontal),
         colors =
             CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -564,20 +589,33 @@ private fun BackupSectionRow(
         // A null-callback Checkbox renders at its compact intrinsic size (no 48dp touch-target
         // reservation, since the row owns the toggle), so the gap to the label must be explicit.
         horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
-        verticalAlignment = Alignment.CenterVertically,
+        // Top-align so the checkbox + count pill anchor to the title's line; a two-line row
+        // (e.g. API Keys with the "no keys" sub-line) no longer floats them to mid-height.
+        verticalAlignment = Alignment.Top,
     ) {
         Checkbox(checked = checked, onCheckedChange = null, enabled = enabled)
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = sectionLabel(section),
-                style = MaterialTheme.typography.bodyLarge,
-                color =
-                    if (enabled) {
-                        MaterialTheme.colorScheme.onSurface
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-            )
+            // Title and pill share the headline line so the pill tracks the title even when a
+            // sub-line is present.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = sectionLabel(section),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color =
+                        if (enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                ChirpPill(label = count.toString())
+            }
             if (section == BackupSection.API_KEYS && count == 0) {
                 Text(
                     text = stringResource(R.string.backup_no_keys),
@@ -586,7 +624,6 @@ private fun BackupSectionRow(
                 )
             }
         }
-        ChirpPill(label = count.toString())
     }
 }
 

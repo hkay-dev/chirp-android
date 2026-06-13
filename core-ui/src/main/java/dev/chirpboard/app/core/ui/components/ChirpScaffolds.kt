@@ -137,6 +137,7 @@ fun ChirpSettingsDetailScaffold(
     modifier: Modifier = Modifier,
     scrollBehavior: TopAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(),
     snackbarHostState: SnackbarHostState? = null,
+    floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
@@ -170,6 +171,7 @@ fun ChirpSettingsDetailScaffold(
                 SnackbarHost(snackbarHostState)
             }
         },
+        floatingActionButton = floatingActionButton,
         containerColor = MaterialTheme.colorScheme.background,
         content = content,
     )

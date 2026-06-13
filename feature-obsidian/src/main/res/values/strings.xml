@@ -11,6 +11,7 @@
     <string name="obsidian_no_vault_configured">No vault configured</string>
     <string name="obsidian_auto_export_title">Auto Export</string>
     <string name="obsidian_auto_export_subtitle">Automatically export recordings to Obsidian after transcription completes.</string>
+    <string name="obsidian_auto_export_needs_access">Re-select your vault to enable auto-export.</string>
     <string name="obsidian_help_title">About Export</string>
     <string name="obsidian_help_body">Choose a folder in your Obsidian vault. Recordings are exported as text files with tags.</string>
     <string name="obsidian_help_note">Chirp requests permission only for the specific folder you choose.</string>

@@ -34,4 +34,11 @@ object ChirpSpacing {
 
     /** Canonical horizontal content margin for top-level screens. */
     val ScreenHorizontal: Dp = Large
+
+    /**
+     * 96.dp — bottom clearance reserving room for the global mini-player bar beneath scrolling
+     * settings content. Reference this as a scrolling list's bottom contentPadding (or a single
+     * trailing Spacer) instead of scattered 96/88.dp literals so the gap stays in sync.
+     */
+    val MiniPlayerClearance: Dp = 96.dp
 }

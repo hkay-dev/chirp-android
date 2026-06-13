@@ -4,13 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,18 +19,16 @@ import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -42,7 +37,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
+import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
+import kotlinx.coroutines.launch
 
 private val KeyboardProcessingModeIds = listOf(null, "proofread", "formal", "casual", "email", "code", "smart")
 
@@ -71,16 +69,23 @@ fun KeyboardSettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+    val systemSettingsOpenFailedMessage = stringResource(R.string.keyboard_settings_system_open_failed)
 
     ChirpSettingsDetailScaffold(
         title = stringResource(R.string.keyboard_settings_title),
         onNavigateBack = onNavigateBack,
         scrollBehavior = scrollBehavior,
+        snackbarHostState = snackbarHostState,
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = padding,
         ) {
+            item {
+                SettingsSectionHeader(title = stringResource(R.string.keyboard_settings_section_behavior))
+            }
             item {
                 SettingsSwitchItem(
                     icon = Icons.Rounded.Mic,
@@ -110,15 +115,14 @@ fun KeyboardSettingsScreen(
                     optionLabel = { keyboardProcessingModeLabel(it) },
                     onOptionSelected = viewModel::setProcessingMode,
                     enabled = uiState.llmEnabled,
-                    leadingContent = { Box(Modifier.size(40.dp)) },
                     trailingIconContentDescription = stringResource(R.string.desc_select_mode),
                     additionalSupportingContent = {
                         if (!uiState.llmEnabled) {
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(ChirpSpacing.ExtraSmall))
                             Text(
                                 text = stringResource(R.string.keyboard_settings_processing_mode_disabled),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     },
@@ -126,82 +130,61 @@ fun KeyboardSettingsScreen(
             }
 
             item {
-                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            text = stringResource(R.string.keyboard_settings_system_title),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    },
-                    supportingContent = {
-                        Column {
-                            Text(
-                                text = stringResource(R.string.keyboard_settings_system_description),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilledTonalButton(
-                                    onClick = {
-                                        try {
-                                            context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-                                        } catch (_: android.content.ActivityNotFoundException) {
-                                            // Ignore
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Settings,
-                                        contentDescription = null,
-                                        modifier = Modifier.padding(end = 8.dp).size(18.dp),
-                                    )
-                                    Text(stringResource(R.string.enable_keyboard))
-                                }
-                                FilledTonalButton(
-                                    onClick = {
-                                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                                        imm.showInputMethodPicker()
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Keyboard,
-                                        contentDescription = null,
-                                        modifier = Modifier.padding(end = 8.dp).size(18.dp),
-                                    )
-                                    Text(stringResource(R.string.select_keyboard))
+                SettingsSectionHeader(title = stringResource(R.string.keyboard_settings_system_title))
+            }
+            item {
+                Text(
+                    text = stringResource(R.string.keyboard_settings_system_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier =
+                        Modifier.padding(
+                            horizontal = ChirpSpacing.ScreenHorizontal,
+                            vertical = ChirpSpacing.Small,
+                        ),
+                )
+            }
+            item {
+                Column(
+                    modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+                ) {
+                    FilledTonalButton(
+                        onClick = {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+                            } catch (_: android.content.ActivityNotFoundException) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(systemSettingsOpenFailedMessage)
                                 }
                             }
-                        }
-                    },
-                    leadingContent = {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier =
-                                Modifier
-                                    .size(40.dp)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                                        shape = androidx.compose.foundation.shape.CircleShape,
-                                    ),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Keyboard,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-                    },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                )
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = ChirpSpacing.Small).size(18.dp),
+                        )
+                        Text(stringResource(R.string.enable_keyboard))
+                    }
+                    FilledTonalButton(
+                        onClick = {
+                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                            imm.showInputMethodPicker()
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Keyboard,
+                            contentDescription = null,
+                            modifier = Modifier.padding(end = ChirpSpacing.Small).size(18.dp),
+                        )
+                        Text(stringResource(R.string.select_keyboard))
+                    }
+                }
             }
 
             // INS-7: reserve space under the list for the global mini-player sibling bar.
-            item { Spacer(modifier = Modifier.height(96.dp)) }
+            item { Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance)) }
         }
     }
 }

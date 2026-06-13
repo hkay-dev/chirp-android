@@ -4,17 +4,18 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -30,13 +31,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.model.ProcessingPromptPreset
 
@@ -84,7 +86,7 @@ fun ProcessingPromptSettingsScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = padding,
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
         ) {
             item {
                 SettingsSectionHeader(title = stringResource(R.string.llm_prompt_default_section))
@@ -113,14 +115,19 @@ fun ProcessingPromptSettingsScreen(
                             .fillMaxWidth()
                             .clickable(onClick = onAddPreset),
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    headlineContent = { Text(stringResource(R.string.llm_prompt_add)) },
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.llm_prompt_add),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    },
                     leadingContent = {
                         Icon(Icons.Rounded.Add, contentDescription = null)
                     },
                 )
             }
 
-            items(uiState.presets, key = { it.id }) { preset ->
+            itemsIndexed(uiState.presets, key = { _, preset -> preset.id }) { index, preset ->
                 PromptPresetListItem(
                     preset = preset,
                     onClick = {
@@ -134,15 +141,29 @@ fun ProcessingPromptSettingsScreen(
                         }
                     },
                 )
+                if (index < uiState.presets.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = ChirpSpacing.ScreenHorizontal),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+                }
             }
 
             item {
                 Text(
                     text = stringResource(R.string.llm_prompt_presets_footer),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    modifier =
+                        Modifier.padding(
+                            horizontal = ChirpSpacing.ScreenHorizontal,
+                            vertical = ChirpSpacing.Medium,
+                        ),
                 )
+            }
+
+            item {
+                Spacer(Modifier.height(ChirpSpacing.MiniPlayerClearance))
             }
         }
     }
@@ -165,7 +186,14 @@ private fun PromptPresetListItem(
                     onLongClick = onLongClick,
                 ),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-        headlineContent = { Text(preset.name) },
+        headlineContent = {
+            Text(
+                text = preset.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
         supportingContent = {
             Text(
                 text =
@@ -175,7 +203,7 @@ private fun PromptPresetListItem(
                         preset.isBuiltIn -> stringResource(R.string.llm_prompt_builtin)
                         else -> stringResource(R.string.llm_prompt_custom)
                     },
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         },

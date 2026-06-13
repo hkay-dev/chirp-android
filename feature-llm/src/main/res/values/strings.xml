@@ -17,6 +17,8 @@
     <string name="llm_testing">Testing…</string>
     <string name="llm_test_connection">Test Connection</string>
     <string name="llm_clear">Clear Key</string>
+    <string name="llm_api_key_show">Show</string>
+    <string name="llm_api_key_hide">Hide</string>
     <string name="llm_enable_processing_title">Enable AI Processing</string>
     <string name="llm_enable_processing_enabled">AI processing is on for recordings, the keyboard, and voice typing.</string>
     <string name="llm_enable_processing_disabled">AI processing is off.</string>
@@ -27,6 +29,7 @@
     <string name="llm_connection_dismiss">Dismiss</string>
     <string name="llm_api_key_help">Get a key from %1$s</string>
     <string name="llm_processing_title">Automatic Processing</string>
+    <string name="llm_requires_api_key">Requires an API key to be configured.</string>
     <string name="llm_auto_title_title">Auto-generate titles</string>
     <string name="llm_auto_title_subtitle">Automatically create descriptive titles after transcription.</string>
     <string name="llm_auto_summary_title">Auto-generate summaries</string>

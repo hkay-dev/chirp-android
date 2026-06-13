@@ -15,8 +15,10 @@
     <string name="keyboard_settings_save_recordings_description">Keep audio files of keyboard voice inputs in your history.</string>
     <string name="keyboard_settings_enable_llm_title">Enable AI Processing</string>
     <string name="keyboard_settings_enable_llm_description">Clean up text with AI before inserting it.</string>
+    <string name="keyboard_settings_section_behavior">Behavior</string>
     <string name="keyboard_settings_system_title">System Settings</string>
     <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>
+    <string name="keyboard_settings_system_open_failed">Could not open system keyboard settings.</string>
     <string name="keyboard_settings_processing_mode_title">Default Mode</string>
     <string name="keyboard_settings_processing_mode_description">How your voice should be formatted.</string>
     <string name="keyboard_settings_processing_mode_disabled">Enable AI Processing to use this setting</string>
@@ -47,7 +49,7 @@
     <string name="settings_section_keyboard">Keyboard</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_dynamic_color_title">Use System Colors</string>
-    <string name="settings_dynamic_color_subtitle">Match Chirp to your wallpaper (Material You). Off keeps the brand colors.</string>
+    <string name="settings_dynamic_color_subtitle">Match Chirp to your wallpaper (Material You)</string>
     <string name="settings_section_organization">Organization</string>
     <string name="settings_section_about">About</string>
     <string name="settings_transcription_title">Voice Model</string>
@@ -93,6 +95,7 @@
     </plurals>
     <string name="backup_export_failed">Couldn\'t save the backup. Check storage space and try again.</string>
     <string name="backup_choose_file">Choose Backup File</string>
+    <string name="backup_import_help">Pick a .chirp-backup or JSON file to restore from.</string>
     <string name="backup_inspecting">Reading backup…</string>
     <string name="backup_applying">Restoring…</string>
     <string name="backup_file_summary_title">Backup Contents</string>
@@ -143,10 +146,10 @@
     <string name="audio_settings_recording_quality">Recording Quality</string>
     <string name="audio_settings_recording_quality_help">Applies to future saved app and keyboard recordings.</string>
     <string name="audio_settings_output_format">Output Format</string>
-    <string name="audio_settings_output_format_help">Choose the container and codec used when saving recordings.</string>
-    <string name="audio_settings_format_m4a" translatable="false">M4A (AAC)</string>
+    <string name="audio_settings_output_format_help">Container used when saving recordings: M4A (AAC), MP3, or WAV (PCM).</string>
+    <string name="audio_settings_format_m4a" translatable="false">M4A</string>
     <string name="audio_settings_format_mp3" translatable="false">MP3</string>
-    <string name="audio_settings_format_wav" translatable="false">WAV (PCM)</string>
+    <string name="audio_settings_format_wav" translatable="false">WAV</string>
     <string name="audio_settings_quality_low">Low</string>
     <string name="audio_settings_quality_balanced">Balanced</string>
     <string name="audio_settings_quality_high">High</string>
@@ -156,8 +159,6 @@
     <string name="audio_settings_input_policy_builtin">Built-in only</string>
     <string name="audio_settings_input_policy_manual">Choose device</string>
     <string name="audio_settings_active_input">Active input</string>
-    <string name="audio_settings_device_selected">Selected microphone</string>
-    <string name="audio_settings_active_input_help">Last resolved microphone for recording.</string>
     <string name="dev_add_5">Add 5</string>
     <string name="dev_add_20">Add 20</string>
     <string name="dev_clear_timeline">Clear Timeline</string>

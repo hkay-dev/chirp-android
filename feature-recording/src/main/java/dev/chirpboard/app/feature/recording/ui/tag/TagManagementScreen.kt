@@ -8,43 +8,35 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,22 +47,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import dev.chirpboard.app.core.ui.components.ChirpLeafScaffold
 import dev.chirpboard.app.core.ui.components.ChirpPrimaryFab
+import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.core.ui.components.RepositoryErrorSnackbarEffect
-import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.recording.R
 
 /**
  * Full screen for managing all tags.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @androidx.compose.runtime.Stable
 data class TagItemUiState(
     val tag: dev.chirpboard.app.data.entity.Tag,
@@ -98,7 +90,7 @@ fun TagManagementScreen(
     var editingTagId by rememberSaveable { mutableStateOf<String?>(null) }
     val editingTag = remember(editingTagId, tags) { editingTagId?.let { id -> tags.firstOrNull { it.id.toString() == id } } }
 
-    ChirpLeafScaffold(
+    ChirpSettingsDetailScaffold(
         title = stringResource(R.string.rec_tags),
         onNavigateBack = onNavigateBack,
         snackbarHostState = snackbarHostState,
@@ -133,8 +125,8 @@ fun TagManagementScreen(
                         Modifier
                             .fillMaxSize()
                             .padding(paddingValues),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+                    contentPadding = PaddingValues(bottom = ChirpSpacing.MiniPlayerClearance),
                 ) {
                     items(
                         items = tags,
@@ -147,7 +139,6 @@ fun TagManagementScreen(
                             onDelete = { viewModel.deleteTag(tag) },
                             modifier = Modifier.animateItem(),
                         )
-                        HorizontalDivider()
                     }
                 }
             }
@@ -187,7 +178,6 @@ private fun SwipeableTagItem(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tag = tagItem.tag
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
@@ -199,6 +189,11 @@ private fun SwipeableTagItem(
                 }
             },
         )
+
+    // Reset state after a recycled slot rebinds so a half-swiped row never flickers in.
+    LaunchedEffect(tagItem.tag.id) {
+        dismissState.reset()
+    }
 
     SwipeToDismissBox(
         modifier = modifier,
@@ -218,7 +213,7 @@ private fun SwipeableTagItem(
                     Modifier
                         .fillMaxSize()
                         .background(backgroundColor)
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = ChirpSpacing.ScreenHorizontal),
                 contentAlignment = Alignment.CenterEnd,
             ) {
                 Icon(
@@ -249,6 +244,7 @@ private fun TagItemCard(
         remember(tag.color, defaultColor) {
             tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
         }
+    val outlineColor = MaterialTheme.colorScheme.outlineVariant
 
     ListItem(
         modifier = modifier.fillMaxWidth(),
@@ -257,6 +253,8 @@ private fun TagItemCard(
             Text(
                 text = tag.name,
                 style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
         leadingContent = {
@@ -265,7 +263,8 @@ private fun TagItemCard(
                     Modifier
                         .size(24.dp)
                         .clip(CircleShape)
-                        .background(tagColor),
+                        .background(tagColor)
+                        .border(1.dp, outlineColor, CircleShape),
             )
         },
         trailingContent = {

@@ -2,7 +2,6 @@ package dev.chirpboard.app.ui.settings
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -21,32 +19,28 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Bluetooth
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Icon
 import dev.chirpboard.app.core.audio.AudioInputDevicePolicy
-import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.audio.RecordingQualityPreset
-import dev.chirpboard.app.core.ui.R as CoreUiR
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
+import dev.chirpboard.app.core.ui.components.InputDeviceListContent
+import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
-import dev.chirpboard.app.core.ui.components.icon
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 
 /**
  * Settings screen for audio-related options including microphone gain
@@ -79,8 +73,14 @@ fun AudioSettingsScreen(
             item { SettingsSectionHeader(title = stringResource(R.string.audio_settings_section_input)) }
             item {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = ChirpSpacing.ScreenHorizontal,
+                                vertical = ChirpSpacing.Small,
+                            ),
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
                 ) {
                     val displayedGain by animateFloatAsState(
                         targetValue = microphoneGain,
@@ -120,7 +120,6 @@ fun AudioSettingsScreen(
                 item {
                     FixedValueListItem(
                         title = stringResource(R.string.audio_settings_active_input),
-                        supportingText = stringResource(R.string.audio_settings_active_input_help),
                         value = label,
                     )
                 }
@@ -128,81 +127,35 @@ fun AudioSettingsScreen(
 
             item(key = "manual_input_devices") {
                 PushDownReveal(visible = inputDevicePolicy == AudioInputDevicePolicy.Manual) {
-                    Column(modifier = Modifier.animatePushDownLayout()) {
-                        // Resolved once against the whole list so the grant/revoke-tolerant
-                        // Bluetooth fallback checks at most one row (exact matches win).
-                        val selectedDevice =
-                            AudioInputDeviceSelector.findDeviceForSelectionKey(
-                                availableInputDevices,
-                                manualDeviceKey,
-                            )
-                        availableInputDevices.forEach { device ->
-                            val selected = device.id == selectedDevice?.id
-                            ListItem(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable { viewModel.setManualInputDevice(device) },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                leadingContent = {
-                                    Icon(
-                                        imageVector = device.kind.icon(),
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                },
-                                headlineContent = { Text(device.productName) },
-                                supportingContent = { Text(device.typeLabel) },
-                                trailingContent = {
-                                    if (selected) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Check,
-                                            contentDescription = stringResource(R.string.audio_settings_device_selected),
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                },
-                            )
+                    // Shared picker: 'Automatic (recommended)', every connected device, the
+                    // 'not connected' row for an absent manual preference, the Bluetooth-names
+                    // request, and the priority explainer — in lockstep with the record/keyboard
+                    // pickers and at the house bodyLarge/bodyMedium scale.
+                    val bluetoothPermissionLauncher =
+                        rememberLauncherForActivityResult(
+                            ActivityResultContracts.RequestPermission(),
+                        ) { granted ->
+                            if (granted) {
+                                viewModel.onBluetoothPermissionGranted()
+                            }
                         }
-
-                        // AUD-09: Bluetooth devices are present but their real names are
-                        // hidden — offer the BLUETOOTH_CONNECT rationale + request right
-                        // here. Denied? Type labels keep working; the row simply stays.
-                        if (availableInputDevices.any { it.bluetoothNameHidden }) {
-                            val bluetoothPermissionLauncher =
-                                rememberLauncherForActivityResult(
-                                    ActivityResultContracts.RequestPermission(),
-                                ) { granted ->
-                                    if (granted) {
-                                        viewModel.onBluetoothPermissionGranted()
-                                    }
-                                }
-                            ListItem(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable {
-                                            bluetoothPermissionLauncher.launch(
-                                                Manifest.permission.BLUETOOTH_CONNECT,
-                                            )
-                                        },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                leadingContent = {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Bluetooth,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                },
-                                headlineContent = {
-                                    Text(stringResource(CoreUiR.string.input_device_bt_names_action))
-                                },
-                                supportingContent = {
-                                    Text(stringResource(CoreUiR.string.input_device_bt_names_rationale))
-                                },
-                            )
-                        }
-                    }
+                    val pickerState =
+                        InputDevicePickerUiState(
+                            devices = availableInputDevices,
+                            policy = inputDevicePolicy,
+                            manualKey = manualDeviceKey,
+                        )
+                    InputDeviceListContent(
+                        state = pickerState,
+                        onSelectAutomatic = {
+                            viewModel.setInputDevicePolicy(AudioInputDevicePolicy.Automatic)
+                        },
+                        onSelectDevice = viewModel::setManualInputDevice,
+                        onRequestBluetoothNames = {
+                            bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                        },
+                        modifier = Modifier.animatePushDownLayout(),
+                    )
                 }
             }
 
@@ -229,7 +182,7 @@ fun AudioSettingsScreen(
             }
 
             // INS-7: reserve space under the list for the global mini-player sibling bar.
-            item { Spacer(modifier = Modifier.height(96.dp)) }
+            item { Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance)) }
         }
     }
 }
@@ -242,10 +195,14 @@ private fun inputDevicePolicyLabel(policy: AudioInputDevicePolicy): String =
         AudioInputDevicePolicy.Manual -> stringResource(R.string.audio_settings_input_policy_manual)
     }
 
+/**
+ * A read-only settings row at the house scale (bodyLarge+Medium title, bodyMedium subtitle).
+ * The free-form [value] becomes the full-width supporting line so long Bluetooth/USB device
+ * names get a full line instead of ellipsizing mid-word next to the title.
+ */
 @Composable
 private fun FixedValueListItem(
     title: String,
-    supportingText: String,
     value: String,
 ) {
     ListItem(
@@ -254,21 +211,17 @@ private fun FixedValueListItem(
         headlineContent = {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
             )
         },
         supportingContent = {
             Text(
-                text = supportingText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        trailingContent = {
-            Text(
                 text = value,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         },
     )

@@ -25,27 +25,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -53,18 +45,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
+import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
-import dev.chirpboard.app.core.ui.R as CoreR
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.transcription.R
 
 /**
@@ -117,32 +110,10 @@ fun TranscriptionSettingsScreen(
         onPauseOrDispose { }
     }
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = {
-                    Text(
-                        text = stringResource(R.string.transcription_title),
-                        fontWeight = FontWeight.Bold,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = stringResource(CoreR.string.desc_navigate_back),
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-                colors =
-                    TopAppBarDefaults.largeTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                    ),
-            )
-        },
+    ChirpSettingsDetailScaffold(
+        title = stringResource(R.string.transcription_title),
+        onNavigateBack = onNavigateBack,
+        scrollBehavior = scrollBehavior,
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -174,7 +145,7 @@ fun TranscriptionSettingsScreen(
 
             // Error Message (honest card with a manual Retry — never auto-retried, ERR-3)
             uiState.errorMessage?.let { error ->
-                item { Spacer(Modifier.height(8.dp)) }
+                item { Spacer(Modifier.height(ChirpSpacing.Small)) }
                 item {
                     ErrorCard(
                         message = error,
@@ -189,13 +160,18 @@ fun TranscriptionSettingsScreen(
             item {
                 Text(
                     text = stringResource(R.string.transcription_model_help),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 16.dp, start = 16.dp, end = 16.dp),
+                    modifier =
+                        Modifier.padding(
+                            top = ChirpSpacing.ExtraLarge,
+                            start = ChirpSpacing.ScreenHorizontal,
+                            end = ChirpSpacing.ScreenHorizontal,
+                        ),
                 )
             }
             // INS-7: reserve space under the list for the global mini-player sibling bar.
-            item { Spacer(modifier = Modifier.height(96.dp)) }
+            item { Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance)) }
         }
     }
 
@@ -267,13 +243,13 @@ private fun ModelManagementCard(
         ).value
 
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ChirpSpacing.ScreenHorizontal),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxWidth().padding(ChirpSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Large)
         ) {
             // Header with Icon and Model Info
             Row(
@@ -302,7 +278,7 @@ private fun ModelManagementCard(
                         when (state) {
                             "loading" -> {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(22.dp),
                                     strokeWidth = 2.dp,
                                     color = statusTint,
                                 )
@@ -311,7 +287,7 @@ private fun ModelManagementCard(
                                 Icon(
                                     imageVector = Icons.Rounded.CheckCircle,
                                     contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(22.dp),
                                     tint = statusTint,
                                 )
                             }
@@ -319,23 +295,24 @@ private fun ModelManagementCard(
                                 Icon(
                                     imageVector = Icons.Rounded.CloudDownload,
                                     contentDescription = null,
-                                    modifier = Modifier.size(20.dp),
+                                    modifier = Modifier.size(22.dp),
                                     tint = statusTint,
                                 )
                             }
                         }
                     }
                 }
-                
-                Spacer(Modifier.width(16.dp))
-                
+
+                Spacer(Modifier.width(ChirpSpacing.Large))
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = modelName,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
-                    
+
                     val statusText = when {
                         isWaitingForNetwork -> stringResource(R.string.transcription_status_waiting)
                         isLoading -> stringResource(R.string.transcription_status_downloading)
@@ -343,11 +320,16 @@ private fun ModelManagementCard(
                         else -> stringResource(R.string.transcription_status_not_downloaded)
                     }
                     val sizeText = stringResource(R.string.transcription_size_value, modelSizeMb)
-                    
+
                     Text(
-                        text = "$statusText • $sizeText",
+                        text =
+                            stringResource(
+                                R.string.transcription_status_size_format,
+                                statusText,
+                                sizeText,
+                            ),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -356,7 +338,7 @@ private fun ModelManagementCard(
             PushDownReveal(visible = isLoading) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -371,9 +353,13 @@ private fun ModelManagementCard(
                                 else -> stringResource(R.string.transcription_downloading)
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (!isWaitingForNetwork) {
+                            Spacer(Modifier.width(ChirpSpacing.Small))
                             Text(
                                 text = "${(progress * 100).toInt()}%",
                                 style = MaterialTheme.typography.bodySmall,
@@ -402,7 +388,7 @@ private fun ModelManagementCard(
             // Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small)
             ) {
                 if (!isDownloaded) {
                     if (isLoading) {
@@ -419,7 +405,7 @@ private fun ModelManagementCard(
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp),
                             )
-                            Spacer(Modifier.width(8.dp))
+                            Spacer(Modifier.width(ChirpSpacing.Small))
                             Text(stringResource(R.string.transcription_download_model))
                         }
                     }
@@ -435,7 +421,7 @@ private fun ModelManagementCard(
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(ChirpSpacing.Small))
                         Text(stringResource(R.string.transcription_delete_model))
                     }
                 }
@@ -452,35 +438,45 @@ private fun ErrorCard(
     onDismiss: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ChirpSpacing.ScreenHorizontal),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.errorContainer,
     ) {
-        Row(
+        Column(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                    .padding(ChirpSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Warning,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Spacer(Modifier.width(12.dp))
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.transcription_dismiss))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                )
+                Spacer(Modifier.width(ChirpSpacing.Medium))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.weight(1f),
+                )
             }
-            if (showRetry) {
-                TextButton(onClick = onRetry) {
-                    Text(stringResource(R.string.transcription_retry))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small, Alignment.End),
+            ) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.transcription_dismiss))
+                }
+                if (showRetry) {
+                    TextButton(onClick = onRetry) {
+                        Text(stringResource(R.string.transcription_retry))
+                    }
                 }
             }
         }

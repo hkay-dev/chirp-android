@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R
 
@@ -92,7 +93,7 @@ fun <T> SettingsDropdownListItem(
             Column {
                 Text(
                     text = supportingText,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 additionalSupportingContent?.invoke()
@@ -117,6 +118,8 @@ fun <T> SettingsDropdownListItem(
                         text = optionLabel(selectedOption),
                         style = MaterialTheme.typography.bodyMedium,
                         color = textColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,

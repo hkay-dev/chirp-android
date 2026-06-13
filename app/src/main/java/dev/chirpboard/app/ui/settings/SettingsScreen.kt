@@ -37,6 +37,7 @@ import dev.chirpboard.app.core.ui.components.SettingsListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
 import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
+import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 
 /**
  * Main settings hub screen that organizes all app settings by category.
@@ -87,7 +88,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                HorizontalDivider(modifier = Modifier.padding(start = SettingsRowDividerInset))
             }
             item {
                 SettingsListItem(
@@ -171,7 +172,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                HorizontalDivider(modifier = Modifier.padding(start = SettingsRowDividerInset))
             }
             item {
                 SettingsListItem(
@@ -182,7 +183,7 @@ fun SettingsScreen(
                 )
             }
             item {
-                HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                HorizontalDivider(modifier = Modifier.padding(start = SettingsRowDividerInset))
             }
             item {
                 SettingsListItem(
@@ -239,12 +240,12 @@ fun SettingsScreen(
             // against it. A generous bottom spacer keeps a Home-like breathing room (96dp ~ mini
             // player + margin) regardless of whether the bar is currently visible.
             item {
-                Spacer(modifier = Modifier.height(SettingsBottomSpacing))
+                Spacer(modifier = Modifier.height(ChirpSpacing.MiniPlayerClearance))
             }
         }
     }
 }
 
-/** INS-7: bottom inset reserved under settings lists so the global mini-player never crowds the
- *  last row. Mirrors the Home list's 96dp FAB/mini-player clearance. */
-private val SettingsBottomSpacing = 96.dp
+/** Indent for the hub's row-separating dividers; tracks past the 40dp leading icon (40dp icon +
+ *  16dp leading gap + 16dp trailing gap) so dividers start flush with the row text. */
+private val SettingsRowDividerInset = 72.dp
