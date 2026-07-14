@@ -1,23 +1,3 @@
-## Project Lifecycle (tend)
-
-This project is managed by `tend`. Record significant events using `tend note`:
-
-- **Breakthroughs**: When something clicks or a major milestone is reached
-- **Pivots**: When changing approach, technology, or direction
-- **Blockers**: When stuck on something - document what and why
-- **Frustrations**: When things aren't working - helps identify patterns
-- **Decisions**: When making significant architectural or design choices
-
-Examples:
-```bash
-tend note "switched from REST to GraphQL - better fits nested data model"
-tend note "BLOCKER: auth flow broken after upgrade, rolling back"
-tend note "finally got caching working - was missing invalidation on write"
-```
-
-These notes become git commits, building a narrative for future analysis.
-Quick fleeting thoughts go in `tend ramble` instead (temporary inbox).
-
 ## Database Architecture
 
 ### Single Source of Truth
@@ -31,7 +11,7 @@ The app uses a **single database** located in the `data` module:
 
 - Migrations are defined in `data/src/main/java/dev/chirpboard/app/data/db/Migrations.kt`
 - Each schema change requires a new `Migration` class (e.g., `MIGRATION_1_2`)
-- All migrations must be registered in `DataModule.kt`
+- All migrations must be registered by appending them to `Migrations.ALL` in `Migrations.kt`
 - Migration tests live in `data/src/androidTest/java/dev/chirpboard/app/data/db/MigrationTest.kt`
 
 **Never use:**
@@ -42,6 +22,6 @@ The app uses a **single database** located in the `data` module:
 When modifying the database schema:
 1. Increment `version` in `@Database` annotation
 2. Create a new `Migration` object in `Migrations.kt`
-3. Add the migration to the builder in `DataModule.kt`
+3. Append the migration to `Migrations.ALL` in `Migrations.kt`
 4. Write a migration test to verify the upgrade path
 5. Document the schema change in the `AppDatabase.kt` class comment

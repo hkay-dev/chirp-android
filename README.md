@@ -6,6 +6,10 @@
 
 Chirp is a personal learning project, built in the open while I get better at Android development. The goal is simple: record thoughts, transcribe them on-device, and turn rough speech into text that is easier to use.
 
+> **AI disclosure:** Chirp was built with extensive AI assistance, primarily from Google Gemini. It's a learning project, so review and test the code before relying on it.
+
+> **Privacy note:** Speech-to-text runs on-device. If you enable optional AI processing, the text you process is sent to the provider you choose using your own API key.
+
 ---
 
 <p>
@@ -94,9 +98,11 @@ libraries, models, fonts, and artwork keep their own licenses.
   respective owners.
 - MP3 encoding uses
   [AndroidLame-kotlin](https://github.com/banketree/AndroidLame-kotlin), based on
-  [TAndroidLame](https://github.com/naman14/TAndroidLame), with LAME 3.100. LAME is licensed
-  under the GNU Library General Public License version 2 or later. The corresponding LAME
-  source is available from the [official LAME archive](https://sourceforge.net/projects/lame/files/lame/3.100/).
+  [TAndroidLame](https://github.com/naman14/TAndroidLame), with LAME 3.100. TAndroidLame is
+  licensed under GPL 3.0 or later, while LAME is licensed under the GNU Library General Public
+  License version 2 or later. AndroidLame-kotlin doesn't publish a separate license for its added
+  wrapper code. The corresponding LAME source is available from the
+  [official LAME archive](https://sourceforge.net/projects/lame/files/lame/3.100/).
 - On-device recognition uses [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), licensed
   under Apache 2.0. Its Android runtime includes
   [ONNX Runtime](https://github.com/microsoft/onnxruntime), licensed under MIT.
@@ -115,7 +121,7 @@ any third-party component. The same notices are packaged in the APK under `asset
 
 ## Notes and focus
 
-This is a working personal app and a learning project, not a polished team product. I'm still learning Android development, and the project is 100% co-developed with various LLMs.
+This is a working personal app and a learning project, not a polished team product. I'm still learning Android development.
 
 Every hands-on test so far has been on my Galaxy S25 Ultra. It's the only Android device I have available, and I'd be very interested to hear how Chirp works on anything else.
 
