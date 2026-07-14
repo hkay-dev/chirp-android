@@ -57,6 +57,11 @@ It started as a recorder, then grew into transcription, LLM cleanup, summaries, 
 - Export transcripts to Obsidian as Markdown.
 - Optionally use AI processing for cleanup, titles, summaries, structured outcomes, and chat.
 
+## Download
+
+Download the latest installable APK from [GitHub Releases](https://github.com/hkay-dev/chirp-android/releases/latest).
+The 1.0.0 release requires Android 16 and downloads the speech model during setup.
+
 ## Details
 
 - Foreground recording services for long-running capture.
