@@ -23,6 +23,14 @@ based on [TAndroidLame](https://github.com/naman14/TAndroidLame). The AndroidLam
 doesn't publish a separate license for its wrapper code. This notice records its origin but can't
 grant rights that its authors haven't published.
 
+AndroidLame-kotlin includes wrapper code derived from TAndroidLame. TAndroidLame's author licenses
+that project under the GNU General Public License version 3 or, at the user's option, any later
+version.
+
+- Copyright (c) 2015 Naman Dwivedi
+- Source: [naman14/TAndroidLame](https://github.com/naman14/TAndroidLame)
+- Full license: [licenses/TANDROIDLAME-GPL-3.0-or-later.txt](licenses/TANDROIDLAME-GPL-3.0-or-later.txt)
+
 The native encoder bundled by AndroidLame-kotlin is LAME 3.100. The LAME source headers grant use
 under the GNU Library General Public License version 2 or, at the user's option, any later version.
 
@@ -33,6 +41,11 @@ under the GNU Library General Public License version 2 or, at the user's option,
 Chirp doesn't modify LAME. Recipients may replace or rebuild the separately packaged native
 library subject to the Android platform and package-signing rules. Nothing in Chirp's Apache 2.0
 license changes the rights granted by LAME's license.
+
+Chirp's original source remains under Apache 2.0. Distribution of an APK containing the
+TAndroidLame-derived wrapper must also follow the applicable GPL 3.0-or-later terms. This notice
+doesn't resolve AndroidLame-kotlin's missing license for any added wrapper code that isn't covered
+by TAndroidLame's license.
 
 ## On-device speech runtime
 

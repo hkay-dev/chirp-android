@@ -1,23 +1,3 @@
-## Project Lifecycle (tend)
-
-This project is managed by `tend`. Record significant events using `tend note`:
-
-- **Breakthroughs**: When something clicks or a major milestone is reached
-- **Pivots**: When changing approach, technology, or direction
-- **Blockers**: When stuck on something - document what and why
-- **Frustrations**: When things aren't working - helps identify patterns
-- **Decisions**: When making significant architectural or design choices
-
-Examples:
-```bash
-tend note "switched from REST to GraphQL - better fits nested data model"
-tend note "BLOCKER: auth flow broken after upgrade, rolling back"
-tend note "finally got caching working - was missing invalidation on write"
-```
-
-These notes become git commits, building a narrative for future analysis.
-Quick fleeting thoughts go in `tend ramble` instead (temporary inbox).
-
 ## Database Architecture
 
 ### Single Source of Truth
