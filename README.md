@@ -101,6 +101,35 @@ model switch or deletion, or process death, never during active capture or trans
 warmup does not open the microphone. Profiling and regeneration steps live in
 [the performance guide](docs/performance.md).
 
+## License and third-party credits
+
+Chirp's source code is licensed under the [Apache License 2.0](LICENSE). Third-party
+libraries, models, fonts, and artwork keep their own licenses.
+
+- Provider logos come from [models.dev](https://github.com/anomalyco/models.dev) and are
+  included under its MIT license. Provider names and logos remain trademarks of their
+  respective owners.
+- MP3 encoding uses
+  [AndroidLame-kotlin](https://github.com/banketree/AndroidLame-kotlin), based on
+  [TAndroidLame](https://github.com/naman14/TAndroidLame), with LAME 3.100. LAME is licensed
+  under the GNU Library General Public License version 2 or later. The corresponding LAME
+  source is available from the [official LAME archive](https://sourceforge.net/projects/lame/files/lame/3.100/).
+- On-device recognition uses [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), licensed
+  under Apache 2.0. Its Android runtime includes
+  [ONNX Runtime](https://github.com/microsoft/onnxruntime), licensed under MIT.
+- The downloaded speech model is an INT8 ONNX conversion by
+  [csukuangfj](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8)
+  of [NVIDIA Parakeet TDT 0.6B V2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
+  The model is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+  The conversion changes the original model to sherpa-onnx ONNX format and applies INT8
+  quantization.
+- The documentation artwork uses Google Sans Flex through Google Fonts. Google Sans Flex is
+  licensed under the SIL Open Font License 1.1.
+
+Copyright notices, full license texts, and source links are collected in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Chirp's Apache 2.0 license doesn't relicense
+any third-party component. The same notices are packaged in the APK under `assets/legal`.
+
 ## Notes
 
 This is not a polished product from a team. It is a working personal app and a learning project.

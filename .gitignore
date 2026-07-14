@@ -21,6 +21,19 @@ __pycache__/
 *.iml
 local.properties
 
+# Secrets and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+google-services.json
+secrets.properties
+signing.properties
+
 # Generated docs
 ANDROID_CONFIG_TEMPLATES.md
 DOCUMENTATION_INDEX.md
