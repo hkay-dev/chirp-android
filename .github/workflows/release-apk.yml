@@ -52,7 +52,10 @@ jobs:
           mkdir -p release
           cp "$source_apk" "$release_apk"
           "$apksigner" verify --verbose --print-certs "$release_apk"
-          sha256sum "$release_apk" > "${release_apk}.sha256"
+          (
+            cd release
+            sha256sum "chirp-${version_name}.apk" > "chirp-${version_name}.apk.sha256"
+          )
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
