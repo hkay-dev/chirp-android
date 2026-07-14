@@ -2,147 +2,41 @@
 
 <img src="docs/assets/github-header.png" alt="Chirp - Parakeet Powered STT for Android" width="100%" />
 
-**An Android voice-notes app focused on offline transcription and practical text cleanup.**
-
-Chirp is a personal learning project, built in the open while I get better at Android development. The goal is simple: record thoughts, transcribe them on-device, and turn rough speech into text that is easier to use.
-
-> **AI disclosure:** Chirp was built with extensive AI assistance, primarily from Google Gemini. It's a learning project, so review and test the code before relying on it.
-
-> **Privacy note:** Speech-to-text runs on-device. If you enable optional AI processing, the text you process is sent to the provider you choose using your own API key.
-
----
-
-<p>
-  <img alt="Android Kotlin" src="https://img.shields.io/badge/Android-Kotlin-3E7B6D?style=for-the-badge&logo=android&logoColor=white&labelColor=244D45" />
-  <img alt="Parakeet TDT" src="https://img.shields.io/badge/STT-Parakeet%20TDT-6EA8FE?style=for-the-badge&labelColor=17324D" />
-  <img alt="Offline first" src="https://img.shields.io/badge/Transcription-Offline%20First-7A5C8E?style=for-the-badge&labelColor=38284A" />
-  <img alt="Optional AI" src="https://img.shields.io/badge/AI-Optional%20API%20Processing-B76E45?style=for-the-badge&labelColor=5A3525" />
-</p>
+**Local Parakeet transcription for Android, in a voice-notes app and a keyboard.**
 
 </div>
+
+Chirp is a hobby project from a guy who sort of knows what he's doing. I'm learning Android as I go, and AI helped with a lot of it, mostly Gemini.
+
+Speech-to-text runs on your phone. Optional cleanup sends text to the cloud provider you choose.
 
 <div align="center">
   <img src="docs/screenshots/home.png" alt="Chirp home screen with sample recordings" width="220" />
-  <img src="docs/screenshots/record.png" alt="Chirp record flow showing the local model requirement" width="220" />
+  <img src="docs/screenshots/details.png" alt="Chirp recording details with a sample transcript" width="220" />
   <img src="docs/screenshots/keyboard.png" alt="Chirp Voice keyboard input method" width="220" />
-  <br />
-  <sub>Home, recording entry point, and Chirp Voice keyboard.</sub>
-  <br /><br />
-  <img src="docs/screenshots/details.png" alt="Chirp recording details with a long sample transcript" width="220" />
-  <img src="docs/screenshots/model-download.png" alt="Chirp voice model download settings" width="220" />
-  <img src="docs/screenshots/settings.png" alt="Chirp settings overview" width="220" />
-  <br />
-  <sub>Details, model download, and settings.</sub>
-  <br /><br />
-  <img src="docs/screenshots/ai-processing.png" alt="Chirp AI processing settings" width="220" />
-  <img src="docs/screenshots/keyboard-settings.png" alt="Chirp keyboard settings" width="220" />
-  <img src="docs/screenshots/audio-settings.png" alt="Chirp audio settings" width="220" />
-  <br />
-  <sub>AI processing, keyboard, and audio settings.</sub>
 </div>
 
-## Why
+## What it does
 
-I love apps like VoiceInk, TypeWhisper, Spokenly, and Superwhisper. They make excellent speech-to-text feel close at hand, especially with NVIDIA Parakeet in the mix.
-
-On Android, most polished options I found were cloud-based, like Typeless and WisprFlow. Chirp is my attempt at a local-first alternative: offline transcription first, optional API-based cleanup second.
-
-It started as a recorder, then grew into transcription, LLM cleanup, summaries, and finally an input method. No local LLM support yet. The offline part is speech-to-text.
-
-## Features
-
-- Record, search, and play voice notes with on-device transcription.
-- Dictate into other apps with Chirp Voice or control recording from a home-screen widget.
-- Organize recordings with profiles, tags, and word replacements, then export them to Obsidian as Markdown.
-- Edit transcripts in Processing Studio, with optional API-based cleanup, titles, summaries, structured outcomes, and chat.
+- Records and plays voice notes, then transcribes them locally with Parakeet.
+- Works as the **Chirp Voice** dictation keyboard and a home-screen widget.
+- Can clean up text, make summaries, or chat about a transcript with your own API key.
+- Has tags, profiles, word replacements, sharing, and Obsidian export.
 
 ## Download
 
-Download the latest installable APK from [GitHub Releases](https://github.com/hkay-dev/chirp-android/releases/latest).
-The 1.0.0 release requires Android 16 and downloads the speech model during setup.
+Grab the APK from [GitHub Releases](https://github.com/hkay-dev/chirp-android/releases/latest). It needs Android 16 and downloads the speech model during setup.
 
-## Details
+I've only tested Chirp on a Galaxy S25 Ultra. If you try it on something else, I'd love to hear how it goes.
 
-- The NVIDIA Parakeet TDT model downloads separately and transcribes locally through sherpa-onnx.
-- Foreground recording, WorkManager transcription, and recovery paths handle longer or interrupted recordings.
-- Room stores recordings, transcripts, organization, and processing results. Media3 handles playback.
-- Profiles can set transcription, AI processing, Obsidian export, and audio defaults.
+## Maybe someday
 
-## IME
+I'd like to try more Parakeet variants, Whisper and other speech models, local LLM cleanup on phones that can handle it, better cloud connections, easier sign-in alongside API keys, and modular ways to turn transcripts into useful stuff. Using a ChatGPT subscription would be interesting if that ever becomes an option.
 
-Chirp can be used as its own Android input method through **Chirp Voice**. Switch keyboards, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
+I may not have the time, hardware, or skill to build all of that. I'm still curious.
 
-It can also work as a triggered speech recognition service from compatible keyboards and apps. SwiftKey supports this kind of flow. Gboard, sadly, does not currently expose the same choice.
+## License
 
-## Stack
+Chirp's code is [Apache 2.0](LICENSE). Credits include models.dev, AndroidLame-kotlin and LAME, sherpa-onnx and ONNX Runtime, NVIDIA's Parakeet model, and csukuangfj's conversion.
 
-Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
-
-- Sherpa-ONNX with a local Parakeet TDT speech model for on-device transcription.
-- Jetpack Compose and Material 3 for the UI.
-- Room for local storage.
-- Hilt for dependency injection.
-- WorkManager for background transcription work.
-- Media3 for recording playback.
-- Optional Gemini-powered processing for summaries, cleanup, chat, and structured outcomes.
-
-Local transcription is the heart of the project. AI processing sits on top.
-
-## Wish list, not promises
-
-None of this is scheduled or guaranteed. These are just the ideas I'm most curious about if I
-have the time, the hardware, and the ability to learn what's needed.
-
-- Support more speech models, starting with other Parakeet variants and possibly expanding to
-  Whisper or other ASR families that can run well on Android.
-- Try fully on-device LLM cleanup, summaries, and other post-processing on devices with enough
-  memory and compatible GPU or NPU hardware.
-- Build better cloud integrations for moving recordings, transcripts, and finished results where
-  they need to go.
-- Explore easier provider sign-in alongside API keys, including something like signing in with a
-  ChatGPT subscription if OpenAI ever supports that for third-party apps.
-- Make post-transcription actions more modular, so a transcript could become a note, task,
-  message, export, or small agent-style workflow without every path being built into the app.
-- Test and tune Chirp on more phones and tablets as people try it and report back.
-
-Some of these ideas may be impractical, too slow, badly supported, or beyond what I can take on.
-They're still things I'm genuinely excited to learn more about and experiment with.
-
-## License and third-party credits
-
-Chirp's source code is licensed under the [Apache License 2.0](LICENSE). Third-party
-libraries, models, fonts, and artwork keep their own licenses.
-
-- Provider logos come from [models.dev](https://github.com/anomalyco/models.dev) and are
-  included under its MIT license. Provider names and logos remain trademarks of their
-  respective owners.
-- MP3 encoding uses
-  [AndroidLame-kotlin](https://github.com/banketree/AndroidLame-kotlin), based on
-  [TAndroidLame](https://github.com/naman14/TAndroidLame), with LAME 3.100. TAndroidLame is
-  licensed under GPL 3.0 or later, while LAME is licensed under the GNU Library General Public
-  License version 2 or later. AndroidLame-kotlin doesn't publish a separate license for its added
-  wrapper code. The corresponding LAME source is available from the
-  [official LAME archive](https://sourceforge.net/projects/lame/files/lame/3.100/).
-- On-device recognition uses [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), licensed
-  under Apache 2.0. Its Android runtime includes
-  [ONNX Runtime](https://github.com/microsoft/onnxruntime), licensed under MIT.
-- The downloaded speech model is an INT8 ONNX conversion by
-  [csukuangfj](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8)
-  of [NVIDIA Parakeet TDT 0.6B V2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
-  The model is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-  The conversion changes the original model to sherpa-onnx ONNX format and applies INT8
-  quantization.
-- The documentation artwork uses Google Sans Flex through Google Fonts. Google Sans Flex is
-  licensed under the SIL Open Font License 1.1.
-
-Copyright notices, full license texts, and source links are collected in
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Chirp's Apache 2.0 license doesn't relicense
-any third-party component. The same notices are packaged in the APK under `assets/legal`.
-
-## Notes and focus
-
-This is a working personal app and a learning project, not a polished team product. I'm still learning Android development.
-
-Every hands-on test so far has been on my Galaxy S25 Ultra. It's the only Android device I have available, and I'd be very interested to hear how Chirp works on anything else.
-
-Right now, I'm focused on recording without losing audio, local transcription, clear recovery when something gets interrupted, a keyboard flow that feels fast enough to use, and a studio view that turns raw transcripts into useful text.
+The full licenses and credits are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and bundled with the APK.
