@@ -49,15 +49,10 @@ The primary reliability rule is that captured speech must never disappear. The c
 
 ## Features
 
-- Record voice notes.
-- Transcribe on-device.
-- Search and play back recording history.
-- Organize with profiles, tags, and word replacements.
-- Edit, summarize, and explore transcripts in Processing Studio.
-- Dictate from Chirp Voice, the keyboard input method.
-- Start or stop recording from a home-screen widget.
-- Export transcripts to Obsidian as Markdown.
-- Optionally use AI processing for cleanup, titles, summaries, structured outcomes, and chat.
+- Record, search, and play voice notes with on-device transcription.
+- Dictate into other apps with Chirp Voice or control recording from a home-screen widget.
+- Organize recordings with profiles, tags, and word replacements, then export them to Obsidian as Markdown.
+- Edit transcripts in Processing Studio, with optional API-based cleanup, titles, summaries, structured outcomes, and chat.
 
 ## Download
 
@@ -66,16 +61,11 @@ Chirp 4.0 requires Android 16 and downloads the speech model during setup.
 
 ## Details
 
-- Foreground recording services for long-running capture.
-- Recovery paths for interrupted recordings.
-- On-device model download and readiness checks.
-- Release Baseline Profile coverage for app startup, IME startup, and keyboard settings.
-- Background transcription work through WorkManager.
-- Word-level timing support when the recognizer provides it.
-- Recording playback through a shared Media3 playback service.
-- Room-backed storage for recordings, transcripts, tags, profiles, word replacements, and processing results.
-- Profile-level settings for transcription, AI processing, Obsidian export, and audio behavior.
-- API-based LLM features for titles, summaries, cleanup, structured outcomes, and recording-aware chat.
+- The compact Parakeet 110M GGUF model is the default. A larger sherpa-onnx model is still available.
+- Foreground recording, WorkManager transcription, and recovery paths handle longer or interrupted recordings.
+- Room stores recordings, transcripts, organization, and processing results. Media3 handles playback.
+- Profiles can set transcription, AI processing, Obsidian export, and audio defaults.
+- Baseline Profiles cover app startup, IME startup, and keyboard settings.
 
 ## IME
 
@@ -135,31 +125,15 @@ Copyright notices, full license texts, and source links are collected in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Chirp's Apache 2.0 license doesn't relicense
 any third-party component. The same notices are packaged in the APK under `assets/legal`.
 
-## Notes
+## Notes and focus
 
-This is not a polished product from a team. It is a working personal app and a learning project.
+This is a working personal app and a learning project, not a polished team product. I'm still learning Android development, and the project is 100% co-developed with various LLMs.
 
 - Builds target **arm64-v8a only** (`ndk.abiFilters` in `app/build.gradle.kts`) because the app
   is sideloaded onto a single physical device. Remove that filter (or add `x86_64`) before
   building for an emulator or any other device.
-- Release builds are non-debuggable, R8-minified, and signed with the local debug keystore on
-  purpose so an existing same-package install can update in place. The signing key does not make
-  the APK debuggable. Switching keys would require uninstalling first, which wipes app data.
-- All of my hands-on device testing is on a Samsung Galaxy S25 Ultra.
-- I'm still learning Android development as I go.
-- This project is 100% co-developed with various LLMs as I learn architecture, UI, Kotlin, testing, debugging, and cleanup.
-- Some parts are more mature than others. The repo will keep changing as I learn better ways to build it.
+- Release builds are non-debuggable, R8-minified, and resource-shrunk.
 
-## Focus
+Every hands-on test so far has been on my Galaxy S25 Ultra. It's the only Android device I have available, and I'd be very interested to hear how Chirp works on anything else.
 
-Right now, I care most about everyday reliability:
-
-- recording without losing audio,
-- transcription that works locally,
-- clear recovery when something gets interrupted,
-- a keyboard flow that feels fast enough to use,
-- and a studio view that turns raw transcripts into something useful.
-
-## Screenshots
-
-These screenshots were captured from a clean Android emulator with sample recordings. No personal recordings are included.
+Right now, I'm focused on recording without losing audio, local transcription, clear recovery when something gets interrupted, a keyboard flow that feels fast enough to use, and a studio view that turns raw transcripts into useful text.
