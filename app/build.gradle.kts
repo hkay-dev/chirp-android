@@ -7,6 +7,18 @@ plugins {
     id("androidx.baselineprofile")
 }
 
+val releaseStoreFile = providers.environmentVariable("CHIRP_RELEASE_STORE_FILE").orNull
+val releaseStorePassword = providers.environmentVariable("CHIRP_RELEASE_STORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("CHIRP_RELEASE_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("CHIRP_RELEASE_KEY_PASSWORD").orNull
+val releaseSigningConfigured =
+    listOf(
+        releaseStoreFile,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword,
+    ).all { !it.isNullOrBlank() }
+
 android {
     namespace = "dev.chirpboard.app"
     compileSdk = 36
@@ -39,22 +51,20 @@ android {
         }
     }
 
-    // =========================================================================================
-    // REL-08: Release signing uses the LOCAL DEBUG KEYSTORE on purpose.
-    // This is a personal, sideloaded, single-device app. Signing release with the debug key
-    // means the release APK can UPDATE the currently-installed debug build in place (same
-    // signature + same applicationId), preserving Room chirp.db, DataStore prefs, and the
-    // encrypted LLM API keys. If this is ever switched to a real release keystore, the first
-    // install of the re-keyed APK REQUIRES a full uninstall/reinstall, which DESTROYS all
-    // app-private data (recordings metadata, transcripts, API keys) — only the model under
-    // Documents/.chirpboard survives. Back up ~/.android/debug.keystore; it IS the app key.
-    // =========================================================================================
     signingConfigs {
         create("release") {
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            if (releaseSigningConfigured) {
+                storeFile = file(checkNotNull(releaseStoreFile))
+                storePassword = checkNotNull(releaseStorePassword)
+                keyAlias = checkNotNull(releaseKeyAlias)
+                keyPassword = checkNotNull(releaseKeyPassword)
+            } else {
+                // Keep local release builds compatible with the existing sideloaded app.
+                storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 

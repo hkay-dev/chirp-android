@@ -59,6 +59,11 @@ The primary reliability rule is that captured speech must never disappear. The c
 - Export transcripts to Obsidian as Markdown.
 - Optionally use AI processing for cleanup, titles, summaries, structured outcomes, and chat.
 
+## Download
+
+Download the latest installable APK from [GitHub Releases](https://github.com/hkay-dev/chirp-android/releases/latest).
+Chirp 4.0 requires Android 16 and downloads the speech model during setup.
+
 ## Details
 
 - Foreground recording services for long-running capture.
