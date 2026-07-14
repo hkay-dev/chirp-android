@@ -16,13 +16,25 @@ Speech-to-text runs on your phone. Optional cleanup sends text to the cloud prov
   <img src="docs/screenshots/keyboard.png" alt="Chirp Voice keyboard input method" width="220" />
 </div>
 
-## What it does
+## Current features
 
 - Records and plays voice notes, then transcribes them locally with Parakeet.
 - Works as the **Chirp Voice** dictation keyboard and a home-screen widget.
 - Starts recording right away and keeps recoverable audio if Android interrupts the app.
 - Can clean up text, make summaries, or chat about a transcript with your own API key.
 - Has tags, profiles, word replacements, sharing, and Obsidian export.
+
+## More Screenshots
+
+<div align="center">
+  <img src="docs/screenshots/record.png" alt="Chirp record flow showing the local model requirement" width="220" />
+  <img src="docs/screenshots/model-download.png" alt="Chirp voice model download settings" width="220" />
+  <img src="docs/screenshots/settings.png" alt="Chirp settings overview" width="220" />
+  <br /><br />
+  <img src="docs/screenshots/ai-processing.png" alt="Chirp AI processing settings" width="220" />
+  <img src="docs/screenshots/keyboard-settings.png" alt="Chirp keyboard settings" width="220" />
+  <img src="docs/screenshots/audio-settings.png" alt="Chirp audio settings" width="220" />
+</div>
 
 ## Download
 
@@ -31,7 +43,7 @@ Chirp 4.0 needs Android 16 and uses the compact Parakeet 110M GGUF model by defa
 
 I've only tested Chirp on a Galaxy S25 Ultra. If you try it on something else, I'd love to hear how it goes.
 
-## Maybe someday
+## Stuff I'd love to try
 
 I'd like to try more Parakeet variants, Whisper and other speech models, local LLM cleanup on phones that can handle it, better cloud connections, easier sign-in alongside API keys, and modular ways to turn transcripts into useful stuff. Using a ChatGPT subscription would be interesting if that ever becomes an option.
 
