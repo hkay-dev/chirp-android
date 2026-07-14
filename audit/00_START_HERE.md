@@ -4,7 +4,7 @@ This is the first file for the overnight Codex goal.
 
 Objective: deeply audit this repo for over-engineering, over-complication, reliability risks, race conditions, long-recording failure modes, model-readiness timing problems, and keyboard-input risks. For every confirmed issue, create or update an OpenSpec proposal that resolves it, then implement the fix unless it is genuinely blocked. Do not stop at proposals.
 
-Repository: `/Users/developer/Development/sandbox/2026-01-29-parakeeboard`
+Repository: project root
 
 ## Required Setup
 

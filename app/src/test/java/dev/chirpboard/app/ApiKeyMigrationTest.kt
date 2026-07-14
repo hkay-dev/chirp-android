@@ -50,17 +50,6 @@ class ApiKeyMigrationTest {
         }
 
     @Test
-    fun `migrate skips known placeholder keys`() =
-        runTest {
-            every { llmPreferences.isSecureStorageAvailable() } returns true
-            every { llmPreferences.hasApiKey() } returns false
-            every { preferences.readLegacyGeminiApiKeyForMigration() } returns "[removed-google-api-key]"
-
-            assertEquals(ApiKeyMigration.MigrationResult.NO_CUSTOM_KEY, migration.migrate())
-            coVerify(exactly = 0) { llmPreferences.setApiKey(any()) }
-        }
-
-    @Test
     fun `migrate moves custom plaintext key into secure storage`() =
         runTest {
             every { llmPreferences.isSecureStorageAvailable() } returns true
@@ -87,10 +76,23 @@ class ApiKeyMigrationTest {
 
 class KnownGeminiPlaceholderKeysTest {
     @Test
-    fun `isPlaceholder matches legacy defaults and blank keys`() {
+    fun `isPlaceholder matches digests without storing plaintext keys`() {
+        val placeholder = "test-only-placeholder"
+        val digest = KnownGeminiPlaceholderKeys.sha256(placeholder)
+
         assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder(""))
-        assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder("[removed-google-api-key]"))
-        assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder("[removed-google-api-key]"))
+        assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder(placeholder, setOf(digest)))
+        assertTrue(KnownGeminiPlaceholderKeys.isPlaceholder("  $placeholder  ", setOf(digest)))
+    }
+
+    @Test
+    fun `production placeholder digests are sha256 values`() {
+        assertEquals(3, KnownGeminiPlaceholderKeys.PLACEHOLDER_KEY_SHA256.size)
+        assertTrue(
+            KnownGeminiPlaceholderKeys.PLACEHOLDER_KEY_SHA256.all { digest ->
+                digest.matches(Regex("[0-9a-f]{64}"))
+            },
+        )
     }
 
     @Test
