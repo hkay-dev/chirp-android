@@ -88,6 +88,26 @@ Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 
 Local transcription is the heart of the project. AI processing sits on top.
 
+## Wish list, not promises
+
+None of this is scheduled or guaranteed. These are just the ideas I'm most curious about if I
+have the time, the hardware, and the ability to learn what's needed.
+
+- Support more speech models, starting with other Parakeet variants and possibly expanding to
+  Whisper or other ASR families that can run well on Android.
+- Try fully on-device LLM cleanup, summaries, and other post-processing on devices with enough
+  memory and compatible GPU or NPU hardware.
+- Build better cloud integrations for moving recordings, transcripts, and finished results where
+  they need to go.
+- Explore easier provider sign-in alongside API keys, including something like signing in with a
+  ChatGPT subscription if OpenAI ever supports that for third-party apps.
+- Make post-transcription actions more modular, so a transcript could become a note, task,
+  message, export, or small agent-style workflow without every path being built into the app.
+- Test and tune Chirp on more phones and tablets as people try it and report back.
+
+Some of these ideas may be impractical, too slow, badly supported, or beyond what I can take on.
+They're still things I'm genuinely excited to learn more about and experiment with.
+
 ## License and third-party credits
 
 Chirp's source code is licensed under the [Apache License 2.0](LICENSE). Third-party
