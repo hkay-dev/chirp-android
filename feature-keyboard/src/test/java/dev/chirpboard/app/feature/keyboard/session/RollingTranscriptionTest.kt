@@ -88,6 +88,15 @@ class RollingTranscriptionTest {
         }
     }
 
+    @Test
+    fun `streaming checkpoints are bounded to one write every three seconds`() {
+        assertTrue(shouldCheckpointStreamingPreview(0, 1, sampleRate = 16_000))
+        org.junit.Assert.assertFalse(
+            shouldCheckpointStreamingPreview(1, 47_999, sampleRate = 16_000),
+        )
+        assertTrue(shouldCheckpointStreamingPreview(1, 48_001, sampleRate = 16_000))
+    }
+
     @get:Rule
     val temporaryFolder = TemporaryFolder()
 

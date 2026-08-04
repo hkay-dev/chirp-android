@@ -12,6 +12,8 @@ import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.download.confirmModelActivation
+import dev.chirpboard.app.download.hasPendingModelActivation
+import dev.chirpboard.app.download.recoverInterruptedModelRollback
 import dev.chirpboard.app.download.rollbackModelActivation
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
@@ -54,6 +56,12 @@ class SherpaRecognizer(
                 // Check persistent storage first, then fallback to legacy internal storage
                 val persistentPath = ModelDownloader.ensureModelDir(context)
                 val legacyPath = File(context.filesDir, "models/$MODEL_DIR")
+                for (candidatePath in listOf(persistentPath, legacyPath)) {
+                    if (candidatePath.exists() && !recoverInterruptedModelRollback(candidatePath)) {
+                        Log.e(TAG, "Could not finish restoring the last working speech model")
+                        return@withContext false
+                    }
+                }
 
                 val modelPath =
                     when {
@@ -79,57 +87,66 @@ class SherpaRecognizer(
                     return@withContext false
                 }
 
-                try {
-                    Log.d(TAG, "Creating transducer config...")
-                    val transducerConfig =
-                        OfflineTransducerModelConfig(
-                            encoder = encoder.absolutePath,
-                            decoder = decoder.absolutePath,
-                            joiner = joiner.absolutePath,
-                        )
+                for (attempt in 0..1) {
+                    try {
+                        Log.d(TAG, "Creating transducer config...")
+                        val transducerConfig =
+                            OfflineTransducerModelConfig(
+                                encoder = encoder.absolutePath,
+                                decoder = decoder.absolutePath,
+                                joiner = joiner.absolutePath,
+                            )
 
-                    Log.d(TAG, "Creating model config...")
-                    val modelConfig =
-                        OfflineModelConfig(
-                            transducer = transducerConfig,
-                            tokens = tokens.absolutePath,
-                            // Leave cores available for AudioRecord, UI, and the optional first
-                            // pass. More native threads were not reliably faster on mobile once
-                            // thermal throttling and scheduling contention were included.
-                            numThreads = context.offlineRecognizerThreadCount(),
-                            debug = false,
-                            provider = "cpu",
-                            modelType = "nemo_transducer",
-                        )
+                        Log.d(TAG, "Creating model config...")
+                        val modelConfig =
+                            OfflineModelConfig(
+                                transducer = transducerConfig,
+                                tokens = tokens.absolutePath,
+                                // Leave cores available for AudioRecord, UI, and the optional first
+                                // pass. More native threads were not reliably faster on mobile once
+                                // thermal throttling and scheduling contention were included.
+                                numThreads = context.offlineRecognizerThreadCount(),
+                                debug = false,
+                                provider = "cpu",
+                                modelType = "nemo_transducer",
+                            )
 
-                    Log.d(TAG, "Creating feature config...")
-                    val featConfig =
-                        FeatureConfig(
-                            sampleRate = VoiceRecorder.SAMPLE_RATE,
-                            featureDim = 80,
-                        )
+                        Log.d(TAG, "Creating feature config...")
+                        val featConfig =
+                            FeatureConfig(
+                                sampleRate = VoiceRecorder.SAMPLE_RATE,
+                                featureDim = 80,
+                            )
 
-                    Log.d(TAG, "Creating recognizer config...")
-                    val config =
-                        OfflineRecognizerConfig(
-                            featConfig = featConfig,
-                            modelConfig = modelConfig,
-                            decodingMethod = "greedy_search",
-                        )
+                        Log.d(TAG, "Creating recognizer config...")
+                        val config =
+                            OfflineRecognizerConfig(
+                                featConfig = featConfig,
+                                modelConfig = modelConfig,
+                                decodingMethod = "greedy_search",
+                            )
 
-                    Log.d(TAG, "Creating OfflineRecognizer (this may take 10-30 seconds)...")
-                    recognizer = OfflineRecognizer(assetManager = null, config = config)
-                    confirmModelActivation(modelPath)
-                    Log.i(TAG, "Recognizer initialized successfully")
-                    true
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e(TAG, "Failed to initialize recognizer", e)
-                    if (!rollbackModelActivation(modelPath)) {
-                        Log.e(TAG, "Could not restore the last working speech model")
+                        Log.d(TAG, "Creating OfflineRecognizer (this may take 10-30 seconds)...")
+                        val initializedRecognizer = OfflineRecognizer(assetManager = null, config = config)
+                        confirmModelActivation(modelPath)
+                        recognizer = initializedRecognizer
+                        Log.i(TAG, "Recognizer initialized successfully")
+                        return@withContext true
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to initialize recognizer", e)
+                        val canRetryLastWorking = attempt == 0 && hasPendingModelActivation(modelPath)
+                        if (!canRetryLastWorking || !rollbackModelActivation(modelPath)) {
+                            if (canRetryLastWorking) {
+                                Log.e(TAG, "Could not restore the last working speech model")
+                            }
+                            return@withContext false
+                        }
+                        Log.i(TAG, "Retrying recognizer initialization with the last working model")
                     }
-                    false
                 }
+                false
             }
         }
 

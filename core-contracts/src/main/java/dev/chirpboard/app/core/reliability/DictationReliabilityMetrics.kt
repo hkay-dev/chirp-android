@@ -71,7 +71,17 @@ object DictationReliabilityMetrics {
                             ?.mapNotNull(String::toLongOrNull)
                             .orEmpty()
                     val failures = prefs.getInt("failures_${metric.name}", 0)
-                    series.replace(metric, values, failures)
+                    val outcomes =
+                        prefs.getString("outcomes_${metric.name}", null)
+                            ?.split(',')
+                            ?.mapNotNull { encoded ->
+                                when (encoded) {
+                                    "1" -> true
+                                    "0" -> false
+                                    else -> null
+                                }
+                            }
+                    series.replace(metric, values, failures, outcomes)
                 }
                 soak =
                     ImeReliabilitySoakState(
@@ -100,7 +110,14 @@ object DictationReliabilityMetrics {
 
     fun startSoak(targetSessions: Int = 25) {
         synchronized(lock) {
-            soak = ImeReliabilitySoakState(active = true, targetSessions = targetSessions.coerceAtLeast(1))
+            series.clear()
+            clearPersistedMetrics()
+            soak =
+                ImeReliabilitySoakState(
+                    active = true,
+                    targetSessions = targetSessions.coerceAtLeast(1),
+                    refuseNextCommit = false,
+                )
             persistSoak()
             publish()
         }
@@ -108,7 +125,7 @@ object DictationReliabilityMetrics {
 
     fun stopSoak() {
         synchronized(lock) {
-            soak = soak.copy(active = false)
+            soak = soak.copy(active = false, refuseNextCommit = false)
             persistSoak()
             publish()
         }
@@ -123,6 +140,7 @@ object DictationReliabilityMetrics {
                     active = completed < soak.targetSessions,
                     completedSessions = completed,
                     failedSessions = soak.failedSessions + if (success) 0 else 1,
+                    refuseNextCommit = if (completed < soak.targetSessions) soak.refuseNextCommit else false,
                 )
             persistSoak()
             publish()
@@ -131,6 +149,7 @@ object DictationReliabilityMetrics {
 
     fun armCommitRefusal() {
         synchronized(lock) {
+            if (!soak.active) return
             soak = soak.copy(refuseNextCommit = true)
             persistSoak()
             publish()
@@ -139,9 +158,14 @@ object DictationReliabilityMetrics {
 
     fun consumeCommitRefusal(): Boolean =
         synchronized(lock) {
-            if (!soak.refuseNextCommit) return@synchronized false
+            if (!soak.active || !soak.refuseNextCommit) return@synchronized false
+            val armedState = soak
             soak = soak.copy(refuseNextCommit = false)
-            persistSoak()
+            if (!persistSoak(synchronous = true)) {
+                soak = armedState
+                publish()
+                return@synchronized false
+            }
             publish()
             true
         }
@@ -160,18 +184,40 @@ object DictationReliabilityMetrics {
         val samples = series.values(metric).joinToString(",")
         prefs.edit()
             .putString("values_${metric.name}", samples)
+            .putString(
+                "outcomes_${metric.name}",
+                series.outcomes(metric).joinToString(",") { success -> if (success) "1" else "0" },
+            )
             .putInt("failures_${metric.name}", series.failureCount(metric))
             .apply()
     }
 
-    private fun persistSoak() {
-        context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()
+    private fun clearPersistedMetrics() {
+        val editor = context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit() ?: return
+        DictationReliabilityMetric.entries.forEach { metric ->
+            editor
+                .remove("values_${metric.name}")
+                .remove("outcomes_${metric.name}")
+                .remove("failures_${metric.name}")
+        }
+        editor.apply()
+    }
+
+    private fun persistSoak(synchronous: Boolean = false): Boolean {
+        val editor =
+            context?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.edit()
             ?.putBoolean("soak_active", soak.active)
             ?.putInt("soak_target", soak.targetSessions)
             ?.putInt("soak_completed", soak.completedSessions)
             ?.putInt("soak_failed", soak.failedSessions)
             ?.putBoolean("refuse_next_commit", soak.refuseNextCommit)
-            ?.apply()
+            ?: return true
+        return if (synchronous) {
+            editor.commit()
+        } else {
+            editor.apply()
+            true
+        }
     }
 
     private fun publish() {
@@ -182,24 +228,45 @@ object DictationReliabilityMetrics {
 internal class DictationReliabilitySeries(
     private val capacity: Int,
 ) {
-    private val samples = mutableMapOf<DictationReliabilityMetric, MutableList<Long>>()
-    private val failures = mutableMapOf<DictationReliabilityMetric, Int>()
+    private data class Sample(
+        val value: Long,
+        val success: Boolean,
+    )
+
+    private val samples = mutableMapOf<DictationReliabilityMetric, MutableList<Sample>>()
 
     fun add(metric: DictationReliabilityMetric, value: Long, success: Boolean) {
-        val values = samples.getOrPut(metric, ::mutableListOf)
-        values += value
-        while (values.size > capacity) values.removeAt(0)
-        if (!success) failures[metric] = failureCount(metric) + 1
+        val metricSamples = samples.getOrPut(metric, ::mutableListOf)
+        metricSamples += Sample(value, success)
+        while (metricSamples.size > capacity) metricSamples.removeAt(0)
     }
 
-    fun replace(metric: DictationReliabilityMetric, values: List<Long>, failureCount: Int) {
-        samples[metric] = values.takeLast(capacity).toMutableList()
-        failures[metric] = failureCount.coerceAtLeast(0)
+    fun replace(
+        metric: DictationReliabilityMetric,
+        values: List<Long>,
+        failureCount: Int,
+        outcomes: List<Boolean>? = null,
+    ) {
+        val boundedValues = values.takeLast(capacity)
+        val boundedOutcomes = outcomes?.takeLast(capacity)?.takeIf { it.size == boundedValues.size }
+        val legacyFailures = failureCount.coerceIn(0, boundedValues.size)
+        samples[metric] =
+            boundedValues.mapIndexed { index, value ->
+                Sample(
+                    value = value,
+                    success = boundedOutcomes?.get(index) ?: (index < boundedValues.size - legacyFailures),
+                )
+            }.toMutableList()
     }
 
-    fun values(metric: DictationReliabilityMetric): List<Long> = samples[metric].orEmpty()
+    fun values(metric: DictationReliabilityMetric): List<Long> =
+        samples[metric].orEmpty().map(Sample::value)
 
-    fun failureCount(metric: DictationReliabilityMetric): Int = failures[metric] ?: 0
+    fun outcomes(metric: DictationReliabilityMetric): List<Boolean> =
+        samples[metric].orEmpty().map(Sample::success)
+
+    fun failureCount(metric: DictationReliabilityMetric): Int =
+        samples[metric].orEmpty().count { !it.success }
 
     fun summaries(): List<DictationMetricSummary> =
         DictationReliabilityMetric.entries.mapNotNull { metric ->
@@ -218,13 +285,13 @@ internal class DictationReliabilitySeries(
 
     fun clear() {
         samples.clear()
-        failures.clear()
     }
 }
 
 internal fun percentile(sortedValues: List<Long>, percentile: Int): Long {
     require(percentile in 0..100)
     if (sortedValues.isEmpty()) return 0L
-    val index = ((percentile / 100.0) * (sortedValues.size - 1)).toInt()
+    val rank = ((percentile.toLong() * sortedValues.size + 99L) / 100L).coerceAtLeast(1L)
+    val index = (rank - 1L).coerceAtMost(sortedValues.lastIndex.toLong()).toInt()
     return sortedValues[index]
 }

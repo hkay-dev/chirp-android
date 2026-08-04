@@ -15,7 +15,9 @@ import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.transcription.StreamingTranscriptionSession
 import dev.chirpboard.app.download.confirmModelActivation
+import dev.chirpboard.app.download.hasPendingModelActivation
 import dev.chirpboard.app.download.promoteModelCandidateAtomically
+import dev.chirpboard.app.download.recoverInterruptedModelRollback
 import dev.chirpboard.app.download.rollbackModelActivation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -58,42 +60,51 @@ class StreamingSherpaRecognizerProvider(
                 return@withLock true
             }
             val modelDir = modelStore.ensureAvailable() ?: return@withLock false
-            runCatching {
-                withContext(previewDispatcher) {
-                    val model =
-                        OnlineModelConfig(
-                            transducer =
-                                OnlineTransducerModelConfig(
-                                    encoder = File(modelDir, ENCODER).absolutePath,
-                                    decoder = File(modelDir, DECODER).absolutePath,
-                                    joiner = File(modelDir, JOINER).absolutePath,
-                                ),
-                            tokens = File(modelDir, TOKENS).absolutePath,
-                            numThreads = 1,
-                            debug = false,
-                            provider = "cpu",
-                            modelType = "zipformer",
-                        )
-                    recognizer =
-                        OnlineRecognizer(
-                            assetManager = null,
-                            config =
-                                OnlineRecognizerConfig(
-                                    featConfig = FeatureConfig(sampleRate = 16_000, featureDim = 80),
-                                    modelConfig = model,
-                                    enableEndpoint = false,
-                                    decodingMethod = "greedy_search",
-                                ),
-                        )
-                    confirmModelActivation(modelDir)
+            if (!recoverInterruptedModelRollback(modelDir)) return@withLock false
+            for (attempt in 0..1) {
+                try {
+                    withContext(previewDispatcher) {
+                        val model =
+                            OnlineModelConfig(
+                                transducer =
+                                    OnlineTransducerModelConfig(
+                                        encoder = File(modelDir, ENCODER).absolutePath,
+                                        decoder = File(modelDir, DECODER).absolutePath,
+                                        joiner = File(modelDir, JOINER).absolutePath,
+                                    ),
+                                tokens = File(modelDir, TOKENS).absolutePath,
+                                numThreads = 1,
+                                debug = false,
+                                provider = "cpu",
+                                modelType = "zipformer",
+                            )
+                        val initializedRecognizer =
+                            OnlineRecognizer(
+                                assetManager = null,
+                                config =
+                                    OnlineRecognizerConfig(
+                                        featConfig = FeatureConfig(sampleRate = 16_000, featureDim = 80),
+                                        modelConfig = model,
+                                        enableEndpoint = false,
+                                        decodingMethod = "greedy_search",
+                                    ),
+                            )
+                        confirmModelActivation(modelDir)
+                        recognizer = initializedRecognizer
+                    }
+                    return@withLock true
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Throwable) {
+                    Log.w(TAG, "Streaming preview recognizer is unavailable", failure)
+                    val canRetryLastWorking = attempt == 0 && hasPendingModelActivation(modelDir)
+                    if (!canRetryLastWorking || !rollbackModelActivation(modelDir)) {
+                        return@withLock false
+                    }
+                    Log.i(TAG, "Retrying streaming recognizer with the last working model")
                 }
-                true
-            }.getOrElse { failure ->
-                if (failure is CancellationException) throw failure
-                Log.w(TAG, "Streaming preview recognizer is unavailable", failure)
-                rollbackModelActivation(modelDir)
-                false
             }
+            false
         }
 
     override suspend fun openSession(sampleRate: Int): StreamingTranscriptionSession? {

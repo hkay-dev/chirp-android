@@ -840,8 +840,8 @@ class KeyboardSessionCoordinator(
                 if (streamingSession != null) {
                     var consumedSamples = 0
                     var previewReported = false
-                    val checkpointPersistence =
-                        if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
+                    var lastCheckpointSampleCount = 0
+                    val checkpointPersistence = persistence.takeUnless { suppressHistory }
                     try {
                         while (isRecording.value) {
                             val snapshot = capture.activeFileBackedSnapshot()
@@ -862,20 +862,30 @@ class KeyboardSessionCoordinator(
                                             previewReported = true
                                             latencyTrace?.mark("streaming_first_text")
                                         }
-                                        runCatching {
-                                            checkpointPersistence.checkpointAudioSource(
-                                                audioSource =
-                                                    InlineAudioSource.PcmFloatFile(
-                                                        path = snapshot.file.absolutePath,
-                                                        sampleCount = snapshot.sampleCount.toLong(),
-                                                        sampleRate = snapshot.sampleRate,
-                                                    ),
-                                                trustedSampleCount = snapshot.sampleCount.toLong(),
-                                                partialTranscript = text,
-                                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                        if (
+                                            checkpointPersistence != null &&
+                                            shouldCheckpointStreamingPreview(
+                                                lastCheckpointSampleCount = lastCheckpointSampleCount,
+                                                currentSampleCount = snapshot.sampleCount,
+                                                sampleRate = snapshot.sampleRate,
                                             )
-                                        }.onFailure { error ->
-                                            Log.w(tag, "Could not checkpoint streaming preview", error)
+                                        ) {
+                                            lastCheckpointSampleCount = snapshot.sampleCount
+                                            runCatching {
+                                                checkpointPersistence.checkpointAudioSource(
+                                                    audioSource =
+                                                        InlineAudioSource.PcmFloatFile(
+                                                            path = snapshot.file.absolutePath,
+                                                            sampleCount = snapshot.sampleCount.toLong(),
+                                                            sampleRate = snapshot.sampleRate,
+                                                        ),
+                                                    trustedSampleCount = snapshot.sampleCount.toLong(),
+                                                    partialTranscript = text,
+                                                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                                )
+                                            }.onFailure { error ->
+                                                Log.w(tag, "Could not checkpoint streaming preview", error)
+                                            }
                                         }
                                     }
                                 }
@@ -896,8 +906,7 @@ class KeyboardSessionCoordinator(
                 // Optional first-pass model is unavailable, so retain the existing overlapping
                 // file-window preview. The complete PCM file remains authoritative either way.
                 delay(LIVE_TRANSCRIPTION_INITIAL_DELAY_MS)
-                val checkpointPersistence =
-                    if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
+                val checkpointPersistence = persistence.takeUnless { suppressHistory }
                 while (isRecording.value) {
                     val snapshot = capture.activeFileBackedSnapshot()
                     if (snapshot != null && snapshot.sampleCount >= snapshot.sampleRate * LIVE_TRANSCRIPTION_MIN_SECONDS) {
@@ -907,15 +916,17 @@ class KeyboardSessionCoordinator(
                                 sampleCount = snapshot.sampleCount.toLong(),
                                 sampleRate = snapshot.sampleRate,
                             )
-                        runCatching {
-                            checkpointPersistence.checkpointAudioSource(
-                                audioSource = checkpointSource,
-                                trustedSampleCount = snapshot.sampleCount.toLong(),
-                                partialTranscript = livePartialTranscript.value,
-                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
-                            )
-                        }.onFailure { error ->
-                            Log.w(tag, "Could not checkpoint live keyboard capture", error)
+                        if (checkpointPersistence != null) {
+                            runCatching {
+                                checkpointPersistence.checkpointAudioSource(
+                                    audioSource = checkpointSource,
+                                    trustedSampleCount = snapshot.sampleCount.toLong(),
+                                    partialTranscript = livePartialTranscript.value,
+                                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                )
+                            }.onFailure { error ->
+                                Log.w(tag, "Could not checkpoint live keyboard capture", error)
+                            }
                         }
                         if (transcriberProvider.isReady()) {
                             val samples =
@@ -931,15 +942,17 @@ class KeyboardSessionCoordinator(
                                     is TranscriptionOutcome.Success -> {
                                         val merged = mergeRollingTranscript(livePartialTranscript.value, outcome.text)
                                         livePartialTranscript.value = merged
-                                        runCatching {
-                                            checkpointPersistence.checkpointAudioSource(
-                                                audioSource = checkpointSource,
-                                                trustedSampleCount = snapshot.sampleCount.toLong(),
-                                                partialTranscript = merged,
-                                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
-                                            )
-                                        }.onFailure { error ->
-                                            Log.w(tag, "Could not checkpoint rolling transcript", error)
+                                        if (checkpointPersistence != null) {
+                                            runCatching {
+                                                checkpointPersistence.checkpointAudioSource(
+                                                    audioSource = checkpointSource,
+                                                    trustedSampleCount = snapshot.sampleCount.toLong(),
+                                                    partialTranscript = merged,
+                                                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                                )
+                                            }.onFailure { error ->
+                                                Log.w(tag, "Could not checkpoint rolling transcript", error)
+                                            }
                                         }
                                     }
 
@@ -1429,6 +1442,7 @@ class KeyboardSessionCoordinator(
         private const val LIVE_TRANSCRIPTION_INTERVAL_MS = 6_000L
         private const val LIVE_TRANSCRIPTION_MIN_SECONDS = 2
         private const val STREAMING_TRANSCRIPTION_POLL_MS = 320L
+        internal const val STREAMING_CHECKPOINT_INTERVAL_SECONDS = 3
         internal const val STOP_TIMEOUT_IN_PROGRESS_MESSAGE =
             "Transcription is taking longer than expected"
         internal const val STOP_TIMEOUT_RESCUE_MESSAGE =
@@ -1487,6 +1501,17 @@ internal fun readIncrementalPcmSamples(
             }
         }
     }.getOrDefault(FloatArray(0))
+}
+
+internal fun shouldCheckpointStreamingPreview(
+    lastCheckpointSampleCount: Int,
+    currentSampleCount: Int,
+    sampleRate: Int,
+): Boolean {
+    if (currentSampleCount <= 0 || sampleRate <= 0) return false
+    if (lastCheckpointSampleCount <= 0) return true
+    return currentSampleCount - lastCheckpointSampleCount >=
+        sampleRate * KeyboardSessionCoordinator.STREAMING_CHECKPOINT_INTERVAL_SECONDS
 }
 
 internal fun mergeRollingTranscript(

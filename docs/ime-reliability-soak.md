@@ -10,7 +10,9 @@ The developer menu includes an on-device 25-session IME soak and one-shot commit
 4. Use **Fault next commit** once. The next raw transcript commit is refused deliberately and must appear as a durable rescue recording or notification.
 5. Return to the developer menu and inspect every percentile row. A red `REGRESSION` row exceeded its p95 budget or recorded a failed boundary.
 
-The readout stores only elapsed milliseconds, counts, and success bits. It never stores transcript text, audio, target package names, field contents, or prompts. Each metric keeps the newest 200 samples in app-private preferences across process restarts.
+The readout stores only elapsed milliseconds, counts, and success bits. It never stores transcript text, audio, target package names, field contents, or prompts. Starting a soak clears the prior readout. Each metric keeps the newest 200 value-and-outcome samples in app-private preferences across process restarts. Percentiles use the nearest-rank definition, so small samples do not hide their slowest result.
+
+The one-shot commit refusal works only during an active soak. Stopping or completing a soak disarms it, and consumption is committed synchronously before the refusal is injected so a process crash cannot repeat the fault. Streaming transcript checkpoints are limited to one write per three seconds and are disabled for no-learning fields.
 
 ## Budgets
 
@@ -28,4 +30,4 @@ The soak fails a session on a refused commit, a gap over budget, or any recorder
 
 ## Model repair checks
 
-Both Parakeet and the streaming preview validate exact artifact size and SHA-256 before activation. A downloaded candidate keeps the previous artifact as `.last-working`. Native recognizer initialization confirms the candidate and removes the backup. Initialization failure restores every backup atomically, so repair cannot destroy the last model that initialized successfully.
+Both Parakeet and the streaming preview validate exact artifact size and SHA-256 before activation. A downloaded candidate keeps the previous artifact as `.last-working`. Native recognizer initialization confirms the candidate and removes the backup. Initialization failure copies each backup into an atomic replacement and keeps every original backup until the set is restored. A durable rollback marker finishes an interrupted promotion or restore, and native initialization immediately retries once against the restored model.

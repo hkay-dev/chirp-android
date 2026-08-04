@@ -193,4 +193,28 @@ class ModelDownloaderTest {
         assertEquals("working", destination.readText())
         assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
     }
+
+    @Test
+    fun `interrupted rollback is finished before native initialization retries`() {
+        val destination = File(testDir, "encoder.onnx").apply { writeText("bad candidate") }
+        File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").writeText("working")
+        File(testDir, MODEL_ROLLBACK_MARKER).writeText("1")
+
+        assertTrue(recoverInterruptedModelRollback(testDir))
+
+        assertEquals("working", destination.readText())
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+        assertFalse(File(testDir, MODEL_ROLLBACK_MARKER).exists())
+    }
+
+    @Test
+    fun `interrupted candidate promotion restores a missing active artifact`() {
+        val destination = File(testDir, "encoder.onnx")
+        File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").writeText("working")
+
+        assertTrue(recoverInterruptedModelRollback(testDir))
+
+        assertEquals("working", destination.readText())
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+    }
 }
