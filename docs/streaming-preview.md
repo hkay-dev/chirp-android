@@ -17,7 +17,8 @@ loading them.
 
 The preview recognizer uses one low-priority CPU thread and a separate executor, model instance,
 stream, and lock from Parakeet. Thermal status at `MODERATE` or above and Android power-save mode
-pause first-pass decoding. Audio capture and the final decode continue normally.
+pause first-pass decoding. New samples remain buffered in the stream for later preview decoding.
+Audio capture and the final decode continue normally.
 
 IME visibility starts model preparation but never opens or reserves the microphone. Each recording
 feeds only newly persisted samples into a fresh `OnlineRecognizer` stream at roughly 320 ms
@@ -26,8 +27,10 @@ intervals.
 ## Fallback
 
 If the optional model is missing, the network is metered, preparation fails, or native initialization
-fails, Chirp keeps the existing overlapping file-window preview. Preview failure never changes the
-saved PCM or the final continuous Parakeet decode.
+fails, Chirp omits live preview. It never falls back to preview work on Parakeet because that could
+queue ahead of the authoritative decode. Preview failure never changes the saved PCM or the final
+continuous Parakeet decode. Closing the IME requests native preview-model release once its active
+stream closes.
 
 ## Final-model threads
 

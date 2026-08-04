@@ -17,6 +17,7 @@ import dev.chirpboard.app.core.transcription.StreamingTranscriptionSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,6 +26,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -41,10 +46,17 @@ class StreamingSherpaRecognizerProvider(
     private val powerManager = appContext.getSystemService(PowerManager::class.java)
     private val initializeMutex = Mutex()
     private var recognizer: OnlineRecognizer? = null
+    private var activeSessionCount = 0
+    private var releaseWhenIdle = false
 
     override suspend fun prepare(): Boolean =
         initializeMutex.withLock {
-            if (recognizer != null) return@withLock true
+            // A prepare call represents a live IME owner, including the first prepare after a
+            // prior service requested deferred cleanup.
+            releaseWhenIdle = false
+            if (recognizer != null) {
+                return@withLock true
+            }
             val modelDir = modelStore.ensureAvailable() ?: return@withLock false
             runCatching {
                 withContext(previewDispatcher) {
@@ -84,9 +96,43 @@ class StreamingSherpaRecognizerProvider(
 
     override suspend fun openSession(sampleRate: Int): StreamingTranscriptionSession? {
         if (sampleRate != 16_000 || !prepare()) return null
-        val activeRecognizer = recognizer ?: return null
-        val stream = withContext(previewDispatcher) { activeRecognizer.createStream() }
-        return Session(activeRecognizer, stream, powerManager, previewDispatcher)
+        return initializeMutex.withLock {
+            val activeRecognizer = recognizer ?: return@withLock null
+            val stream = withContext(previewDispatcher) { activeRecognizer.createStream() }
+            activeSessionCount += 1
+            Session(activeRecognizer, stream, powerManager, previewDispatcher, ::onSessionClosed)
+        }
+    }
+
+    override suspend fun release() {
+        val recognizerToRelease =
+            initializeMutex.withLock {
+                releaseWhenIdle = true
+                takeRecognizerForReleaseIfIdle()
+            }
+        releaseRecognizer(recognizerToRelease)
+    }
+
+    private suspend fun onSessionClosed() {
+        val recognizerToRelease =
+            initializeMutex.withLock {
+                activeSessionCount = (activeSessionCount - 1).coerceAtLeast(0)
+                takeRecognizerForReleaseIfIdle()
+            }
+        releaseRecognizer(recognizerToRelease)
+    }
+
+    private fun takeRecognizerForReleaseIfIdle(): OnlineRecognizer? =
+        if (releaseWhenIdle && activeSessionCount == 0) {
+            recognizer.also { recognizer = null }
+        } else {
+            null
+        }
+
+    private suspend fun releaseRecognizer(target: OnlineRecognizer?) {
+        if (target != null) {
+            withContext(previewDispatcher) { target.release() }
+        }
     }
 
     private class Session(
@@ -94,17 +140,18 @@ class StreamingSherpaRecognizerProvider(
         private val stream: OnlineStream,
         private val powerManager: PowerManager,
         private val dispatcher: CoroutineDispatcher,
+        private val onClosed: suspend () -> Unit,
     ) : StreamingTranscriptionSession {
         private var closed = false
         private var lastText = ""
 
         override suspend fun accept(samples: FloatArray): String =
             withContext(dispatcher) {
-                if (closed || samples.isEmpty() || shouldThrottlePreview(powerManager)) {
+                if (closed || samples.isEmpty()) {
                     return@withContext lastText
                 }
                 stream.acceptWaveform(samples, 16_000)
-                decodeReady()
+                if (!shouldThrottlePreview(powerManager)) decodeReady()
                 lastText
             }
 
@@ -117,14 +164,21 @@ class StreamingSherpaRecognizerProvider(
                 lastText
             }
 
-        override suspend fun close() {
-            withContext(dispatcher) {
-                if (!closed) {
-                    closed = true
-                    stream.release()
+        override suspend fun close() =
+            withContext(NonCancellable) {
+                var didClose = false
+                try {
+                    withContext(dispatcher) {
+                        if (!closed) {
+                            closed = true
+                            didClose = true
+                            stream.release()
+                        }
+                    }
+                } finally {
+                    if (didClose) onClosed()
                 }
             }
-        }
 
         private fun decodeReady() {
             while (recognizer.isReady(stream)) {
@@ -194,9 +248,14 @@ internal class StreamingModelStore(
                 return@withContext null
             }
             if (!dir.exists() && !dir.mkdirs()) return@withContext null
+            val missingFiles = FILES.filterNot { it.isValidIn(dir) }
+            val missingBytes = missingFiles.sumOf { it.size }
+            if (dir.usableSpace < missingBytes + DOWNLOAD_HEADROOM_BYTES) {
+                Log.w(TAG, "Streaming preview model skipped because storage is low")
+                return@withContext null
+            }
 
-            for (modelFile in FILES) {
-                if (modelFile.isValidIn(dir)) continue
+            for (modelFile in missingFiles) {
                 if (!download(modelFile, dir)) return@withContext null
             }
             dir.takeIf { target -> FILES.all { it.isValidIn(target) } }
@@ -205,26 +264,27 @@ internal class StreamingModelStore(
     private fun download(modelFile: StreamingModelFile, dir: File): Boolean {
         val target = File(dir, modelFile.name)
         val temporary = File(dir, "${modelFile.name}.download")
-        return runCatching {
-            val request = Request.Builder().url("$BASE_URL/${modelFile.name}").build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return false
-                val body = response.body ?: return false
-                FileOutputStream(temporary, false).use { output ->
-                    body.byteStream().use { input -> input.copyTo(output) }
-                    output.fd.sync()
+        return try {
+            runCatching {
+                val request = Request.Builder().url("$BASE_URL/${modelFile.name}").build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return false
+                    val body = response.body ?: return false
+                    FileOutputStream(temporary, false).use { output ->
+                        body.byteStream().use { input -> copyBounded(input, output, modelFile.size) }
+                        output.fd.sync()
+                    }
                 }
+                if (!modelFile.isValidFile(temporary)) return false
+                replaceDownloadedFile(temporary, target)
+                true
+            }.getOrElse { failure ->
+                if (failure is CancellationException) throw failure
+                Log.w(TAG, "Could not prepare streaming preview model file ${modelFile.name}", failure)
+                false
             }
-            if (!modelFile.isValidFile(temporary)) {
-                temporary.delete()
-                return false
-            }
-            if (!temporary.renameTo(target)) return false
-            true
-        }.getOrElse { failure ->
-            if (failure is CancellationException) throw failure
-            Log.w(TAG, "Could not prepare streaming preview model file ${modelFile.name}", failure)
-            false
+        } finally {
+            temporary.delete()
         }
     }
 
@@ -232,6 +292,7 @@ internal class StreamingModelStore(
         private const val TAG = "StreamingModelStore"
         private const val BASE_URL =
             "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/main"
+        private const val DOWNLOAD_HEADROOM_BYTES = 16L * 1024L * 1024L
 
         internal val FILES =
             listOf(
@@ -240,6 +301,38 @@ internal class StreamingModelStore(
                 StreamingModelFile(StreamingSherpaRecognizerProvider.JOINER, 259_572L, "e085d73b593cf9b0707f370dbd656d58327d3fe36d80d849202ef81df02cb01e"),
                 StreamingModelFile(StreamingSherpaRecognizerProvider.TOKENS, 5_048L, "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb"),
             )
+    }
+}
+
+internal fun copyBounded(
+    input: InputStream,
+    output: FileOutputStream,
+    expectedBytes: Long,
+) {
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var copied = 0L
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        copied += read
+        check(copied <= expectedBytes) { "Streaming model response exceeded its manifest size" }
+        output.write(buffer, 0, read)
+    }
+}
+
+internal fun replaceDownloadedFile(
+    temporary: File,
+    target: File,
+) {
+    try {
+        Files.move(
+            temporary.toPath(),
+            target.toPath(),
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING,
+        )
+    } catch (_: AtomicMoveNotSupportedException) {
+        Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 }
 

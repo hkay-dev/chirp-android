@@ -50,6 +50,9 @@ interface StreamingTranscriberProvider {
 
     /** Opens a fresh incremental stream, or returns null when the optional preview is unavailable. */
     suspend fun openSession(sampleRate: Int = 16000): StreamingTranscriptionSession?
+
+    /** Requests native preview-model cleanup once any open stream has closed. */
+    suspend fun release() = Unit
 }
 
 interface StreamingTranscriptionSession {

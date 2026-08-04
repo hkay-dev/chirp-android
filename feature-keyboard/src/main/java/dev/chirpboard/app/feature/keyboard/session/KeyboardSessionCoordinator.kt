@@ -397,6 +397,9 @@ class KeyboardSessionCoordinator(
     fun destroy() {
         stopRollingTranscription()
         streamingPreviewPrepareJob?.cancel()
+        streamingTranscriberProvider?.let { provider ->
+            scope.launch(NonCancellable + Dispatchers.IO) { provider.release() }
+        }
         recordingStateManager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, stoppingTimeoutRescue)
     }
 
@@ -859,6 +862,11 @@ class KeyboardSessionCoordinator(
                     }
                     return@launch
                 }
+
+                // Production always supplies an isolated streaming provider. If its optional
+                // model is unavailable, omit preview rather than queueing work on Parakeet's
+                // authoritative final recognizer and risking delayed delivery after stop.
+                if (streamingTranscriberProvider != null) return@launch
 
                 // Optional first-pass model is unavailable, so retain the existing overlapping
                 // file-window preview. The complete PCM file remains authoritative either way.

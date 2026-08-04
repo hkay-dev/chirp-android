@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.FileOutputStream
 
 class StreamingSherpaRecognizerTest {
     @Test
@@ -38,6 +40,34 @@ class StreamingSherpaRecognizerTest {
             assertFalse(valid.copy(sha256 = "0".repeat(64)).isValidFile(file))
         } finally {
             file.delete()
+        }
+    }
+
+    @Test
+    fun `download replacement overwrites a corrupt existing target`() {
+        val dir = kotlin.io.path.createTempDirectory("chirp-streaming-replace").toFile()
+        try {
+            val temporary = File(dir, "model.download").apply { writeText("verified") }
+            val target = File(dir, "model.onnx").apply { writeText("corrupt") }
+
+            replaceDownloadedFile(temporary, target)
+
+            assertEquals("verified", target.readText())
+            assertFalse(temporary.exists())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun `bounded copy rejects an oversized response`() {
+        val target = File.createTempFile("chirp-streaming-copy", ".download")
+        try {
+            FileOutputStream(target).use { output ->
+                copyBounded(ByteArrayInputStream(ByteArray(9)), output, expectedBytes = 8)
+            }
+        } finally {
+            target.delete()
         }
     }
 }
