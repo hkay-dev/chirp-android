@@ -4,6 +4,7 @@ import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.feature.transcription.ChunkTranscription
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -165,6 +166,35 @@ class ChunkedAudioProcessorTest {
         }
 
         assertEquals("First part of the second part finally ends", joined)
+    }
+
+    @Test
+    fun `batched recovery stops reading audio after the first failed batch`() = runTest {
+        val processor =
+            ChunkedAudioProcessor(
+                chunkDurationMs = 2_000,
+                overlapDurationMs = 1_000,
+                sampleRate = 10,
+            )
+        var sourceEmissions = 0
+        val source =
+            flow {
+                repeat(1_000) {
+                    sourceEmissions++
+                    emit(FloatArray(20))
+                }
+            }
+        var batches = 0
+
+        val joined =
+            processor.processAndJoinBatched(source, batchSize = 1) {
+                batches++
+                null
+            }
+
+        assertNull(joined)
+        assertEquals(1, batches)
+        assertEquals(1, sourceEmissions)
     }
 
     @Test

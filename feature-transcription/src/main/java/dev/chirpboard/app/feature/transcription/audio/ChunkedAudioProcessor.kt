@@ -124,9 +124,14 @@ class ChunkedAudioProcessor(
             parts += decoded.filter(String::isNotBlank)
         }
 
-        consumeChunks(audioSource) { chunk, _ ->
-            pending += chunk
-            if (pending.size == batchSize) flush()
+        try {
+            consumeChunks(audioSource) { chunk, _ ->
+                pending += chunk
+                if (pending.size == batchSize) flush()
+                if (failed) throw BatchedRecoveryFailed()
+            }
+        } catch (_: BatchedRecoveryFailed) {
+            pending.clear()
         }
         flush()
         return if (failed) null else joinTranscripts(parts)
@@ -283,6 +288,8 @@ class ChunkedAudioProcessor(
     }
 
     private fun sampleIndexToMillis(sampleIndex: Long): Long = sampleIndex * 1000L / sampleRate
+
+    private class BatchedRecoveryFailed : RuntimeException(null, null, false, false)
 }
 
 data class JoinedChunkTranscription(
