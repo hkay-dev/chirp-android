@@ -24,6 +24,7 @@ data class InlineTranscriptionRequest(
     val llmEnabled: Boolean,
     val processingModeId: String,
     val correlationPrefix: String = "keyboard",
+    val latencyObserver: InlineDictationLatencyObserver? = null,
 ) {
     companion object {
         /**
@@ -44,6 +45,19 @@ data class InlineTranscriptionRequest(
                 correlationPrefix = correlationPrefix,
             )
     }
+}
+
+/** Content-free timing hooks for local performance diagnostics. */
+interface InlineDictationLatencyObserver {
+    fun onDecodeStarted()
+
+    fun onRawTranscriptReady()
+
+    fun onAiStarted()
+
+    fun onAiCompleted()
+
+    fun onCommitCompleted(accepted: Boolean)
 }
 
 sealed interface InlineAudioSource {

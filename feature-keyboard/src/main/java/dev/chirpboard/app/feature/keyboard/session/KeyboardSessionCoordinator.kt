@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.keyboard.session
 
 import android.content.Context
 import android.util.Log
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.llm.ProcessingModePort
@@ -18,6 +19,7 @@ import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
+import dev.chirpboard.app.core.transcription.InlineDictationLatencyObserver
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
@@ -29,6 +31,7 @@ import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
@@ -68,6 +71,7 @@ class KeyboardSessionCoordinator(
     private val pendingStopStore: KeyboardPendingStopStore,
     private val modelReadinessGate: SpeechModelReadinessGate,
     private val teardownDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val streamingTranscriberProvider: StreamingTranscriberProvider? = null,
 ) {
     private val isRecording = MutableStateFlow(false)
 
@@ -105,9 +109,12 @@ class KeyboardSessionCoordinator(
     private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
     private var rollingTranscriptionJob: Job? = null
+    private var streamingPreviewPrepareJob: Job? = null
+    @Volatile private var streamingPreviewReady = false
     private var liveCaptureJournalJob: Job? = null
     private var modelWarmupRequested = false
     private var modelInitializationRequested = false
+    private var latencyTrace: DictationLatencyTrace? = null
 
     /**
      * The most recent cancel teardown coroutine. [restartRecording] joins it before starting a
@@ -389,7 +396,19 @@ class KeyboardSessionCoordinator(
      */
     fun destroy() {
         stopRollingTranscription()
+        streamingPreviewPrepareJob?.cancel()
         recordingStateManager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, stoppingTimeoutRescue)
+    }
+
+    /** Prepares optional preview resources when the IME is visible. It never opens the mic. */
+    fun prepareStreamingPreview() {
+        if (streamingPreviewReady || streamingPreviewPrepareJob?.isActive == true) return
+        val provider = streamingTranscriberProvider ?: return
+        streamingPreviewPrepareJob =
+            scope.launch(Dispatchers.IO) {
+                streamingPreviewReady = runCatching { provider.prepare() }.getOrDefault(false)
+                streamingPreviewPrepareJob = null
+            }
     }
 
     /**
@@ -603,6 +622,7 @@ class KeyboardSessionCoordinator(
         if (selectedEngine.value == TranscriptionEngine.LOCAL_PARAKEET) {
             initializeLocalModel()
         }
+        latencyTrace = DictationLatencyTrace(tag).also { it.mark("press") }
         stopRequestedDuringStart = false
         // MIC-017: a cancel intent recorded against a previous session's teardown window
         // must never discard this session's stop.
@@ -638,6 +658,7 @@ class KeyboardSessionCoordinator(
                     activeLiveCapture.set(liveCapture)
                     when (val result = capture.start(liveCapture?.audioPath)) {
                         is QuickCaptureStartResult.Success -> {
+                            latencyTrace?.mark("audio_record_started")
                             if (!capture.awaitFirstSamples()) {
                                 capture.abandonAudioFocus()
                                 withContext(teardownDispatcher) {
@@ -648,6 +669,8 @@ class KeyboardSessionCoordinator(
                                 transcription.setError(FIRST_AUDIO_FAILED_MESSAGE)
                                 return@launch
                             }
+                            latencyTrace?.mark("first_hardware_sample")
+                            latencyTrace?.mark("first_durable_sample")
                             Log.i(
                                 tag,
                                 "Keyboard microphone ready ${System.nanoTime() / NANOS_PER_MILLISECOND - startRequestedAtMs}ms after tap",
@@ -755,6 +778,7 @@ class KeyboardSessionCoordinator(
         // Flip the UI/cancellation flags synchronously on the caller (IME main) thread so the
         // panel responds to the tap instantly, then hand the actual recorder teardown off-main.
         isRecording.value = false
+        latencyTrace?.mark("stop_requested")
         stopRollingTranscription()
         capture.abandonAudioFocus()
         HapticFeedback.onRecordStop(context)
@@ -784,6 +808,7 @@ class KeyboardSessionCoordinator(
                 withContext(NonCancellable) {
                     awaitLiveCaptureJournal()
                     val audioSource = capture.stopAsAudioSource()
+                    latencyTrace?.mark("audio_synced")
                     finishStopAfterTeardown(audioSource, commitText, suppressHistory)
                 }
             }
@@ -800,6 +825,43 @@ class KeyboardSessionCoordinator(
         if (selectedEngine.value != TranscriptionEngine.LOCAL_PARAKEET) return
         rollingTranscriptionJob =
             scope.launch(Dispatchers.Default) {
+                val streamingSession =
+                    if (streamingPreviewReady) {
+                        streamingTranscriberProvider?.openSession(VoiceRecorder.SAMPLE_RATE)
+                    } else {
+                        null
+                    }
+                if (streamingSession != null) {
+                    var consumedSamples = 0
+                    try {
+                        while (isRecording.value) {
+                            val snapshot = capture.activeFileBackedSnapshot()
+                            if (snapshot != null && snapshot.sampleCount > consumedSamples) {
+                                val samples =
+                                    withContext(teardownDispatcher) {
+                                        readIncrementalPcmSamples(
+                                            path = snapshot.file.absolutePath,
+                                            startSample = consumedSamples,
+                                            availableSamples = snapshot.sampleCount,
+                                        )
+                                    }
+                                if (samples.isNotEmpty()) {
+                                    consumedSamples += samples.size
+                                    streamingSession.accept(samples).takeIf { it.isNotBlank() }?.let {
+                                        livePartialTranscript.value = it
+                                    }
+                                }
+                            }
+                            delay(STREAMING_TRANSCRIPTION_POLL_MS)
+                        }
+                    } finally {
+                        runCatching { streamingSession.close() }
+                    }
+                    return@launch
+                }
+
+                // Optional first-pass model is unavailable, so retain the existing overlapping
+                // file-window preview. The complete PCM file remains authoritative either way.
                 delay(LIVE_TRANSCRIPTION_INITIAL_DELAY_MS)
                 while (isRecording.value) {
                     if (transcriberProvider.isReady()) {
@@ -938,6 +1000,7 @@ class KeyboardSessionCoordinator(
                                 audioSource = audioSource,
                                 llmEnabled = llmEnabled.value,
                                 processingModeId = sessionProcessingMode().id,
+                                latencyObserver = latencyTrace?.asObserver(),
                             ),
                         persistence = sessionPersistence,
                         commitText = commitText,
@@ -1304,6 +1367,7 @@ class KeyboardSessionCoordinator(
         private const val LIVE_TRANSCRIPTION_INITIAL_DELAY_MS = 3_000L
         private const val LIVE_TRANSCRIPTION_INTERVAL_MS = 6_000L
         private const val LIVE_TRANSCRIPTION_MIN_SECONDS = 2
+        private const val STREAMING_TRANSCRIPTION_POLL_MS = 320L
         internal const val STOP_TIMEOUT_IN_PROGRESS_MESSAGE =
             "Transcription is taking longer than expected"
         internal const val STOP_TIMEOUT_RESCUE_MESSAGE =
@@ -1346,6 +1410,24 @@ internal fun readRollingPcmWindow(
     }.getOrDefault(FloatArray(0))
 }
 
+internal fun readIncrementalPcmSamples(
+    path: String,
+    startSample: Int,
+    availableSamples: Int,
+): FloatArray {
+    if (startSample < 0 || availableSamples <= startSample) return FloatArray(0)
+    return runCatching {
+        RandomAccessFile(path, "r").use { input ->
+            val completeSamples = minOf(availableSamples.toLong(), input.length() / Float.SIZE_BYTES).toInt()
+            if (completeSamples <= startSample) return@use FloatArray(0)
+            input.seek(startSample.toLong() * Float.SIZE_BYTES)
+            FloatArray(completeSamples - startSample) {
+                Float.fromBits(Integer.reverseBytes(input.readInt()))
+            }
+        }
+    }.getOrDefault(FloatArray(0))
+}
+
 internal fun mergeRollingTranscript(
     previous: String?,
     next: String,
@@ -1367,3 +1449,39 @@ internal fun mergeRollingTranscript(
 
 private fun rollingComparableWord(word: String): String =
     word.lowercase().filter(Char::isLetterOrDigit)
+
+internal class DictationLatencyTrace(
+    private val logTag: String,
+    private val nowNanos: () -> Long = System::nanoTime,
+    private val sink: (String) -> Unit = { message -> Log.i(logTag, message) },
+) {
+    private val startedAtNanos = nowNanos()
+    private var previousAtNanos = startedAtNanos
+
+    @Synchronized
+    fun mark(event: String) {
+        val now = nowNanos()
+        val totalMs = (now - startedAtNanos) / NANOS_PER_MILLISECOND
+        val stageMs = (now - previousAtNanos) / NANOS_PER_MILLISECOND
+        previousAtNanos = now
+        sink("Dictation latency event=$event totalMs=$totalMs stageMs=$stageMs")
+    }
+
+    fun asObserver(): InlineDictationLatencyObserver =
+        object : InlineDictationLatencyObserver {
+            override fun onDecodeStarted() = mark("decode_started")
+
+            override fun onRawTranscriptReady() = mark("raw_transcript_ready")
+
+            override fun onAiStarted() = mark("ai_started")
+
+            override fun onAiCompleted() = mark("ai_completed")
+
+            override fun onCommitCompleted(accepted: Boolean) =
+                mark(if (accepted) "commit_completed" else "commit_refused")
+        }
+
+    companion object {
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
+    }
+}

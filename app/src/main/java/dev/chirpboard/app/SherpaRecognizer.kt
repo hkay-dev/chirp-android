@@ -91,7 +91,10 @@ class SherpaRecognizer(
                         OfflineModelConfig(
                             transducer = transducerConfig,
                             tokens = tokens.absolutePath,
-                            numThreads = 8,
+                            // Leave cores available for AudioRecord, UI, and the optional first
+                            // pass. More native threads were not reliably faster on mobile once
+                            // thermal throttling and scheduling contention were included.
+                            numThreads = context.offlineRecognizerThreadCount(),
                             debug = false,
                             provider = "cpu",
                             modelType = "nemo_transducer",

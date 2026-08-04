@@ -133,6 +133,7 @@ class InlineTranscriptionCoordinatorImpl
                 }
 
                 _phase.value = InlineTranscriptionPhase.Transcribing
+                request.latencyObserver?.onDecodeStarted()
 
                 val mappedOutcome =
                     try {
@@ -188,9 +189,11 @@ class InlineTranscriptionCoordinatorImpl
                 // the text is whatever the user dictated into another app. Log only its length.
                 Log.d(tag, "Transcribed ${rawText.length} chars")
                 rawTextForPersistence = rawText
+                request.latencyObserver?.onRawTranscriptReady()
                 transcriptionLog.success("transcription_completed")
 
                 if (request.llmEnabled) {
+                    request.latencyObserver?.onAiStarted()
                     enhancementLog.started("enhancement_started")
                     _phase.value = InlineTranscriptionPhase.Polishing
 
@@ -201,6 +204,7 @@ class InlineTranscriptionCoordinatorImpl
 
                     withContext(Dispatchers.Main) {
                         if (result != null) {
+                            request.latencyObserver?.onAiCompleted()
                             result.fold(
                                 onSuccess = { polishedText ->
                                     val openingDropped = aiResultDropsOpening(rawText, polishedText)
@@ -252,6 +256,7 @@ class InlineTranscriptionCoordinatorImpl
                                 },
                             )
                         } else {
+                            request.latencyObserver?.onAiCompleted()
                             enhancementLog.failure("enhancement_timeout")
                             // ERR-19: an enhancement timeout degrades to the raw transcript just
                             // like an enhancement failure, so it surfaces the same LlmError panel
@@ -436,6 +441,7 @@ class InlineTranscriptionCoordinatorImpl
                 delivery.processedText?.takeIf { delivery.useProcessedTextForCommit }
                     ?: delivery.rawText
             val committed = commitText("$textToCommit ")
+            delivery.request.latencyObserver?.onCommitCompleted(committed)
             if (committed) {
                 // The transcript reached its target; mark the capture resolved BEFORE the
                 // (cancellable) persist below so a cancellation surfacing at this

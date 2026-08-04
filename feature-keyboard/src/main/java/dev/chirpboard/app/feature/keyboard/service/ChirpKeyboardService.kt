@@ -52,6 +52,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.keyboard.R
@@ -85,6 +86,7 @@ class ChirpKeyboardService :
     @Inject lateinit var keyboardPreferences: KeyboardPreferences
     @Inject lateinit var modePort: ProcessingModePort
     @Inject lateinit var recognizerProvider: TranscriberProvider
+    @Inject lateinit var streamingRecognizerProvider: StreamingTranscriberProvider
     @Inject lateinit var modelReadinessGate: SpeechModelReadinessGate
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
@@ -188,6 +190,7 @@ class ChirpKeyboardService :
                 modePort = modePort,
                 pendingStopStore = pendingStopStore,
                 modelReadinessGate = modelReadinessGate,
+                streamingTranscriberProvider = streamingRecognizerProvider,
             )
 
         coordinator.commitTextProvider = inputSessionGuard.commitTextProvider(::commitToInputSession)
@@ -457,6 +460,7 @@ class ChirpKeyboardService :
         // post-process-death bind reloads it under the masked "warming" mic instead of stalling
         // the user's first dictation on the in-memory load after they have already spoken.
         coordinator.initializeModel()
+        coordinator.prepareStreamingPreview()
         drainPendingKeyboardStopIfNeeded()
     }
 

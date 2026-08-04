@@ -38,3 +38,26 @@ interface TranscriberProvider {
     suspend fun release()
 
 }
+
+/**
+ * Optional low-latency first pass used only for visible partial text. Implementations must own
+ * separate model and synchronization state from [TranscriberProvider] so preview work can never
+ * queue the authoritative final decode.
+ */
+interface StreamingTranscriberProvider {
+    /** Prepares model files and native state. This must never open the microphone. */
+    suspend fun prepare(): Boolean
+
+    /** Opens a fresh incremental stream, or returns null when the optional preview is unavailable. */
+    suspend fun openSession(sampleRate: Int = 16000): StreamingTranscriptionSession?
+}
+
+interface StreamingTranscriptionSession {
+    /** Accepts only samples not previously supplied to this session and returns the latest text. */
+    suspend fun accept(samples: FloatArray): String
+
+    /** Flushes the stream and returns its final best-effort preview text. */
+    suspend fun finish(): String
+
+    suspend fun close()
+}
