@@ -1,6 +1,7 @@
 package dev.chirpboard.app.baselineprofile
 
 import androidx.benchmark.macro.junit4.BaselineProfileRule
+import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.filters.LargeTest
 import org.junit.Rule
 import org.junit.Test
@@ -11,23 +12,24 @@ class BaselineProfileGenerator {
     val baselineProfileRule = BaselineProfileRule()
 
     @Test
-    fun criticalUserJourneys() {
+    fun appStartup() {
         baselineProfileRule.collect(
             packageName = TARGET_PACKAGE,
+            outputFilePrefix = "app-startup",
             includeInStartupProfile = true,
         ) {
-            pressHome()
-            try {
-                startActivityAndWait()
-            } catch (error: IllegalStateException) {
-                // One UI 8 can omit the final gfxinfo frame marker even though MainActivity is
-                // alive. Keep Macrobenchmark's tracked launch and accept only that known case.
-                check(device.executeShellCommand("pidof $TARGET_PACKAGE").isNotBlank()) {
-                    throw error
-                }
-                device.waitForIdle()
-            }
+            launchMainActivity()
+        }
+    }
 
+    @Test
+    fun imeAndKeyboardSettings() {
+        baselineProfileRule.collect(
+            packageName = TARGET_PACKAGE,
+            outputFilePrefix = "ime-and-settings",
+            includeInStartupProfile = false,
+        ) {
+            launchMainActivity()
             val originalIme = device.executeShellCommand("settings get secure default_input_method").trim()
             val enabledImes = device.executeShellCommand("ime list -s")
             val chirpWasEnabled = enabledImes.lineSequence().any { it.trim() == CHIRP_IME }
@@ -47,6 +49,20 @@ class BaselineProfileGenerator {
             }
 
             device.executeShellCommand("am start -W -n $KEYBOARD_SETTINGS_ACTIVITY")
+            device.waitForIdle()
+        }
+    }
+
+    private fun MacrobenchmarkScope.launchMainActivity() {
+        pressHome()
+        try {
+            startActivityAndWait()
+        } catch (error: IllegalStateException) {
+            // One UI 8 can omit the final gfxinfo frame marker even though MainActivity is alive.
+            // Keep Macrobenchmark's tracked launch and accept only that known case.
+            check(device.executeShellCommand("pidof $TARGET_PACKAGE").isNotBlank()) {
+                throw error
+            }
             device.waitForIdle()
         }
     }
