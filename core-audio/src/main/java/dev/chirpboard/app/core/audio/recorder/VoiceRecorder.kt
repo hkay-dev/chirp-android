@@ -22,6 +22,7 @@ import java.io.FileOutputStream
 import java.io.OutputStream
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.milliseconds
@@ -39,6 +40,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
@@ -60,6 +63,7 @@ sealed class RecordingError(
 
     object TooShort : RecordingError("Recording too short")
     object StorageUnavailable : RecordingError("Recording storage unavailable")
+    object CaptureStalled : RecordingError("Microphone stopped responding")
 
     object PermissionDenied : RecordingError("Microphone permission denied")
 }
@@ -75,6 +79,7 @@ class VoiceRecorder(
     private val captureStorageMode: CaptureStorageMode = CaptureStorageMode.InMemory,
     private val captureOutputFactory: (File) -> OutputStream = { file -> FileOutputStream(file) },
     private val availableStorageBytes: (File) -> Long = { directory -> directory.usableSpace },
+    private val reclaimEmergencyReserve: () -> Boolean = CaptureEmergencyReserve::reclaim,
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -101,6 +106,10 @@ class VoiceRecorder(
         private const val CAPTURE_GAP_TOLERANCE_MS = 250L
         private const val TIMESTAMP_GAP_TOLERANCE_FRAMES = CAPTURE_READ_BUFFER_SIZE * 2L
         private const val MAX_DEAD_OBJECT_RECOVERIES = 1
+        private const val MAX_WATCHDOG_RECOVERIES = 2
+        private const val WATCHDOG_POLL_MS = 250L
+        private const val READ_STALL_TIMEOUT_MS = 1_500L
+        private const val ZERO_READ_LIMIT = 8
 
         /** Keeps enough headroom for ten minutes of float PCM plus filesystem overhead. */
         const val MIN_CAPTURE_FREE_BYTES = 48L * 1024L * 1024L
@@ -140,12 +149,59 @@ class VoiceRecorder(
         val timestampGapFrames: Long = 0L,
         val timestampGapCount: Int = 0,
         val recorderRestartCount: Int = 0,
+        val watchdogRestartCount: Int = 0,
     )
 
     internal data class TimestampGap(
         val missingFrames: Long,
         val hardwareFramePosition: Long,
     )
+
+    internal enum class CaptureHealthIssue {
+        StalledRead,
+        RepeatedZeroReads,
+    }
+
+    internal class CaptureHealthMonitor(
+        private val stallTimeoutMs: Long = READ_STALL_TIMEOUT_MS,
+        private val zeroReadLimit: Int = ZERO_READ_LIMIT,
+    ) {
+        private var readStartedAtMs: Long? = null
+        private var consecutiveZeroReads = 0
+        private var pendingIssue: CaptureHealthIssue? = null
+
+        @Synchronized
+        fun onReadStarted(nowMs: Long) {
+            readStartedAtMs = nowMs
+        }
+
+        @Synchronized
+        fun onReadCompleted(result: Int) {
+            readStartedAtMs = null
+            consecutiveZeroReads = if (result == 0) consecutiveZeroReads + 1 else 0
+            if (consecutiveZeroReads >= zeroReadLimit) pendingIssue = CaptureHealthIssue.RepeatedZeroReads
+        }
+
+        @Synchronized
+        fun issueAt(nowMs: Long): CaptureHealthIssue? {
+            val stalled = readStartedAtMs?.let { nowMs - it >= stallTimeoutMs } == true
+            return if (stalled) CaptureHealthIssue.StalledRead else pendingIssue
+        }
+
+        @Synchronized
+        fun markRestart() {
+            readStartedAtMs = null
+            consecutiveZeroReads = 0
+            pendingIssue = null
+        }
+    }
+
+    internal class CaptureBufferPool(
+        sampleCapacity: Int = CAPTURE_READ_BUFFER_SIZE,
+    ) {
+        val readSamples = FloatArray(sampleCapacity)
+        val pcmBytes = ByteArray(sampleCapacity * java.lang.Float.BYTES)
+    }
 
     /** Thread-safe per-session continuity state. The capture thread is its only writer. */
     internal class CaptureContinuityTracker(
@@ -199,10 +255,14 @@ class VoiceRecorder(
 
     private var audioRecord: AudioRecord? = null
     private var collectorJob: Job? = null
+    private var watchdogJob: Job? = null
     private var firstSamplesReady = CompletableDeferred<Boolean>()
     @Volatile private var lastIntegrityReport: CaptureIntegrityReport? = null
     @Volatile private var continuityTracker = CaptureContinuityTracker()
     private var nativeBufferSizeBytes = 0
+    private val recoveryMutex = Mutex()
+    @Volatile private var healthMonitor = CaptureHealthMonitor()
+    private val watchdogRestartCount = AtomicInteger(0)
 
     /**
      * Active-device publication token for the live capture (from
@@ -227,13 +287,7 @@ class VoiceRecorder(
     private var sampleFile: File? = null
     private var sampleOutput: OutputStream? = null
 
-    /**
-     * Reusable little-endian scratch buffer for file-backed PCM writes, sized to
-     * one full read ([CAPTURE_READ_BUFFER_SIZE] floats). Allocated lazily on the
-     * first FileBacked write so a fresh ByteBuffer is not allocated per read, and
-     * never touched in InMemory mode. Only accessed under [sampleLock].
-     */
-    private var captureWriteBuffer: ByteArray? = null
+    /** Control state stays separate from pooled buffers and the file writer lock. */
     private val sampleLock = Any()
     /** File writes are serialized separately so slow storage never holds recorder control state. */
     private val captureWriteLock = Any()
@@ -494,6 +548,8 @@ class VoiceRecorder(
                 attempt.pendingSessionToken = null
                 recordingStartTimeMs = SystemClock.elapsedRealtime()
                 continuityTracker = CaptureContinuityTracker()
+                healthMonitor = CaptureHealthMonitor()
+                watchdogRestartCount.set(0)
                 attempt.publishedGeneration = sessionGeneration.incrementAndGet()
                 isRecording.set(true)
             }
@@ -592,7 +648,11 @@ class VoiceRecorder(
                     collectFirstSamplesReady = firstSamplesReady
                 }
                 if (record == null) return@withContext
-                val buffer = FloatArray(CAPTURE_READ_BUFFER_SIZE)
+                // A stopped collector can remain blocked in AudioRecord.read() briefly after a
+                // successor starts. Keep its native read and conversion buffers session-local so
+                // that late return can never overwrite the successor's block.
+                val buffers = CaptureBufferPool()
+                val buffer = buffers.readSamples
                 hasError = false
                 var routingChecked = false
                 var firstReadLogged = false
@@ -601,10 +661,21 @@ class VoiceRecorder(
                 var deadObjectRecoveries = 0
                 var capturedFramesForTimestamp = 0L
                 val timestamp = AudioTimestamp()
+                val monitor = healthMonitor
+                startCaptureWatchdog(collectGeneration, monitor)
 
                 while (isActive && isRecording.get() && sessionGeneration.get() == collectGeneration) {
                 val activeRecord = record ?: return@withContext
+                monitor.onReadStarted(SystemClock.elapsedRealtime())
                 val readResult = activeRecord.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+                monitor.onReadCompleted(readResult)
+
+                val currentRecord = synchronized(sampleLock) { audioRecord }
+                if (currentRecord !== activeRecord && sessionGeneration.get() == collectGeneration) {
+                    record = currentRecord
+                    routingChecked = false
+                    continue
+                }
 
                 // Check for errors
                 when {
@@ -624,7 +695,7 @@ class VoiceRecorder(
                         }
                         val replacement =
                             if (deadObjectRecoveries < MAX_DEAD_OBJECT_RECOVERIES) {
-                                recoverDeadAudioRecord(collectGeneration, activeRecord)
+                                recoverAudioRecord(collectGeneration, activeRecord, "dead object")
                             } else {
                                 null
                             }
@@ -679,7 +750,7 @@ class VoiceRecorder(
                                             if (sessionGeneration.get() != collectGeneration) return@withContext
                                             val toProcess = minOf(readResult, sampleCapacity - sampleCount)
                                             if (toProcess > 0) {
-                                                writeFloatSamples(buffer, toProcess)
+                                                writeFloatSamples(buffer, toProcess, buffers.pcmBytes)
                                                 // A block becomes trusted only once its entire direct write returns.
                                                 sampleCount += toProcess
                                             }
@@ -747,6 +818,19 @@ class VoiceRecorder(
                             }
                         }
                     }
+
+                    readResult == 0 -> {
+                        val issue = monitor.issueAt(SystemClock.elapsedRealtime())
+                        if (issue != null) {
+                            val replacement = recoverForHealthIssue(collectGeneration, activeRecord, issue, monitor)
+                            if (replacement == null) {
+                                failCollect(collectGeneration, RecordingError.CaptureStalled)
+                                return@withContext
+                            }
+                            record = replacement
+                            routingChecked = false
+                        }
+                    }
                 }
                 }
             } finally {
@@ -762,11 +846,24 @@ class VoiceRecorder(
      * the platform failure remains the prefix of the recovered recording.
      */
     @SuppressLint("MissingPermission")
-    private suspend fun recoverDeadAudioRecord(
+    private suspend fun recoverAudioRecord(
         generation: Long,
         deadRecord: AudioRecord,
+        reason: String,
+    ): AudioRecord? =
+        recoveryMutex.withLock {
+            val stillCurrent = synchronized(sampleLock) { audioRecord === deadRecord && sessionGeneration.get() == generation }
+            if (!stillCurrent) return@withLock null
+            recoverAudioRecordUnlocked(generation, deadRecord, reason)
+        }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun recoverAudioRecordUnlocked(
+        generation: Long,
+        deadRecord: AudioRecord,
+        reason: String,
     ): AudioRecord? {
-        Log.w(TAG, "AudioRecord died; attempting one in-place capture recovery")
+        Log.w(TAG, "AudioRecord $reason; attempting in-place capture recovery")
         var replacement: AudioRecord? = null
         var replacementToken: Long? = null
         try {
@@ -836,6 +933,55 @@ class VoiceRecorder(
         }
         Log.i(TAG, "AudioRecord recovery resumed the existing logical capture")
         return readyReplacement
+    }
+
+    private fun startCaptureWatchdog(
+        generation: Long,
+        monitor: CaptureHealthMonitor,
+    ) {
+        watchdogJob?.cancel()
+        watchdogJob =
+            coroutineScope.launch(Dispatchers.IO) {
+                while (isActive && isRecording.get() && sessionGeneration.get() == generation) {
+                    delay(WATCHDOG_POLL_MS)
+                    val issue = monitor.issueAt(SystemClock.elapsedRealtime()) ?: continue
+                    val stalledRecord = synchronized(sampleLock) { audioRecord } ?: return@launch
+                    val replacement = recoverForHealthIssue(generation, stalledRecord, issue, monitor)
+                    if (replacement == null) {
+                        val wasReplaced = synchronized(sampleLock) { audioRecord !== stalledRecord }
+                        if (!wasReplaced) failCollect(generation, RecordingError.CaptureStalled)
+                    }
+                }
+            }
+    }
+
+    private suspend fun recoverForHealthIssue(
+        generation: Long,
+        record: AudioRecord,
+        issue: CaptureHealthIssue,
+        monitor: CaptureHealthMonitor,
+    ): AudioRecord? {
+        if (watchdogRestartCount.get() >= MAX_WATCHDOG_RECOVERIES) return null
+        val replacement = recoverAudioRecord(generation, record, "health watchdog detected ${issue.name}")
+        if (replacement != null) {
+            watchdogRestartCount.incrementAndGet()
+            monitor.markRestart()
+            return replacement
+        }
+        // The collector and watchdog can notice the same issue together. Recovery is serialized,
+        // but the loser observes that its old record is no longer current. Treat the winner's
+        // replacement as success instead of failing the healthy logical capture.
+        val concurrentReplacement =
+            synchronized(sampleLock) {
+                audioRecord?.takeIf {
+                    isRecording.get() && sessionGeneration.get() == generation && it !== record
+                }
+            }
+        if (concurrentReplacement != null) {
+            monitor.markRestart()
+            return concurrentReplacement
+        }
+        return null
     }
 
     /**
@@ -998,6 +1144,7 @@ class VoiceRecorder(
                     timestampGapFrames = timestampGapFrames,
                     timestampGapCount = timestampGapCount,
                     recorderRestartCount = restartCount,
+                    watchdogRestartCount = watchdogRestartCount.get(),
                 )
             lastIntegrityReport = integrityReport
             if (integrityReport.estimatedGapMs > 0L) {
@@ -1007,7 +1154,8 @@ class VoiceRecorder(
                         "Capture integrity gap estimated at ${integrityReport.estimatedGapMs}ms " +
                             "(${integrityReport.sampleCount} samples across ${integrityReport.elapsedMs}ms, " +
                             "timestampGaps=${integrityReport.timestampGapCount}, " +
-                            "restarts=${integrityReport.recorderRestartCount})",
+                            "restarts=${integrityReport.recorderRestartCount}, " +
+                            "watchdogRestarts=${integrityReport.watchdogRestartCount})",
                     )
                 }
             }
@@ -1026,6 +1174,8 @@ class VoiceRecorder(
             selectorSessionToken = null
             collectorJob?.cancel()
             collectorJob = null
+            watchdogJob?.cancel()
+            watchdogJob = null
             firstSamplesReady.complete(false)
             StopResult(
                 durationMs = durationMs,
@@ -1053,7 +1203,6 @@ class VoiceRecorder(
                 endSessionLocked()
             }
         if (wasRecording) {
-            firstSamplesReady.complete(false)
             onRecordingError?.invoke(error)
         }
     }
@@ -1112,10 +1261,10 @@ class VoiceRecorder(
     private fun writeFloatSamples(
         buffer: FloatArray,
         count: Int,
+        scratch: ByteArray,
     ) {
         val output = sampleOutput ?: return
         val byteCount = count * java.lang.Float.BYTES
-        val scratch = captureWriteBufferOfAtLeast(byteCount)
         var byteIndex = 0
         for (index in 0 until count) {
             val bits = java.lang.Float.floatToIntBits(boostedSample(buffer[index]))
@@ -1125,21 +1274,19 @@ class VoiceRecorder(
             scratch[byteIndex + 3] = ((bits ushr (Byte.SIZE_BITS * 3)) and BYTE_MASK).toByte()
             byteIndex += java.lang.Float.BYTES
         }
-        output.write(scratch, 0, byteCount)
-    }
-
-    /**
-     * Returns the reusable [captureWriteBuffer], allocating it lazily and growing
-     * it only if a read ever exceeds the expected [CAPTURE_READ_BUFFER_SIZE].
-     * Must be called under [sampleLock].
-     */
-    private fun captureWriteBufferOfAtLeast(byteCount: Int): ByteArray {
-        val existing = captureWriteBuffer
-        if (existing != null && existing.size >= byteCount) {
-            return existing
+        try {
+            output.write(scratch, 0, byteCount)
+        } catch (firstFailure: Exception) {
+            if (!firstFailure.isStorageExhaustion() || !reclaimEmergencyReserve()) throw firstFailure
+            val trustedBytes = sampleCount.toLong() * java.lang.Float.BYTES
+            val fileOutput = output as? FileOutputStream ?: throw firstFailure
+            runCatching {
+                fileOutput.channel.truncate(trustedBytes)
+                fileOutput.channel.position(trustedBytes)
+            }.getOrElse { throw firstFailure }
+            Log.w(TAG, "Capture storage exhausted; reclaimed emergency reserve and retrying current block")
+            output.write(scratch, 0, byteCount)
         }
-        val size = maxOf(byteCount, CAPTURE_READ_BUFFER_SIZE * java.lang.Float.BYTES)
-        return ByteArray(size).also { captureWriteBuffer = it }
     }
 
     private fun resetFileBackedCaptureLocked(deleteExisting: Boolean) {
@@ -1168,8 +1315,5 @@ class VoiceRecorder(
             runCatching { (sampleOutput as? FileOutputStream)?.fd?.sync() }
             runCatching { sampleOutput?.close() }
             sampleOutput = null
-            // Release the per-session write scratch so it does not stay resident
-            // between dictations in the always-on IME/recognition processes.
-            captureWriteBuffer = null
         }
 }
