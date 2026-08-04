@@ -377,9 +377,15 @@ class VoiceRecorder(
             val captureDirectory =
                 attempt.requestedCaptureFile?.parentFile
                     ?: File(context.cacheDir, KEYBOARD_CAPTURE_CACHE_DIR)
-            if ((!captureDirectory.isDirectory && !captureDirectory.mkdirs()) ||
-                availableStorageBytes(captureDirectory) < MIN_CAPTURE_FREE_BYTES
-            ) {
+            val hasCaptureStorage =
+                runCatching {
+                    (captureDirectory.isDirectory || captureDirectory.mkdirs()) &&
+                        availableStorageBytes(captureDirectory) >= MIN_CAPTURE_FREE_BYTES
+                }.getOrElse { error ->
+                    Log.e(TAG, "Could not inspect capture storage", error)
+                    false
+                }
+            if (!hasCaptureStorage) {
                 hasError = true
                 ready.completeExceptionally(IllegalStateException("Insufficient capture storage"))
                 attempt.firstSamplesReady?.complete(false)
@@ -627,7 +633,6 @@ class VoiceRecorder(
                             return@withContext
                         }
                         deadObjectRecoveries += 1
-                        continuityTracker.markRecorderRestart()
                         record = replacement
                         routingChecked = false
                         continue
@@ -806,30 +811,29 @@ class VoiceRecorder(
         val readyReplacement = checkNotNull(replacement)
 
         var swapped = false
-        val oldToken =
-            synchronized(sampleLock) {
-                if (!isRecording.get() || sessionGeneration.get() != generation || audioRecord !== deadRecord) {
-                    null
-                } else {
-                    val token = selectorSessionToken
-                    audioRecord = readyReplacement
-                    selectorSessionToken = replacementToken
-                    swapped = true
-                    token
-                }
+        synchronized(sampleLock) {
+            if (isRecording.get() && sessionGeneration.get() == generation && audioRecord === deadRecord) {
+                val oldToken = selectorSessionToken
+                audioRecord = readyReplacement
+                selectorSessionToken = replacementToken
+                // Complete the routing-listener handoff under the same lock used by stop. A stop
+                // racing immediately after the swap must not release the replacement between the
+                // swap and observeRouting(), which would register a listener on a dead recorder.
+                inputDeviceSelector?.stopObservingRouting(deadRecord)
+                runCatching { deadRecord.stop() }
+                deadRecord.release()
+                oldToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
+                inputDeviceSelector?.observeRouting(readyReplacement)
+                continuityTracker.markRecorderRestart()
+                swapped = true
             }
+        }
         if (!swapped) {
             runCatching { readyReplacement.stop() }
             readyReplacement.release()
             replacementToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
             return null
         }
-
-        inputDeviceSelector?.stopObservingRouting(deadRecord)
-        runCatching { deadRecord.stop() }
-        deadRecord.release()
-        oldToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
-        inputDeviceSelector?.observeRouting(readyReplacement)
         Log.i(TAG, "AudioRecord recovery resumed the existing logical capture")
         return readyReplacement
     }

@@ -153,6 +153,22 @@ class VoiceRecorderTest {
         }
 
     @Test
+    fun `file backed start converts storage inspection failure into a recorder error`() =
+        runBlocking {
+            val fileRecorder =
+                fileBackedRecorder(
+                    availableStorageBytes = { throw SecurityException("storage hidden") },
+                )
+            val errors = mutableListOf<RecordingError>()
+            fileRecorder.onRecordingError = errors::add
+
+            assertFalse(fileRecorder.start())
+
+            assertEquals(listOf<RecordingError>(RecordingError.StorageUnavailable), errors)
+            coVerify(exactly = 0) { selector.buildAudioRecord(any(), any(), any(), any(), any()) }
+        }
+
+    @Test
     fun `immediate collection captures the first block before start is presented as ready`() =
         runBlocking {
             val fileRecorder = fileBackedRecorder()
@@ -767,6 +783,7 @@ class VoiceRecorderTest {
 
     private fun fileBackedRecorder(
         availableBytes: Long = Long.MAX_VALUE,
+        availableStorageBytes: ((File) -> Long)? = null,
         captureOutputFactory: ((File) -> OutputStream)? = null,
     ): VoiceRecorder {
         every { context.cacheDir } returns cacheDir
@@ -776,7 +793,7 @@ class VoiceRecorderTest {
             inputDeviceSelector = selector,
             captureStorageMode = VoiceRecorder.CaptureStorageMode.FileBacked,
             captureOutputFactory = captureOutputFactory ?: { file -> java.io.FileOutputStream(file) },
-            availableStorageBytes = { availableBytes },
+            availableStorageBytes = availableStorageBytes ?: { availableBytes },
         )
     }
 
