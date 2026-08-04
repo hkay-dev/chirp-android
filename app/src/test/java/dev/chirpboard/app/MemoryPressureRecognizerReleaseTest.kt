@@ -1,6 +1,7 @@
 package dev.chirpboard.app
 
 import dev.chirpboard.app.ChirpApplication.TrimMemoryAction
+import dev.chirpboard.app.ChirpApplication.ThermalStatusAction
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -69,6 +70,20 @@ class MemoryPressureRecognizerReleaseTest {
         assertEquals(
             TrimMemoryAction.KEEP,
             ChirpApplication.trimMemoryAction(TRIM_MEMORY_MODERATE),
+        )
+    }
+
+    @Test
+    fun `severe thermal state releases only an unused recognizer`() {
+        assertEquals(ThermalStatusAction.KEEP, ChirpApplication.thermalStatusAction(0))
+        assertEquals(ThermalStatusAction.KEEP, ChirpApplication.thermalStatusAction(2))
+        assertEquals(
+            ThermalStatusAction.RELEASE_IF_UNUSED,
+            ChirpApplication.thermalStatusAction(3),
+        )
+        assertEquals(
+            ThermalStatusAction.RELEASE_IF_UNUSED,
+            ChirpApplication.thermalStatusAction(6),
         )
     }
 }

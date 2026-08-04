@@ -149,6 +149,41 @@ class RecognizerResidencyIntegrationTest {
         }
 
     @Test
+    fun `new lease cannot enter while a release decision owns the manager`() =
+        testScope.runTest {
+            RecognizerManager.installRecognizerForTest(recognizer)
+            RecognizerManager.peekReadyRecognizer()
+            val externalCheckStarted = CompletableDeferred<Unit>()
+            val finishExternalCheck = CompletableDeferred<Unit>()
+            val releaseJob =
+                launch {
+                    RecognizerManager.releaseIfUnused(
+                        minIdleMs = 0L,
+                        nowMs = virtualClock(),
+                        isExternallyBusy = {
+                            externalCheckStarted.complete(Unit)
+                            finishExternalCheck.await()
+                            false
+                        },
+                    )
+                }
+            externalCheckStarted.await()
+
+            val leaseEntered = CompletableDeferred<Unit>()
+            val leaseJob = launch { RecognizerManager.withUsageLease { leaseEntered.complete(Unit) } }
+            runCurrent()
+            assertFalse("lease entered during an in-progress release decision", leaseEntered.isCompleted)
+
+            finishExternalCheck.complete(Unit)
+            releaseJob.join()
+            leaseJob.join()
+
+            assertTrue(leaseEntered.isCompleted)
+            assertEquals(0, RecognizerManager.activeLeaseCount())
+            coVerify(exactly = 1) { recognizer.release() }
+        }
+
+    @Test
     fun `live transcription queue blocks the real release until the queue drains`() =
         testScope.runTest {
             transcriptionQueueBusy.set(true)

@@ -25,9 +25,9 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * PRF-2: the ~30-minute idle-release timer and its reliability gates. The timer must fire only
- * after a full unused window, defer while anything is busy, stop when the recognizer is gone,
- * and never run again once cancelled by a release.
+ * PRF-2: the bounded post-IME warm window and its reliability gates. The timer must fire only
+ * after a full hidden-and-unused window, defer while anything is busy, stop when the recognizer
+ * is gone, and never run again once cancelled by a release.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecognizerIdleReleasePolicyTest {
@@ -110,6 +110,43 @@ class RecognizerIdleReleasePolicyTest {
     // endregion
 
     // region idle timer
+
+    @Test
+    fun `visible IME cancels idle release until a full grace window after hide`() = runTest {
+        mockkObject(RecognizerManager)
+        every { RecognizerManager.isResident() } returns true
+        every { RecognizerManager.lastUsedAtMs() } returns 0L
+        coEvery { RecognizerManager.releaseIfUnused(any(), any(), any()) } returns
+            IdleReleaseDecision.RELEASE
+
+        val policy = newPolicy()
+        policy.scope = backgroundScope
+        policy.clock = { testScheduler.currentTime }
+        policy.start()
+        policy.onImeVisibilityChanged(true)
+
+        testScheduler.advanceTimeBy(policy.idleCutoffMs * 2)
+        testScheduler.runCurrent()
+        coVerify(exactly = 0) { RecognizerManager.releaseIfUnused(any(), any(), any()) }
+
+        policy.onImeVisibilityChanged(false)
+        testScheduler.advanceTimeBy(policy.idleCutoffMs - 1)
+        testScheduler.runCurrent()
+        coVerify(exactly = 0) { RecognizerManager.releaseIfUnused(any(), any(), any()) }
+
+        testScheduler.advanceTimeBy(1)
+        testScheduler.runCurrent()
+        coVerify(exactly = 1) { RecognizerManager.releaseIfUnused(any(), any(), any()) }
+    }
+
+    @Test
+    fun `pressure checks may release an idle model even while IME is visible`() = runTest {
+        val policy = newPolicy()
+        policy.onImeVisibilityChanged(true)
+
+        assertTrue(policy.isExternallyBusy())
+        assertFalse(policy.isExternallyBusy(protectVisibleIme = false))
+    }
 
     @Test
     fun `timer releases exactly after a full unused window`() = runTest {

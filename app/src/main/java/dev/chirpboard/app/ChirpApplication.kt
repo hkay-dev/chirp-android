@@ -4,7 +4,9 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.pm.ApplicationInfo
+import android.os.PowerManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.Lazy
@@ -70,6 +72,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     private val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
     )
+    private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -85,6 +88,7 @@ class ChirpApplication : Application(), Configuration.Provider {
 
         // PRF-2: arm the usage-bound idle-release policy for the resident recognizer.
         recognizerIdleReleasePolicy.start()
+        registerRecognizerThermalRelease()
 
         widgetStateObserver.startObserving()
 
@@ -177,10 +181,19 @@ class ChirpApplication : Application(), Configuration.Provider {
             .setWorkerFactory(workerFactory)
             .build()
 
+    override fun onTerminate() {
+        thermalStatusListener?.let { listener ->
+            getSystemService(PowerManager::class.java)?.removeThermalStatusListener(listener)
+        }
+        thermalStatusListener = null
+        super.onTerminate()
+    }
+
     /**
      * LOAD-1 / KBD-1 / PRF-1 / REL-09: the ~660MB Parakeet recognizer is kept warm while the
      * keyboard is enabled (it is never released on a single surface's start/teardown). It is
-     * freed only by genuine memory pressure or by the ~30-minute idle timeout
+     * freed only by genuine memory pressure, severe thermal status, or the five-minute hidden
+     * IME warm window
      * ([RecognizerIdleReleasePolicy]); both paths refuse to release while any capture or
      * transcription surface could need the model synchronously.
      *
@@ -238,6 +251,22 @@ class ChirpApplication : Application(), Configuration.Provider {
         }
     }
 
+    /**
+     * Severe thermal throttling makes a 660MB local model a poor background resident. Release it
+     * only when no capture or decode owns it. The next visible IME session warms it normally.
+     */
+    private fun registerRecognizerThermalRelease() {
+        val powerManager = getSystemService(PowerManager::class.java) ?: return
+        val listener =
+            PowerManager.OnThermalStatusChangedListener { status ->
+                if (thermalStatusAction(status) == ThermalStatusAction.RELEASE_IF_UNUSED) {
+                    releaseRecognizerForMemoryPressure(reason = "thermalStatus=$status")
+                }
+            }
+        thermalStatusListener = listener
+        powerManager.addThermalStatusListener(ContextCompat.getMainExecutor(this), listener)
+    }
+
     /** PRF-1: real pressure check for the delivered-but-routine trim levels. */
     private fun isSystemLowOnMemory(): Boolean {
         val activityManager = getSystemService(ActivityManager::class.java) ?: return false
@@ -255,6 +284,11 @@ class ChirpApplication : Application(), Configuration.Provider {
         RELEASE_IF_SYSTEM_LOW,
 
         /** Keep the model warm. */
+        KEEP,
+    }
+
+    internal enum class ThermalStatusAction {
+        RELEASE_IF_UNUSED,
         KEEP,
     }
 
@@ -289,6 +323,14 @@ class ChirpApplication : Application(), Configuration.Provider {
                 -> TrimMemoryAction.RELEASE_IF_SYSTEM_LOW
 
                 else -> TrimMemoryAction.KEEP
+            }
+
+        /** Severe and critical thermal states shed an idle recognizer; lighter states keep it warm. */
+        internal fun thermalStatusAction(status: Int): ThermalStatusAction =
+            if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
+                ThermalStatusAction.RELEASE_IF_UNUSED
+            } else {
+                ThermalStatusAction.KEEP
             }
 
         /**
