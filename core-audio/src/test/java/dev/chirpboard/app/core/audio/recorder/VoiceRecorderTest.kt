@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioRecord
 import android.os.SystemClock
-import android.os.storage.StorageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.chirpboard.app.core.audio.AudioCaptureSession
@@ -71,8 +70,6 @@ class VoiceRecorderTest {
 
         mockkStatic(ContextCompat::class)
         every { ContextCompat.checkSelfPermission(any(), any()) } returns PackageManager.PERMISSION_GRANTED
-        every { context.getSystemService(StorageManager::class.java) } returns null
-
         mockkStatic(AudioRecord::class)
         every { AudioRecord.getMinBufferSize(any(), any(), any()) } returns 4096
 

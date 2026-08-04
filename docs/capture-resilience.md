@@ -4,21 +4,19 @@ The continuous PCM stream remains Chirp's authoritative recording. Recovery repl
 Android `AudioRecord` producer and appends new samples to the same durable file and trusted sample
 count. It never starts a second logical recording or substitutes preview text for captured audio.
 
-## Storage reservation
+## Storage writes
 
-File-backed capture asks Android `StorageManager` to allocate a cache-side reservation in 4 MiB slabs. The first slab
-is reserved before the microphone is presented as ready, which covers about 65 seconds of 16 kHz
-mono float PCM. Longer recordings extend the allocation only when the trusted write position crosses
-a slab boundary. The sidecar shrinks as trusted PCM consumes its reserved bytes and is removed at
-normal teardown. Keeping reservation bytes outside the PCM file leaves the audio file's logical
-length equal to its real audio content, including across process death.
-A failed extension stops capture cleanly and keeps every fully written block for recovery.
+File-backed capture checks for 48 MiB of usable space ahead of microphone startup and writes each
+completed block directly to the capture file. Android's allocation API can take several seconds, so
+it is deliberately kept out of both startup and the active read loop. A write failure stops capture
+cleanly, trims any uncertain partial block, and keeps every earlier block for recovery.
 
 ## Allocation discipline
 
-Each `VoiceRecorder` owns one 1,024-sample `AudioRecord` read buffer and one 4,096-byte little-endian
-conversion buffer. Both survive across sessions. The capture loop does not allocate a new read or
-conversion buffer for each block or dictation.
+Each active collector owns one 1,024-sample `AudioRecord` read buffer and one 4,096-byte
+little-endian conversion buffer. They are allocated once per collector, not once per audio block.
+Session-local ownership also keeps a late read from a stopped recorder from overwriting a newer
+session's samples.
 
 ## Health watchdog
 

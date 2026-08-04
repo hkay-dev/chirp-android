@@ -7,33 +7,16 @@ import org.junit.Test
 
 class CaptureResilienceTest {
     @Test
-    fun `storage reservation grows only at slab boundaries`() {
-        val allocations = mutableListOf<Long>()
-        val remaining = mutableListOf<Long>()
-        val slab = 4L * 1024L
-        val reservation = VoiceRecorder.SlabStorageReservation(slab, allocations::add, remaining::add)
+    fun `capture buffers are stable within a collector and isolated across collectors`() {
+        val firstPool = VoiceRecorder.CaptureBufferPool(sampleCapacity = 1_024)
+        val secondPool = VoiceRecorder.CaptureBufferPool(sampleCapacity = 1_024)
 
-        reservation.ensureCapacity(1)
-        reservation.commitThrough(1)
-        reservation.ensureCapacity(slab)
-        reservation.commitThrough(slab)
-        reservation.ensureCapacity(slab + 1)
-        reservation.commitThrough(slab + 1)
-        reservation.ensureCapacity(slab * 2)
-
-        assertEquals(listOf(slab, slab), allocations)
-        assertEquals(listOf(slab - 1, 0L, slab - 1), remaining)
-        assertEquals(slab * 2, reservation.reservedBytes)
-    }
-
-    @Test
-    fun `capture buffers are stable pooled instances`() {
-        val pool = VoiceRecorder.CaptureBufferPool(sampleCapacity = 1_024)
-
-        assertSame(pool.readSamples, pool.readSamples)
-        assertSame(pool.pcmBytes, pool.pcmBytes)
-        assertEquals(1_024, pool.readSamples.size)
-        assertEquals(4_096, pool.pcmBytes.size)
+        assertSame(firstPool.readSamples, firstPool.readSamples)
+        assertSame(firstPool.pcmBytes, firstPool.pcmBytes)
+        assertEquals(1_024, firstPool.readSamples.size)
+        assertEquals(4_096, firstPool.pcmBytes.size)
+        org.junit.Assert.assertNotSame(firstPool.readSamples, secondPool.readSamples)
+        org.junit.Assert.assertNotSame(firstPool.pcmBytes, secondPool.pcmBytes)
     }
 
     @Test

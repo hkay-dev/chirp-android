@@ -10,7 +10,6 @@ import android.media.AudioTimestamp
 import android.media.MediaRecorder
 import android.os.Process
 import android.os.SystemClock
-import android.os.storage.StorageManager
 import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.ContextCompat
@@ -111,7 +110,6 @@ class VoiceRecorder(
         private const val READ_STALL_TIMEOUT_MS = 1_500L
         private const val ZERO_READ_LIMIT = 8
         private const val SEVERE_TIMESTAMP_DRIFT_FRAMES = SAMPLE_RATE / 2L
-        internal const val CAPTURE_RESERVATION_SLAB_BYTES = 4L * 1024L * 1024L
 
         /** Keeps enough headroom for ten minutes of float PCM plus filesystem overhead. */
         const val MIN_CAPTURE_FREE_BYTES = 48L * 1024L * 1024L
@@ -205,32 +203,6 @@ class VoiceRecorder(
         }
     }
 
-    internal class SlabStorageReservation(
-        private val slabBytes: Long = CAPTURE_RESERVATION_SLAB_BYTES,
-        private val reserveSlab: (Long) -> Unit,
-        private val releaseToRemaining: (Long) -> Unit = {},
-        private val cleanup: () -> Unit = {},
-    ) : Closeable {
-        var reservedBytes: Long = 0L
-            private set
-
-        fun ensureCapacity(requiredBytes: Long) {
-            if (requiredBytes <= reservedBytes) return
-            val targetThrough = ((requiredBytes + slabBytes - 1L) / slabBytes) * slabBytes
-            reserveSlab(targetThrough - reservedBytes)
-            reservedBytes = targetThrough
-        }
-
-        fun commitThrough(committedBytes: Long) {
-            val remaining = (reservedBytes - committedBytes).coerceAtLeast(0L)
-            releaseToRemaining(remaining)
-        }
-
-        override fun close() {
-            cleanup()
-        }
-    }
-
     internal class CaptureBufferPool(
         sampleCapacity: Int = CAPTURE_READ_BUFFER_SIZE,
     ) {
@@ -296,7 +268,6 @@ class VoiceRecorder(
     @Volatile private var continuityTracker = CaptureContinuityTracker()
     private var nativeBufferSizeBytes = 0
     private val recoveryMutex = Mutex()
-    private val bufferPool = CaptureBufferPool()
     @Volatile private var healthMonitor = CaptureHealthMonitor()
     private val watchdogRestartCount = AtomicInteger(0)
 
@@ -322,7 +293,6 @@ class VoiceRecorder(
     @Volatile private var sampleCount = 0
     private var sampleFile: File? = null
     private var sampleOutput: OutputStream? = null
-    private var storageReservation: SlabStorageReservation? = null
 
     /** Control state stays separate from pooled buffers and the file writer lock. */
     private val sampleLock = Any()
@@ -356,7 +326,6 @@ class VoiceRecorder(
         var pendingRecord: AudioRecord? = null
         var pendingCaptureFile: File? = null
         var pendingCaptureOutput: OutputStream? = null
-        var pendingStorageReservation: SlabStorageReservation? = null
 
         /** Selector publication token from buildAudioRecord, until published or cleared. */
         var pendingSessionToken: Long? = null
@@ -566,11 +535,7 @@ class VoiceRecorder(
                 // A process kill cannot flush a BufferedOutputStream's user-space tail. Writing
                 // each AudioRecord block straight to the file descriptor keeps every completed
                 // write recoverable by the live-capture journal.
-                val output = captureOutputFactory(captureFile)
-                attempt.pendingCaptureOutput = output
-                val reservation = createStorageReservation(captureFile)
-                attempt.pendingStorageReservation = reservation
-                reservation?.ensureCapacity(CAPTURE_RESERVATION_SLAB_BYTES)
+                attempt.pendingCaptureOutput = captureOutputFactory(captureFile)
             }
             waveformBuffer.clear()
             _sampleCountFlow.value = 0L
@@ -582,13 +547,11 @@ class VoiceRecorder(
                 resetFileBackedCaptureLocked(deleteExisting = true)
                 sampleFile = attempt.pendingCaptureFile
                 sampleOutput = attempt.pendingCaptureOutput
-                storageReservation = attempt.pendingStorageReservation
                 audioRecord = record
                 selectorSessionToken = attempt.pendingSessionToken
                 attempt.pendingRecord = null
                 attempt.pendingCaptureFile = null
                 attempt.pendingCaptureOutput = null
-                attempt.pendingStorageReservation = null
                 attempt.pendingSessionToken = null
                 recordingStartTimeMs = SystemClock.elapsedRealtime()
                 continuityTracker = CaptureContinuityTracker()
@@ -650,8 +613,6 @@ class VoiceRecorder(
             clearPendingSessionToken(attempt)
             runCatching { attempt.pendingCaptureOutput?.close() }
             attempt.pendingCaptureOutput = null
-            runCatching { attempt.pendingStorageReservation?.close() }
-            attempt.pendingStorageReservation = null
             runCatching { attempt.pendingCaptureFile?.delete() }
             attempt.pendingCaptureFile = null
         }
@@ -694,7 +655,11 @@ class VoiceRecorder(
                     collectFirstSamplesReady = firstSamplesReady
                 }
                 if (record == null) return@withContext
-                val buffer = bufferPool.readSamples
+                // A stopped collector can remain blocked in AudioRecord.read() briefly after a
+                // successor starts. Keep its native read and conversion buffers session-local so
+                // that late return can never overwrite the successor's block.
+                val buffers = CaptureBufferPool()
+                val buffer = buffers.readSamples
                 hasError = false
                 var routingChecked = false
                 var firstReadLogged = false
@@ -792,7 +757,7 @@ class VoiceRecorder(
                                             if (sessionGeneration.get() != collectGeneration) return@withContext
                                             val toProcess = minOf(readResult, sampleCapacity - sampleCount)
                                             if (toProcess > 0) {
-                                                writeFloatSamples(buffer, toProcess)
+                                                writeFloatSamples(buffer, toProcess, buffers.pcmBytes)
                                                 // A block becomes trusted only once its entire direct write returns.
                                                 sampleCount += toProcess
                                             }
@@ -1012,6 +977,19 @@ class VoiceRecorder(
             watchdogRestartCount.incrementAndGet()
             monitor.markRestart()
             return replacement
+        }
+        // The collector and watchdog can notice the same issue together. Recovery is serialized,
+        // but the loser observes that its old record is no longer current. Treat the winner's
+        // replacement as success instead of failing the healthy logical capture.
+        val concurrentReplacement =
+            synchronized(sampleLock) {
+                audioRecord?.takeIf {
+                    isRecording.get() && sessionGeneration.get() == generation && it !== record
+                }
+            }
+        if (concurrentReplacement != null) {
+            monitor.markRestart()
+            return concurrentReplacement
         }
         return keepCaptureForAdvisoryDrift(issue, record, monitor)
     }
@@ -1307,12 +1285,10 @@ class VoiceRecorder(
     private fun writeFloatSamples(
         buffer: FloatArray,
         count: Int,
+        scratch: ByteArray,
     ) {
         val output = sampleOutput ?: return
         val byteCount = count * java.lang.Float.BYTES
-        val requiredBytes = sampleCount.toLong() * java.lang.Float.BYTES + byteCount
-        storageReservation?.ensureCapacity(requiredBytes)
-        val scratch = bufferPool.pcmBytes
         var byteIndex = 0
         for (index in 0 until count) {
             val bits = java.lang.Float.floatToIntBits(boostedSample(buffer[index]))
@@ -1323,8 +1299,6 @@ class VoiceRecorder(
             byteIndex += java.lang.Float.BYTES
         }
         output.write(scratch, 0, byteCount)
-        runCatching { storageReservation?.commitThrough(requiredBytes) }
-            .onFailure { Log.w(TAG, "Could not release consumed capture reservation", it) }
     }
 
     private fun resetFileBackedCaptureLocked(deleteExisting: Boolean) {
@@ -1333,7 +1307,6 @@ class VoiceRecorder(
             runCatching { sampleFile?.delete() }
         }
         sampleFile = null
-        storageReservation = null
     }
 
     private fun trimFileBackedCaptureToCountLocked() {
@@ -1354,40 +1327,5 @@ class VoiceRecorder(
             runCatching { (sampleOutput as? FileOutputStream)?.fd?.sync() }
             runCatching { sampleOutput?.close() }
             sampleOutput = null
-            runCatching { storageReservation?.close() }
-            storageReservation = null
         }
-
-    private fun createStorageReservation(captureFile: File): SlabStorageReservation? {
-        val storageManager = context.getSystemService(StorageManager::class.java) ?: return null
-        val reservationFile =
-            File(
-                context.cacheDir,
-                "capture-reservation-${captureFile.absolutePath.hashCode()}-${Process.myPid()}.tmp",
-            )
-        val reservationOutput = FileOutputStream(reservationFile, false)
-        try {
-            if (!storageManager.isAllocationSupported(reservationOutput.fd)) {
-                reservationOutput.close()
-                reservationFile.delete()
-                return null
-            }
-            return SlabStorageReservation(
-                reserveSlab = { slabBytes ->
-                    storageManager.allocateBytes(reservationOutput.fd, slabBytes)
-                },
-                releaseToRemaining = { remainingBytes ->
-                    reservationOutput.channel.truncate(remainingBytes)
-                },
-                cleanup = {
-                    runCatching { reservationOutput.close() }
-                    reservationFile.delete()
-                },
-            )
-        } catch (error: Exception) {
-            runCatching { reservationOutput.close() }
-            reservationFile.delete()
-            throw error
-        }
-    }
 }
