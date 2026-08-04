@@ -147,7 +147,7 @@ class AudioInputDeviceLossTest {
         runBlocking {
             // Backup-restore reality: a manual device key restored from another phone
             // matches nothing here — selection must degrade to the ranked fallback
-            // (USB > Bluetooth > wired > built-in), never to "no device", and must
+            // (built-in > USB > wired > Bluetooth), never to "no device", and must
             // report the missing preference so surfaces can show the fallback notice.
             coEvery { audioSettingsStore.currentSettings() } returns
                 AudioSettings(
@@ -164,8 +164,8 @@ class AudioInputDeviceLossTest {
             val selector = selector()
             val resolved = selector.resolvePreferredDevice()
 
-            assertEquals(bluetooth.id, resolved?.id)
-            assertEquals("Buds", selector.activeDeviceLabel.value)
+            assertEquals(builtIn.id, resolved?.id)
+            assertEquals("Built-in microphone", selector.activeDeviceLabel.value)
             assertEquals(
                 "Mic from another phone",
                 selector.activeDevice.value?.fallbackFromPreferredName,

@@ -195,8 +195,8 @@ class AudioInputDeviceSelector
 
         /**
          * Capture-start device selection: the persisted preference when its device is
-         * present, otherwise the highest-priority connected device (USB > Bluetooth >
-         * wired > built-in). Selection runs over the recordable list (see
+         * present, otherwise the highest-priority connected device (built-in > USB >
+         * wired > Bluetooth). Selection runs over the recordable list (see
          * [recordableInputDevices]) so a stale manual key can never pin a non-recordable
          * "Other" endpoint the picker does not show. Publishes the choice (including the
          * preferred-absent fallback annotation) on [activeDevice] for every surface to
@@ -481,11 +481,11 @@ class AudioInputDeviceSelector
             /** Fallback-priority order, best first; mirrored by [priorityOf]. */
             val PRIORITY_ORDER =
                 listOf(
+                    AudioInputDeviceKind.BuiltIn,
                     AudioInputDeviceKind.Usb,
+                    AudioInputDeviceKind.WiredHeadset,
                     AudioInputDeviceKind.BluetoothLe,
                     AudioInputDeviceKind.Bluetooth,
-                    AudioInputDeviceKind.WiredHeadset,
-                    AudioInputDeviceKind.BuiltIn,
                     AudioInputDeviceKind.Other,
                 )
 
@@ -545,8 +545,9 @@ class AudioInputDeviceSelector
 
             /**
              * Fallback priority when the preferred device is absent (or none is set):
-             * an explicitly connected external mic (USB, then Bluetooth, then wired)
-             * almost always signals intent to use it, so the built-in mic ranks last.
+             * the built-in mic is the reliable default, followed by USB and wired
+             * inputs. Bluetooth stays available for explicit manual selection but is
+             * the final automatic fallback because SCO capture is comparatively fragile.
              */
             fun priorityOf(kind: AudioInputDeviceKind): Int = PRIORITY_ORDER.indexOf(kind)
 
