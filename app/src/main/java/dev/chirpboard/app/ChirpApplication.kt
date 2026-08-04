@@ -109,19 +109,26 @@ class ChirpApplication : Application(), Configuration.Provider {
 
         // The selected recognizer warms independently of recovery. A bounded delay protects the
         // first IME frame, yet avoids letting journal scans or queue repair postpone model load.
+        // A transient native allocation or storage failure gets two spaced retries so one cold-
+        // start hiccup cannot leave every later dictation paying the load cost at mic-stop time.
         applicationScope.launch {
             delay(RECOGNIZER_PREWARM_DELAY_MS)
-            try {
+            val provider = transcriberProvider.get()
+            for (attempt in 0 until RECOGNIZER_PREWARM_ATTEMPTS) {
                 if (System.getProperty(DISABLE_STARTUP_RECOGNIZER_PREWARM_PROPERTY) == "true") return@launch
-                if (GgufNativeSessionReservation.isReserved()) return@launch
-                val provider = transcriberProvider.get()
-                if (provider.isModelDownloaded() && !provider.isReady()) {
-                    val loaded = provider.initialize()
-                    Log.i(TAG, "Startup speech recognizer prewarm loaded=$loaded")
+                if (!GgufNativeSessionReservation.isReserved()) {
+                    try {
+                        if (!provider.isModelDownloaded() || provider.isReady()) return@launch
+                        val loaded = provider.initialize()
+                        Log.i(TAG, "Startup speech recognizer prewarm attempt=${attempt + 1} loaded=$loaded")
+                        if (loaded || provider.isReady()) return@launch
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.e(TAG, "Speech recognizer prewarm attempt ${attempt + 1} failed", e)
+                    }
                 }
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.e(TAG, "Failed to prewarm the selected speech recognizer", e)
+                val retryDelay = RECOGNIZER_PREWARM_RETRY_DELAYS_MS.getOrNull(attempt) ?: return@launch
+                delay(retryDelay)
             }
         }
 
@@ -385,5 +392,7 @@ class ChirpApplication : Application(), Configuration.Provider {
          */
         private const val STARTUP_RECOVERY_DELAY_MS = 3_000L
         private const val RECOGNIZER_PREWARM_DELAY_MS = 750L
+        private const val RECOGNIZER_PREWARM_ATTEMPTS = 3
+        private val RECOGNIZER_PREWARM_RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L)
     }
 }
