@@ -55,6 +55,7 @@ class RecordingStopOrchestratorTest {
                     RecordingSegmentConcatenator(mockk<AudioEncoder>(relaxed = true)),
                     mockk(relaxed = true),
                     RecordingFileValidator(),
+                    RecordingExportDurability(),
                 ),
                 mockk<RecordingTitleFormatter> {
                     every { format(any()) } returns "Jun 12, 3:42 PM"

@@ -33,6 +33,7 @@ class RecordingSegmentFinalizeTest {
                 segmentConcatenator = segmentConcatenator,
                 capturePaths = capturePaths,
                 fileValidator = RecordingFileValidator(),
+                exportDurability = RecordingExportDurability(),
             )
 
         every { sessionJournal.findBySessionId(sessionId) } returns
@@ -80,6 +81,7 @@ class RecordingSegmentFinalizeTest {
                 segmentConcatenator = segmentConcatenator,
                 capturePaths = capturePaths,
                 fileValidator = RecordingFileValidator(),
+                exportDurability = RecordingExportDurability(),
             )
         every { sessionJournal.findBySessionId(sessionId) } returns
             segmentEntry(sessionId, activeSegment, exportFile)
@@ -111,6 +113,7 @@ class RecordingSegmentFinalizeTest {
                 segmentConcatenator = segmentConcatenator,
                 capturePaths = capturePaths,
                 fileValidator = RecordingFileValidator(),
+                exportDurability = RecordingExportDurability(),
             )
         every { sessionJournal.findBySessionId(sessionId) } returns
             segmentEntry(sessionId, activeSegment, exportFile)
@@ -124,6 +127,38 @@ class RecordingSegmentFinalizeTest {
         assertEquals(exportFile, result?.file)
         assertTrue(result?.validatedPlayable == true)
         verify(exactly = 1) { capturePaths.deleteCaptureArtifacts(sessionId) }
+    }
+
+    @Test
+    fun `materializeExportFile keeps capture artifacts when export sync fails`() {
+        val sessionId = UUID.randomUUID()
+        val workDir = createTempDir("finalize-sync-failure")
+        val activeSegment = File(workDir, "seg-000.m4a").apply { writeBytes(playableM4aBytes()) }
+        val exportFile = File(workDir, "recording.m4a")
+        val sessionJournal = mockk<RecordingSessionJournal>()
+        val segmentConcatenator = mockk<RecordingSegmentConcatenator>()
+        val capturePaths = mockk<RecordingCapturePaths>(relaxed = true)
+        val exportDurability = mockk<RecordingExportDurability>()
+        val classUnderTest =
+            RecordingSegmentFinalize(
+                sessionJournal = sessionJournal,
+                segmentConcatenator = segmentConcatenator,
+                capturePaths = capturePaths,
+                fileValidator = RecordingFileValidator(),
+                exportDurability = exportDurability,
+            )
+        every { sessionJournal.findBySessionId(sessionId) } returns
+            segmentEntry(sessionId, activeSegment, exportFile)
+        every { segmentConcatenator.concatToExport(any(), any()) } answers {
+            exportFile.writeBytes(playableM4aBytes())
+            SegmentConcatResult.Success
+        }
+        every { exportDurability.sync(exportFile) } returns false
+
+        val result = classUnderTest.materializeExportFile(sessionId, activeSegment.absolutePath)
+
+        assertNull(result)
+        verify(exactly = 0) { capturePaths.deleteCaptureArtifacts(any()) }
     }
 
     @Test
@@ -149,6 +184,7 @@ class RecordingSegmentFinalizeTest {
                 segmentConcatenator = segmentConcatenator,
                 capturePaths = capturePaths,
                 fileValidator = RecordingFileValidator(),
+                exportDurability = RecordingExportDurability(),
             )
         every { sessionJournal.findBySessionId(sessionId) } returns
             segmentEntry(sessionId, missingSegment, exportFile).copy(

@@ -29,6 +29,7 @@ class RecordingSegmentFinalize
         private val segmentConcatenator: RecordingSegmentConcatenator,
         private val capturePaths: RecordingCapturePaths,
         private val fileValidator: RecordingFileValidator,
+        private val exportDurability: RecordingExportDurability,
     ) {
         fun materializeExportFile(
             sessionId: UUID?,
@@ -47,7 +48,9 @@ class RecordingSegmentFinalize
 
             val exportFile = File(entry.exportAudioPath())
             if (exportFile.exists() && fileValidator.validateForStop(exportFile).isPlayable) {
-                return MaterializedExport(exportFile, validatedPlayable = true)
+                return exportFile
+                    .takeIf(exportDurability::sync)
+                    ?.let { MaterializedExport(it, validatedPlayable = true) }
             }
 
             val segmentFiles = entry.orderedSegmentFiles(activeSegmentPath)
@@ -63,10 +66,11 @@ class RecordingSegmentFinalize
                         WavFileWriter.repairHeaderIfNeeded(exportFile)
                     }
                     val playableExport = exportFile.takeIf { fileValidator.validateForStop(it).isPlayable }
-                    if (playableExport != null) {
+                    val durableExport = playableExport?.takeIf(exportDurability::sync)
+                    if (durableExport != null) {
                         capturePaths.deleteCaptureArtifacts(entry.sessionId)
                     }
-                    playableExport?.let { MaterializedExport(it, validatedPlayable = true) }
+                    durableExport?.let { MaterializedExport(it, validatedPlayable = true) }
                 }
                 is SegmentConcatResult.Failed -> null
             }
@@ -89,6 +93,7 @@ class RecordingSegmentFinalize
             }
             return exportFile
                 .takeIf { fileValidator.validateForStop(it).isPlayable }
+                ?.takeIf(exportDurability::sync)
                 ?.let { MaterializedExport(it, validatedPlayable = true) }
         }
     }
