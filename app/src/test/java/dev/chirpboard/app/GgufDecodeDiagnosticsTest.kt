@@ -3,6 +3,7 @@ package dev.chirpboard.app
 import dev.chirpboard.app.gguf.GgufNativeDecodeTelemetry
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.nio.file.Files
 
 class GgufDecodeDiagnosticsTest {
     @Test
@@ -12,6 +13,9 @@ class GgufDecodeDiagnosticsTest {
         repeat(3) { index ->
             history.add(
                 GgufDecodeDiagnostic(
+                    modelId = "model",
+                    computeBackend = "cpu",
+                    threadCount = 4,
                     source = GgufDecodeSource.MEMORY,
                     audioDurationMs = index.toLong(),
                     totalMs = 10,
@@ -42,6 +46,9 @@ class GgufDecodeDiagnosticsTest {
 
         val result =
             telemetry.toDiagnostic(
+                modelId = "model",
+                computeBackend = "cpu",
+                threadCount = 4,
                 source = GgufDecodeSource.MAPPED_FILE,
                 audioDurationMs = 1_000,
                 totalMs = 50,
@@ -53,5 +60,33 @@ class GgufDecodeDiagnosticsTest {
         assertEquals(30L, result.encodeMs)
         assertEquals(4L, result.decodeMs)
         assertEquals(13, result.nativeStatusCode)
+    }
+
+    @Test
+    fun `store round trips content free diagnostics and skips corrupt rows`() {
+        val directory = Files.createTempDirectory("gguf-diagnostics").toFile()
+        val file = directory.resolve("history.tsv")
+        val store = GgufDecodeDiagnosticStore(file)
+        val entry =
+            GgufDecodeDiagnostic(
+                modelId = "parakeet-tdt-ctc-110m-q4-k-m",
+                computeBackend = "cpu",
+                threadCount = 4,
+                source = GgufDecodeSource.MAPPED_FILE,
+                audioDurationMs = 30_000,
+                totalMs = 1_200,
+                loadMs = 10,
+                melMs = 20,
+                encodeMs = 900,
+                decodeMs = 270,
+                nativeStatusCode = 0,
+                result = GgufDecodeResultKind.SUCCESS,
+            )
+
+        store.write(listOf(entry))
+        file.appendText("corrupt\n")
+
+        assertEquals(listOf(entry), store.read())
+        directory.deleteRecursively()
     }
 }

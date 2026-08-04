@@ -128,21 +128,22 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
     if (path == nullptr) return JNI_FALSE;
 
     std::lock_guard<std::mutex> lock(g_mutex);
-    close_locked();
     g_last_error.clear();
 
     transcribe_session_params session_params;
     transcribe_session_params_init(&session_params);
     session_params.n_threads = threads;
 
+    transcribe_session * candidate = nullptr;
     const auto open_with_backend = [&](transcribe_backend_request backend) {
         transcribe_model_load_params load_params;
         transcribe_model_load_params_init(&load_params);
         load_params.backend = backend;
-        return transcribe_open(path, &load_params, &session_params, &g_session);
+        return transcribe_open(path, &load_params, &session_params, &candidate);
     };
 
     const bool requested_vulkan = backend_code == 1;
+    bool used_cpu_fallback = false;
     transcribe_status status = open_with_backend(
         requested_vulkan ? TRANSCRIBE_BACKEND_VULKAN : TRANSCRIBE_BACKEND_CPU);
     if (status != TRANSCRIBE_OK && requested_vulkan) {
@@ -151,16 +152,23 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
             kTag,
             "Vulkan load failed (%s); retrying on CPU",
             transcribe_status_string(status));
-        close_locked();
+        if (candidate != nullptr) {
+            transcribe_close(candidate);
+            candidate = nullptr;
+        }
         status = open_with_backend(TRANSCRIBE_BACKEND_CPU);
-        g_used_cpu_fallback = status == TRANSCRIBE_OK;
+        used_cpu_fallback = status == TRANSCRIBE_OK;
     }
     env->ReleaseStringUTFChars(model_path, path);
     if (status != TRANSCRIBE_OK) {
         set_error("transcribe_open", status);
-        close_locked();
+        if (candidate != nullptr) transcribe_close(candidate);
         return JNI_FALSE;
     }
+
+    if (g_session != nullptr) transcribe_close(g_session);
+    g_session = candidate;
+    g_used_cpu_fallback = used_cpu_fallback;
     transcribe_set_abort_callback(g_session, should_abort, nullptr);
 
     const transcribe_model * model = transcribe_get_model(g_session);

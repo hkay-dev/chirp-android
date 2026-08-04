@@ -94,7 +94,12 @@ class SelectableLocalTranscriberProvider(
             try {
                 selectionStore.selectModel(modelId)
             } catch (error: Exception) {
-                target.release()
+                if (provider(current) === target) {
+                    initializeModel(current)
+                } else {
+                    target.release()
+                    initializeModel(current)
+                }
                 return@withLock LocalSpeechModelActivationResult.Failed(
                     error.message ?: "Could not save the selected speech model",
                 )

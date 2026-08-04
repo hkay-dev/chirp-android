@@ -26,6 +26,7 @@ private const val GGUF_TAG = "GgufRecognizer"
 private const val RECOVERY_CHUNK_SECONDS = 30
 private const val RECOVERY_CHUNK_OVERLAP_MS = 2_000L
 private const val RECOVERY_BATCH_SIZE = 2
+private const val CONTINUOUS_DECODE_MAX_SECONDS = 5 * 60
 
 internal class GgufRecognizer(
     private val downloader: ModelDownloader,
@@ -41,7 +42,7 @@ internal class GgufRecognizer(
         private set
 
     val isReady: Boolean
-        get() = native?.isLoaded() == true
+        get() = native != null
 
     suspend fun initialize(): Boolean =
         decodeDispatcher.run {
@@ -74,7 +75,6 @@ internal class GgufRecognizer(
                         }
                 } else {
                     Log.e(GGUF_TAG, "Native load failed: ${candidate.lastError()}")
-                    candidate.release()
                 }
                 loaded
             }
@@ -89,37 +89,55 @@ internal class GgufRecognizer(
                         retryable = false,
                     )
                 }
-                val engine =
+                var engine =
                     native ?: return@withLock TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+                val audioDurationMs = samples.size * 1_000L / sampleRate
+                if (audioDurationMs > CONTINUOUS_DECODE_MAX_SECONDS * 1_000L) {
+                    Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; using preserved-audio recovery")
+                    return@withLock recoveryOutcome(
+                        transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate),
+                    )
+                }
                 val started = SystemClock.elapsedRealtime()
 
                 // Content integrity rule: the complete continuous recording is authoritative.
                 // Overlapping chunks are only a recovery path if the native whole-run fails.
-                val continuous =
+                var continuous =
                     runNativeDecode(
                         engine = engine,
-                        audioDurationMs = samples.size * 1_000L / sampleRate,
+                        audioDurationMs = audioDurationMs,
                         source = GgufDecodeSource.MEMORY,
                         classify = ::classifyText,
                     ) { engine.transcribe(samples) }
-                val continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
+                var continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
+                if (continuousText == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
+                    switchToCpu()?.let { cpuEngine ->
+                        engine = cpuEngine
+                        continuous =
+                            runNativeDecode(
+                                engine = engine,
+                                audioDurationMs = audioDurationMs,
+                                source = GgufDecodeSource.MEMORY,
+                                classify = ::classifyText,
+                            ) { engine.transcribe(samples) }
+                        continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
+                    }
+                }
                 val text =
                     if (continuousText != null) {
                         continuousText
-                    } else if (
-                        continuous is GgufWatchdogResult.TimedOut ||
-                        samples.size > sampleRate * RECOVERY_CHUNK_SECONDS
-                    ) {
+                    } else {
                         Log.w(GGUF_TAG, "Continuous decode stopped; retrying from preserved audio in recovery chunks")
                         transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate)
-                    } else {
-                        null
                     }
 
                 val elapsed = SystemClock.elapsedRealtime() - started
                 val audioMs = samples.size * 1_000L / sampleRate
                 val rtf = if (audioMs > 0) elapsed.toDouble() / audioMs else 0.0
-                Log.i(GGUF_TAG, "backend=gguf-parakeet-110m-q8 phase=decode audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf")
+                Log.i(
+                    GGUF_TAG,
+                    "backend=gguf-${config.modelId.persistedValue} phase=decode audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
+                )
                 when {
                     text == null ->
                         TranscriptionOutcome.EngineError(
@@ -146,36 +164,58 @@ internal class GgufRecognizer(
                         retryable = false,
                     )
                 }
-                val engine =
+                var engine =
                     native ?: return@withLock TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+                val audioDurationMs = sampleCount * 1_000L / sampleRate
+                if (audioDurationMs > CONTINUOUS_DECODE_MAX_SECONDS * 1_000L) {
+                    Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; using the preserved PCM file")
+                    return@withLock recoveryOutcome(
+                        transcribeRecoveryChunks(
+                            engine = engine,
+                            audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
+                            sampleRate = sampleRate,
+                        ),
+                    )
+                }
                 val started = SystemClock.elapsedRealtime()
-                val continuous =
+                var continuous =
                     runNativeDecode(
                         engine = engine,
-                        audioDurationMs = sampleCount * 1_000L / sampleRate,
+                        audioDurationMs = audioDurationMs,
                         source = GgufDecodeSource.MAPPED_FILE,
                         classify = ::classifyText,
                     ) { engine.transcribePcmFloatFile(path, sampleCount) }
-                val continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
+                var continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
+                if (continuousText == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
+                    switchToCpu()?.let { cpuEngine ->
+                        engine = cpuEngine
+                        continuous =
+                            runNativeDecode(
+                                engine = engine,
+                                audioDurationMs = audioDurationMs,
+                                source = GgufDecodeSource.MAPPED_FILE,
+                                classify = ::classifyText,
+                            ) { engine.transcribePcmFloatFile(path, sampleCount) }
+                        continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
+                    }
+                }
                 val text =
                     if (continuousText != null) {
                         continuousText
-                    } else if (continuous is GgufWatchdogResult.TimedOut) {
-                        Log.w(GGUF_TAG, "Mapped decode timed out; retrying from the preserved PCM file")
+                    } else {
+                        Log.w(GGUF_TAG, "Mapped decode failed; retrying from the preserved PCM file")
                         transcribeRecoveryChunks(
                             engine = engine,
                             audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
                             sampleRate = sampleRate,
                         )
-                    } else {
-                        null
                     }
                 val elapsed = SystemClock.elapsedRealtime() - started
                 val audioMs = sampleCount * 1_000L / sampleRate
                 val rtf = if (audioMs > 0) elapsed.toDouble() / audioMs else 0.0
                 Log.i(
                     GGUF_TAG,
-                    "backend=gguf-parakeet-110m-q8 phase=decode source=mmap audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
+                    "backend=gguf-${config.modelId.persistedValue} phase=decode source=mmap audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
                 )
                 when {
                     text == null ->
@@ -257,6 +297,9 @@ internal class GgufRecognizer(
                     }
                 val diagnostic =
                     nativeResult?.telemetry.toDiagnostic(
+                        modelId = config.modelId.persistedValue,
+                        computeBackend = actualComputeBackend?.persistedValue ?: config.computeBackend.persistedValue,
+                        threadCount = resolvedGgufThreadCount(decodeControls),
                         source = source,
                         audioDurationMs = audioDurationMs,
                         totalMs = elapsedMs,
@@ -279,6 +322,18 @@ internal class GgufRecognizer(
             else -> GgufDecodeResultKind.SUCCESS
         }
 
+    private fun recoveryOutcome(text: String?): TranscriptionOutcome =
+        when {
+            text == null ->
+                TranscriptionOutcome.EngineError(
+                    reason = "GGUF preserved-audio recovery failed",
+                    retryable = true,
+                )
+
+            text.isBlank() -> TranscriptionOutcome.NoSpeech
+            else -> TranscriptionOutcome.Success(text.trim(), wordTimings = null)
+        }
+
     private fun nativeFailureMessage(
         result: GgufWatchdogResult<NativeDecodeResult<String>>,
         engine: GgufNativeRecognizer,
@@ -288,6 +343,25 @@ internal class GgufRecognizer(
             is GgufWatchdogResult.Failed -> result.error.message.orEmpty()
             is GgufWatchdogResult.TimedOut -> "GGUF decode timed out; preserved-audio recovery failed"
         }.ifBlank { engine.lastError().ifBlank { "GGUF transcription failed" } }
+
+    private fun switchToCpu(): GgufNativeRecognizer? {
+        val model = downloader.resolvedGgufModelFile(config.modelId) ?: return null
+        val candidate = GgufNativeRecognizer()
+        val loaded =
+            candidate.load(
+                modelPath = model.absolutePath,
+                threads = resolvedGgufThreadCount(decodeControls),
+                useVulkan = false,
+            )
+        if (!loaded) {
+            Log.e(GGUF_TAG, "CPU recovery load failed: ${candidate.lastError()}")
+            return null
+        }
+        native = candidate
+        actualComputeBackend = LocalSpeechComputeBackend.CPU
+        Log.w(GGUF_TAG, "Vulkan decode failed; reloaded the same model on CPU")
+        return candidate
+    }
 
     suspend fun release() {
         if (!released.compareAndSet(false, true)) return
@@ -305,6 +379,13 @@ internal class GgufRecognizer(
             decodeDispatcher.close()
         }
     }
+
+    fun retireAfterNativeReplacement() {
+        if (!released.compareAndSet(false, true)) return
+        native = null
+        actualComputeBackend = null
+        decodeDispatcher.close()
+    }
 }
 
 private data class NativeDecodeResult<T>(
@@ -316,7 +397,7 @@ private data class NativeDecodeResult<T>(
 internal object GgufRecognizerManager {
     private val mutex = Mutex()
     private val activeLeases = AtomicInteger(0)
-    private var recognizer: GgufRecognizer? = null
+    @Volatile private var recognizer: GgufRecognizer? = null
 
     fun peekReadyRecognizer(config: GgufRuntimeConfig? = null): GgufRecognizer? =
         recognizer?.takeIf { it.isReady && (config == null || it.config == config) }
@@ -334,23 +415,13 @@ internal object GgufRecognizerManager {
             peekReadyRecognizer(config)?.let { return@withLock true }
             val previous = peekReadyRecognizer()
             if (previous != null && activeLeases.get() != 0) return@withLock false
-            previous?.release()
-            recognizer = null
-
             val candidate = GgufRecognizer(downloader, config)
-            if (candidate.initialize()) {
+            if (withContext(NonCancellable) { candidate.initialize() }) {
+                previous?.retireAfterNativeReplacement()
                 recognizer = candidate
                 true
             } else {
-                candidate.release()
-                previous?.let { prior ->
-                    val rollback = GgufRecognizer(downloader, prior.config)
-                    if (rollback.initialize()) {
-                        recognizer = rollback
-                    } else {
-                        rollback.release()
-                    }
-                }
+                candidate.retireAfterNativeReplacement()
                 false
             }
         }

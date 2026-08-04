@@ -91,6 +91,30 @@ class GgufDecodeWatchdogTest {
         assertEquals(7L, cancelledOperation)
     }
 
+    @Test
+    fun `deadline keeps a completed result when native cancellation loses the race`() = runTest {
+        val scheduler = ManualWatchdogScheduler()
+        val watchdog =
+            GgufDecodeWatchdog(
+                policy = GgufDecodeWatchdogPolicy(minimumTimeoutMs = 1, graceMs = 0, audioMultiplier = 1.0),
+                scheduler = scheduler,
+                nowMs = { 1L },
+            )
+
+        val result =
+            watchdog.run(
+                audioDurationMs = 1,
+                beginDecode = { 9L },
+                cancelDecode = { false },
+                operation = {
+                    scheduler.fire()
+                    "complete"
+                },
+            )
+
+        assertEquals("complete", (result as GgufWatchdogResult.Completed).value)
+    }
+
     private class ManualWatchdogScheduler : GgufWatchdogScheduler {
         private var task: (() -> Unit)? = null
 

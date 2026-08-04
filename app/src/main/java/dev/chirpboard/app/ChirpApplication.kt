@@ -109,6 +109,10 @@ class ChirpApplication : Application(), Configuration.Provider {
         applicationScope.launch {
             delay(STARTUP_RECOVERY_DELAY_MS)
 
+            GgufDecodeDiagnostics.installPersistence(
+                File(filesDir, "diagnostics/gguf-decode-history.tsv"),
+            )
+
             // Prepare content-free disk headroom after the cold-start latency window. This only
             // schedules background allocation; capture never waits for it or extends its PCM file.
             CaptureEmergencyReserve.initialize(this@ChirpApplication)

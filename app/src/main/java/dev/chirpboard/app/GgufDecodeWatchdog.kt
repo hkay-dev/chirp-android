@@ -46,12 +46,11 @@ internal fun interface GgufWatchdogScheduler {
     ): GgufScheduledTask
 }
 
-private class ExecutorGgufWatchdogScheduler(
+private object ExecutorGgufWatchdogScheduler : GgufWatchdogScheduler {
     private val executor: ScheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "chirp-gguf-watchdog").apply { isDaemon = true }
-        },
-) : GgufWatchdogScheduler {
+        }
     override fun schedule(
         delayMs: Long,
         task: () -> Unit,
@@ -67,7 +66,7 @@ private class ExecutorGgufWatchdogScheduler(
  */
 internal class GgufDecodeWatchdog(
     private val policy: GgufDecodeWatchdogPolicy = GgufDecodeWatchdogPolicy(),
-    private val scheduler: GgufWatchdogScheduler = ExecutorGgufWatchdogScheduler(),
+    private val scheduler: GgufWatchdogScheduler = ExecutorGgufWatchdogScheduler,
     private val nowMs: () -> Long = android.os.SystemClock::elapsedRealtime,
 ) {
     suspend fun <T> run(
@@ -97,8 +96,9 @@ internal class GgufDecodeWatchdog(
             val timedOut = AtomicBoolean(false)
             val timeoutTask =
                 scheduler.schedule(policy.timeoutMs(audioDurationMs)) {
-                    if (timedOut.compareAndSet(false, true)) {
-                        runCatching { cancelDecode(operationId) }
+                    if (!timedOut.get()) {
+                        val cancelled = runCatching { cancelDecode(operationId) }.getOrDefault(false)
+                        if (cancelled) timedOut.compareAndSet(false, true)
                     }
                 }
 
