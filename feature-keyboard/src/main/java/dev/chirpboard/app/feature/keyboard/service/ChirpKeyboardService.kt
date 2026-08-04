@@ -10,6 +10,8 @@ import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import androidx.compose.runtime.MonotonicFrameClock
 import androidx.compose.runtime.PausableMonotonicFrameClock
@@ -38,7 +40,6 @@ import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
-import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
@@ -48,6 +49,8 @@ import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
@@ -87,6 +90,8 @@ class ChirpKeyboardService :
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
     @Inject lateinit var inlineTranscription: InlineTranscriptionPort
     @Inject lateinit var inlineCapturePersistence: InlineCapturePersistence
+    @Inject lateinit var keyboardDictationHandoff: KeyboardDictationHandoff
+    @Inject lateinit var transcriptionRoutingStore: TranscriptionRoutingStore
     @Inject lateinit var keyboardStopBridge: KeyboardRecordingStopBridge
     @Inject lateinit var pendingStopStore: KeyboardPendingStopStore
     @Inject lateinit var dynamicColorPreference: DynamicColorPreference
@@ -175,6 +180,8 @@ class ChirpKeyboardService :
                 capture = capture,
                 transcription = inlineTranscription,
                 persistence = inlineCapturePersistence,
+                keyboardDictationHandoff = keyboardDictationHandoff,
+                transcriptionRoutingStore = transcriptionRoutingStore,
                 transcriberProvider = recognizerProvider,
                 recordingStateManager = recordingStateManager,
                 keyboardPreferences = keyboardPreferences,
@@ -286,6 +293,7 @@ class ChirpKeyboardService :
 
     override fun onWindowShown() {
         super.onWindowShown()
+        updateImeKeepScreenOn(window?.window, enabled = true)
         windowShownState.value = true
         if (recomposerFrameClock.isPaused) {
             recomposerFrameClock.resume()
@@ -296,6 +304,7 @@ class ChirpKeyboardService :
 
     override fun onWindowHidden() {
         super.onWindowHidden()
+        updateImeKeepScreenOn(window?.window, enabled = false)
         windowShownState.value = false
         // PRF-3: with the keyboard window hidden there is nothing to draw — drop the lifecycle to
         // CREATED so lifecycle-aware flow collection suspends, and pause the frame clock so the
@@ -411,6 +420,7 @@ class ChirpKeyboardService :
         orphanedRecordingFinalizeJob?.cancel()
         orphanedRecordingFinalizeJob = null
         val preserveSession = restarting && isConfigChangeInFlight()
+        val previousHistorySuppressed = inputSessionGuard.isLearningSuppressed
         lastKnownConfigSnapshot = keyboardConfigSnapshotOf(resources.configuration)
         editorImeAction.value = resolveImeAction(info)
         val cleanupStraySwitchCharacter = pendingImeSwitchCleanup && !restarting && !preserveSession
@@ -420,6 +430,7 @@ class ChirpKeyboardService :
             if (coordinator.isRecordingActive()) {
                 coordinator.finalizeActiveRecording(
                     errorMessage = getString(R.string.keyboard_sensitive_input_disabled),
+                    suppressHistory = previousHistorySuppressed,
                 )
             }
             // IME-4: a password field is not an error — typing aids stay usable; only the voice
@@ -457,8 +468,9 @@ class ChirpKeyboardService :
             scheduleOrphanedRecordingFinalize()
             return
         }
+        val suppressHistory = inputSessionGuard.isLearningSuppressed
         inputSessionGuard.finishInput()
-        finalizeRecordingForClosedKeyboard()
+        finalizeRecordingForClosedKeyboard(suppressHistory)
     }
 
     private fun scheduleOrphanedRecordingFinalize() {
@@ -466,25 +478,36 @@ class ChirpKeyboardService :
         orphanedRecordingFinalizeJob =
             scope.launch {
                 delay(CONFIG_CHANGE_GRACE_MS)
+                val suppressHistory = inputSessionGuard.isLearningSuppressed
                 inputSessionGuard.finishInput()
-                finalizeRecordingForClosedKeyboard()
+                finalizeRecordingForClosedKeyboard(suppressHistory)
             }
     }
 
-    private fun finalizeRecordingForClosedKeyboard() {
+    private fun finalizeRecordingForClosedKeyboard(suppressHistory: Boolean) {
         if (coordinator.isRecordingActive()) {
             coordinator.finalizeActiveRecording(
                 errorMessage = getString(R.string.keyboard_closed_during_dictation),
+                suppressHistory = suppressHistory,
             )
         }
     }
 
     override fun onDestroy() {
+        updateImeKeepScreenOn(window?.window, enabled = false)
         stopBridgeRegistration?.let(keyboardStopBridge::clearStopHandler)
         stopBridgeRegistration = null
-        // Service destruction is not a user cancel: an in-flight transcription cancelled
-        // here must rescue its capture instead of discarding it per the save preference.
-        coordinator.cancelRecording(userInitiated = false)
+        // Service destruction is not a user cancel. A live recorder must be stopped into its
+        // durable handoff path; cancelRecording would delete the only capture. Once recorder
+        // teardown has already started, the non-user cancel still rescues the in-flight source.
+        if (coordinator.isRecordingActive()) {
+            coordinator.finalizeActiveRecording(
+                errorMessage = getString(R.string.keyboard_closed_during_dictation),
+                suppressHistory = inputSessionGuard.isLearningSuppressed,
+            )
+        } else {
+            coordinator.cancelRecording(userInitiated = false)
+        }
         coordinator.destroy()
         phoneCallHandler?.unregister()
         phoneCallHandler = null
@@ -549,7 +572,6 @@ class ChirpKeyboardService :
             }
             return
         }
-        modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
         // KBD-3: a tap while the model is still warming must drive the load forward rather than
         // dead-end. initializeModel() is idempotent (guards on isReady()/in-flight job), so this
         // promotes the user's intent into a warm even if the IME-bind warm has not landed yet.
@@ -575,6 +597,18 @@ class ChirpKeyboardService :
             coordinator.setSessionError(getString(R.string.keyboard_input_changed))
         }
         return committed
+    }
+}
+
+/** Keeps the display awake only for the time the IME window is actually visible. */
+internal fun updateImeKeepScreenOn(
+    window: Window?,
+    enabled: Boolean,
+) {
+    if (enabled) {
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    } else {
+        window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 }
 
