@@ -52,7 +52,7 @@ recording action, so residency never opens or reserves the microphone.
 
 ## GGUF continuous decode ceiling
 
-Parakeet CTC 110M Q8 receives one continuous 16 kHz PCM buffer for recordings up to five minutes.
+Parakeet TDT 110M GGUF receives one continuous 16 kHz PCM buffer for recordings up to five minutes.
 Longer recordings take the preserved-audio recovery path with 30-second chunks and two-second
 overlap. The ceiling is a memory-safety gate based on the Galaxy S25 Ultra stress run. A 32:52
 whole-file call grew to about 5 GB RSS and Android killed the process, while the bounded recovery
@@ -67,9 +67,11 @@ array copy. The file length must match the declared sample count exactly. Any ma
 failure keeps the file intact and falls back to the existing overlapping recovery path.
 
 Each native call reports transcribe.cpp's load, mel, encoder, and decoder stage times plus the
-wall-clock total. Chirp keeps only the newest 64 content-free entries in process memory. The
-history contains durations, source kind, native status, and outcome only. It never contains audio,
-transcript text, file paths, package names, prompts, or error messages.
+wall-clock total. Chirp keeps the newest 64 content-free entries across process restarts in app
+storage. The history contains model ID, actual compute backend, thread count, durations, source
+kind, native status, and outcome only. It never contains audio, transcript text, file paths,
+package names, prompts, or error messages. Writes run on one background thread and use an atomic
+temporary-file replacement.
 
 A decode watchdog uses a 30 to 90 second audio-scaled deadline. It asks transcribe.cpp to abort at
 its next safe polling boundary, waits for the native call to unwind on the dedicated decode thread,
@@ -82,3 +84,28 @@ warm run at four threads completed in 37.2 seconds. An eight-thread run had not 
 seconds and grew beyond 2.1 GB native RSS, so higher parallelism was rejected. The 110M model
 advertises `streaming=false`; its continuous path is offline whole-utterance decode rather than a
 cache-aware native stream.
+
+`scripts/benchmark-gguf-trial.sh all` installs an instrumentation harness, pushes the same float32
+PCM file and verified Q8, Q6_K, and Q4_K_M models, and runs each model in forward and reverse
+order. Every invocation measures a cold model load, one cache-cold decode, and three warm decodes.
+Each native run uses the production 90-second maximum and records a timeout rather than hanging.
+Logs include stage timing, actual backend, thread count, model size, thermal status, and a transcript
+SHA-256 digest. Transcript text and audio are not logged.
+
+The first controlled CPU run on the Galaxy S25 Ultra loaded Q8 in 751 ms and decoded the five-minute
+clip in 61.8 seconds cold, followed by warm runs of 68.0, 67.6, and 66.0 seconds. All four transcript
+digests matched. Q6_K and Q4_K_M both missed the 90-second production cutoff on their first decode,
+so Q8 remains the performance default pending a kernel improvement. The smaller files save storage
+and load bytes, though they do not currently improve transcription latency on this device.
+
+KleidiAI kernels are available through `-Pchirp.gguf.kleidiai=true`; generic GGML CPU kernels stay
+linked as the fallback. Vulkan selection is wired as an alpha experiment with automatic load-time
+and decode-time CPU recovery, though the pinned Android native build does not yet ship Vulkan.
+The upstream shader generator currently emits declarations with no linked shader data in this
+embedded Android build, so selecting Vulkan reports the actual CPU fallback rather than pretending
+GPU work ran.
+
+The pinned 110M GGUF converter drops the hybrid model's auxiliary CTC head and exports its TDT head.
+A genuine CTC-only GGUF option therefore remains gated until a comparably small verified artifact
+exists. The available pure-CTC model is the much larger 0.6B class and is not a useful replacement
+for this low-latency experiment.

@@ -94,10 +94,10 @@ Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 
 Local transcription is the heart of the project. AI processing sits on top.
 
-The local Parakeet recognizer stays resident while Chirp Voice is visible and for five minutes
-after the IME hides or the recognizer was last used. It can be released sooner under real memory
-pressure or severe thermal throttling, never during active capture or transcription. Model warmup
-does not open the microphone. Profiling and regeneration steps live in
+The selected local recognizer stays resident across dictations, IME hides, app switches, and idle
+time. Chirp releases it only for confirmed memory pressure, severe thermal throttling, an explicit
+model switch or deletion, or process death, never during active capture or transcription. Model
+warmup does not open the microphone. Profiling and regeneration steps live in
 [the performance guide](docs/performance.md).
 
 ## Notes
