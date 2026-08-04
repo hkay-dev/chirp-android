@@ -21,6 +21,12 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
+import dev.chirpboard.app.core.transcription.KeyboardDictationLiveCaptureRequest
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoffResult
+import dev.chirpboard.app.core.transcription.KeyboardDictationLiveCapture
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import io.mockk.CapturingSlot
@@ -34,6 +40,7 @@ import io.mockk.slot
 import io.mockk.verify
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,6 +75,8 @@ class KeyboardSessionCoordinatorTest {
     private lateinit var capture: QuickCaptureSessionImpl
     private lateinit var transcription: InlineTranscriptionPort
     private lateinit var persistence: RecordingPersistence
+    private lateinit var keyboardDictationHandoff: KeyboardDictationHandoff
+    private lateinit var transcriptionRoutingStore: TranscriptionRoutingStore
     private lateinit var transcriberProvider: TranscriberProvider
     private lateinit var recordingStateManager: RecordingStateManager
     private lateinit var keyboardPreferences: KeyboardPreferences
@@ -104,6 +113,7 @@ class KeyboardSessionCoordinatorTest {
         every { capture.onLimitReached = capture(limitReachedHandler) } just runs
         every { capture.onSilenceStateChanged = capture(silenceHandler) } just runs
         every { capture.deviceLostEvents } returns deviceLostFlow
+        coEvery { capture.awaitFirstSamples() } returns true
 
         transcription =
             mockk {
@@ -113,6 +123,18 @@ class KeyboardSessionCoordinatorTest {
                 every { markUserCancelled() } just runs
             }
         persistence = RecordingPersistence()
+        keyboardDictationHandoff =
+            mockk {
+                coEvery { beginLiveCapture(any()) } returns null
+                coEvery { abandonLiveCapture(any()) } just runs
+                coEvery { handoff(any()) } returns KeyboardDictationHandoffResult.InlineLocal
+                coEvery { discard(any()) } returns true
+            }
+        transcriptionRoutingStore =
+            mockk {
+                every { selectedEngine } returns flowOf(TranscriptionEngine.LOCAL_PARAKEET)
+                coEvery { getSelectedEngine() } returns TranscriptionEngine.LOCAL_PARAKEET
+            }
         transcriberProvider = mockk(relaxed = true)
 
         stoppingTimeoutHandler = slot()
@@ -169,6 +191,41 @@ class KeyboardSessionCoordinatorTest {
             // 1,000,000 float samples at 4 bytes each, not the hardcoded 0L of the old code.
             verify { recordingStateManager.startStoppingTimeout(fileSizeBytes = 4_000_000L) }
             assertTrue(transcribeStarted.await(5, TimeUnit.SECONDS))
+        }
+
+    @Test
+    fun stopAndTranscribe_durableCloudHandoffSkipsInlineTranscription() =
+        runTest {
+            transcriptionRoutingStore =
+                mockk {
+                    every { selectedEngine } returns flowOf(TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3)
+                    coEvery { getSelectedEngine() } returns TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3
+                }
+            stubSuccessfulCapture(sampleCount = 32_000L)
+            val recordingId = UUID.randomUUID()
+            coEvery { keyboardDictationHandoff.handoff(any()) } returns
+                KeyboardDictationHandoffResult.Durable(recordingId)
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            coordinator.awaitInFlightTeardown()
+
+            coVerify(exactly = 1) {
+                keyboardDictationHandoff.handoff(
+                    match { request ->
+                        request.audioSource.path == "/tmp/keyboard-test.f32pcm" &&
+                            request.audioSource.sampleCount == 32_000L &&
+                            request.llmEnabled &&
+                            request.processingModeId == ProcessingMode.Proofread.id
+                    },
+                )
+            }
+            coVerify(exactly = 0) {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            }
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(exactly = 1) { pendingStopStore.clear() }
         }
 
     @Test
@@ -300,7 +357,7 @@ class KeyboardSessionCoordinatorTest {
             coordinator.onMicTap { true }
 
             // Only the original session's start; the re-tap is suppressed with no error UI.
-            coVerify(exactly = 1) { capture.start() }
+            coVerify(exactly = 1) { capture.start(null) }
             verify(exactly = 0) { transcription.setError(any()) }
             transcribeGate.complete(Unit)
         }
@@ -311,13 +368,28 @@ class KeyboardSessionCoordinatorTest {
             // Cross-surface busy is not the keyboard's own stop window: the start attempt
             // proceeds and the capture layer surfaces the busy result (label + toast) as before.
             recordingStateFlow.value = RecordingState.Recording(origin = RecordingOrigin.APP)
-            coEvery { capture.start() } returns QuickCaptureStartResult.AlreadyRecording("app")
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.AlreadyRecording("app")
             val coordinator = buildCoordinator()
 
             coordinator.onMicTap { true }
 
-            coVerify(exactly = 1) { capture.start() }
+            coVerify(exactly = 1) { capture.start(null) }
             assertFalse(coordinator.isRecordingActive())
+        }
+
+    @Test
+    fun firstAudioTimeout_discardsTheEmptyCaptureAndNeverShowsRecording() =
+        runTest {
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
+            coEvery { capture.awaitFirstSamples() } returns false
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+
+            assertFalse(coordinator.isRecordingActive())
+            verify { capture.cancelCapture() }
+            verify { transcription.setError(KeyboardSessionCoordinator.FIRST_AUDIO_FAILED_MESSAGE) }
+            verify { recordingStateManager.onRecordingError(KeyboardSessionCoordinator.FIRST_AUDIO_FAILED_MESSAGE) }
         }
 
     @Test
@@ -511,7 +583,7 @@ class KeyboardSessionCoordinatorTest {
     @Test
     fun stopAndTranscribe_withoutAudioSourceClearsPendingStop() =
         runTest {
-            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
             every { capture.stopAsAudioSource() } returns null
             val coordinator = buildCoordinator()
 
@@ -521,6 +593,69 @@ class KeyboardSessionCoordinatorTest {
             verify { recordingStateManager.onRecordingCompleted(any()) }
             verify { transcription.resetPhase() }
             coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun startRecording_cloudJournalOwnsTheRecorderPath() =
+        runTest {
+            val live = KeyboardDictationLiveCapture(UUID.randomUUID(), "/durable/keyboard.f32pcm")
+            val request = slot<KeyboardDictationLiveCaptureRequest>()
+            coEvery { keyboardDictationHandoff.beginLiveCapture(capture(request)) } returns live
+            coEvery { capture.start(live.audioPath) } returns QuickCaptureStartResult.Success
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+
+            assertTrue(coordinator.isRecordingActive())
+            assertEquals(TranscriptionEngine.LOCAL_PARAKEET, request.captured.transcriptionEngine)
+            coVerify(exactly = 1) { capture.start(live.audioPath) }
+            coVerify(exactly = 0) { keyboardDictationHandoff.abandonLiveCapture(live) }
+        }
+
+    @Test
+    fun startRecording_failedRecorderDropsItsLiveJournal() =
+        runTest {
+            val live = KeyboardDictationLiveCapture(UUID.randomUUID(), "/durable/keyboard.f32pcm")
+            coEvery { keyboardDictationHandoff.beginLiveCapture(any()) } returns live
+            coEvery { capture.start(live.audioPath) } returns QuickCaptureStartResult.Failed("microphone failed")
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+
+            assertFalse(coordinator.isRecordingActive())
+            coVerify(exactly = 1) { keyboardDictationHandoff.abandonLiveCapture(live) }
+            verify { transcription.setError("microphone failed") }
+        }
+
+    @Test
+    fun stopInIncognito_releasesACloudJournalAndStaysInline() =
+        runTest {
+            val live = KeyboardDictationLiveCapture(UUID.randomUUID(), "/durable/incognito.f32pcm")
+            coEvery { keyboardDictationHandoff.beginLiveCapture(any()) } returns live
+            coEvery { keyboardDictationHandoff.releaseLiveCaptureForInline(live) } just runs
+            coEvery { capture.start(live.audioPath) } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } returns
+                InlineAudioSource.PcmFloatFile(
+                    path = requireNotNull(live.audioPath),
+                    sampleCount = 16_000L,
+                )
+            val inlineStarted = CompletableDeferred<Unit>()
+            coEvery {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            } coAnswers {
+                inlineStarted.complete(Unit)
+            }
+            var suppressHistory = false
+            val coordinator = buildCoordinator()
+            coordinator.historyPersistenceSuppressed = { suppressHistory }
+
+            coordinator.startRecording()
+            suppressHistory = true
+            coordinator.stopAndTranscribe { true }
+
+            inlineStarted.await()
+            coVerify(exactly = 1) { keyboardDictationHandoff.releaseLiveCaptureForInline(live) }
+            coVerify(exactly = 0) { keyboardDictationHandoff.handoff(any()) }
         }
 
     @Test
@@ -541,7 +676,7 @@ class KeyboardSessionCoordinatorTest {
     fun cancelRecording_whileStartingClearsPendingStop() =
         runTest {
             val startGate = CompletableDeferred<QuickCaptureStartResult>()
-            coEvery { capture.start() } coAnswers { startGate.await() }
+            coEvery { capture.start(null) } coAnswers { startGate.await() }
             val coordinator = buildCoordinator()
             coordinator.startRecording()
 
@@ -602,7 +737,7 @@ class KeyboardSessionCoordinatorTest {
     fun startRecording_abortedByStopDuringStartClearsPendingStop() =
         runTest {
             val startGate = CompletableDeferred<QuickCaptureStartResult>()
-            coEvery { capture.start() } coAnswers { startGate.await() }
+            coEvery { capture.start(null) } coAnswers { startGate.await() }
             val coordinator = buildCoordinator()
             coordinator.startRecording()
 
@@ -618,9 +753,12 @@ class KeyboardSessionCoordinatorTest {
         }
 
     @Test
-    fun finalizeActiveRecording_persistsRescueEntryAndClearsPendingStop() =
+    fun finalizeActiveRecording_queuesLocalResultAndClearsPendingStop() =
         runTest {
             stubSuccessfulCapture(sampleCount = 16_000L)
+            val request = slot<dev.chirpboard.app.core.transcription.KeyboardDictationHandoffRequest>()
+            coEvery { keyboardDictationHandoff.handoff(capture(request)) } returns
+                KeyboardDictationHandoffResult.Durable(UUID.randomUUID())
             val coordinator = buildCoordinator()
             coordinator.startRecording()
             var completed = false
@@ -628,9 +766,8 @@ class KeyboardSessionCoordinatorTest {
             coordinator.finalizeActiveRecording("keyboard closed") { completed = true }
 
             assertTrue(completed)
-            assertEquals(1, persistence.persistCalls)
-            assertEquals("keyboard closed", persistence.lastErrorMessage)
-            assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+            assertTrue(request.captured.forceDurable)
+            assertEquals(0, persistence.persistCalls)
             verify { recordingStateManager.onRecordingCompleted(any()) }
             coVerify(exactly = 1) { pendingStopStore.clear() }
         }
@@ -682,10 +819,52 @@ class KeyboardSessionCoordinatorTest {
             captureErrorHandler.captured.invoke(QuickCaptureError("Microphone disconnected"))
 
             assertFalse(coordinator.isRecordingActive())
+            verify(exactly = 1) { capture.stopAsAudioSource() }
+            assertEquals(1, persistence.persistCalls)
+            assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+            assertEquals("Microphone disconnected", persistence.lastErrorMessage)
             verify { recordingStateManager.onRecordingError("Microphone disconnected") }
             verify { transcription.setError("Microphone disconnected") }
             // The capture error ends the session, so any queued stop is stale now.
             coVerify(exactly = 1) { pendingStopStore.clear() }
+        }
+
+    @Test
+    fun captureError_cloudRecordingHandsRetainedSourceToDurableQueue() =
+        runTest {
+            transcriptionRoutingStore =
+                mockk {
+                    every { selectedEngine } returns flowOf(TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3)
+                    coEvery { getSelectedEngine() } returns TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3
+                }
+            val live = KeyboardDictationLiveCapture(UUID.randomUUID(), "/durable/keyboard.f32pcm")
+            coEvery { keyboardDictationHandoff.beginLiveCapture(any()) } returns live
+            coEvery { capture.start(live.audioPath) } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } returns
+                InlineAudioSource.PcmFloatFile(
+                    path = requireNotNull(live.audioPath),
+                    sampleCount = 16_000L,
+                )
+            coEvery { keyboardDictationHandoff.handoff(any()) } returns
+                KeyboardDictationHandoffResult.Durable(requireNotNull(live.recordingId))
+            val coordinator = buildCoordinator()
+            coordinator.startRecording()
+
+            captureErrorHandler.captured.invoke(QuickCaptureError("Microphone disconnected"))
+            coordinator.awaitInFlightTeardown()
+
+            coVerify(exactly = 1) {
+                keyboardDictationHandoff.handoff(
+                    match { request ->
+                        request.audioSource.path == live.audioPath &&
+                            request.transcriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3
+                    },
+                )
+            }
+            coVerify(exactly = 0) { keyboardDictationHandoff.abandonLiveCapture(live) }
+            coVerify(exactly = 0) { transcription.transcribeWithCommitResult(any(), any(), any(), any(), any()) }
+            verify { recordingStateManager.onRecordingError("Microphone disconnected") }
+            verify { transcription.setError("Microphone disconnected") }
         }
 
     @Test
@@ -715,6 +894,28 @@ class KeyboardSessionCoordinatorTest {
 
             verify(exactly = 0) { transcriberProvider.isModelDownloaded() }
             assertTrue(modelReadinessGate.warmupCount >= 1)
+        }
+
+    @Test
+    fun cloudMode_recordsWithoutParakeetWarmupOrInitialization() =
+        runTest {
+            transcriptionRoutingStore =
+                mockk {
+                    every { selectedEngine } returns flowOf(TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3)
+                    coEvery { getSelectedEngine() } returns TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3
+                }
+            stubSuccessfulCapture(sampleCount = 16_000L)
+            val coordinator = buildCoordinator()
+
+            coordinator.refreshModelStatus()
+            coordinator.initializeModel()
+            coordinator.onMicTap { true }
+
+            assertTrue(coordinator.isRecordingActive())
+            assertEquals(ModelBannerState.None, coordinator.uiState.value.modelBanner)
+            assertEquals(0, modelReadinessGate.warmupCount)
+            verify(exactly = 0) { transcriberProvider.isModelDownloaded() }
+            coVerify(exactly = 0) { transcriberProvider.initialize() }
         }
 
     @Test
@@ -771,7 +972,7 @@ class KeyboardSessionCoordinatorTest {
         val stopEntered = CountDownLatch(1)
         val staged = CountDownLatch(1)
         try {
-            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
             every { capture.stopAsAudioSource() } answers {
                 stopEntered.countDown()
                 // Hold the recorder teardown open so close() would race it without the join.
@@ -791,6 +992,8 @@ class KeyboardSessionCoordinatorTest {
                     capture = capture,
                     transcription = transcription,
                     persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
                     transcriberProvider = transcriberProvider,
                     recordingStateManager = recordingStateManager,
                     keyboardPreferences = keyboardPreferences,
@@ -847,7 +1050,7 @@ class KeyboardSessionCoordinatorTest {
         val scopeThreadParked = CountDownLatch(1)
         val staged = CountDownLatch(1)
         try {
-            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
             every { capture.stopAsAudioSource() } returns
                 InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
             coEvery {
@@ -863,6 +1066,8 @@ class KeyboardSessionCoordinatorTest {
                     capture = capture,
                     transcription = transcription,
                     persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
                     transcriberProvider = transcriberProvider,
                     recordingStateManager = recordingStateManager,
                     keyboardPreferences = keyboardPreferences,
@@ -925,7 +1130,7 @@ class KeyboardSessionCoordinatorTest {
         val scopeThreadParked = CountDownLatch(1)
         val cancelToreDown = CountDownLatch(1)
         try {
-            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
             every { capture.cancelCapture() } answers { cancelToreDown.countDown() }
             val coordinator =
                 KeyboardSessionCoordinator(
@@ -935,6 +1140,8 @@ class KeyboardSessionCoordinatorTest {
                     capture = capture,
                     transcription = transcription,
                     persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
                     transcriberProvider = transcriberProvider,
                     recordingStateManager = recordingStateManager,
                     keyboardPreferences = keyboardPreferences,
@@ -986,7 +1193,7 @@ class KeyboardSessionCoordinatorTest {
         val stopGate = CountDownLatch(1)
         val stopEntered = CountDownLatch(1)
         try {
-            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
             every { capture.stopAsAudioSource() } answers {
                 stopEntered.countDown()
                 check(stopGate.await(5, TimeUnit.SECONDS)) { "stop gate never opened" }
@@ -1000,6 +1207,8 @@ class KeyboardSessionCoordinatorTest {
                     capture = capture,
                     transcription = transcription,
                     persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
                     transcriberProvider = transcriberProvider,
                     recordingStateManager = recordingStateManager,
                     keyboardPreferences = keyboardPreferences,
@@ -1050,7 +1259,7 @@ class KeyboardSessionCoordinatorTest {
         val stopEntered = CountDownLatch(1)
         val transcribeStarted = CountDownLatch(1)
         try {
-            coEvery { capture.start() } returns QuickCaptureStartResult.Success
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
             every { capture.stopAsAudioSource() } answers {
                 stopEntered.countDown()
                 check(stopGate.await(5, TimeUnit.SECONDS)) { "stop gate never opened" }
@@ -1069,6 +1278,8 @@ class KeyboardSessionCoordinatorTest {
                     capture = capture,
                     transcription = transcription,
                     persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
                     transcriberProvider = transcriberProvider,
                     recordingStateManager = recordingStateManager,
                     keyboardPreferences = keyboardPreferences,
@@ -1171,6 +1382,7 @@ class KeyboardSessionCoordinatorTest {
             // Only the RESCUE persist reached the real persistence.
             assertEquals(1, persistence.persistCalls)
             assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+            coVerify(exactly = 0) { keyboardDictationHandoff.handoff(any()) }
         }
 
     @Test
@@ -1192,7 +1404,7 @@ class KeyboardSessionCoordinatorTest {
         }
 
     private fun stubSuccessfulCapture(sampleCount: Long) {
-        coEvery { capture.start() } returns QuickCaptureStartResult.Success
+        coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
         every { capture.stopAsAudioSource() } returns
             InlineAudioSource.PcmFloatFile(
                 path = "/tmp/keyboard-test.f32pcm",
@@ -1208,6 +1420,8 @@ class KeyboardSessionCoordinatorTest {
             capture = capture,
             transcription = transcription,
             persistence = persistence,
+            keyboardDictationHandoff = keyboardDictationHandoff,
+            transcriptionRoutingStore = transcriptionRoutingStore,
             transcriberProvider = transcriberProvider,
             recordingStateManager = recordingStateManager,
             keyboardPreferences = keyboardPreferences,

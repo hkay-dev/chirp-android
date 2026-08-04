@@ -20,6 +20,14 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoffRequest
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoffResult
+import dev.chirpboard.app.core.transcription.KeyboardDictationLiveCapture
+import dev.chirpboard.app.core.transcription.KeyboardDictationLiveCaptureRequest
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
@@ -27,9 +35,11 @@ import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +48,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -48,6 +59,8 @@ class KeyboardSessionCoordinator(
     val capture: QuickCaptureSessionImpl,
     private val transcription: InlineTranscriptionPort,
     private val persistence: InlineCapturePersistence,
+    private val keyboardDictationHandoff: KeyboardDictationHandoff,
+    private val transcriptionRoutingStore: TranscriptionRoutingStore,
     private val transcriberProvider: TranscriberProvider,
     private val recordingStateManager: RecordingStateManager,
     private val keyboardPreferences: KeyboardPreferences,
@@ -79,16 +92,22 @@ class KeyboardSessionCoordinator(
     private val sensitiveInput = MutableStateFlow(false)
     private val modelBanner = MutableStateFlow(ModelBannerState.Initializing)
     private val modelInitFailedMessage = MutableStateFlow<String?>(null)
+    private val selectedEngine = MutableStateFlow<TranscriptionEngine?>(null)
     private val llmEnabled = MutableStateFlow(true)
     private val currentMode = MutableStateFlow<ProcessingMode>(ProcessingMode.Proofread)
     private val keyboardDefaultModeId = MutableStateFlow<String?>(null)
     private val availableModes = MutableStateFlow<List<ProcessingModeListItem>>(emptyList())
+    private val livePartialTranscript = MutableStateFlow<String?>(null)
 
     private var recordingJob: Job? = null
     private var stopRequestedDuringStart = false
     private var startJob: Job? = null
     private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
+    private var rollingTranscriptionJob: Job? = null
+    private var liveCaptureJournalJob: Job? = null
+    private var modelWarmupRequested = false
+    private var modelInitializationRequested = false
 
     /**
      * The most recent cancel teardown coroutine. [restartRecording] joins it before starting a
@@ -116,6 +135,9 @@ class KeyboardSessionCoordinator(
      * compare-and-set instead of a racy check-then-act.
      */
     private val activeStopToken = AtomicReference<Any?>(null)
+
+    /** Cloud audio is journaled before AudioRecord starts, so process death leaves a replayable file. */
+    private val activeLiveCapture = AtomicReference<KeyboardDictationLiveCapture?>(null)
 
     /**
      * MIC-017: a user cancel that lands inside the stop-teardown window — [isRecording]
@@ -157,12 +179,39 @@ class KeyboardSessionCoordinator(
         val modelBanner: ModelBannerState,
         val silenceDetected: Boolean,
         val deviceLost: Boolean,
+        val partialTranscript: String?,
     )
+
+    private data class LiveCaptureHints(
+        val silenceDetected: Boolean,
+        val deviceLost: Boolean,
+        val partialTranscript: String?,
+    )
+
+    private enum class HandoffDisposition {
+        RESOLVED,
+        INLINE_LOCAL,
+        INLINE_FALLBACK,
+    }
 
     val uiState: StateFlow<KeyboardUiState> =
         combine(
-            combine(isRecording, transcription.phase, modelBanner, silenceDetected, deviceLost) { recording, phase, banner, silenced, lost ->
-                CaptureUiInputs(recording, phase, banner, silenced, lost)
+            combine(
+                isRecording,
+                transcription.phase,
+                modelBanner,
+                combine(silenceDetected, deviceLost, livePartialTranscript) { silenced, lost, partial ->
+                    LiveCaptureHints(silenced, lost, partial)
+                },
+            ) { recording, phase, banner, hints ->
+                CaptureUiInputs(
+                    isRecording = recording,
+                    phase = phase,
+                    modelBanner = banner,
+                    silenceDetected = hints.silenceDetected,
+                    deviceLost = hints.deviceLost,
+                    partialTranscript = hints.partialTranscript,
+                )
             },
             combine(
                 modelInitFailedMessage,
@@ -182,6 +231,7 @@ class KeyboardSessionCoordinator(
                 modelBanner = captureState.modelBanner,
                 silenceDetected = captureState.silenceDetected,
                 deviceLost = captureState.deviceLost,
+                partialTranscript = captureState.partialTranscript,
                 modelInitFailedMessage = prefsState.modelInitFailedMessage,
                 llmEnabled = prefsState.llmEnabled,
                 // PLH-1: the keyboard-scoped default mode wins over the global mode when set.
@@ -235,6 +285,24 @@ class KeyboardSessionCoordinator(
         scope.launch {
             modePort.selectableModes.collect { availableModes.value = it }
         }
+        scope.launch {
+            transcriptionRoutingStore.selectedEngine.collect { engine ->
+                selectedEngine.value = engine
+                if (engine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3) {
+                    modelInitJob?.cancel()
+                    modelInitJob = null
+                    modelBanner.value = ModelBannerState.None
+                } else {
+                    recomputeModelBanner()
+                    if (modelWarmupRequested) {
+                        modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+                    }
+                    if (modelInitializationRequested) {
+                        initializeLocalModel()
+                    }
+                }
+            }
+        }
         // Drive the banner from the readiness gate's cached, IO-verified StateFlow instead
         // of stat-ing (worst case SHA-256 hashing) the 652MB model on the IME main thread.
         // The gate verifies off-main and caches the result; the keyboard only ever reads it.
@@ -249,15 +317,49 @@ class KeyboardSessionCoordinator(
                     // must not clobber the stop pipeline or in-flight transcription.
                     Log.w(tag, "Ignoring capture error after recording stopped: ${error.userMessage}")
                 } else {
+                    val suppressHistory = historyPersistenceSuppressed()
                     isRecording.value = false
+                    stopRollingTranscription()
                     recordingJob?.cancel()
                     recordingJob = null
                     capture.abandonAudioFocus()
-                    recordingStateManager.onRecordingError(error.userMessage)
-                    transcription.setError(error.userMessage)
-                    // The session ended here; drop any stop queued against it so it
-                    // cannot fire on the next healthy recording.
-                    clearPendingStop()
+                    teardownJob =
+                        scope.launch(teardownDispatcher) {
+                            withContext(NonCancellable) {
+                                try {
+                                    awaitLiveCaptureJournal()
+                                    val audioSource = capture.stopAsAudioSource()
+                                    if (audioSource != null) {
+                                        // A recorder failure can still leave minutes of valid audio.
+                                        // Give it to the same durable handoff as a normal stop. Local
+                                        // capture records it as a rescue instead of throwing it away.
+                                        finishStopAfterTeardown(
+                                            audioSource = audioSource,
+                                            commitText = { false },
+                                            suppressHistory = suppressHistory,
+                                            localRouteRescueMessage = error.userMessage,
+                                        )
+                                    } else {
+                                        // A cloud live-capture marker already owns its durable file.
+                                        // Drop only this process's reference so startup recovery can
+                                        // inspect the journal rather than deleting its sole source.
+                                        activeLiveCapture.getAndSet(null)
+                                        clearPendingStop()
+                                    }
+                                } catch (failure: CancellationException) {
+                                    throw failure
+                                } catch (failure: Exception) {
+                                    Log.e(tag, "Failed to finalize recorder-error audio", failure)
+                                    activeLiveCapture.getAndSet(null)
+                                    clearPendingStop()
+                                }
+
+                                // finishStopAfterTeardown resets the ordinary stop UI. Restore the
+                                // recorder's real terminal error once audio ownership is safe.
+                                recordingStateManager.onRecordingError(error.userMessage)
+                                transcription.setError(error.userMessage)
+                            }
+                        }
                 }
             }
         }
@@ -286,6 +388,7 @@ class KeyboardSessionCoordinator(
      * Clears the KEYBOARD stopping-timeout handler only when it is still ours.
      */
     fun destroy() {
+        stopRollingTranscription()
         recordingStateManager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, stoppingTimeoutRescue)
     }
 
@@ -380,7 +483,10 @@ class KeyboardSessionCoordinator(
      */
     fun refreshModelStatus() {
         recomputeModelBanner()
-        modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+        modelWarmupRequested = true
+        if (selectedEngine.value == TranscriptionEngine.LOCAL_PARAKEET) {
+            modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+        }
     }
 
     /**
@@ -392,6 +498,7 @@ class KeyboardSessionCoordinator(
     private fun recomputeModelBanner() {
         modelBanner.value =
             when {
+                selectedEngine.value == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3 -> ModelBannerState.None
                 transcriberProvider.isReady() -> ModelBannerState.None
                 modelInitJob?.isActive == true -> ModelBannerState.Initializing
                 modelInitFailedMessage.value != null -> ModelBannerState.InitFailed
@@ -414,6 +521,15 @@ class KeyboardSessionCoordinator(
     }
 
     fun initializeModel() {
+        modelInitializationRequested = true
+        if (selectedEngine.value != TranscriptionEngine.LOCAL_PARAKEET) {
+            recomputeModelBanner()
+            return
+        }
+        initializeLocalModel()
+    }
+
+    private fun initializeLocalModel() {
         if (transcriberProvider.isReady()) {
             recomputeModelBanner()
             return
@@ -484,6 +600,9 @@ class KeyboardSessionCoordinator(
         if (isRecording.value || startJob?.isActive == true) {
             return
         }
+        if (selectedEngine.value == TranscriptionEngine.LOCAL_PARAKEET) {
+            initializeLocalModel()
+        }
         stopRequestedDuringStart = false
         // MIC-017: a cancel intent recorded against a previous session's teardown window
         // must never discard this session's stop.
@@ -493,16 +612,57 @@ class KeyboardSessionCoordinator(
         silenceDetected.value = false
         // MIC-014: same per-session reset for the device-lost hint.
         deviceLost.value = false
+        livePartialTranscript.value = null
         startJob =
             scope.launch {
+                val startRequestedAtMs = System.nanoTime() / NANOS_PER_MILLISECOND
+                var keepLiveCapture = false
                 try {
-                    when (val result = capture.start()) {
+                    val liveCapture =
+                        try {
+                            keyboardDictationHandoff.beginLiveCapture(
+                                KeyboardDictationLiveCaptureRequest(
+                                    llmEnabled = llmEnabled.value,
+                                    processingModeId = sessionProcessingMode().id,
+                                    suppressHistory = historyPersistenceSuppressed(),
+                                    transcriptionEngine = selectedEngine.value,
+                                ),
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(tag, "Could not prepare durable keyboard capture", e)
+                            transcription.setError(HANDOFF_FAILED_MESSAGE)
+                            return@launch
+                        }
+                    activeLiveCapture.set(liveCapture)
+                    when (val result = capture.start(liveCapture?.audioPath)) {
                         is QuickCaptureStartResult.Success -> {
+                            if (!capture.awaitFirstSamples()) {
+                                capture.abandonAudioFocus()
+                                withContext(teardownDispatcher) {
+                                    capture.cancelCapture()
+                                    abandonActiveLiveCapture()
+                                }
+                                recordingStateManager.onRecordingError(FIRST_AUDIO_FAILED_MESSAGE)
+                                transcription.setError(FIRST_AUDIO_FAILED_MESSAGE)
+                                return@launch
+                            }
+                            Log.i(
+                                tag,
+                                "Keyboard microphone ready ${System.nanoTime() / NANOS_PER_MILLISECOND - startRequestedAtMs}ms after tap",
+                            )
+                            keepLiveCapture = true
                             if (stopRequestedDuringStart) {
                                 capture.abandonAudioFocus()
                                 // Recorder teardown (stop/release + temp-file delete) off the
                                 // IME main thread, like the stop and cancel paths.
-                                withContext(teardownDispatcher) { capture.cancelCapture() }
+                                withContext(teardownDispatcher) {
+                                    awaitLiveCaptureJournal()
+                                    capture.cancelCapture()
+                                    abandonActiveLiveCapture()
+                                }
+                                keepLiveCapture = false
                                 recordingStateManager.onRecordingCompleted()
                                 transcription.resetPhase()
                                 // This session is over; a stop enqueued during the
@@ -512,6 +672,14 @@ class KeyboardSessionCoordinator(
                             }
                             HapticFeedback.onRecordStart(context)
                             isRecording.value = true
+                            liveCaptureJournalJob =
+                                liveCapture?.let { capturePlan ->
+                                    scope.launch(teardownDispatcher) {
+                                        runCatching { keyboardDictationHandoff.markLiveCaptureStarted(capturePlan) }
+                                            .onFailure { Log.e(tag, "Could not journal live keyboard capture", it) }
+                                    }
+                                }
+                            startRollingTranscription()
                             recordingJob =
                                 scope.launch {
                                     // MIC-014: surface a hot-unplug of the session's active
@@ -524,7 +692,6 @@ class KeyboardSessionCoordinator(
                                     launch {
                                         capture.deviceLostEvents.collect { deviceLost.value = true }
                                     }
-                                    capture.collectSamples()
                                 }
                         }
 
@@ -545,10 +712,29 @@ class KeyboardSessionCoordinator(
                         is QuickCaptureStartResult.AlreadyRecording -> Unit
                     }
                 } finally {
+                    if (!keepLiveCapture) {
+                        abandonActiveLiveCapture()
+                    }
                     stopRequestedDuringStart = false
                     startJob = null
                 }
             }
+    }
+
+    private suspend fun abandonActiveLiveCapture() {
+        val liveCapture = activeLiveCapture.getAndSet(null) ?: return
+        withContext(NonCancellable) {
+            runCatching { keyboardDictationHandoff.abandonLiveCapture(liveCapture) }
+                .onFailure { Log.e(tag, "Failed to discard the live keyboard capture", it) }
+        }
+    }
+
+    private suspend fun awaitLiveCaptureJournal() {
+        val job = liveCaptureJournalJob ?: return
+        job.join()
+        if (liveCaptureJournalJob === job) {
+            liveCaptureJournalJob = null
+        }
     }
 
     private fun requestStopDuringStart(): Boolean {
@@ -569,6 +755,7 @@ class KeyboardSessionCoordinator(
         // Flip the UI/cancellation flags synchronously on the caller (IME main) thread so the
         // panel responds to the tap instantly, then hand the actual recorder teardown off-main.
         isRecording.value = false
+        stopRollingTranscription()
         capture.abandonAudioFocus()
         HapticFeedback.onRecordStop(context)
         recordingJob?.cancel()
@@ -595,6 +782,7 @@ class KeyboardSessionCoordinator(
                 // loop does not pump the Looper). All work in the tail (RecordingStateManager,
                 // transcription, persistence, AtomicReference) is thread-safe off Main.
                 withContext(NonCancellable) {
+                    awaitLiveCaptureJournal()
                     val audioSource = capture.stopAsAudioSource()
                     finishStopAfterTeardown(audioSource, commitText, suppressHistory)
                 }
@@ -602,10 +790,56 @@ class KeyboardSessionCoordinator(
         return true
     }
 
+    /**
+     * Produces best-effort live text from overlapping windows of the file that remains the
+     * lossless source of truth. A slow or unavailable recognizer can only delay this preview. It
+     * cannot block AudioRecord or change the final full-file transcription.
+     */
+    private fun startRollingTranscription() {
+        rollingTranscriptionJob?.cancel()
+        if (selectedEngine.value != TranscriptionEngine.LOCAL_PARAKEET) return
+        rollingTranscriptionJob =
+            scope.launch(Dispatchers.Default) {
+                delay(LIVE_TRANSCRIPTION_INITIAL_DELAY_MS)
+                while (isRecording.value) {
+                    if (transcriberProvider.isReady()) {
+                        val snapshot = capture.activeFileBackedSnapshot()
+                        if (snapshot != null && snapshot.sampleCount >= snapshot.sampleRate * LIVE_TRANSCRIPTION_MIN_SECONDS) {
+                            val samples =
+                                withContext(teardownDispatcher) {
+                                    readRollingPcmWindow(
+                                        path = snapshot.file.absolutePath,
+                                        availableSamples = snapshot.sampleCount,
+                                        sampleRate = snapshot.sampleRate,
+                                    )
+                                }
+                            if (samples.isNotEmpty() && isRecording.value) {
+                                when (val outcome = transcriberProvider.transcribe(samples, snapshot.sampleRate)) {
+                                    is TranscriptionOutcome.Success -> {
+                                        livePartialTranscript.value =
+                                            mergeRollingTranscript(livePartialTranscript.value, outcome.text)
+                                    }
+
+                                    else -> Unit
+                                }
+                            }
+                        }
+                    }
+                    delay(LIVE_TRANSCRIPTION_INTERVAL_MS)
+                }
+            }
+    }
+
+    private fun stopRollingTranscription() {
+        rollingTranscriptionJob?.cancel()
+        rollingTranscriptionJob = null
+    }
+
     private suspend fun finishStopAfterTeardown(
         audioSource: InlineAudioSource?,
         commitText: (String) -> Boolean,
         suppressHistory: Boolean = false,
+        localRouteRescueMessage: String? = null,
     ) {
         // MIC-017: consume a cancel that landed inside the teardown window (check-and-clear,
         // so a stale flag can never affect a later stop). The user changed their mind after
@@ -614,21 +848,26 @@ class KeyboardSessionCoordinator(
         // and the IME-3 incognito wrapper) and never launch the transcription pipeline.
         if (cancelRequestedDuringTeardown.getAndSet(false)) {
             if (audioSource == null) {
+                abandonActiveLiveCapture()
                 persistence.discardSamples()
             } else {
-                val sessionPersistence =
-                    if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
-                // Swallow persistence failures: rethrowing out of the NonCancellable
-                // teardown body would crash the IME process after the cancel succeeded.
-                runCatching {
-                    sessionPersistence.persistAudioSource(
-                        audioSource = audioSource,
-                        rawText = null,
-                        processedText = null,
-                        errorMessage = TEARDOWN_CANCEL_MESSAGE,
-                        reason = InlineCapturePersistReason.USER_CANCELLED,
-                    )
-                }.onFailure { Log.e(tag, "Failed to persist teardown-window cancel", it) }
+                if (activeLiveCapture.get() != null) {
+                    abandonActiveLiveCapture()
+                } else {
+                    val sessionPersistence =
+                        if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
+                    // Swallow persistence failures: rethrowing out of the NonCancellable
+                    // teardown body would crash the IME process after the cancel succeeded.
+                    runCatching {
+                        sessionPersistence.persistAudioSource(
+                            audioSource = audioSource,
+                            rawText = null,
+                            processedText = null,
+                            errorMessage = TEARDOWN_CANCEL_MESSAGE,
+                            reason = InlineCapturePersistReason.USER_CANCELLED,
+                        )
+                    }.onFailure { Log.e(tag, "Failed to persist teardown-window cancel", it) }
+                }
             }
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
@@ -637,6 +876,7 @@ class KeyboardSessionCoordinator(
         }
 
         if (audioSource == null) {
+            abandonActiveLiveCapture()
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
             transcription.resetPhase()
@@ -650,9 +890,39 @@ class KeyboardSessionCoordinator(
         val sessionPersistence =
             if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
 
+        recordingStateManager.transitionToStopping()
+
+        when (
+            tryDurableKeyboardHandoff(
+                audioSource = audioSource,
+                suppressHistory = suppressHistory,
+                forceDurable = localRouteRescueMessage != null,
+            )
+        ) {
+            HandoffDisposition.RESOLVED -> return
+            HandoffDisposition.INLINE_LOCAL -> {
+                if (localRouteRescueMessage != null) {
+                    runCatching {
+                        sessionPersistence.persistAudioSource(
+                            audioSource = audioSource,
+                            rawText = null,
+                            processedText = null,
+                            errorMessage = localRouteRescueMessage,
+                            reason = InlineCapturePersistReason.RESCUE,
+                        )
+                    }.onFailure { Log.e(tag, "Failed to persist finalized keyboard recording", it) }
+                    recordingStateManager.onRecordingCompleted()
+                    transcription.resetPhase()
+                    clearPendingStop()
+                    return
+                }
+            }
+
+            HandoffDisposition.INLINE_FALLBACK -> Unit
+        }
+
         sessionPersistence.prepareAudioSource(audioSource)
 
-        recordingStateManager.transitionToStopping()
         recordingStateManager.startStoppingTimeout(fileSizeBytes = audioSource.sizeInBytes())
 
         transcriptionJob?.cancel()
@@ -682,6 +952,108 @@ class KeyboardSessionCoordinator(
             }
         transcriptionJob = newJob
         checkNotNull(newJob).start()
+    }
+
+    /**
+     * Normal keyboard dictation leaves the IME at this boundary. Incognito keeps the existing
+     * local pipeline so a no-learning field never creates durable history.
+     *
+     * The result tells the caller whether the stop is done, the selected local route still owns
+     * the untouched source, or a cloud handoff failed before taking ownership.
+     */
+    private suspend fun tryDurableKeyboardHandoff(
+        audioSource: InlineAudioSource,
+        suppressHistory: Boolean,
+        forceDurable: Boolean,
+    ): HandoffDisposition {
+        val capturePlan = activeLiveCapture.getAndSet(null)
+        if (suppressHistory || audioSource !is InlineAudioSource.PcmFloatFile) {
+            if (capturePlan?.transcriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3) {
+                val released =
+                    runCatching { keyboardDictationHandoff.releaseLiveCaptureForInline(capturePlan) }
+                        .onFailure { Log.e(tag, "Could not release the cloud capture for local processing", it) }
+                        .isSuccess
+                if (!released) {
+                    runCatching { keyboardDictationHandoff.abandonLiveCapture(capturePlan) }
+                        .onFailure { Log.e(tag, "Could not discard the unreleasable cloud capture", it) }
+                    recordingStateManager.onRecordingError(HANDOFF_FAILED_MESSAGE)
+                    transcription.setError(HANDOFF_FAILED_MESSAGE)
+                    clearPendingStop()
+                    return HandoffDisposition.RESOLVED
+                }
+            }
+            return HandoffDisposition.INLINE_FALLBACK
+        }
+
+        val result =
+            try {
+                keyboardDictationHandoff.handoff(
+                    KeyboardDictationHandoffRequest(
+                        audioSource = audioSource,
+                        llmEnabled = llmEnabled.value,
+                        processingModeId = sessionProcessingMode().id,
+                        transcriptionEngine = capturePlan?.transcriptionEngine,
+                        forceDurable = forceDurable,
+                    ),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(tag, "Durable keyboard handoff failed unexpectedly", e)
+                KeyboardDictationHandoffResult.Failed(
+                    message = HANDOFF_FAILED_MESSAGE,
+                    sourceAvailableForInlineFallback =
+                        capturePlan?.transcriptionEngine != TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3 &&
+                            java.io.File(audioSource.path).isFile,
+                )
+            }
+
+        return when (result) {
+            KeyboardDictationHandoffResult.InlineLocal ->
+                if (capturePlan?.transcriptionEngine != TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3) {
+                    HandoffDisposition.INLINE_LOCAL
+                } else {
+                    activeStopToken.set(null)
+                    recordingStateManager.onRecordingError(HANDOFF_FAILED_MESSAGE)
+                    transcription.setError(HANDOFF_FAILED_MESSAGE)
+                    clearPendingStop()
+                    HandoffDisposition.RESOLVED
+                }
+
+            is KeyboardDictationHandoffResult.Durable -> {
+                val cancelled = cancelRequestedDuringTeardown.getAndSet(false)
+                if (cancelled) {
+                    val discarded =
+                        runCatching { keyboardDictationHandoff.discard(result.recordingId) }
+                            .onFailure { Log.e(tag, "Failed to discard a durably queued dictation", it) }
+                            .getOrDefault(false)
+                    if (!discarded) {
+                        transcription.setError(HANDOFF_CANCEL_FAILED_MESSAGE)
+                    } else {
+                        transcription.resetPhase()
+                    }
+                } else {
+                    transcription.resetPhase()
+                }
+                recordingStateManager.onRecordingCompleted()
+                clearPendingStop()
+                HandoffDisposition.RESOLVED
+            }
+
+            is KeyboardDictationHandoffResult.Failed -> {
+                if (result.sourceAvailableForInlineFallback &&
+                    capturePlan?.transcriptionEngine != TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3
+                ) {
+                    HandoffDisposition.INLINE_FALLBACK
+                } else {
+                    activeStopToken.set(null)
+                    recordingStateManager.onRecordingError(result.message)
+                    transcription.setError(result.message)
+                    clearPendingStop()
+                    HandoffDisposition.RESOLVED
+                }
+            }
+        }
     }
 
     /** PLH-1: the mode an inline dictation actually runs with (keyboard default over global). */
@@ -751,7 +1123,9 @@ class KeyboardSessionCoordinator(
                 // runBlocking join never deadlocks waiting on a Main-confined continuation.
                 cancelJob =
                     scope.launch(teardownDispatcher) {
+                        awaitLiveCaptureJournal()
                         capture.cancelCapture()
+                        abandonActiveLiveCapture()
                         recordingStateManager.onRecordingCompleted()
                         transcription.resetPhase()
                         clearPendingStop()
@@ -791,6 +1165,7 @@ class KeyboardSessionCoordinator(
         // start — including restartRecording's — a silent no-op until a mic tap cleared it.
         // Display/UI state only: the capture teardown and discard below are unchanged.
         isRecording.value = false
+        stopRollingTranscription()
         capture.abandonAudioFocus()
         HapticFeedback.onRecordStop(context)
         recordingJob?.cancel()
@@ -802,7 +1177,9 @@ class KeyboardSessionCoordinator(
                 // the recorder mid-teardown. The whole body runs on teardownDispatcher so
                 // awaitInFlightTeardown's main-thread runBlocking join never deadlocks waiting on a
                 // Main-confined continuation.
+                awaitLiveCaptureJournal()
                 capture.cancelCapture()
+                abandonActiveLiveCapture()
                 persistence.discardSamples()
                 recordingStateManager.onRecordingCompleted()
                 transcription.resetPhase()
@@ -823,6 +1200,7 @@ class KeyboardSessionCoordinator(
 
     fun finalizeActiveRecording(
         errorMessage: String,
+        suppressHistory: Boolean = historyPersistenceSuppressed(),
         onComplete: () -> Unit = {},
     ) {
         if (!isRecording.value) {
@@ -831,6 +1209,7 @@ class KeyboardSessionCoordinator(
         capture.abandonAudioFocus()
         recordingJob?.cancel()
         recordingJob = null
+        stopRollingTranscription()
         // Flip the UI flag synchronously, then run the recorder teardown off the IME main thread.
         isRecording.value = false
         transcription.resetPhase()
@@ -844,22 +1223,41 @@ class KeyboardSessionCoordinator(
                         // persist completes before the recorder is closed under it. The whole body runs
                         // on teardownDispatcher so awaitInFlightTeardown's main-thread runBlocking join
                         // never deadlocks waiting on a Main-confined continuation.
+                        awaitLiveCaptureJournal()
                         val audioSource = capture.stopAsAudioSource()
-                        // Swallow persistence failures: rethrowing out of scope.launch would
-                        // crash the IME process after the finally block recovers the state.
-                        runCatching {
-                            persistence.persistAudioSource(
+                        if (suppressHistory) {
+                            // Keep the established no-learning behavior. A focus-close is a
+                            // rescue, so its audio still survives even though normal incognito
+                            // completions leave no history.
+                            runCatching {
+                                persistence.persistAudioSource(
+                                    audioSource = audioSource,
+                                    rawText = null,
+                                    processedText = null,
+                                    errorMessage = errorMessage,
+                                    reason = InlineCapturePersistReason.RESCUE,
+                                )
+                            }.onFailure { Log.e(tag, "Failed to persist finalized keyboard recording", it) }
+                            recordingStateManager.onRecordingCompleted()
+                            clearPendingStop()
+                        } else {
+                            // There is no longer a valid input target, so a rare pre-ownership
+                            // handoff failure may use the local pipeline only as a rescue. Its
+                            // commit callback always refuses and the transcript lands in history.
+                            finishStopAfterTeardown(
                                 audioSource = audioSource,
-                                rawText = null,
-                                processedText = null,
-                                errorMessage = errorMessage,
-                                reason = InlineCapturePersistReason.RESCUE,
+                                commitText = { false },
+                                suppressHistory = false,
+                                localRouteRescueMessage = errorMessage,
                             )
-                        }.onFailure { Log.e(tag, "Failed to persist finalized keyboard recording", it) }
+                        }
                     }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to finalize keyboard recording", e)
+                    recordingStateManager.onRecordingError(errorMessage)
                 } finally {
-                    recordingStateManager.onRecordingCompleted()
-                    clearPendingStop()
                     onComplete()
                 }
             }
@@ -902,6 +1300,10 @@ class KeyboardSessionCoordinator(
     fun isRecordingActive(): Boolean = isRecording.value
 
     companion object {
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
+        private const val LIVE_TRANSCRIPTION_INITIAL_DELAY_MS = 3_000L
+        private const val LIVE_TRANSCRIPTION_INTERVAL_MS = 6_000L
+        private const val LIVE_TRANSCRIPTION_MIN_SECONDS = 2
         internal const val STOP_TIMEOUT_IN_PROGRESS_MESSAGE =
             "Transcription is taking longer than expected"
         internal const val STOP_TIMEOUT_RESCUE_MESSAGE =
@@ -912,5 +1314,56 @@ class KeyboardSessionCoordinator(
          * stop-teardown window; mirrors the pipeline's own user-cancel persist message.
          */
         internal const val TEARDOWN_CANCEL_MESSAGE = "Dictation cancelled"
+        internal const val HANDOFF_FAILED_MESSAGE =
+            "Could not save the dictation for background transcription"
+        internal const val HANDOFF_CANCEL_FAILED_MESSAGE =
+            "The dictation was queued before it could be discarded"
+        internal const val FIRST_AUDIO_FAILED_MESSAGE =
+            "The microphone started, but no audio arrived"
     }
 }
+
+private const val LIVE_TRANSCRIPTION_WINDOW_SECONDS = 8
+private const val LIVE_TRANSCRIPTION_MAX_OVERLAP_WORDS = 16
+
+internal fun readRollingPcmWindow(
+    path: String,
+    availableSamples: Int,
+    sampleRate: Int,
+): FloatArray {
+    if (availableSamples <= 0 || sampleRate <= 0) return FloatArray(0)
+    return runCatching {
+        RandomAccessFile(path, "r").use { input ->
+            val completeSamples = minOf(availableSamples.toLong(), input.length() / Float.SIZE_BYTES).toInt()
+            val windowSamples = sampleRate * LIVE_TRANSCRIPTION_WINDOW_SECONDS
+            val startSample = (completeSamples - windowSamples).coerceAtLeast(0)
+            val count = completeSamples - startSample
+            input.seek(startSample.toLong() * Float.SIZE_BYTES)
+            FloatArray(count) {
+                Float.fromBits(Integer.reverseBytes(input.readInt()))
+            }
+        }
+    }.getOrDefault(FloatArray(0))
+}
+
+internal fun mergeRollingTranscript(
+    previous: String?,
+    next: String,
+): String? {
+    val cleanNext = next.trim()
+    if (cleanNext.isEmpty()) return previous
+    val cleanPrevious = previous?.trim().orEmpty()
+    if (cleanPrevious.isEmpty()) return cleanNext
+    val previousWords = cleanPrevious.split(Regex("\\s+"))
+    val nextWords = cleanNext.split(Regex("\\s+"))
+    val maxOverlap = minOf(LIVE_TRANSCRIPTION_MAX_OVERLAP_WORDS, previousWords.size, nextWords.size)
+    val overlap =
+        (maxOverlap downTo 1).firstOrNull { size ->
+            previousWords.takeLast(size).map(::rollingComparableWord) ==
+                nextWords.take(size).map(::rollingComparableWord)
+        } ?: 0
+    return (previousWords + nextWords.drop(overlap)).joinToString(" ")
+}
+
+private fun rollingComparableWord(word: String): String =
+    word.lowercase().filter(Char::isLetterOrDigit)

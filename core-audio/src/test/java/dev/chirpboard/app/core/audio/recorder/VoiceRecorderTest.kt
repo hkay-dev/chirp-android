@@ -14,15 +14,13 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
-import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
-import io.mockk.unmockkConstructor
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import io.mockk.verifyOrder
-import java.io.BufferedOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
@@ -104,6 +102,29 @@ class VoiceRecorderTest {
             assertFalse(recorder.isRecording())
             verify { record.stop() }
             verify { record.release() }
+        }
+
+    @Test
+    fun `immediate collection captures the first block before start is presented as ready`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder()
+            var reads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads += 1
+                if (reads == 1) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    0
+                }
+            }
+
+            assertTrue(fileRecorder.start(collectImmediately = true))
+            fileRecorder.awaitFirstSamples()
+            val capture = fileRecorder.stopToFileBacked()
+
+            assertEquals(READ_BUFFER_SIZE, requireNotNull(capture).sampleCount)
+            assertTrue(requireNotNull(fileRecorder.latestIntegrityReport()).sampleCount >= READ_BUFFER_SIZE)
         }
 
     @Test
@@ -303,36 +324,40 @@ class VoiceRecorderTest {
         }
 
     @Test
-    fun `file backed write failure reports storage unavailable and cleans up`() =
+    fun `file backed write failure keeps ownership until the empty capture is claimed`() =
         runBlocking {
-            mockkConstructor(BufferedOutputStream::class)
-            every {
-                anyConstructed<BufferedOutputStream>().write(any<ByteArray>(), any<Int>(), any<Int>())
-            } throws IOException("disk full")
-            try {
-                val fileRecorder = fileBackedRecorder()
-                val errors = mutableListOf<RecordingError>()
-                fileRecorder.onRecordingError = { errors.add(it) }
-                every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
-                    firstArg<FloatArray>().fill(0.25f)
-                    1024
+            val failingOutput =
+                object : OutputStream() {
+                    override fun write(value: Int) = throw IOException("disk full")
+
+                    override fun write(
+                        bytes: ByteArray,
+                        offset: Int,
+                        length: Int,
+                    ) = throw IOException("disk full")
                 }
-
-                assertTrue(fileRecorder.start())
-                fileRecorder.collectSamples()
-
-                assertEquals(listOf<RecordingError>(RecordingError.StorageUnavailable), errors)
-                assertFalse(fileRecorder.isRecording())
-                verify { record.stop() }
-                verify { record.release() }
-                assertTrue(captureFiles().isEmpty())
-            } finally {
-                unmockkConstructor(BufferedOutputStream::class)
+            val fileRecorder = fileBackedRecorder { failingOutput }
+            val errors = mutableListOf<RecordingError>()
+            fileRecorder.onRecordingError = { errors.add(it) }
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                firstArg<FloatArray>().fill(0.25f)
+                1024
             }
+
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
+
+            assertEquals(listOf<RecordingError>(RecordingError.StorageUnavailable), errors)
+            assertFalse(fileRecorder.isRecording())
+            verify { record.stop() }
+            verify { record.release() }
+            assertEquals(1, captureFiles().size)
+            assertNull(fileRecorder.stopToFileBacked())
+            assertTrue(captureFiles().isEmpty())
         }
 
     @Test
-    fun `file backed read error deletes the capture temp file`() =
+    fun `file backed read error keeps captured samples for rescue`() =
         runBlocking {
             val fileRecorder = fileBackedRecorder()
             val errors = mutableListOf<RecordingError>()
@@ -356,7 +381,13 @@ class VoiceRecorderTest {
             assertFalse(fileRecorder.isRecording())
             verify { record.stop() }
             verify { record.release() }
-            assertTrue(captureFiles().isEmpty())
+            assertEquals(1, captureFiles().size)
+
+            val captured = fileRecorder.stopToFileBacked()
+
+            assertEquals(1024, captured?.sampleCount)
+            assertEquals(1024L * Float.SIZE_BYTES, captured?.file?.length())
+            assertTrue(captured?.file?.exists() == true)
         }
 
     @Test
@@ -417,6 +448,36 @@ class VoiceRecorderTest {
                 }
             assertEquals(0.5f, decoded.first(), 0.0001f)
             assertEquals(0.5f, decoded.last(), 0.0001f)
+        }
+
+    @Test
+    fun `file backed capture writes directly to a requested durable path`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder()
+            fileRecorder.onRecordingError = {}
+            val requested = File(cacheDir, "durable/keyboard-live.f32pcm")
+            assertTrue(requested.parentFile?.mkdirs() == true)
+            assertTrue(requested.createNewFile())
+            var reads = 0
+            var result: VoiceRecorder.CapturedPcmFloatFile? = null
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                reads++
+                if (reads == 1) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    result = fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(fileRecorder.start(requested))
+            fileRecorder.collectSamples()
+
+            val captured = requireNotNull(result)
+            assertEquals(requested.canonicalPath, captured.file.canonicalPath)
+            assertEquals(READ_BUFFER_SIZE * Float.SIZE_BYTES.toLong(), requested.length())
+            assertTrue(captureFiles().isEmpty())
         }
 
     @Test
@@ -652,13 +713,16 @@ class VoiceRecorderTest {
             }
         }
 
-    private fun fileBackedRecorder(): VoiceRecorder {
+    private fun fileBackedRecorder(
+        captureOutputFactory: ((File) -> OutputStream)? = null,
+    ): VoiceRecorder {
         every { context.cacheDir } returns cacheDir
         return VoiceRecorder(
             context = context,
             coroutineScope = CoroutineScope(Dispatchers.Unconfined),
             inputDeviceSelector = selector,
             captureStorageMode = VoiceRecorder.CaptureStorageMode.FileBacked,
+            captureOutputFactory = captureOutputFactory ?: { file -> java.io.FileOutputStream(file) },
         )
     }
 

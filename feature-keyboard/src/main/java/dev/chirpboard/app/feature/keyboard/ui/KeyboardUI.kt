@@ -106,6 +106,7 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -473,8 +474,10 @@ fun KeyboardScreen(
                                     modelWarming = modelWarming,
                                     waveformBuffer = waveformBuffer,
                                     sampleCountFlow = sampleCountFlow,
+                                    partialTranscript = uiState.partialTranscript,
                                     windowShown = windowShown,
                                     onStart = onMicTap,
+                                    onStartCancelled = onCancel,
                                 )
                         }
                     }
@@ -830,8 +833,10 @@ private fun UnifiedVoicePanel(
     modelWarming: Boolean,
     waveformBuffer: WaveformBuffer,
     sampleCountFlow: StateFlow<Long>,
+    partialTranscript: String?,
     windowShown: Boolean,
     onStart: () -> Unit,
+    onStartCancelled: () -> Unit,
 ) {
     val sampleCount by sampleCountFlow.collectAsStateWithLifecycle()
     val processingVisual by animateFloatAsState(
@@ -879,6 +884,17 @@ private fun UnifiedVoicePanel(
                     maxBarHeight = 40.dp,
                     showIdlePlaceholder = false,
                 )
+                partialTranscript?.let { partial ->
+                    Text(
+                        text = partial,
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 12.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
 
@@ -937,6 +953,8 @@ private fun UnifiedVoicePanel(
                     // tap during warmup never no-ops (we mask the wait, never hard-disable it).
                     ChirpVoiceTriggerButton(
                         onClick = onStart,
+                        onPressStart = onStart,
+                        onPressCancel = onStartCancelled,
                         contentDescription = stringResource(R.string.keyboard_desc_start_recording),
                         modifier = if (modelWarming) Modifier.brandedPulse() else Modifier,
                     )

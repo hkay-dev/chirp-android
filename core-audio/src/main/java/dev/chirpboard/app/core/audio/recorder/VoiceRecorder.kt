@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.VisibleForTesting
@@ -14,10 +15,11 @@ import androidx.core.content.ContextCompat
 import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.recording.WaveformBuffer
-import java.io.BufferedOutputStream
 import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
+import java.io.OutputStream
+import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
@@ -28,12 +30,15 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 
 /**
@@ -67,6 +72,7 @@ class VoiceRecorder(
     private val coroutineScope: CoroutineScope,
     private val inputDeviceSelector: AudioInputDeviceSelector? = null,
     private val captureStorageMode: CaptureStorageMode = CaptureStorageMode.InMemory,
+    private val captureOutputFactory: (File) -> OutputStream = { file -> FileOutputStream(file) },
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -77,6 +83,9 @@ class VoiceRecorder(
 
         const val MAX_SAMPLE_CAPACITY = SAMPLE_RATE * 60 * 10 // 10 minutes
 
+        /** File-backed keyboard capture can run for an hour without growing the process heap. */
+        const val MAX_FILE_BACKED_SAMPLE_CAPACITY = SAMPLE_RATE * 60 * 60
+
         /** Growth capacity for the lazily-allocated in-memory sample buffer (1 minute at [SAMPLE_RATE]). */
         private const val INITIAL_SAMPLE_CAPACITY = SAMPLE_RATE * 60
 
@@ -85,6 +94,9 @@ class VoiceRecorder(
 
         /** Number of float samples read from [AudioRecord] per blocking read. */
         private const val CAPTURE_READ_BUFFER_SIZE = 1024
+
+        private const val FIRST_SAMPLES_READY_TIMEOUT_MS = 500L
+        private const val CAPTURE_GAP_TOLERANCE_MS = 250L
 
         /** Sustained all-zero input (4s) before [onSilenceStateChanged] reports silence. */
         const val SILENCE_WARNING_SAMPLES = SAMPLE_RATE * 4L
@@ -113,7 +125,17 @@ class VoiceRecorder(
         val sampleCount: Int,
     )
 
+    data class CaptureIntegrityReport(
+        val elapsedMs: Long,
+        val capturedMs: Long,
+        val estimatedGapMs: Long,
+        val sampleCount: Int,
+    )
+
     private var audioRecord: AudioRecord? = null
+    private var collectorJob: Job? = null
+    private var firstSamplesReady = CompletableDeferred<Boolean>()
+    @Volatile private var lastIntegrityReport: CaptureIntegrityReport? = null
 
     /**
      * Active-device publication token for the live capture (from
@@ -136,7 +158,7 @@ class VoiceRecorder(
     private var samples = EMPTY_SAMPLES
     private var sampleCount = 0
     private var sampleFile: File? = null
-    private var sampleOutput: BufferedOutputStream? = null
+    private var sampleOutput: OutputStream? = null
 
     /**
      * Reusable little-endian scratch buffer for file-backed PCM writes, sized to
@@ -160,17 +182,20 @@ class VoiceRecorder(
      * previous session that must survive an early bail-out, and never a newer
      * session published by another caller.
      */
-    private class StartAttempt {
+    private class StartAttempt(
+        val requestedCaptureFile: File?,
+    ) {
         /** True once the attempt passed the early guards and owns the recorder reset. */
         var committed = false
 
         /** The readiness signal created by this attempt (never a successor's). */
         var ready: CompletableDeferred<Unit>? = null
+        var firstSamplesReady: CompletableDeferred<Boolean>? = null
 
         /** Resources created by this attempt but not yet published to the recorder. */
         var pendingRecord: AudioRecord? = null
         var pendingCaptureFile: File? = null
-        var pendingCaptureOutput: BufferedOutputStream? = null
+        var pendingCaptureOutput: OutputStream? = null
 
         /** Selector publication token from buildAudioRecord, until published or cleared. */
         var pendingSessionToken: Long? = null
@@ -223,11 +248,17 @@ class VoiceRecorder(
     private val _sampleCountFlow = MutableStateFlow(0L)
     val sampleCountFlow: StateFlow<Long> = _sampleCountFlow.asStateFlow()
 
-    suspend fun start(): Boolean {
-        val attempt = StartAttempt()
+    suspend fun start(
+        fileBackedCaptureFile: File? = null,
+        collectImmediately: Boolean = false,
+    ): Boolean {
+        require(fileBackedCaptureFile == null || captureStorageMode == CaptureStorageMode.FileBacked) {
+            "A requested capture file needs file-backed capture mode"
+        }
+        val attempt = StartAttempt(fileBackedCaptureFile)
         return try {
             withContext(Dispatchers.IO) {
-                startInternal(attempt)
+                startInternal(attempt, collectImmediately)
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
             // Cancellation can surface at the withContext boundary after the
@@ -246,7 +277,10 @@ class VoiceRecorder(
     }
 
     @SuppressLint("MissingPermission")
-    private suspend fun startInternal(attempt: StartAttempt): Boolean {
+    private suspend fun startInternal(
+        attempt: StartAttempt,
+        collectImmediately: Boolean,
+    ): Boolean {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             hasError = true
             onRecordingError?.invoke(RecordingError.PermissionDenied)
@@ -259,6 +293,7 @@ class VoiceRecorder(
         val ready = CompletableDeferred<Unit>()
         attempt.ready = ready
         recordingReady = ready
+        firstSamplesReady = CompletableDeferred<Boolean>().also { attempt.firstSamplesReady = it }
         hasError = false
 
         val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -334,9 +369,20 @@ class VoiceRecorder(
             }
 
             if (captureStorageMode == CaptureStorageMode.FileBacked) {
-                val captureFile = createCaptureFile()
+                val captureFile =
+                    attempt.requestedCaptureFile?.also { requested ->
+                        check(requested.parentFile?.let { it.isDirectory || it.mkdirs() } == true) {
+                            "Could not create the requested capture directory"
+                        }
+                        check(!requested.exists() || (requested.isFile && requested.length() == 0L)) {
+                            "Requested capture file already has audio"
+                        }
+                    } ?: createCaptureFile()
                 attempt.pendingCaptureFile = captureFile
-                attempt.pendingCaptureOutput = BufferedOutputStream(FileOutputStream(captureFile))
+                // A process kill cannot flush a BufferedOutputStream's user-space tail. Writing
+                // each AudioRecord block straight to the file descriptor keeps every completed
+                // write recoverable by the live-capture journal.
+                attempt.pendingCaptureOutput = captureOutputFactory(captureFile)
             }
             waveformBuffer.clear()
             _sampleCountFlow.value = 0L
@@ -367,6 +413,9 @@ class VoiceRecorder(
 
             // Signal that recording is ready for collection
             ready.complete(Unit)
+            if (collectImmediately) {
+                collectorJob = coroutineScope.launch(Dispatchers.IO) { collectSamples() }
+            }
 
             true
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -413,6 +462,7 @@ class VoiceRecorder(
         }
         // No-op if start() already completed it (boundary cancellation case).
         attempt.ready?.completeExceptionally(cause)
+        attempt.firstSamplesReady?.complete(false)
     }
 
     /**
@@ -436,20 +486,27 @@ class VoiceRecorder(
                 return@withContext
             }
 
-            val record: AudioRecord?
-            val collectGeneration: Long
-            synchronized(sampleLock) {
-                record = audioRecord
-                collectGeneration = sessionGeneration.get()
-            }
-            if (record == null) return@withContext
-            val buffer = FloatArray(CAPTURE_READ_BUFFER_SIZE)
-            hasError = false
-            var routingChecked = false
-            var silentSampleRun = 0L
-            var silenceNotified = false
+            val originalPriority =
+                runCatching { Process.getThreadPriority(Process.myTid()) }.getOrNull()
+            runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }
+            try {
+                val record: AudioRecord?
+                val collectGeneration: Long
+                val collectFirstSamplesReady: CompletableDeferred<Boolean>
+                synchronized(sampleLock) {
+                    record = audioRecord
+                    collectGeneration = sessionGeneration.get()
+                    collectFirstSamplesReady = firstSamplesReady
+                }
+                if (record == null) return@withContext
+                val buffer = FloatArray(CAPTURE_READ_BUFFER_SIZE)
+                hasError = false
+                var routingChecked = false
+                var firstReadLogged = false
+                var silentSampleRun = 0L
+                var silenceNotified = false
 
-            while (isActive && isRecording.get() && sessionGeneration.get() == collectGeneration) {
+                while (isActive && isRecording.get() && sessionGeneration.get() == collectGeneration) {
                 val readResult = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
 
                 // Check for errors
@@ -475,6 +532,15 @@ class VoiceRecorder(
                     }
 
                     readResult > 0 -> {
+                        if (!firstReadLogged) {
+                            firstReadLogged = true
+                            runCatching {
+                                Log.i(
+                                    TAG,
+                                    "First microphone samples arrived ${SystemClock.elapsedRealtime() - recordingStartTimeMs}ms after AudioRecord start",
+                                )
+                            }
+                        }
                         var writeFailed = false
                         var writeFailureEndedSession = false
                         // Normal case - process samples
@@ -484,7 +550,12 @@ class VoiceRecorder(
                                 // read was in flight; the state is no longer ours.
                                 return@withContext
                             }
-                            val spaceLeft = MAX_SAMPLE_CAPACITY - sampleCount
+                            val sampleCapacity =
+                                when (captureStorageMode) {
+                                    CaptureStorageMode.InMemory -> MAX_SAMPLE_CAPACITY
+                                    CaptureStorageMode.FileBacked -> MAX_FILE_BACKED_SAMPLE_CAPACITY
+                                }
+                            val spaceLeft = sampleCapacity - sampleCount
                             val toProcess = minOf(readResult, spaceLeft)
 
                             if (toProcess > 0) {
@@ -513,7 +584,7 @@ class VoiceRecorder(
                                 sampleCount += toProcess
                             }
 
-                            if (sampleCount >= MAX_SAMPLE_CAPACITY && isRecording.get()) {
+                            if (sampleCount >= sampleCapacity && isRecording.get()) {
                                 isRecording.set(false)
                                 onLimitReached?.invoke()
                                 return@withContext
@@ -526,6 +597,7 @@ class VoiceRecorder(
                             }
                             return@withContext
                         }
+                        collectFirstSamplesReady.complete(true)
                         if (!routingChecked) {
                             routingChecked = true
                             inputDeviceSelector?.let { selector ->
@@ -555,8 +627,30 @@ class VoiceRecorder(
                         }
                     }
                 }
+                }
+            } finally {
+                originalPriority?.let { priority ->
+                    runCatching { Process.setThreadPriority(priority) }
+                }
             }
         }
+
+    /**
+     * Waits briefly for the first native microphone block. Capture is already live during this
+     * wait, so callers can use it as the honest user-facing "speak now" boundary without putting
+     * model loading or UI scheduling in front of AudioRecord.
+     */
+    suspend fun awaitFirstSamples(timeoutMs: Long = FIRST_SAMPLES_READY_TIMEOUT_MS): Boolean =
+        withTimeoutOrNull(timeoutMs) { firstSamplesReady.await() } == true
+
+    fun activeFileBackedSnapshot(): CapturedPcmFloatFile? =
+        synchronized(sampleLock) {
+            if (!isRecording.get() || captureStorageMode != CaptureStorageMode.FileBacked) return@synchronized null
+            val file = sampleFile ?: return@synchronized null
+            CapturedPcmFloatFile(file = file, sampleRate = SAMPLE_RATE, sampleCount = sampleCount)
+        }
+
+    fun latestIntegrityReport(): CaptureIntegrityReport? = lastIntegrityReport
 
     fun stop(): FloatArray {
         val (durationMs, endedGeneration) = stopAudioRecord()
@@ -626,7 +720,7 @@ class VoiceRecorder(
             val failed = hasError
             hasError = false
 
-            if (failed || durationMs < MINIMUM_RECORDING_MS || count <= 0 || file == null) {
+            if (count <= 0 || file == null || (!failed && durationMs < MINIMUM_RECORDING_MS)) {
                 if (!failed && durationMs < MINIMUM_RECORDING_MS) {
                     Log.w(TAG, "Recording too short: ${durationMs}ms")
                 }
@@ -685,6 +779,24 @@ class VoiceRecorder(
             val endedGeneration = sessionGeneration.incrementAndGet()
             isRecording.set(false)
             val durationMs = SystemClock.elapsedRealtime() - recordingStartTimeMs
+            val capturedMs = (sampleCount * 1000L) / SAMPLE_RATE
+            val integrityReport =
+                CaptureIntegrityReport(
+                    elapsedMs = durationMs,
+                    capturedMs = capturedMs,
+                    estimatedGapMs = (durationMs - capturedMs - CAPTURE_GAP_TOLERANCE_MS).coerceAtLeast(0L),
+                    sampleCount = sampleCount,
+                )
+            lastIntegrityReport = integrityReport
+            if (integrityReport.estimatedGapMs > 0L) {
+                runCatching {
+                    Log.w(
+                        TAG,
+                        "Capture integrity gap estimated at ${integrityReport.estimatedGapMs}ms " +
+                            "(${integrityReport.sampleCount} samples across ${integrityReport.elapsedMs}ms)",
+                    )
+                }
+            }
             audioRecord?.let { record ->
                 // Routing-listener removal must precede release() so the
                 // selector's per-record entry never leaks.
@@ -698,13 +810,19 @@ class VoiceRecorder(
             // session's publication always survives a late teardown.
             selectorSessionToken?.let { token -> inputDeviceSelector?.clearActiveDevice(token) }
             selectorSessionToken = null
-            StopResult(durationMs = durationMs, endedGeneration = endedGeneration)
+            collectorJob?.cancel()
+            collectorJob = null
+            firstSamplesReady.complete(false)
+            StopResult(
+                durationMs = durationMs,
+                endedGeneration = endedGeneration,
+            )
         }
 
     /**
      * Shared cleanup for abnormal collectSamples exits: stops and releases the
-     * AudioRecord so the microphone never stays hot and discards any partial
-     * capture, including file-backed temp files. Acts only while [generation]
+     * AudioRecord so the microphone never stays hot. File-backed capture keeps
+     * every fully written sample for rescue. Acts only while [generation]
      * still identifies the live session — a stale collector whose session was
      * already stopped or superseded must not tear down its successor — and
      * reports the error only if stop() has not already ended the session
@@ -721,14 +839,15 @@ class VoiceRecorder(
                 endSessionLocked()
             }
         if (wasRecording) {
+            firstSamplesReady.complete(false)
             onRecordingError?.invoke(error)
         }
     }
 
     /**
      * Ends the live session while holding [sampleLock]: marks the error flag,
-     * stops and releases the AudioRecord, and discards any partial capture in
-     * memory or on disk. Returns whether a session was still active so callers
+     * stops and releases the AudioRecord, and keeps file-backed samples for a
+     * later ownership handoff. Returns whether a session was still active so callers
      * report errors only for sessions that stop() had not already ended.
      */
     private fun endSessionLocked(): Boolean {
@@ -737,8 +856,16 @@ class VoiceRecorder(
             hasError = true
         }
         stopAudioRecord()
-        sampleCount = 0
-        resetFileBackedCaptureLocked(deleteExisting = true)
+        if (captureStorageMode == CaptureStorageMode.FileBacked) {
+            // A failing OutputStream may have written only part of the current block. sampleCount
+            // advances after the whole write succeeds, so trim that uncertain tail and keep every
+            // earlier block available to stopToFileBacked() for rescue.
+            closeSampleOutputLocked()
+            trimFileBackedCaptureToCountLocked()
+        } else {
+            sampleCount = 0
+            resetFileBackedCaptureLocked(deleteExisting = true)
+        }
         return wasRecording
     }
 
@@ -809,8 +936,21 @@ class VoiceRecorder(
         sampleFile = null
     }
 
+    private fun trimFileBackedCaptureToCountLocked() {
+        val file = sampleFile ?: return
+        val trustedBytes = sampleCount.toLong() * java.lang.Float.BYTES
+        runCatching {
+            if (file.length() != trustedBytes) {
+                RandomAccessFile(file, "rw").use { it.setLength(trustedBytes) }
+            }
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to trim partial file-backed capture write", error)
+        }
+    }
+
     private fun closeSampleOutputLocked() {
         runCatching { sampleOutput?.flush() }
+        runCatching { (sampleOutput as? FileOutputStream)?.fd?.sync() }
         runCatching { sampleOutput?.close() }
         sampleOutput = null
         // Release the per-session write scratch so it does not stay resident

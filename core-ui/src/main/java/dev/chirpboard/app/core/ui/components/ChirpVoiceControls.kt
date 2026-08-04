@@ -14,11 +14,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.gestures.detectTapGestures
 
 /**
  * The shared primary voice-trigger affordance — the idle "start dictation/record" mic (VIS-2).
@@ -39,15 +42,38 @@ fun ChirpVoiceTriggerButton(
     onClick: () -> Unit,
     contentDescription: String,
     modifier: Modifier = Modifier,
+    onPressStart: (() -> Unit)? = null,
+    onPressCancel: (() -> Unit)? = null,
     size: Dp = 56.dp,
     containerColor: Color = MaterialTheme.colorScheme.primaryContainer,
     contentColor: Color = MaterialTheme.colorScheme.onPrimaryContainer,
     icon: ImageVector = Icons.Rounded.Mic,
     iconSize: Dp = 28.dp,
 ) {
+    val immediatePressModifier =
+        if (onPressStart == null) {
+            Modifier
+        } else {
+            Modifier
+                .pointerInput(onPressStart) {
+                    detectTapGestures(
+                        onPress = {
+                            onPressStart()
+                            if (!tryAwaitRelease()) {
+                                onPressCancel?.invoke()
+                            }
+                        },
+                    )
+                }.semantics {
+                    onClick {
+                        onPressStart()
+                        true
+                    }
+                }
+        }
     FloatingActionButton(
-        onClick = onClick,
-        modifier = modifier.size(size),
+        onClick = if (onPressStart == null) onClick else ({ }),
+        modifier = modifier.then(immediatePressModifier).size(size),
         containerColor = containerColor,
         contentColor = contentColor,
         elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 2.dp),

@@ -17,6 +17,7 @@ import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.WaveformBuffer
 import dev.chirpboard.app.feature.keyboard.R
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -80,7 +81,9 @@ class QuickCaptureSessionImpl(
      */
     val deviceLostEvents: SharedFlow<DeviceLostEvent> get() = inputDeviceSelector.deviceLostEvents
 
-    override suspend fun start(): QuickCaptureStartResult {
+    override suspend fun start(): QuickCaptureStartResult = start(captureFilePath = null)
+
+    suspend fun start(captureFilePath: String?): QuickCaptureStartResult {
         if (!RecordingPermissionGuard.hasRecordAudioPermission(context)) {
             return QuickCaptureStartResult.PermissionDenied(
                 RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE,
@@ -124,7 +127,7 @@ class QuickCaptureSessionImpl(
             else -> Unit
         }
 
-        if (!recorder.start()) {
+        if (!recorder.start(captureFilePath?.let(::File), collectImmediately = true)) {
             audioFocusManager.abandonFocus()
             val message = context.getString(R.string.keyboard_record_start_failed)
             recordingStateManager.onRecordingError(message)
@@ -134,6 +137,14 @@ class QuickCaptureSessionImpl(
         recordingStateManager.onRecordingStarted("keyboard_temp_recording")
         return QuickCaptureStartResult.Success
     }
+
+    suspend fun awaitFirstSamples(): Boolean = recorder.awaitFirstSamples()
+
+    fun activeFileBackedSnapshot(): VoiceRecorder.CapturedPcmFloatFile? =
+        recorder.activeFileBackedSnapshot()
+
+    fun latestIntegrityReport(): VoiceRecorder.CaptureIntegrityReport? =
+        recorder.latestIntegrityReport()
 
     override suspend fun collectSamples() {
         recorder.collectSamples()

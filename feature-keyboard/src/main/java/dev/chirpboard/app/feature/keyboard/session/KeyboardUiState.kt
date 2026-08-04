@@ -111,6 +111,8 @@ data class KeyboardUiState(
      * label for the "mic disconnected" hint; only ever true while [voicePanel] is Recording.
      */
     val deviceLostHint: Boolean = false,
+    /** Best-effort live text. Final insertion always comes from the complete saved audio. */
+    val partialTranscript: String? = null,
 ) {
     @StringRes
     fun statusLabelRes(): Int? =
@@ -139,6 +141,7 @@ fun mapKeyboardUiState(
     sensitiveInput: Boolean = false,
     silenceDetected: Boolean = false,
     deviceLost: Boolean = false,
+    partialTranscript: String? = null,
 ): KeyboardUiState {
     val voicePanel =
         when {
@@ -187,5 +190,6 @@ fun mapKeyboardUiState(
         // MIC-014: same live-phase gating for the device-lost hint, so it dies with the
         // session instead of leaking into transcription or the next dictation.
         deviceLostHint = voicePanel == VoicePanelPhase.Recording && deviceLost,
+        partialTranscript = partialTranscript?.takeIf { voicePanel == VoicePanelPhase.Recording },
     )
 }
