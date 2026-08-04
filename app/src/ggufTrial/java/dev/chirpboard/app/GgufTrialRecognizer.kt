@@ -10,7 +10,7 @@ import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import dev.chirpboard.app.gguf.GgufNativeRecognizer
 import java.util.concurrent.atomic.AtomicInteger
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
@@ -24,21 +24,24 @@ private const val CHUNK_OVERLAP_MS = 2_000L
 internal class GgufTrialRecognizer(
     private val context: Context,
     private val downloader: ModelDownloader,
+    private val decodeControls: GgufDecodeControls = GgufDecodeControls.fromSystemProperties(),
+    private val decodeDispatcher: GgufDecodeDispatcher = GgufDecodeDispatcher(decodeControls),
 ) {
-    private var native: GgufNativeRecognizer? = null
+    @Volatile private var native: GgufNativeRecognizer? = null
     private val mutex = Mutex()
+    private val released = java.util.concurrent.atomic.AtomicBoolean(false)
 
     val isReady: Boolean
         get() = native?.isLoaded() == true
 
     suspend fun initialize(): Boolean =
-        withContext(Dispatchers.IO) {
+        decodeDispatcher.run {
             mutex.withLock {
                 if (native?.isLoaded() == true) return@withLock true
                 val model = downloader.resolvedGgufModelFile() ?: return@withLock false
                 val candidate = GgufNativeRecognizer()
                 val started = SystemClock.elapsedRealtime()
-                val threads = optimizedGgufThreadCount()
+                val threads = resolvedGgufThreadCount(decodeControls)
                 val loaded = candidate.load(model.absolutePath, threads)
                 val elapsed = SystemClock.elapsedRealtime() - started
                 Log.i(
@@ -56,7 +59,7 @@ internal class GgufTrialRecognizer(
         }
 
     suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome =
-        withContext(Dispatchers.Default) {
+        decodeDispatcher.run {
             mutex.withLock {
                 if (sampleRate != VoiceRecorder.SAMPLE_RATE) {
                     return@withLock TranscriptionOutcome.EngineError(
@@ -110,9 +113,18 @@ internal class GgufTrialRecognizer(
     }
 
     suspend fun release() {
-        mutex.withLock {
-            native?.release()
-            native = null
+        if (!released.compareAndSet(false, true)) return
+        try {
+            withContext(NonCancellable) {
+                decodeDispatcher.run {
+                    mutex.withLock {
+                        native?.release()
+                        native = null
+                    }
+                }
+            }
+        } finally {
+            decodeDispatcher.close()
         }
     }
 }
@@ -187,20 +199,3 @@ private fun FloatArray.asFlow(sliceSize: Int): Flow<FloatArray> =
             offset = end
         }
     }
-
-internal fun optimizedGgufThreadCount(
-    availableProcessors: Int = Runtime.getRuntime().availableProcessors(),
-    maxFrequencyReader: (Int) -> Long? = ::readCpuMaxFrequency,
-): Int {
-    val frequencies = (0 until availableProcessors).mapNotNull(maxFrequencyReader)
-    val fastest = frequencies.maxOrNull() ?: return availableProcessors.coerceIn(1, 4)
-    val fastCoreFloor = fastest * 7 / 10
-    return frequencies.count { it >= fastCoreFloor }.coerceIn(1, 4)
-}
-
-private fun readCpuMaxFrequency(cpu: Int): Long? {
-    val base = "/sys/devices/system/cpu/cpu$cpu/cpufreq"
-    return sequenceOf("$base/cpuinfo_max_freq", "$base/scaling_max_freq")
-        .mapNotNull { path -> runCatching { java.io.File(path).readText().trim().toLong() }.getOrNull() }
-        .firstOrNull()
-}
