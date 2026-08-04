@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioRecord
 import android.os.SystemClock
+import android.os.storage.StorageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
 import dev.chirpboard.app.core.audio.AudioCaptureSession
@@ -70,6 +71,7 @@ class VoiceRecorderTest {
 
         mockkStatic(ContextCompat::class)
         every { ContextCompat.checkSelfPermission(any(), any()) } returns PackageManager.PERMISSION_GRANTED
+        every { context.getSystemService(StorageManager::class.java) } returns null
 
         mockkStatic(AudioRecord::class)
         every { AudioRecord.getMinBufferSize(any(), any(), any()) } returns 4096
@@ -136,6 +138,54 @@ class VoiceRecorderTest {
             verify { record.stop() }
             verify { record.release() }
             verify { replacement.startRecording() }
+        }
+
+    @Test
+    fun `repeated zero reads restart capture and preserve the durable prefix`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder()
+            val replacement = mockk<AudioRecord>(relaxUnitFun = true)
+            every { replacement.state } returns AudioRecord.STATE_INITIALIZED
+            every { replacement.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
+            coEvery {
+                selector.buildAudioRecord(any(), any(), any(), any(), any())
+            } returnsMany
+                listOf(
+                    AudioCaptureSession(record, sessionToken = 1L),
+                    AudioCaptureSession(replacement, sessionToken = 2L),
+                )
+            var originalReads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                originalReads += 1
+                if (originalReads == 1) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    0
+                }
+            }
+            var captured: VoiceRecorder.CapturedPcmFloatFile? = null
+            var replacementReads = 0
+            every { replacement.read(any<FloatArray>(), any(), any(), any()) } answers {
+                if (replacementReads++ == 0) {
+                    firstArg<FloatArray>().fill(0.5f)
+                    READ_BUFFER_SIZE
+                } else {
+                    captured = fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+            val errors = mutableListOf<RecordingError>()
+            fileRecorder.onRecordingError = errors::add
+
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
+
+            assertTrue(errors.isEmpty())
+            assertEquals(READ_BUFFER_SIZE * 2, requireNotNull(captured).sampleCount)
+            val report = requireNotNull(fileRecorder.latestIntegrityReport())
+            assertEquals(1, report.watchdogRestartCount)
+            assertEquals(1, report.recorderRestartCount)
         }
 
     @Test
