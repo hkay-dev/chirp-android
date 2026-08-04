@@ -713,6 +713,48 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
+    fun checkpointAudioSource_rejectsACountBeyondThePhysicalFile() =
+        runTest {
+            val root = createTempDir("keyboard-short-checkpoint")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val audio = File(root, "capture.f32pcm").apply { writeBytes(ByteArray(32)) }
+            val source = InlineAudioSource.PcmFloatFile(audio.absolutePath, sampleCount = 10)
+
+            assertFalse(persistence.checkpointAudioSource(source, 10, "untrusted tail"))
+            assertFalse(File("${audio.absolutePath}.chirp-checkpoint").exists())
+        }
+
+    @Test
+    fun discardAudioSource_removesItsTranscriptCheckpoint() =
+        runTest {
+            val root = createTempDir("keyboard-discard-checkpoint")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val audio = File(root, "capture.f32pcm").apply { writeBytes(ByteArray(40)) }
+            val source = InlineAudioSource.PcmFloatFile(audio.absolutePath, sampleCount = 10)
+            assertTrue(persistence.checkpointAudioSource(source, 10, "private words"))
+
+            persistence.discardAudioSource(source)
+
+            assertFalse(audio.exists())
+            assertFalse(File("${audio.absolutePath}.chirp-checkpoint").exists())
+            assertFalse(persistence.checkpointAudioSource(source, 10, "stale write"))
+        }
+
+    @Test
     fun recoverCheckpoints_savesTheTrustedPrefixAndRemovesTheCheckpoint() =
         runTest {
             val root = createTempDir("keyboard-checkpoint-recovery")

@@ -55,6 +55,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.StandardCopyOption
 import java.util.Properties
 import javax.inject.Inject
@@ -287,6 +288,8 @@ class AppKeyboardInlineCapturePersistence
         private val terminalNotificationDelivery: dagger.Lazy<TerminalRecordingNotificationDelivery>,
     ) : InlineCapturePersistence {
         private var pendingAudioSource: InlineAudioSource? = null
+        private val checkpointLock = Any()
+        private val terminalCheckpointPaths = linkedSetOf<String>()
 
         override suspend fun checkpointAudioSource(
             audioSource: InlineAudioSource,
@@ -295,47 +298,66 @@ class AppKeyboardInlineCapturePersistence
             estimatedGapMs: Long?,
         ): Boolean {
             val fileSource = audioSource as? InlineAudioSource.PcmFloatFile ?: return false
-            if (trustedSampleCount <= 0L || trustedSampleCount > fileSource.sampleCount) return false
+            val sourceFile = File(fileSource.path)
+            if (trustedSampleCount <= 0L ||
+                trustedSampleCount > fileSource.sampleCount ||
+                !sourceFile.isFile ||
+                trustedSampleCount > sourceFile.length() / java.lang.Float.BYTES
+            ) {
+                return false
+            }
             return withContext(NonCancellable + Dispatchers.IO) {
-                runCatching {
-                    val checkpoint = checkpointFile(fileSource)
-                    checkpoint.parentFile?.mkdirs()
-                    val partial = File(checkpoint.parentFile, "${checkpoint.name}.partial")
-                    val properties =
-                        Properties().apply {
-                            setProperty("version", "1")
-                            setProperty("audioPath", File(fileSource.path).canonicalPath)
-                            setProperty("sampleRate", fileSource.sampleRate.toString())
-                            setProperty("trustedSampleCount", trustedSampleCount.toString())
-                            setProperty("estimatedGapMs", estimatedGapMs?.toString().orEmpty())
-                            setProperty("partialTranscript", partialTranscript.orEmpty())
-                            setProperty("updatedAtEpochMs", System.currentTimeMillis().toString())
+                synchronized(checkpointLock) {
+                    if (checkpointKey(fileSource) in terminalCheckpointPaths) return@synchronized false
+                    runCatching {
+                        val checkpoint = checkpointFile(fileSource)
+                        val directory = checkNotNull(checkpoint.parentFile)
+                        directory.mkdirs()
+                        val partial = File(directory, "${checkpoint.name}.partial")
+                        val properties =
+                            Properties().apply {
+                                setProperty("version", CHECKPOINT_VERSION)
+                                setProperty("audioPath", sourceFile.canonicalPath)
+                                setProperty("sampleRate", fileSource.sampleRate.toString())
+                                setProperty("trustedSampleCount", trustedSampleCount.toString())
+                                setProperty("estimatedGapMs", estimatedGapMs?.toString().orEmpty())
+                                setProperty("partialTranscript", partialTranscript.orEmpty())
+                                setProperty("updatedAtEpochMs", System.currentTimeMillis().toString())
+                            }
+                        FileOutputStream(partial).use { output ->
+                            properties.store(output, null)
+                            output.fd.sync()
                         }
-                    FileOutputStream(partial).use { output ->
-                        properties.store(output, null)
-                        output.fd.sync()
-                    }
-                    Files.move(
-                        partial.toPath(),
-                        checkpoint.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING,
-                    )
-                    true
-                }.onFailure { error ->
-                    Log.e(TAG, "Could not write keyboard capture checkpoint", error)
-                }.getOrDefault(false)
+                        try {
+                            Files.move(
+                                partial.toPath(),
+                                checkpoint.toPath(),
+                                StandardCopyOption.ATOMIC_MOVE,
+                                StandardCopyOption.REPLACE_EXISTING,
+                            )
+                        } catch (_: AtomicMoveNotSupportedException) {
+                            Files.move(
+                                partial.toPath(),
+                                checkpoint.toPath(),
+                                StandardCopyOption.REPLACE_EXISTING,
+                            )
+                        }
+                        syncDirectory(directory)
+                        true
+                    }.onFailure { error ->
+                        Log.e(TAG, "Could not write keyboard capture checkpoint", error)
+                    }.getOrDefault(false)
+                }
             }
         }
 
         override suspend fun clearCheckpoint(audioSource: InlineAudioSource) {
             val fileSource = audioSource as? InlineAudioSource.PcmFloatFile ?: return
             withContext(NonCancellable + Dispatchers.IO) {
-                val checkpoint = checkpointFile(fileSource)
-                if (checkpoint.exists() && !checkpoint.delete()) {
-                    Log.w(TAG, "Could not clear keyboard capture checkpoint")
+                synchronized(checkpointLock) {
+                    markCheckpointTerminalLocked(checkpointKey(fileSource))
+                    deleteCheckpointFilesLocked(fileSource)
                 }
-                File(checkpoint.parentFile, "${checkpoint.name}.partial").delete()
             }
         }
 
@@ -344,28 +366,52 @@ class AppKeyboardInlineCapturePersistence
                 val captureDirectory = File(context.cacheDir, "keyboard-capture")
                 var recovered = 0
                 captureDirectory
+                    .listFiles { file -> file.isFile && file.name.endsWith("$CHECKPOINT_SUFFIX.partial") }
+                    .orEmpty()
+                    .forEach { partial ->
+                        if (!partial.delete()) Log.w(TAG, "Could not remove an incomplete keyboard checkpoint")
+                    }
+                captureDirectory
                     .listFiles { file -> file.isFile && file.name.endsWith(CHECKPOINT_SUFFIX) }
                     .orEmpty()
                     .forEach { checkpoint ->
+                        val recoveredSource =
+                            runCatching {
+                                val properties = Properties().apply { checkpoint.inputStream().use(::load) }
+                                require(properties.getProperty("version") == CHECKPOINT_VERSION)
+                                val audio = File(requireNotNull(properties.getProperty("audioPath"))).canonicalFile
+                                require(audio.parentFile == captureDirectory.canonicalFile)
+                                require(audio.isFile)
+                                val sampleRate = requireNotNull(properties.getProperty("sampleRate")).toInt()
+                                val trustedSamples =
+                                    requireNotNull(properties.getProperty("trustedSampleCount")).toLong()
+                                require(sampleRate in MIN_CHECKPOINT_SAMPLE_RATE..MAX_CHECKPOINT_SAMPLE_RATE)
+                                require(trustedSamples > 0L && trustedSamples <= audio.length() / java.lang.Float.BYTES)
+                                RecoveredCheckpoint(
+                                    source =
+                                        InlineAudioSource.PcmFloatFile(
+                                            path = audio.absolutePath,
+                                            sampleCount = trustedSamples,
+                                            sampleRate = sampleRate,
+                                        ),
+                                    rawText = properties.getProperty("partialTranscript")?.takeIf(String::isNotBlank),
+                                )
+                            }.getOrElse { error ->
+                                Log.e(TAG, "Discarding an invalid keyboard capture checkpoint", error)
+                                synchronized(checkpointLock) {
+                                    markCheckpointTerminalLocked(
+                                        runCatching { checkpoint.canonicalPath }
+                                            .getOrDefault(checkpoint.absolutePath)
+                                            .removeSuffix(CHECKPOINT_SUFFIX),
+                                    )
+                                    checkpoint.delete()
+                                }
+                                return@forEach
+                            }
                         runCatching {
-                            val properties = Properties().apply { checkpoint.inputStream().use(::load) }
-                            val audio = File(requireNotNull(properties.getProperty("audioPath"))).canonicalFile
-                            require(audio.parentFile == captureDirectory.canonicalFile)
-                            require(audio.isFile)
-                            val sampleRate = requireNotNull(properties.getProperty("sampleRate")).toInt()
-                            val trustedSamples =
-                                requireNotNull(properties.getProperty("trustedSampleCount")).toLong()
-                            require(sampleRate > 0 && trustedSamples > 0)
-                            require(audio.length() >= trustedSamples * java.lang.Float.BYTES)
-                            val rawText = properties.getProperty("partialTranscript")?.takeIf(String::isNotBlank)
                             persistAudioSource(
-                                audioSource =
-                                    InlineAudioSource.PcmFloatFile(
-                                        path = audio.absolutePath,
-                                        sampleCount = trustedSamples,
-                                        sampleRate = sampleRate,
-                                    ),
-                                rawText = rawText,
+                                audioSource = recoveredSource.source,
+                                rawText = recoveredSource.rawText,
                                 processedText = null,
                                 errorMessage = CHECKPOINT_RECOVERY_MESSAGE,
                                 reason = InlineCapturePersistReason.RESCUE,
@@ -426,6 +472,7 @@ class AppKeyboardInlineCapturePersistence
                     // is NOT a rescue and must respect the preference.
                     val isRescueEntry = reason == InlineCapturePersistReason.RESCUE
                     if (!isRescueEntry && !shouldPersistCaptures(keyboardPreferences)) {
+                        clearCheckpoint(source)
                         source.discardTemporaryFile()
                         sourceHandled = true
                         return@withContext
@@ -485,7 +532,10 @@ class AppKeyboardInlineCapturePersistence
         }
 
         override fun discardSamples() {
-            pendingAudioSource?.discardTemporaryFile()
+            pendingAudioSource?.let { source ->
+                discardCheckpointSynchronously(source)
+                source.discardTemporaryFile()
+            }
             pendingAudioSource = null
         }
 
@@ -493,18 +543,55 @@ class AppKeyboardInlineCapturePersistence
             if (pendingAudioSource == audioSource) {
                 pendingAudioSource = null
             }
+            discardCheckpointSynchronously(audioSource)
             audioSource.discardTemporaryFile()
         }
 
         private companion object {
             private const val TAG = "KeyboardCapturePersistence"
             private const val CHECKPOINT_SUFFIX = ".chirp-checkpoint"
+            private const val CHECKPOINT_VERSION = "1"
+            private const val MIN_CHECKPOINT_SAMPLE_RATE = 8_000
+            private const val MAX_CHECKPOINT_SAMPLE_RATE = 192_000
+            private const val MAX_TERMINAL_CHECKPOINT_PATHS = 256
             private const val CHECKPOINT_RECOVERY_MESSAGE =
                 "Dictation was interrupted; recovered the latest trusted audio and transcript checkpoint"
         }
 
         private fun checkpointFile(source: InlineAudioSource.PcmFloatFile): File =
             File("${source.path}$CHECKPOINT_SUFFIX")
+
+        private fun checkpointKey(source: InlineAudioSource.PcmFloatFile): String =
+            runCatching { File(source.path).canonicalPath }.getOrDefault(File(source.path).absolutePath)
+
+        private fun discardCheckpointSynchronously(source: InlineAudioSource) {
+            val fileSource = source as? InlineAudioSource.PcmFloatFile ?: return
+            synchronized(checkpointLock) {
+                markCheckpointTerminalLocked(checkpointKey(fileSource))
+                deleteCheckpointFilesLocked(fileSource)
+            }
+        }
+
+        private fun markCheckpointTerminalLocked(path: String) {
+            terminalCheckpointPaths.remove(path)
+            terminalCheckpointPaths += path
+            while (terminalCheckpointPaths.size > MAX_TERMINAL_CHECKPOINT_PATHS) {
+                terminalCheckpointPaths.remove(terminalCheckpointPaths.first())
+            }
+        }
+
+        private fun deleteCheckpointFilesLocked(source: InlineAudioSource.PcmFloatFile) {
+            val checkpoint = checkpointFile(source)
+            if (checkpoint.exists() && !checkpoint.delete()) {
+                Log.w(TAG, "Could not clear keyboard capture checkpoint")
+            }
+            File(checkpoint.parentFile, "${checkpoint.name}.partial").delete()
+        }
+
+        private data class RecoveredCheckpoint(
+            val source: InlineAudioSource.PcmFloatFile,
+            val rawText: String?,
+        )
     }
 
 @Singleton
