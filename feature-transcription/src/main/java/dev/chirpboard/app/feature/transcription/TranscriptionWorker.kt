@@ -25,6 +25,7 @@ import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
+import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.RecordingEnhancementIntent
@@ -426,10 +427,27 @@ class TranscriptionWorker
             if (!transcriberProvider.isReady() && !transcriberProvider.initialize()) {
                 throw RetryableTranscriptionException("Failed to re-initialize speech recognition model")
             }
-            val samples = collectContinuousSamples(audioPath, durationMs)
+            val audioFile = File(audioPath)
+            val fileOutcome =
+                if (audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {
+                    (transcriberProvider as? PcmFloatFileTranscriberProvider)?.transcribePcmFloatFile(
+                        path = audioPath,
+                        sampleCount = audioFile.length() / Float.SIZE_BYTES,
+                        sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
+                    )
+                } else {
+                    null
+                }
             val chunk =
                 mapOutcomeForChunkTranscription(
-                    transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE),
+                    if (fileOutcome is TranscriptionOutcome.Success || fileOutcome is TranscriptionOutcome.NoSpeech) {
+                        fileOutcome
+                    } else {
+                        transcriberProvider.transcribe(
+                            collectContinuousSamples(audioPath, durationMs),
+                            AudioDecoder.TARGET_SAMPLE_RATE,
+                        )
+                    },
                 )
             return JoinedChunkTranscription(chunk.text, chunk.wordTimings)
         }
@@ -507,6 +525,12 @@ class TranscriptionWorker
                         "continuous GGUF limit is ${MAX_CONTINUOUS_GGUF_AUDIO_MS}ms",
                 )
                 return false
+            }
+            if (
+                audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true) &&
+                transcriberProvider is PcmFloatFileTranscriberProvider
+            ) {
+                return true
             }
             val expectedBytes =
                 if (audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {

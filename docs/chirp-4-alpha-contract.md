@@ -7,6 +7,8 @@ This contract is a release gate. Performance work must not weaken content preser
 - Microphone capture starts independently of model loading.
 - Durable audio is the source of truth until final text is saved and delivered.
 - A continuous recording is decoded as one continuous utterance whenever the backend supports it.
+- File-backed continuous decoding may skip heap copies only when the source length is validated
+  against its declared sample count and failure preserves the source for recovery.
 - Overlapping chunks are a recovery path, not the primary transcript path.
 - A proven native memory ceiling may select chunk recovery before decoding; it must never risk
   process death or lost audio for an unbounded whole-file call.

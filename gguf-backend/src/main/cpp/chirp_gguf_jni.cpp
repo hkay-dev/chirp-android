@@ -1,8 +1,15 @@
 #include <jni.h>
 #include <android/log.h>
 
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <limits>
 #include <mutex>
 #include <string>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 #include "transcribe.h"
@@ -17,6 +24,30 @@ std::string g_last_error;
 void set_error(const char * operation, transcribe_status status) {
     g_last_error = std::string(operation) + ": " + transcribe_status_string(status);
     __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
+}
+
+void set_errno_error(const char * operation, int error_number = errno) {
+    g_last_error = std::string(operation) + ": " + std::strerror(error_number);
+    __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
+}
+
+jstring run_locked(JNIEnv * env, const float * pcm, int count, const char * operation) {
+    if (g_session == nullptr) {
+        g_last_error = "recognizer is not loaded";
+        return nullptr;
+    }
+
+    transcribe_run_params run_params;
+    transcribe_run_params_init(&run_params);
+    run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
+    const transcribe_status status = transcribe_run(g_session, pcm, count, &run_params);
+    if (status != TRANSCRIBE_OK) {
+        set_error(operation, status);
+        return nullptr;
+    }
+
+    const char * text = transcribe_full_text(g_session);
+    return env->NewStringUTF(text == nullptr ? "" : text);
 }
 
 void close_locked() {
@@ -55,14 +86,19 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
     }
 
     const transcribe_model * model = transcribe_get_model(g_session);
+    transcribe_capabilities capabilities;
+    transcribe_capabilities_init(&capabilities);
+    const bool capabilities_loaded =
+        transcribe_model_get_capabilities(model, &capabilities) == TRANSCRIBE_OK;
     __android_log_print(
         ANDROID_LOG_INFO,
         kTag,
-        "loaded model arch=%s variant=%s backend=%s threads=%d",
+        "loaded model arch=%s variant=%s backend=%s threads=%d streaming=%s",
         transcribe_model_arch_string(model),
         transcribe_model_variant_string(model),
         transcribe_model_backend(model),
-        threads);
+        threads,
+        capabilities_loaded && capabilities.supports_streaming ? "true" : "false");
     return JNI_TRUE;
 }
 
@@ -85,24 +121,64 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribe(
     jfloat * pcm = env->GetFloatArrayElements(samples, nullptr);
     if (pcm == nullptr) return nullptr;
 
-    if (g_session == nullptr) {
-        env->ReleaseFloatArrayElements(samples, pcm, JNI_ABORT);
-        g_last_error = "recognizer is not loaded";
-        return nullptr;
-    }
-
-    transcribe_run_params run_params;
-    transcribe_run_params_init(&run_params);
-    run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
-    const transcribe_status status = transcribe_run(g_session, pcm, count, &run_params);
+    jstring result = run_locked(env, pcm, count, "transcribe_run");
     env->ReleaseFloatArrayElements(samples, pcm, JNI_ABORT);
-    if (status != TRANSCRIBE_OK) {
-        set_error("transcribe_run", status);
+    return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribePcmFloatFile(
+    JNIEnv * env,
+    jobject,
+    jstring file_path,
+    jlong sample_count) {
+    if (file_path == nullptr || sample_count <= 0 ||
+        sample_count > std::numeric_limits<int>::max()) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_last_error = "invalid float PCM file request";
         return nullptr;
     }
 
-    const char * text = transcribe_full_text(g_session);
-    return env->NewStringUTF(text == nullptr ? "" : text);
+    std::lock_guard<std::mutex> lock(g_mutex);
+    const char * path = env->GetStringUTFChars(file_path, nullptr);
+    if (path == nullptr) return nullptr;
+    const int fd = open(path, O_RDONLY | O_CLOEXEC);
+    env->ReleaseStringUTFChars(file_path, path);
+    if (fd < 0) {
+        set_errno_error("open PCM file");
+        return nullptr;
+    }
+
+    const uint64_t expected_bytes = static_cast<uint64_t>(sample_count) * sizeof(float);
+    struct stat file_stat {};
+    if (fstat(fd, &file_stat) != 0) {
+        set_errno_error("stat PCM file");
+        close(fd);
+        return nullptr;
+    }
+    if (file_stat.st_size < 0 || static_cast<uint64_t>(file_stat.st_size) != expected_bytes) {
+        g_last_error = "float PCM file size does not match its declared sample count";
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
+        close(fd);
+        return nullptr;
+    }
+
+    void * mapping = mmap(nullptr, expected_bytes, PROT_READ, MAP_PRIVATE, fd, 0);
+    const int mmap_error = errno;
+    close(fd);
+    if (mapping == MAP_FAILED) {
+        set_errno_error("map PCM file", mmap_error);
+        return nullptr;
+    }
+    madvise(mapping, expected_bytes, MADV_SEQUENTIAL);
+
+    jstring result = run_locked(
+        env,
+        static_cast<const float *>(mapping),
+        static_cast<int>(sample_count),
+        "transcribe_run_file");
+    munmap(mapping, expected_bytes);
+    return result;
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL

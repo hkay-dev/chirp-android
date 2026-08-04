@@ -7,6 +7,7 @@ import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionCoordinator
@@ -437,12 +438,23 @@ class InlineTranscriptionCoordinatorImpl
                     audioSource.sampleRate.toLong() * SINGLE_UTTERANCE_MAX_SECONDS
             if (!continuousDecodeIsSafe) return transcribeChunked(audioSource)
 
+            val fileOutcome =
+                if (audioSource is InlineAudioSource.PcmFloatFile) {
+                    (transcriberProvider as? PcmFloatFileTranscriberProvider)?.transcribePcmFloatFile(
+                        path = audioSource.path,
+                        sampleCount = audioSource.sampleCount,
+                        sampleRate = audioSource.sampleRate,
+                    )
+                } else {
+                    null
+                }
             val continuous =
                 mapInlineTranscriptionOutcome(
-                    transcriberProvider.transcribe(
-                        audioSource.readAllSamples(),
-                        audioSource.sampleRate,
-                    ),
+                    fileOutcome
+                        ?: transcriberProvider.transcribe(
+                            audioSource.readAllSamples(),
+                            audioSource.sampleRate,
+                        ),
                 )
             if (continuous is InlineTranscriptionResolution.Success) return continuous
 

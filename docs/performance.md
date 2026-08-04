@@ -57,3 +57,17 @@ Longer recordings take the preserved-audio recovery path with 30-second chunks a
 overlap. The ceiling is a memory-safety gate based on the Galaxy S25 Ultra stress run. A 32:52
 whole-file call grew to about 5 GB RSS and Android killed the process, while the bounded recovery
 finished the same file with the model resident.
+
+## GGUF file-backed fast path
+
+Keyboard captures are durable little-endian float32 PCM files. The GGUF backend maps an eligible
+complete capture read-only and passes those pages straight to transcribe.cpp. This skips the
+one-second Java read loop, float reconstruction, whole-utterance `FloatArray`, and possible JNI
+array copy. The file length must match the declared sample count exactly. Any map or native decode
+failure keeps the file intact and falls back to the existing overlapping recovery path.
+
+The Galaxy S25 Ultra production cap remains four native decode threads. A controlled five-minute
+warm run at four threads completed in 37.2 seconds. An eight-thread run had not completed after 75
+seconds and grew beyond 2.1 GB native RSS, so higher parallelism was rejected. The 110M model
+advertises `streaming=false`; its continuous path is offline whole-utterance decode rather than a
+cache-aware native stream.

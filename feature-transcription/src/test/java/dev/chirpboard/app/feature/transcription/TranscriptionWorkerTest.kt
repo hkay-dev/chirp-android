@@ -21,6 +21,7 @@ import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionRequest
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
 import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
+import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
@@ -64,6 +65,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -862,6 +865,59 @@ class TranscriptionWorkerTest {
 
             assertTrue(result is ListenableWorker.Result.Success)
             assertEquals(listOf(sampleCount), receivedSizes)
+        }
+
+    @Test
+    fun `continuous backend maps raw float PCM directly`() =
+        runTest {
+            val sampleCount = AudioDecoder.TARGET_SAMPLE_RATE
+            val rawFile = temporaryFolder.newFile("capture.f32pcm")
+            rawFile.writeBytes(
+                ByteBuffer
+                    .allocate(sampleCount * Float.SIZE_BYTES)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .array(),
+            )
+            stubOwnedRecording(audioPathOverride = rawFile.absolutePath, durationMs = 1_000L)
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = any(),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+            var fileCalls = 0
+            var arrayCalls = 0
+            val directProvider =
+                object : TranscriberProvider, ContinuousAudioTranscriberPreference, PcmFloatFileTranscriberProvider {
+                    override fun prefersContinuousAudio(): Boolean = true
+                    override fun isReady(): Boolean = true
+                    override fun isModelDownloaded(): Boolean = true
+                    override suspend fun initialize(): Boolean = true
+                    override suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome {
+                        arrayCalls++
+                        return TranscriptionOutcome.Success("array transcript")
+                    }
+                    override suspend fun transcribePcmFloatFile(
+                        path: String,
+                        sampleCount: Long,
+                        sampleRate: Int,
+                    ): TranscriptionOutcome {
+                        assertEquals(rawFile.absolutePath, path)
+                        assertEquals(16_000L, sampleCount)
+                        fileCalls++
+                        return TranscriptionOutcome.Success("mapped transcript")
+                    }
+                    override suspend fun release() = Unit
+                }
+
+            val result = worker(provider = directProvider).doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            assertEquals(1, fileCalls)
+            assertEquals(0, arrayCalls)
         }
 
     @Test

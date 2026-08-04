@@ -13,6 +13,9 @@ class GgufNativeRecognizer {
 
     fun transcribe(samples: FloatArray): String? = nativeTranscribe(samples)
 
+    fun transcribePcmFloatFile(path: String, sampleCount: Long): String? =
+        nativeTranscribePcmFloatFile(path, sampleCount)
+
     fun transcribeBatch(samples: Array<FloatArray>): Array<String>? = nativeTranscribeBatch(samples)
 
     fun lastError(): String = nativeLastError()
@@ -24,6 +27,8 @@ class GgufNativeRecognizer {
     private external fun nativeIsLoaded(): Boolean
 
     private external fun nativeTranscribe(samples: FloatArray): String?
+
+    private external fun nativeTranscribePcmFloatFile(path: String, sampleCount: Long): String?
 
     private external fun nativeTranscribeBatch(samples: Array<FloatArray>): Array<String>?
 

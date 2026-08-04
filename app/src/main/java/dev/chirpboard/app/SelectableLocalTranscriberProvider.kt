@@ -9,6 +9,7 @@ import dev.chirpboard.app.core.transcription.LocalSpeechModelDeletionGuard
 import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
+import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.di.SherpaRecognizerProvider
 import dev.chirpboard.app.download.ModelDownloader
@@ -29,7 +30,8 @@ class SelectableLocalTranscriberProvider(
 ) : TranscriberProvider,
     LocalSpeechModelActivator,
     LocalSpeechModelDeletionGuard,
-    ContinuousAudioTranscriberPreference {
+    ContinuousAudioTranscriberPreference,
+    PcmFloatFileTranscriberProvider {
     private val switchMutex = Mutex()
     private val sherpa = SherpaRecognizerProvider(context.applicationContext, downloader)
     private val gguf = GgufRecognizerProvider(downloader)
@@ -52,6 +54,21 @@ class SelectableLocalTranscriberProvider(
             if (selectionStore.selectedModel.value != modelAtStart) {
                 activeProvider.release()
             }
+        }
+    }
+
+    override suspend fun transcribePcmFloatFile(
+        path: String,
+        sampleCount: Long,
+        sampleRate: Int,
+    ): TranscriptionOutcome? {
+        val modelAtStart = selectionStore.selectedModel.value
+        val activeProvider = provider(modelAtStart)
+        val fileProvider = activeProvider as? PcmFloatFileTranscriberProvider ?: return null
+        return try {
+            fileProvider.transcribePcmFloatFile(path, sampleCount, sampleRate)
+        } finally {
+            if (selectionStore.selectedModel.value != modelAtStart) activeProvider.release()
         }
     }
 

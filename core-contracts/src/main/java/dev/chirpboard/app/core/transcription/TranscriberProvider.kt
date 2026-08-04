@@ -45,6 +45,20 @@ interface ContinuousAudioTranscriberPreference {
 }
 
 /**
+ * Optional fast path for a complete little-endian float32 PCM file.
+ *
+ * Returning null means the active backend cannot consume the file directly. Callers must keep
+ * their existing sample-array path as the fallback.
+ */
+interface PcmFloatFileTranscriberProvider {
+    suspend fun transcribePcmFloatFile(
+        path: String,
+        sampleCount: Long,
+        sampleRate: Int = 16000,
+    ): TranscriptionOutcome?
+}
+
+/**
  * Optional low-latency first pass used only for visible partial text. Implementations must own
  * separate model and synchronization state from [TranscriberProvider] so preview work can never
  * queue the authoritative final decode.

@@ -5,6 +5,7 @@ import android.util.Log
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
+import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
@@ -98,6 +99,43 @@ internal class GgufRecognizer(
             }
         }
 
+    suspend fun transcribePcmFloatFile(
+        path: String,
+        sampleCount: Long,
+        sampleRate: Int,
+    ): TranscriptionOutcome =
+        withContext(Dispatchers.Default) {
+            mutex.withLock {
+                if (sampleRate != VoiceRecorder.SAMPLE_RATE) {
+                    return@withLock TranscriptionOutcome.EngineError(
+                        reason = "GGUF transcription requires 16 kHz audio",
+                        retryable = false,
+                    )
+                }
+                val engine =
+                    native ?: return@withLock TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+                val started = SystemClock.elapsedRealtime()
+                val text = engine.transcribePcmFloatFile(path, sampleCount)
+                val elapsed = SystemClock.elapsedRealtime() - started
+                val audioMs = sampleCount * 1_000L / sampleRate
+                val rtf = if (audioMs > 0) elapsed.toDouble() / audioMs else 0.0
+                Log.i(
+                    GGUF_TAG,
+                    "backend=gguf-parakeet-110m-q8 phase=decode source=mmap audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
+                )
+                when {
+                    text == null ->
+                        TranscriptionOutcome.EngineError(
+                            engine.lastError().ifBlank { "GGUF transcription failed" },
+                            retryable = true,
+                        )
+
+                    text.isBlank() -> TranscriptionOutcome.NoSpeech
+                    else -> TranscriptionOutcome.Success(text.trim(), wordTimings = null)
+                }
+            }
+        }
+
     private suspend fun transcribeRecoveryChunks(
         engine: GgufNativeRecognizer,
         samples: FloatArray,
@@ -166,7 +204,7 @@ internal object GgufRecognizerManager {
 
 class GgufRecognizerProvider(
     private val downloader: ModelDownloader,
-) : TranscriberProvider, ContinuousAudioTranscriberPreference {
+) : TranscriberProvider, ContinuousAudioTranscriberPreference, PcmFloatFileTranscriberProvider {
     override fun prefersContinuousAudio(): Boolean = true
 
     override fun isReady(): Boolean = GgufRecognizerManager.isResident()
@@ -182,6 +220,19 @@ class GgufRecognizerProvider(
                     ?: (if (initialize()) GgufRecognizerManager.peekReadyRecognizer() else null)
                     ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
             recognizer.transcribe(samples, sampleRate)
+        }
+
+    override suspend fun transcribePcmFloatFile(
+        path: String,
+        sampleCount: Long,
+        sampleRate: Int,
+    ): TranscriptionOutcome =
+        GgufRecognizerManager.withUsageLease {
+            val recognizer =
+                GgufRecognizerManager.peekReadyRecognizer()
+                    ?: (if (initialize()) GgufRecognizerManager.peekReadyRecognizer() else null)
+                    ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+            recognizer.transcribePcmFloatFile(path, sampleCount, sampleRate)
         }
 
     override suspend fun release() {

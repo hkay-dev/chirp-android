@@ -12,6 +12,7 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
+import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.entity.WordReplacement
@@ -138,6 +139,66 @@ class InlineTranscriptionCoordinatorImplTest {
         )
         assertEquals("chunk1 ", committed)
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun `file capable backend bypasses the sample array copy`() = runTest {
+        val sampleCount = 32_000
+        val file = temporaryFolder.newFile("mapped-dictation.f32pcm")
+        writeFloatPcm(file, sampleCount)
+        var fileCalls = 0
+        var arrayCalls = 0
+        val fileProvider =
+            object : TranscriberProvider, PcmFloatFileTranscriberProvider {
+                override fun isReady(): Boolean = true
+
+                override fun isModelDownloaded(): Boolean = true
+
+                override suspend fun initialize(): Boolean = true
+
+                override suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome {
+                    arrayCalls++
+                    return TranscriptionOutcome.Success("array")
+                }
+
+                override suspend fun transcribePcmFloatFile(
+                    path: String,
+                    sampleCount: Long,
+                    sampleRate: Int,
+                ): TranscriptionOutcome {
+                    assertEquals(file.absolutePath, path)
+                    assertEquals(32_000L, sampleCount)
+                    assertEquals(16_000, sampleRate)
+                    fileCalls++
+                    return TranscriptionOutcome.Success("mapped")
+                }
+
+                override suspend fun release() = Unit
+            }
+        coordinator =
+            InlineTranscriptionCoordinatorImpl(
+                fileProvider,
+                textEnhancement,
+                readinessGate,
+                wordReplacementRepository,
+                WordReplacer(),
+            )
+
+        var committed = ""
+        coordinator.transcribe(
+            request =
+                InlineTranscriptionRequest(
+                    audioSource = InlineAudioSource.PcmFloatFile(file.absolutePath, sampleCount.toLong()),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                ),
+            persistence = CapturingPersistence(),
+            commitText = { committed = it },
+        )
+
+        assertEquals("mapped ", committed)
+        assertEquals(1, fileCalls)
+        assertEquals(0, arrayCalls)
     }
 
     @Test
