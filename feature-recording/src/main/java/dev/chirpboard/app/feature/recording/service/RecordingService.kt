@@ -7,6 +7,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import dagger.hilt.android.AndroidEntryPoint
@@ -1359,11 +1360,26 @@ class RecordingService : Service() {
     private fun startAmplitudeCollection() {
         amplitudeJob =
             serviceScope.launch {
+                val engine = segmentCapture
+                val progressWatchdog = RecordingCaptureProgressWatchdog()
+                var nextProgressCheckAtMs = SystemClock.elapsedRealtime()
                 while (isActive) {
                     try {
                         val maxAmplitude = segmentCapture?.maxAmplitude ?: 0
                         val normalized = (maxAmplitude / 32767f).coerceIn(0f, 1f)
                         recordingStateManager.updateAmplitude(normalized)
+                        val nowMs = SystemClock.elapsedRealtime()
+                        if (nowMs >= nextProgressCheckAtMs) {
+                            nextProgressCheckAtMs = nowMs + CAPTURE_PROGRESS_CHECK_INTERVAL_MS
+                            val capturedBytes = engine?.capturedAudioBytes
+                            if (capturedBytes != null && progressWatchdog.observe(capturedBytes, nowMs)) {
+                                onCaptureEngineError(
+                                    engine,
+                                    GaplessCaptureError("Audio capture stopped making progress"),
+                                )
+                                return@launch
+                            }
+                        }
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -1608,6 +1624,7 @@ class RecordingService : Service() {
     companion object {
         private const val TAG = "RecordingService"
         private const val CAPTURE_STOP_TIMEOUT_MS = 30_000L
+        private const val CAPTURE_PROGRESS_CHECK_INTERVAL_MS = 1_000L
         private const val FILENAME_UNIQUE_SUFFIX_LENGTH = 8
         private const val STOP_WAKELOCK_TAG = "chirpboard:stop-finalize"
 

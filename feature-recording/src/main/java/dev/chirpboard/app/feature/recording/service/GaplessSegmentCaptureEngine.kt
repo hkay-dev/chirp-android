@@ -58,6 +58,10 @@ interface GaplessSegmentCaptureEngine {
     /** Pushes the active segment's bytes to stable storage. */
     fun checkpointDurability(): Boolean = true
 
+    /** Monotonic PCM payload bytes captured by this live engine. */
+    val capturedAudioBytes: Long?
+        get() = null
+
     fun releaseWithoutSave()
 
     /**

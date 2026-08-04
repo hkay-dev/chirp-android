@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
@@ -53,6 +54,7 @@ class GaplessWavSegmentCapture(
     private var captureThread: Thread? = null
     private var currentSegmentFile: File? = null
     private val recentMaxAmplitude = AtomicInteger(0)
+    private val capturedBytes = AtomicLong(0L)
 
     /**
      * Token of the live session's active-device publication (from [AudioCaptureSession]),
@@ -72,6 +74,9 @@ class GaplessWavSegmentCapture(
 
     override val maxAmplitude: Int
         get() = recentMaxAmplitude.get()
+
+    override val capturedAudioBytes: Long
+        get() = capturedBytes.get()
 
     /**
      * The live capture session's active-device publication token, for service teardown
@@ -115,6 +120,7 @@ class GaplessWavSegmentCapture(
                     // registered, leaking the selector's per-record entry (MIC-013).
                     inputDeviceSelector.observeRouting(session.record)
                     captureThreadWedged.set(false)
+                    capturedBytes.set(0L)
                     running.set(true)
                     paused.set(false)
                     startCaptureThreadLocked()
@@ -394,6 +400,7 @@ class GaplessWavSegmentCapture(
                     writer?.appendPcm16(buffer, read)
                     maybeRotateLocked()
                 }
+                capturedBytes.addAndGet(read.toLong())
                 silentBytesRun = if (peak == 0) silentBytesRun + read else 0L
                 val nowSilenced = silentBytesRun >= silenceWarningBytes
                 if (nowSilenced != silenceNotified) {
@@ -433,6 +440,7 @@ class GaplessWavSegmentCapture(
             if (read <= 0) return
             processBuffer(buffer, read)
             synchronized(lock) { writer?.appendPcm16(buffer, read) }
+            capturedBytes.addAndGet(read.toLong())
         }
     }
 
