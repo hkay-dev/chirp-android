@@ -151,7 +151,7 @@ fun AboutScreen(onNavigateBack: () -> Unit) {
                         title = stringResource(R.string.about_open_source_title),
                         subtitle = stringResource(R.string.about_open_source_subtitle),
                         onClick = {
-                            openUrl(context, "https://github.com/k2-fsa/sherpa-onnx")
+                            openUrl(context, context.getString(R.string.about_open_source_url))
                         },
                     )
 

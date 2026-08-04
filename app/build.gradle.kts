@@ -71,6 +71,22 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
+
+        create("ggufTrial") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".gguftrial"
+            versionNameSuffix = "-gguf-trial"
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "GGUF_TRIAL", "true")
+        }
+
+        getByName("debug") {
+            buildConfigField("boolean", "GGUF_TRIAL", "false")
+        }
+
+        getByName("release") {
+            buildConfigField("boolean", "GGUF_TRIAL", "false")
+        }
     }
 
     compileOptions {
@@ -109,6 +125,13 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().withBuildType("ggufTrial")) { variant ->
+        variant.packaging.jniLibs.excludes.add("**/libsherpa-onnx-jni.so")
+        variant.packaging.jniLibs.excludes.add("**/libonnxruntime.so")
+    }
+}
+
 dependencies {
     baselineProfile(project(":baseline-profile"))
 
@@ -128,6 +151,7 @@ dependencies {
 
     // Sherpa-ONNX for speech recognition (local AAR)
     implementation(files("libs/sherpa-onnx-1.12.19.aar"))
+    "ggufTrialImplementation"(project(":gguf-backend"))
 
     // Compose - latest stable
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))

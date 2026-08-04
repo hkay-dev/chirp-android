@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.StatFs
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import dev.chirpboard.app.BuildConfig
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
@@ -27,16 +28,20 @@ import java.util.concurrent.TimeUnit
 
 class ModelDownloader(
     private val context: Context,
-    private val modelFiles: List<ModelFile> = MODEL_FILES,
-    private val modelDirProvider: (Context) -> File = { ensureModelDir(it) },
-    private val legacyModelDirProvider: (Context) -> File = { ctx -> File(ctx.filesDir, "models/$MODEL_DIR") },
-    private val baseUrl: String = BASE_URL,
+    private val modelFiles: List<ModelFile> = configuredModelFiles(),
+    private val modelDirProvider: (Context) -> File = { ensureConfiguredModelDir(it) },
+    private val legacyModelDirProvider: (Context) -> File = { ctx -> configuredInternalModelDir(ctx) },
+    private val baseUrl: String = configuredBaseUrl(),
     private val availableBytesProvider: (File) -> Long = ::defaultAvailableBytes,
 ) : SpeechModelStore {
     companion object {
         private const val TAG = "ModelDownloader"
         private const val MODEL_DIR = "parakeet-tdt-0.6b-v2"
         private const val BASE_URL = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/resolve/main"
+        internal const val GGUF_MODEL_DIR = "parakeet-tdt-ctc-110m-q8"
+        internal const val GGUF_MODEL_FILE = "parakeet-tdt_ctc-110m-Q8_0.gguf"
+        private const val GGUF_BASE_URL =
+            "https://huggingface.co/handy-computer/parakeet-tdt_ctc-110m-gguf/resolve/main"
         internal const val VERIFICATION_PREFS_NAME = "model_verification_cache"
 
         private const val MIN_STORAGE_BUFFER_BYTES = 50L * 1024L * 1024L
@@ -70,6 +75,14 @@ class ModelDownloader(
                     name = "tokens.txt",
                     expectedSize = 9_384L,
                     expectedSha256 = "ec182b70dd42113aff6c5372c75cac58c952443eb22322f57bbd7f53977d497d",
+                ),
+            )
+        private val GGUF_MODEL_FILES =
+            listOf(
+                ModelFile(
+                    name = GGUF_MODEL_FILE,
+                    expectedSize = 135_373_280L,
+                    expectedSha256 = "7dd44c74a331d788a4e5f8b16913b3feb29ced22cf5613aad0e0f6cd30516296",
                 ),
             )
         internal val REQUIRED_MODEL_FILE_NAMES = MODEL_FILES.map { it.name }
@@ -106,6 +119,28 @@ class ModelDownloader(
             Log.w(TAG, "Cannot write to persistent path ${persistentDir.absolutePath}, falling back to internal")
             return File(context.filesDir, "models/$MODEL_DIR")
         }
+
+        private fun configuredModelFiles(): List<ModelFile> =
+            if (BuildConfig.GGUF_TRIAL) GGUF_MODEL_FILES else MODEL_FILES
+
+        private fun configuredBaseUrl(): String =
+            if (BuildConfig.GGUF_TRIAL) GGUF_BASE_URL else BASE_URL
+
+        private fun configuredModelDirName(): String =
+            if (BuildConfig.GGUF_TRIAL) GGUF_MODEL_DIR else MODEL_DIR
+
+        private fun ensureConfiguredModelDir(context: Context): File {
+            val docsDir =
+                android.os.Environment.getExternalStoragePublicDirectory(
+                    android.os.Environment.DIRECTORY_DOCUMENTS,
+                )
+            val persistentDir = File(docsDir, ".chirpboard/models/${configuredModelDirName()}")
+            if (persistentDir.exists() || persistentDir.mkdirs()) return persistentDir
+            return configuredInternalModelDir(context)
+        }
+
+        private fun configuredInternalModelDir(context: Context): File =
+            File(context.filesDir, "models/${configuredModelDirName()}")
 
         internal fun hasCompleteModelDirectory(path: File): Boolean =
             REQUIRED_MODEL_FILE_NAMES.all { name -> File(path, name).exists() }
@@ -178,6 +213,14 @@ class ModelDownloader(
     }
 
     fun isModelDownloaded(): Boolean = evaluateModelReadiness().isReady
+
+    internal fun resolvedGgufModelFile(): File? {
+        if (!BuildConfig.GGUF_TRIAL) return null
+        val persistent = File(modelDirProvider(context), GGUF_MODEL_FILE)
+        if (persistent.exists()) return persistent
+        val internal = File(legacyModelDirProvider(context), GGUF_MODEL_FILE)
+        return internal.takeIf(File::exists)
+    }
 
     internal fun evaluateModelReadiness(): ModelReadinessEvaluation {
         val modelPath = modelDirProvider(context)

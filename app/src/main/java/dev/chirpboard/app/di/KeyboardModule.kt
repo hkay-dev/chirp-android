@@ -1,6 +1,8 @@
 package dev.chirpboard.app.di
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,13 +36,13 @@ object KeyboardModule {
     fun provideTranscriberProvider(
         @ApplicationContext context: Context,
         modelDownloader: ModelDownloader,
-    ): TranscriberProvider = SherpaRecognizerProvider(context, modelDownloader)
+    ): TranscriberProvider = BuildTranscriberFactory.create(context, modelDownloader)
 
     @Provides
     @Singleton
     fun provideStreamingTranscriberProvider(
         @ApplicationContext context: Context,
-    ): StreamingTranscriberProvider = StreamingSherpaRecognizerProvider(context)
+    ): StreamingTranscriberProvider = BuildTranscriberFactory.createStreaming(context)
 }
 
 /**
@@ -58,7 +60,12 @@ class SherpaRecognizerProvider(
     override fun isModelDownloaded(): Boolean = downloader.isModelDownloaded()
 
     override suspend fun initialize(): Boolean {
+        val started = SystemClock.elapsedRealtime()
         val success = RecognizerManager.initializeRecognizer(context.applicationContext)
+        Log.i(
+            "SherpaRecognizerProvider",
+            "benchmark backend=sherpa-parakeet-600m-int8 phase=load elapsedMs=${SystemClock.elapsedRealtime() - started} success=$success",
+        )
         recognizer =
             if (success) {
                 RecognizerManager.peekReadyRecognizer()
@@ -91,7 +98,16 @@ class SherpaRecognizerProvider(
                 readyRecognizer()
                     ?: rewarmedRecognizer()
                     ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
-            activeRecognizer.transcribeOutcome(samples, sampleRate)
+            val started = SystemClock.elapsedRealtime()
+            val outcome = activeRecognizer.transcribeOutcome(samples, sampleRate)
+            val elapsed = SystemClock.elapsedRealtime() - started
+            val audioMs = if (sampleRate > 0) samples.size * 1_000L / sampleRate else 0L
+            val rtf = if (audioMs > 0) elapsed.toDouble() / audioMs else 0.0
+            Log.i(
+                "SherpaRecognizerProvider",
+                "benchmark backend=sherpa-parakeet-600m-int8 phase=decode audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
+            )
+            outcome
         }
 
     /**

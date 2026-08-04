@@ -202,6 +202,7 @@
          rather than implying a full OSS-licenses screen. -->
     <string name="about_open_source_title">On-device speech model (sherpa-onnx)</string>
     <string name="about_open_source_subtitle">View the sherpa-onnx project on GitHub</string>
+    <string name="about_open_source_url" translatable="false">https://github.com/k2-fsa/sherpa-onnx</string>
     <string name="about_footer">Made with care</string>
     <string name="cancel">Cancel</string>
     <string name="desc_select_mode">Select mode</string>
