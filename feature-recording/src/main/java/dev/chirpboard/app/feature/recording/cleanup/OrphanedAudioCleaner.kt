@@ -294,7 +294,7 @@ class OrphanedAudioCleaner
 
         companion object {
             private const val TAG = "OrphanedAudioCleaner"
-            internal val ORPHAN_EXTENSIONS = setOf("m4a", "wav", "mp3")
+            internal val ORPHAN_EXTENSIONS = setOf("m4a", "wav", "mp3", "f32pcm")
             internal const val QUARANTINE_DIR_NAME = ".quarantine"
             private const val DEFAULT_ORPHAN_GRACE_MS = 5 * 60 * 1000L
             private const val UNKNOWN_LARGE_ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000L

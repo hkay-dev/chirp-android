@@ -5,8 +5,13 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RepositoryFlowState
@@ -18,7 +23,9 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.runs
 import io.mockk.unmockkObject
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -28,6 +35,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.File
+import java.io.RandomAccessFile
 import java.util.UUID
 
 @kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,12 +47,14 @@ class TranscriptionQueueManagerTest {
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var constraintChecker: WorkConstraintChecker
     private lateinit var manager: TranscriptionQueueManager
+    private lateinit var transcriptionRoutingStore: TranscriptionRoutingStore
     private lateinit var workScheduler: FakeTranscriptionWorkScheduler
 
     @Before
     fun setup() {
         recordingRepository = mockk(relaxed = true)
         constraintChecker = mockk(relaxed = true)
+        transcriptionRoutingStore = mockk(relaxed = true)
         workScheduler = FakeTranscriptionWorkScheduler()
 
         mockkObject(ReliabilityEventLogger)
@@ -64,6 +75,7 @@ class TranscriptionQueueManagerTest {
                 transcriberProvider = mockk(relaxed = true),
                 readinessGate = readinessGate,
                 workScheduler = workScheduler,
+                transcriptionRoutingStore = transcriptionRoutingStore,
             )
     }
 
@@ -85,6 +97,69 @@ class TranscriptionQueueManagerTest {
     }
 
     @Test
+    fun `cloud enqueue requires a network connection`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.getRecording(id) } returns
+            Recording(
+                id = id,
+                title = "Cloud dictation",
+                audioPath = "/tmp/cloud.wav",
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+                transcriptionEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+            )
+
+        manager.enqueue(id)
+
+        assertEquals(true, workScheduler.transcriptions.single().requiresNetwork)
+    }
+
+    @Test
+    fun `cloud enqueue over the duration limit can start offline`() = runTest {
+        val id = UUID.randomUUID()
+        coEvery { recordingRepository.getRecording(id) } returns
+            Recording(
+                id = id,
+                title = "Long cloud dictation",
+                audioPath = "/tmp/long-cloud.wav",
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+                durationMs = GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS + 1,
+                transcriptionEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+            )
+
+        manager.enqueue(id)
+
+        assertEquals(false, workScheduler.transcriptions.single().requiresNetwork)
+    }
+
+    @Test
+    fun `cloud enqueue over the file size limit can start offline`() = runTest {
+        val id = UUID.randomUUID()
+        val oversizedAudio = File.createTempFile("chirp-oversized-cloud-", ".wav")
+        try {
+            RandomAccessFile(oversizedAudio, "rw").use { file ->
+                file.setLength(GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES + 1)
+            }
+            coEvery { recordingRepository.getRecording(id) } returns
+                Recording(
+                    id = id,
+                    title = "Oversized cloud dictation",
+                    audioPath = oversizedAudio.absolutePath,
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    source = RecordingSource.KEYBOARD,
+                    transcriptionEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+                )
+
+            manager.enqueue(id)
+
+            assertEquals(false, workScheduler.transcriptions.single().requiresNetwork)
+        } finally {
+            oversizedAudio.delete()
+        }
+    }
+
+    @Test
     fun `enqueue skips scheduling when claim is rejected`() = runTest {
         val id = UUID.randomUUID()
         coEvery { recordingRepository.claimTranscriptionExecution(id, any(), any(), any()) } returns false
@@ -99,6 +174,7 @@ class TranscriptionQueueManagerTest {
         val id = UUID.randomUUID()
         val recording = mockk<Recording>()
         every { recording.status } returns RecordingStatus.FAILED
+        every { recording.transcriptionEngineId } returns TranscriptionEngine.LOCAL_PARAKEET.id
         coEvery { recordingRepository.getRecording(id) } returns recording
         coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns false
         coEvery { recordingRepository.claimTranscriptionExecution(id, any(), any(), any()) } returns false
@@ -131,6 +207,7 @@ class TranscriptionQueueManagerTest {
         val id = UUID.randomUUID()
         val recording = mockk<Recording>()
         every { recording.status } returns RecordingStatus.FAILED
+        every { recording.transcriptionEngineId } returns TranscriptionEngine.LOCAL_PARAKEET.id
         coEvery { recordingRepository.getRecording(id) } returns recording
         coEvery { recordingRepository.hasUnresolvedEnhancementSnapshot(id) } returns false
 
@@ -208,6 +285,7 @@ class TranscriptionQueueManagerTest {
         every { recording.status } returns RecordingStatus.FAILED
         every { recording.errorMessage } returns
             "startForegroundService() not allowed due to mAllowStartForeground false: service dev.chirpboard.app/androidx.work.impl.foreground.SystemForegroundService"
+        every { recording.transcriptionEngineId } returns TranscriptionEngine.LOCAL_PARAKEET.id
 
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(emptyList()))
@@ -279,7 +357,52 @@ class TranscriptionQueueManagerTest {
         manager.enqueue(id)
 
         coVerify(exactly = 0) { recordingRepository.claimTranscriptionExecution(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { transcriptionRoutingStore.getSelectedEngine() }
+        coVerify(exactly = 0) { recordingRepository.stampTranscriptionEngineIfUnset(any(), any()) }
         assertEquals(emptyList<String>(), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `manual retranscription stamps a route after auto transcribe parked the row`() = runTest {
+        val id = UUID.randomUUID()
+        val parkedRecording =
+            Recording(
+                id = id,
+                title = "Parked dictation",
+                audioPath = "/tmp/parked.wav",
+                status = RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+            )
+        val routedRecording =
+            parkedRecording.copy(
+                transcriptionEngineId = TranscriptionEngine.LOCAL_PARAKEET.id,
+            )
+        coEvery { recordingRepository.isAutoTranscribeEnabled(id) } returns false
+        coEvery { recordingRepository.markAwaitingManualTranscription(id) } returns true
+        coEvery { recordingRepository.getRecording(id) } returns parkedRecording
+        coEvery { transcriptionRoutingStore.getSelectedEngine() } returns
+            TranscriptionEngine.LOCAL_PARAKEET
+        coEvery {
+            recordingRepository.stampTranscriptionEngineIfUnset(
+                id,
+                TranscriptionEngine.LOCAL_PARAKEET.id,
+            )
+        } returns routedRecording
+        coEvery { recordingRepository.claimRetranscriptionExecution(id, any()) } returns true
+
+        manager.enqueue(id)
+        coVerify(exactly = 0) { recordingRepository.stampTranscriptionEngineIfUnset(any(), any()) }
+
+        val result = manager.retranscribe(id)
+
+        assertEquals(ManualRecoveryResult.ENQUEUED, result)
+        coVerify(exactly = 1) {
+            recordingRepository.stampTranscriptionEngineIfUnset(
+                id,
+                TranscriptionEngine.LOCAL_PARAKEET.id,
+            )
+        }
+        assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
     }
 
     @Test
@@ -294,6 +417,84 @@ class TranscriptionQueueManagerTest {
             recordingRepository.claimTranscriptionExecution(id, any(), RecordingStatus.PENDING_TRANSCRIPTION, null)
         }
         assertEquals(listOf(TranscriptionWorkRequest.workName(id)), workScheduler.transcriptions.map { it.workName })
+    }
+
+    @Test
+    fun `manager and reconciler serialize execution claims through scheduling`() = runTest {
+        val directId = UUID.randomUUID()
+        val reconciledId = UUID.randomUUID()
+        val directRecording =
+            Recording(
+                id = directId,
+                title = "Direct enqueue",
+                audioPath = "/tmp/direct.wav",
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+                transcriptionEngineId = TranscriptionEngine.LOCAL_PARAKEET.id,
+            )
+        val pendingRecording =
+            Recording(
+                id = reconciledId,
+                title = "Reconciled enqueue",
+                audioPath = "/tmp/reconciled.wav",
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+                transcriptionEngineId = TranscriptionEngine.LOCAL_PARAKEET.id,
+            )
+        coEvery { recordingRepository.getRecording(directId) } returns directRecording
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns
+            flowOf(RepositoryFlowState(listOf(pendingRecording)))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        workScheduler.uniqueWorkInfos[TranscriptionWorkRequest.workName(reconciledId)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.CANCELLED))
+
+        val firstClaimStarted = CompletableDeferred<Unit>()
+        val releaseFirstClaim = CompletableDeferred<Unit>()
+        val claimOrder = mutableListOf<UUID>()
+        coEvery {
+            recordingRepository.claimTranscriptionExecution(any(), any(), any(), any())
+        } coAnswers {
+            val recordingId = firstArg<UUID>()
+            claimOrder += recordingId
+            if (recordingId == directId) {
+                firstClaimStarted.complete(Unit)
+                releaseFirstClaim.await()
+            }
+            true
+        }
+
+        val reconciler =
+            TranscriptionQueueReconciler(
+                recordingRepository = recordingRepository,
+                constraintChecker = constraintChecker,
+                workScheduler = workScheduler,
+                transcriptionRoutingStore = transcriptionRoutingStore,
+                setConstraintWarning = {},
+                setActiveCount = {},
+            )
+        val directEnqueue = launch { manager.enqueue(directId) }
+        firstClaimStarted.await()
+        val reconciliation =
+            launch { reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC) }
+        runCurrent()
+
+        assertEquals(listOf(directId), claimOrder)
+        assertEquals(emptyList<UUID>(), workScheduler.transcriptions.map { it.recordingId })
+
+        releaseFirstClaim.complete(Unit)
+        directEnqueue.join()
+        reconciliation.join()
+
+        assertEquals(listOf(directId, reconciledId), claimOrder)
+        assertEquals(
+            listOf(directId, reconciledId),
+            workScheduler.transcriptions.map { it.recordingId },
+        )
     }
 
     @Test
@@ -365,6 +566,7 @@ class TranscriptionQueueManagerTest {
             transcriberProvider = mockk(relaxed = true),
             readinessGate = readinessGate,
             workScheduler = workScheduler,
+            transcriptionRoutingStore = mockk<TranscriptionRoutingStore>(relaxed = true),
         )
     }
 

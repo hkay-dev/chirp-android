@@ -486,6 +486,28 @@ object Migrations {
     }
 
     /**
+     * Adds the durable routing snapshot used by background keyboard dictation and cloud
+     * transcription. Existing rows are pinned to the local engine so installing this version
+     * cannot reroute an already queued recording. Ready notifications and enhancement request
+     * snapshots stay off for them.
+     */
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE recordings ADD COLUMN transcriptionEngineId TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN requestedProcessingModeId TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN requestedLlmProviderId TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN requestedLlmModelId TEXT DEFAULT NULL")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN notifyWhenReady INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN terminalNotificationPending INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE recordings ADD COLUMN enhancementRequestSnapshotted INTEGER NOT NULL DEFAULT 0")
+            db.execSQL(
+                "UPDATE recordings SET transcriptionEngineId = 'local_parakeet' " +
+                    "WHERE transcriptionEngineId IS NULL",
+            )
+        }
+    }
+
+    /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
@@ -501,6 +523,7 @@ object Migrations {
             MIGRATION_8_9,
             MIGRATION_9_10,
             MIGRATION_10_11,
+            MIGRATION_11_12,
         )
     // Example migration template (uncomment and modify when needed):
     /*

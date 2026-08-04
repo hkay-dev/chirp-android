@@ -92,6 +92,22 @@ class OrphanedAudioCleanerTest {
         }
 
     @Test
+    fun cleanOrphanedFiles_deletesWorkerLeftoverRawPcmAfterGrace() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val file =
+                File(recordingsDir, "keyboard_leftover.f32pcm").apply {
+                    writeBytes(ByteArray(16))
+                    setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+                }
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(file.exists())
+        }
+
+    @Test
     fun cleanOrphanedFiles_retainsReferencedMp3() =
         runTest {
             val file = orphanMp3()

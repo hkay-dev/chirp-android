@@ -3,8 +3,10 @@ package dev.chirpboard.app.feature.transcription
 import android.util.Log
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessState
 import dev.chirpboard.app.core.modelreadiness.ModelReadyResult
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
@@ -50,6 +52,7 @@ class TranscriptionQueueManager
         private val transcriberProvider: dev.chirpboard.app.core.transcription.TranscriberProvider,
         private val readinessGate: SpeechModelReadinessGate,
         private val workScheduler: TranscriptionWorkScheduler,
+        private val transcriptionRoutingStore: TranscriptionRoutingStore,
     ) : TranscriptionRecovery, TranscriptionQueueLifecycle {
         private val reconciliationMutex = Mutex()
         private var reconciliationJob: Job? = null
@@ -61,6 +64,7 @@ class TranscriptionQueueManager
                 recordingRepository = recordingRepository,
                 constraintChecker = constraintChecker,
                 workScheduler = workScheduler,
+                transcriptionRoutingStore = transcriptionRoutingStore,
                 setConstraintWarning = { _constraintWarning.value = it },
                 setActiveCount = { _activeCount.value = it },
             )
@@ -223,7 +227,6 @@ class TranscriptionQueueManager
                     correlationId = corrId,
                     recordingId = recordingId,
                 )
-
             queueLog.started("enqueue_requested")
 
             // PLH-4: honor the profile's Auto Transcribe opt-out at the post-finalize
@@ -239,36 +242,51 @@ class TranscriptionQueueManager
                 return TranscriptionWorkRequest.workName(recordingId)
             }
 
+            val routedRecording = resolveTranscriptionRoute(recordingId)
+            val transcriptionEngine =
+                TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId)
+
             // Check constraints and warn user (but still enqueue - WorkManager will wait)
             val status = constraintChecker.checkConstraints()
             _constraintWarning.value = constraintChecker.getConstraintMessage(status)
 
-            val executionToken = UUID.randomUUID().toString()
-            val claimed =
-                recordingRepository.claimTranscriptionExecution(
-                    recordingId = recordingId,
-                    executionToken = executionToken,
-                )
-            if (!claimed) {
+            val workId =
+                try {
+                    withSerializedQueueScheduling {
+                        val executionToken = UUID.randomUUID().toString()
+                        val claimed =
+                            recordingRepository.claimTranscriptionExecution(
+                                recordingId = recordingId,
+                                executionToken = executionToken,
+                            )
+                        if (!claimed) {
+                            return@withSerializedQueueScheduling null
+                        }
+
+                        workScheduler.enqueueTranscription(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                            correlationId = corrId,
+                            requiresNetwork =
+                                routedRecording?.requiresNetworkForTranscription() == true,
+                        )
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    queueLog.failure("enqueue_exception", e)
+                    throw e
+                }
+
+            if (workId == null) {
                 queueLog.skipped("enqueue_claim_rejected")
                 return TranscriptionWorkRequest.workName(recordingId)
             }
 
-            try {
-                val workId =
-                    workScheduler.enqueueTranscription(
-                        recordingId = recordingId,
-                        executionToken = executionToken,
-                        correlationId = corrId,
-                    )
-                queueLog.success("enqueue_scheduled")
+            queueLog.success("enqueue_scheduled")
+            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
                 readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
-                return workId
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                queueLog.failure("enqueue_exception", e)
-                throw e
             }
+            return workId
         }
 
         /**
@@ -327,34 +345,55 @@ class TranscriptionQueueManager
 
             val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retry")
             if (recordingRepository.hasUnresolvedEnhancementSnapshot(recordingId)) {
-                val executionToken = UUID.randomUUID().toString()
-                if (!recordingRepository.claimEnhancementExecution(recordingId, executionToken)) {
+                val scheduled =
+                    withSerializedQueueScheduling {
+                        val executionToken = UUID.randomUUID().toString()
+                        if (!recordingRepository.claimEnhancementExecution(recordingId, executionToken)) {
+                            return@withSerializedQueueScheduling false
+                        }
+                        workScheduler.enqueueEnhancement(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                            correlationId = correlationId,
+                        )
+                        true
+                    }
+                if (!scheduled) {
                     return ManualRecoveryResult.NOT_RECOVERABLE_STATE
                 }
-                workScheduler.enqueueEnhancement(
-                    recordingId = recordingId,
-                    executionToken = executionToken,
-                    correlationId = correlationId,
-                )
                 return ManualRecoveryResult.ENQUEUED
             }
 
-            warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+            val routedRecording = resolveTranscriptionRoute(recordingId)
+            val transcriptionEngine =
+                TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId)
+            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
+                warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+            }
 
-            val executionToken = UUID.randomUUID().toString()
-            val claimed =
-                recordingRepository.claimTranscriptionExecution(
-                    recordingId = recordingId,
-                    executionToken = executionToken,
-                )
-            if (!claimed) {
+            val scheduled =
+                withSerializedQueueScheduling {
+                    val executionToken = UUID.randomUUID().toString()
+                    val claimed =
+                        recordingRepository.claimTranscriptionExecution(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                        )
+                    if (!claimed) {
+                        return@withSerializedQueueScheduling false
+                    }
+                    workScheduler.enqueueTranscription(
+                        recordingId = recordingId,
+                        executionToken = executionToken,
+                        correlationId = correlationId,
+                        requiresNetwork =
+                            routedRecording?.requiresNetworkForTranscription() == true,
+                    )
+                    true
+                }
+            if (!scheduled) {
                 return ManualRecoveryResult.NOT_RECOVERABLE_STATE
             }
-            workScheduler.enqueueTranscription(
-                recordingId = recordingId,
-                executionToken = executionToken,
-                correlationId = correlationId,
-            )
             return ManualRecoveryResult.ENQUEUED
         }
 
@@ -375,30 +414,45 @@ class TranscriptionQueueManager
             _constraintWarning.value = constraintChecker.getConstraintMessage(constraintStatus)
 
             val correlationId = ReliabilityEventLogger.newCorrelationId("queue-retranscribe")
+            val routedRecording = resolveTranscriptionRoute(recordingId)
+            val transcriptionEngine =
+                TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId)
             val queueLog =
                 ReliabilityEventLogger.scoped(
                     stage = ReliabilityStage.QUEUE_ENQUEUE,
                     correlationId = correlationId,
                     recordingId = recordingId,
                 )
-            val executionToken = UUID.randomUUID().toString()
-            val claimed =
-                recordingRepository.claimRetranscriptionExecution(
-                    recordingId = recordingId,
-                    executionToken = executionToken,
-                )
-            if (!claimed) {
+            val scheduled =
+                withSerializedQueueScheduling {
+                    val executionToken = UUID.randomUUID().toString()
+                    val claimed =
+                        recordingRepository.claimRetranscriptionExecution(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                        )
+                    if (!claimed) {
+                        return@withSerializedQueueScheduling false
+                    }
+
+                    workScheduler.enqueueTranscription(
+                        recordingId = recordingId,
+                        executionToken = executionToken,
+                        correlationId = correlationId,
+                        requiresNetwork =
+                            routedRecording?.requiresNetworkForTranscription() == true,
+                    )
+                    true
+                }
+            if (!scheduled) {
                 queueLog.skipped("retranscribe_claim_rejected")
                 return ManualRecoveryResult.NOT_RECOVERABLE_STATE
             }
 
-            workScheduler.enqueueTranscription(
-                recordingId = recordingId,
-                executionToken = executionToken,
-                correlationId = correlationId,
-            )
             queueLog.success("retranscribe_scheduled")
-            readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
+                readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+            }
             return ManualRecoveryResult.ENQUEUED
         }
 
@@ -601,7 +655,7 @@ class TranscriptionQueueManager
                 queueReconciler.reconcileQueueHealth(ReconciliationTrigger.STARTUP)
             }
             val pending = recordingRepository.getPendingRecordings()
-            if (pending.any { it.status == RecordingStatus.PENDING_TRANSCRIPTION }) {
+            if (pending.anyLocalTranscription()) {
                 readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
             }
             if (transcriberProvider.isModelDownloaded()) {
@@ -625,39 +679,57 @@ class TranscriptionQueueManager
             val statusCheck = constraintChecker.checkConstraints()
             _constraintWarning.value = constraintChecker.getConstraintMessage(statusCheck)
 
-            val executionToken = UUID.randomUUID().toString()
+            val routedRecording =
+                if (status == RecordingStatus.PENDING_TRANSCRIPTION) {
+                    resolveTranscriptionRoute(recordingId)
+                } else {
+                    null
+                }
             val manualRecoveryMessage = buildManualRecoveryMessage(reason)
-            when (status) {
-                RecordingStatus.PENDING_ENHANCEMENT -> {
-                    if (!recordingRepository.claimEnhancementExecution(recordingId, executionToken, status, manualRecoveryMessage)) {
-                        return ManualRecoveryResult.NOT_RECOVERABLE_STATE
-                    }
-                }
+            val scheduled =
+                withSerializedQueueScheduling {
+                    val executionToken = UUID.randomUUID().toString()
+                    when (status) {
+                        RecordingStatus.PENDING_ENHANCEMENT -> {
+                            if (!recordingRepository.claimEnhancementExecution(recordingId, executionToken, status, manualRecoveryMessage)) {
+                                return@withSerializedQueueScheduling false
+                            }
+                        }
 
-                else -> {
-                    if (supersedeEnhancement) {
-                        recordingRepository.deleteEnhancementSnapshot(recordingId)
+                        else -> {
+                            if (supersedeEnhancement) {
+                                recordingRepository.deleteEnhancementSnapshot(recordingId)
+                            }
+                            val claimed =
+                                recordingRepository.claimTranscriptionExecution(
+                                    recordingId = recordingId,
+                                    executionToken = executionToken,
+                                    status = status,
+                                    errorMessage = manualRecoveryMessage,
+                                )
+                            if (!claimed) {
+                                return@withSerializedQueueScheduling false
+                            }
+                        }
                     }
-                    val claimed =
-                        recordingRepository.claimTranscriptionExecution(
-                            recordingId = recordingId,
-                            executionToken = executionToken,
-                            status = status,
-                            errorMessage = manualRecoveryMessage,
-                        )
-                    if (!claimed) {
-                        return ManualRecoveryResult.NOT_RECOVERABLE_STATE
-                    }
+
+                    enqueueWorkForStatus(
+                        recordingId = recordingId,
+                        status = status,
+                        executionToken = executionToken,
+                        correlationId = ReliabilityEventLogger.newCorrelationId("queue-manual-recovery"),
+                        routedRecording = routedRecording,
+                    )
+                    true
                 }
+            if (!scheduled) {
+                return ManualRecoveryResult.NOT_RECOVERABLE_STATE
             }
 
-            enqueueWorkForStatus(
-                recordingId = recordingId,
-                status = status,
-                executionToken = executionToken,
-                correlationId = ReliabilityEventLogger.newCorrelationId("queue-manual-recovery"),
-            )
-            if (status == RecordingStatus.PENDING_TRANSCRIPTION) {
+            if (status == RecordingStatus.PENDING_TRANSCRIPTION &&
+                TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId) ==
+                TranscriptionEngine.LOCAL_PARAKEET
+            ) {
                 readinessGate.warmupIfNeeded(VerificationTrigger.RECOVERY)
             }
 
@@ -669,6 +741,7 @@ class TranscriptionQueueManager
             status: RecordingStatus,
             executionToken: String,
             correlationId: String,
+            routedRecording: Recording?,
         ): String =
             when (status) {
                 RecordingStatus.PENDING_ENHANCEMENT ->
@@ -683,8 +756,34 @@ class TranscriptionQueueManager
                         recordingId = recordingId,
                         executionToken = executionToken,
                         correlationId = correlationId,
+                        requiresNetwork =
+                            routedRecording?.requiresNetworkForTranscription() == true,
                     )
             }
+
+        private suspend fun resolveTranscriptionRoute(recordingId: UUID): Recording? {
+            val recording = recordingRepository.getRecording(recordingId) ?: return null
+            return if (recording.transcriptionEngineId == null) {
+                val defaultEngine = transcriptionRoutingStore.getSelectedEngine()
+                recordingRepository.stampTranscriptionEngineIfUnset(recordingId, defaultEngine.id)
+            } else {
+                recording
+            }
+        }
+
+        private suspend fun List<Recording>.anyLocalTranscription(): Boolean {
+            for (recording in this) {
+                if (recording.status == RecordingStatus.PENDING_TRANSCRIPTION) {
+                    val routedRecording = resolveTranscriptionRoute(recording.id)
+                    if (TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId) ==
+                        TranscriptionEngine.LOCAL_PARAKEET
+                    ) {
+                        return true
+                    }
+                }
+            }
+            return false
+        }
 
         private fun String?.isForegroundServicePolicyFailure(): Boolean {
             if (this == null) return false

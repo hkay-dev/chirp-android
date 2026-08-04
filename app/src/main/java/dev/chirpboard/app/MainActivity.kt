@@ -43,9 +43,12 @@ import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.navigation.AppNavHost
 import dev.chirpboard.app.navigation.Screen
+import dev.chirpboard.app.core.transcription.ACTION_OPEN_TRANSCRIPTION_RECORDING
+import dev.chirpboard.app.core.transcription.EXTRA_TRANSCRIPTION_RECORDING_ID
 import dev.chirpboard.app.navigation.SharedAudioRequest
 import dev.chirpboard.app.navigation.toSharedAudioRequestOrNull
 import dev.chirpboard.app.shortcut.ProfileShortcutManager
+import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -68,6 +71,17 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var profileShortcutManager: ProfileShortcutManager
+
+    @Inject
+    lateinit var terminalRecordingNotificationDelivery: TerminalRecordingNotificationDelivery
+
+    private val terminalNotificationRecovery by lazy {
+        TerminalNotificationRecoveryLauncher(
+            scope = lifecycleScope,
+            delivery = terminalRecordingNotificationDelivery,
+            onFailure = { error -> Log.w(TAG, "Failed to replay pending transcription notifications", error) },
+        )
+    }
 
     private var sharedAudioRequest by mutableStateOf<SharedAudioRequest?>(null)
 
@@ -96,7 +110,7 @@ class MainActivity : ComponentActivity() {
      */
     private val startupPermissionsLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            notificationsEnabledState.value = areNotificationsEnabled()
+            refreshNotificationAccess()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -193,7 +207,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        notificationsEnabledState.value = areNotificationsEnabled()
+        refreshNotificationAccess()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -218,18 +232,21 @@ class MainActivity : ComponentActivity() {
             action == ACTION_RECORD_WITH_PROFILE ->
                 Screen.Record.createRoute(
                     autoStart = true,
-                    profileId = parseProfileIdOrNull(getStringExtra(EXTRA_PROFILE_ID)),
+                    profileId = parseUuidOrNull(getStringExtra(EXTRA_PROFILE_ID)),
                 )
+            action == ACTION_OPEN_TRANSCRIPTION_RECORDING ->
+                parseUuidOrNull(getStringExtra(EXTRA_TRANSCRIPTION_RECORDING_ID))
+                    ?.let(Screen.ProcessingStudio::createRoute)
             else -> null
         }
 
     /** Accepts the extra only when it is a well-formed UUID; otherwise the launch falls back. */
-    private fun parseProfileIdOrNull(raw: String?): String? =
+    private fun parseUuidOrNull(raw: String?): String? =
         raw?.let {
             try {
                 UUID.fromString(it).toString()
             } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "Ignoring non-UUID profileId shortcut extra", e)
+                Log.w(TAG, "Ignoring non-UUID navigation extra", e)
                 null
             }
         }
@@ -260,6 +277,12 @@ class MainActivity : ComponentActivity() {
 
     private fun areNotificationsEnabled(): Boolean =
         NotificationManagerCompat.from(this).areNotificationsEnabled()
+
+    private fun refreshNotificationAccess() {
+        val enabled = areNotificationsEnabled()
+        notificationsEnabledState.value = enabled
+        terminalNotificationRecovery.onNotificationAccess(enabled)
+    }
 
     private fun openNotificationSettings() {
         val intent =

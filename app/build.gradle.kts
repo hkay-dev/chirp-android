@@ -18,6 +18,13 @@ android {
         versionName = "3.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        val cloudBaseUrl = providers.gradleProperty("CHIRP_CLOUD_BASE_URL").orElse("").get()
+        buildConfigField(
+            "String",
+            "CHIRP_CLOUD_BASE_URL",
+            "\"${cloudBaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
+
         // =====================================================================================
         // REL-01: SINGLE-DEVICE ABI FILTER — arm64-v8a ONLY.
         // This app is sideloaded onto exactly one personal device (Galaxy S25 Ultra, arm64).
@@ -76,6 +83,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     androidResources {
@@ -176,6 +184,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
     testImplementation(libs.mockk)
+    testImplementation(project(":test-support"))
     testImplementation("app.cash.turbine:turbine:1.0.0")
     // Same version as the okhttp implementation dependency; exercises the HTTP Range
     // resume path of ModelDownloader against a real local server (ERR-2).

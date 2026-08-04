@@ -34,4 +34,16 @@ class TranscriptionWorkRequestTest {
         assertTrue(request.workSpec.constraints.requiresStorageNotLow())
         assertEquals(NetworkType.NOT_REQUIRED, request.workSpec.constraints.requiredNetworkType)
     }
+
+    @Test
+    fun `cloud work waits for a network connection`() {
+        val request =
+            TranscriptionWorkRequest.build(
+                recordingId = recordingId,
+                executionToken = "cloud-token",
+                requiresNetwork = true,
+            )
+
+        assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
+    }
 }

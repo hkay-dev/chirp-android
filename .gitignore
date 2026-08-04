@@ -12,6 +12,11 @@ build/
 app/build/
 .desloppify/
 
+# Python cloud tooling
+__pycache__/
+*.py[cod]
+.venv/
+
 # IDE
 .idea/
 *.iml

@@ -7,9 +7,22 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import dev.chirpboard.app.core.audio.RecordingOutputFormat
+import dev.chirpboard.app.core.audio.WavFileWriter
+import dev.chirpboard.app.core.audio.recorder.AudioEncoder
+import dev.chirpboard.app.core.llm.GOOGLE_CLOUD_VERTEX_PROVIDER_ID
+import dev.chirpboard.app.core.llm.LlmRuntimeSnapshot
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityStage
+import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
+import dev.chirpboard.app.core.transcription.CloudFileTranscriptionRequest
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
+import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
@@ -20,7 +33,12 @@ import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.transcription.audio.AudioDecoder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
+import dev.chirpboard.app.feature.transcription.audio.JoinedChunkTranscription
+import dev.chirpboard.app.feature.transcription.audio.asSampleFlow
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -53,16 +71,21 @@ class TranscriptionWorker
         private val wordReplacer: WordReplacer,
         private val textEnhancement: RecordingTextEnhancementPort,
         private val transcriberProvider: TranscriberProvider,
+        private val cloudTranscriber: CloudFileTranscriptionProvider,
+        private val transcriptionRoutingStore: TranscriptionRoutingStore,
         private val audioDecoder: AudioDecoder,
+        private val audioEncoder: AudioEncoder,
         private val recordingStateManager: dev.chirpboard.app.core.recording.RecordingStateManager,
         private val workScheduler: TranscriptionWorkScheduler,
         private val completionExporter: TranscriptionCompletionExporter,
+        private val terminalNotificationDelivery: TerminalRecordingNotificationDelivery,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "TranscriptionWorker"
             const val INPUT_RECORDING_ID = "recording_id"
             const val OUTPUT_TRANSCRIPT_ID = "transcript_id"
             const val OUTPUT_ERROR = "error"
+            private const val RAW_PCM_EXTENSION = "f32pcm"
         }
 
         override suspend fun doWork(): Result {
@@ -118,12 +141,21 @@ class TranscriptionWorker
                 return androidx.work.ListenableWorker.Result.success()
             }
 
+            if (recording.transcriptionEngineId == null) {
+                val selectedEngine = transcriptionRoutingStore.getSelectedEngine()
+                recordingRepository.stampTranscriptionEngineIfUnset(recordingId, selectedEngine.id)
+                    ?: return buildTranscriptionFailureResult("Recording not found: $recordingId")
+            }
+
             val ownedRecording =
                 recordingRepository.beginTranscriptionExecution(recordingId, executionToken)
                     ?: run {
                         logStaleTranscription(recordingId, correlationId, "transcription_ownership_lost")
                         return androidx.work.ListenableWorker.Result.success()
                     }
+            val requestedTranscriptionEngine =
+                TranscriptionEngine.fromId(ownedRecording.transcriptionEngineId)
+                    ?: throw NonRetryableTranscriptionException("Unknown transcription engine")
             val transcriptionLog =
                 ReliabilityEventLogger.scoped(
                     stage = ReliabilityStage.TRANSCRIPTION,
@@ -138,38 +170,69 @@ class TranscriptionWorker
             // copy comes from string resources at display time.
             val audioFile = File(ownedRecording.audioPath)
             if (!audioFile.exists()) {
-                recordingRepository.failTranscriptionExecution(
-                    recordingId,
-                    executionToken,
-                    RecordingStatus.FAILED,
-                    "Audio file not found: ${ownedRecording.audioPath}",
-                )
+                val updated =
+                    recordingRepository.failTranscriptionExecution(
+                        recordingId,
+                        executionToken,
+                        RecordingStatus.FAILED,
+                        "Audio file not found: ${ownedRecording.audioPath}",
+                    )
                 transcriptionLog.failure("audio_missing")
-                showTranscriptionErrorNotification(
-                    recordingId,
-                    applicationContext.getString(R.string.transcription_error_audio_missing),
-                )
+                if (updated) {
+                    notifyTerminalFailure(
+                        recordingId = recordingId,
+                        requested = ownedRecording.terminalNotificationPending,
+                        errorText = applicationContext.getString(R.string.transcription_error_audio_missing),
+                    )
+                }
                 return buildTranscriptionFailureResult("Audio file not found")
             }
 
-            // Check if model is downloaded
-            if (!transcriberProvider.isModelDownloaded()) {
-                recordingRepository.failTranscriptionExecution(
-                    recordingId,
-                    executionToken,
-                    RecordingStatus.FAILED,
-                    "Model not downloaded. Please download the speech recognition model in Settings.",
-                )
+            val transcriptionEngine =
+                if (
+                    requestedTranscriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3 &&
+                    (ownedRecording.durationMs > GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS ||
+                        audioFile.length() > GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES)
+                ) {
+                    val rerouted =
+                        recordingRepository.rerouteTranscriptionEngineForExecution(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                            expectedEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+                            newEngineId = TranscriptionEngine.LOCAL_PARAKEET.id,
+                        )
+                    if (!rerouted) {
+                        logStaleTranscription(recordingId, correlationId, "cloud_limit_fallback_stale")
+                        return androidx.work.ListenableWorker.Result.success()
+                    }
+                    transcriptionLog.recovered("cloud_limit_local_fallback")
+                    TranscriptionEngine.LOCAL_PARAKEET
+                } else {
+                    requestedTranscriptionEngine
+                }
+
+            // Local model readiness must never gate the cloud path.
+            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET && !transcriberProvider.isModelDownloaded()) {
+                val updated =
+                    recordingRepository.failTranscriptionExecution(
+                        recordingId,
+                        executionToken,
+                        RecordingStatus.FAILED,
+                        "Model not downloaded. Please download the speech recognition model in Settings.",
+                    )
                 transcriptionLog.failure("model_not_downloaded")
-                showTranscriptionErrorNotification(
-                    recordingId,
-                    applicationContext.getString(R.string.transcription_error_model_missing),
-                )
+                if (updated) {
+                    notifyTerminalFailure(
+                        recordingId = recordingId,
+                        requested = ownedRecording.terminalNotificationPending,
+                        errorText = applicationContext.getString(R.string.transcription_error_model_missing),
+                    )
+                }
                 return buildTranscriptionFailureResult("Model not downloaded")
             }
 
             // Initialize the transcriber if needed
-            if (!transcriberProvider.isReady()) {
+            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET && !transcriberProvider.isReady()) {
                 Log.d(TAG, "Initializing transcriber...")
                 val initialized = transcriberProvider.initialize()
                 if (!initialized) {
@@ -179,16 +242,20 @@ class TranscriptionWorker
                             "Failed to initialize speech recognition model",
                         )
                     }
-                    recordingRepository.failTranscriptionExecution(
-                        recordingId,
-                        executionToken,
-                        RecordingStatus.FAILED,
-                        "Failed to initialize speech recognition model",
-                    )
-                    showTranscriptionErrorNotification(
-                        recordingId,
-                        applicationContext.getString(R.string.transcription_error_model_init),
-                    )
+                    val updated =
+                        recordingRepository.failTranscriptionExecution(
+                            recordingId,
+                            executionToken,
+                            RecordingStatus.FAILED,
+                            "Failed to initialize speech recognition model",
+                        )
+                    if (updated) {
+                        notifyTerminalFailure(
+                            recordingId = recordingId,
+                            requested = ownedRecording.terminalNotificationPending,
+                            errorText = applicationContext.getString(R.string.transcription_error_model_init),
+                        )
+                    }
                     return buildTranscriptionFailureResult("Failed to initialize model")
                 }
             }
@@ -196,55 +263,46 @@ class TranscriptionWorker
             // Decode and transcribe using chunked processing for memory efficiency
             // This uses 30-second chunks with 2-second overlap to prevent word truncation
             // Peak memory: ~4MB instead of ~76MB for a 10-minute recording
-            Log.d(TAG, "Decoding and transcribing audio file: ${ownedRecording.audioPath}")
+            Log.d(TAG, "Starting ${transcriptionEngine.id} transcription")
 
-            val detailedTranscription: dev.chirpboard.app.feature.transcription.audio.JoinedChunkTranscription
+            val detailedTranscription: JoinedChunkTranscription
             try {
-                checkMemoryPressure()
-
-                val processor =
-                    ChunkedAudioProcessor(
-                        chunkDurationMs = 30_000,
-                        overlapDurationMs = 2_000,
-                        sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
-                    )
-
-                val audioFlow = audioDecoder.decodeAsFlow(ownedRecording.audioPath)
-
                 detailedTranscription =
-                    processor.processAndJoinDetailed(audioFlow) { samples ->
-                        if (recordingStateManager.state.value.isActive) {
-                            Log.w(TAG, "Recording started during transcription. Pausing transcription until recording finishes...")
-                            waitForInactiveRecording(recordingId, correlationId, ownedRecording.durationMs)
-                            Log.d(TAG, "Recording finished. Resuming transcription.")
-                        }
-
-                        if (!transcriberProvider.isReady()) {
-                            Log.d(TAG, "Re-initializing transcriber...")
-                            transcriberProvider.initialize()
-                        }
-
-                        mapOutcomeForChunkTranscription(
-                            transcriberProvider.transcribe(
-                                samples,
-                                AudioDecoder.TARGET_SAMPLE_RATE,
-                            ),
-                        )
+                    when (transcriptionEngine) {
+                        TranscriptionEngine.LOCAL_PARAKEET ->
+                            transcribeLocally(
+                                recordingId = recordingId,
+                                correlationId = correlationId,
+                                audioPath = ownedRecording.audioPath,
+                                durationMs = ownedRecording.durationMs,
+                            )
+                        TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3 ->
+                            transcribeWithGoogleCloud(
+                                recordingId = recordingId,
+                                executionToken = executionToken,
+                                audioPath = ownedRecording.audioPath,
+                                durationMs = ownedRecording.durationMs,
+                            ) ?: run {
+                                logStaleTranscription(recordingId, correlationId, "cloud_audio_path_swap_stale")
+                                return androidx.work.ListenableWorker.Result.success()
+                            }
                     }
-
-                Log.d(TAG, "Chunked transcription completed")
             } catch (e: OutOfMemoryError) {
                 Log.e(TAG, "Out of memory during transcription", e)
-                recordingRepository.failTranscriptionExecution(
-                    recordingId,
-                    executionToken,
-                    RecordingStatus.FAILED,
-                    "Out of memory during transcription. Recording may be too long.",
-                )
-                showTranscriptionErrorNotification(
-                    recordingId,
-                    applicationContext.getString(R.string.transcription_error_out_of_memory),
-                )
+                val updated =
+                    recordingRepository.failTranscriptionExecution(
+                        recordingId,
+                        executionToken,
+                        RecordingStatus.FAILED,
+                        "Out of memory during transcription. Recording may be too long.",
+                    )
+                if (updated) {
+                    notifyTerminalFailure(
+                        recordingId = recordingId,
+                        requested = ownedRecording.terminalNotificationPending,
+                        errorText = applicationContext.getString(R.string.transcription_error_out_of_memory),
+                    )
+                }
                 return buildTranscriptionFailureResult("Out of memory during transcription")
             } catch (e: java.io.IOException) {
                 Log.e(TAG, "I/O error during decode/transcription (may be retried)", e)
@@ -259,7 +317,7 @@ class TranscriptionWorker
             if (rawTranscriptionText.isBlank()) {
                 Log.w(TAG, "Transcription returned empty result")
             }
-            Log.d(TAG, "Transcription result: ${rawTranscriptionText.take(100)}...")
+            Log.d(TAG, "Transcription result received (${rawTranscriptionText.length} chars)")
 
             val enabledReplacements = wordReplacementRepository.getEnabledReplacements()
             val processedText = wordReplacer.apply(rawTranscriptionText, enabledReplacements)
@@ -284,23 +342,27 @@ class TranscriptionWorker
                     }.orEmpty()
             val enhancementIntent = resolveEnhancementIntent(recordingId, ownedRecording, processedText, correlationId)
             val enhancementExecutionToken = enhancementIntent?.let { UUID.randomUUID().toString() }
-            val committed =
-                recordingRepository.commitTranscriptionResult(
-                    transcript = transcript,
-                    timings = timings,
-                    enhancementIntent = enhancementIntent,
-                    expectedExecutionToken = executionToken,
-                    enhancementExecutionToken = enhancementExecutionToken,
-                )
+            val (committed, enhancementQueued) =
+                withSerializedQueueScheduling {
+                    val resultCommitted =
+                        recordingRepository.commitTranscriptionResult(
+                            transcript = transcript,
+                            timings = timings,
+                            enhancementIntent = enhancementIntent,
+                            expectedExecutionToken = executionToken,
+                            enhancementExecutionToken = enhancementExecutionToken,
+                        )
+                    val resultQueued =
+                        resultCommitted &&
+                            enhancementIntent != null &&
+                            enhancementExecutionToken != null &&
+                            enqueueEnhancement(recordingId, enhancementExecutionToken, correlationId)
+                    resultCommitted to resultQueued
+                }
             if (!committed) {
                 logStaleTranscription(recordingId, correlationId, "transcription_commit_stale")
                 return androidx.work.ListenableWorker.Result.success()
             }
-
-            val enhancementQueued =
-                enhancementIntent != null &&
-                    enhancementExecutionToken != null &&
-                    enqueueEnhancement(recordingId, enhancementExecutionToken, correlationId)
             transcriptionLog.success(
                 if (enhancementQueued) {
                     "worker_completed_pending_enhancement"
@@ -314,10 +376,143 @@ class TranscriptionWorker
                 // auto-export now. Recordings with enhancement export when the enhancement
                 // worker resolves, so each pipeline run exports exactly once (PLH-3/ERR-5).
                 completionExporter.exportIfCompleted(recordingId)
+                if (ownedRecording.terminalNotificationPending) {
+                    terminalNotificationDelivery.deliverRequested(recordingId)
+                }
             }
 
             return buildTranscriptionSuccessResult(transcript.id)
         }
+
+        private suspend fun transcribeLocally(
+            recordingId: UUID,
+            correlationId: String,
+            audioPath: String,
+            durationMs: Long,
+        ): JoinedChunkTranscription {
+            checkMemoryPressure()
+            val processor =
+                ChunkedAudioProcessor(
+                    chunkDurationMs = 30_000,
+                    overlapDurationMs = 2_000,
+                    sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
+                )
+            val audioFlow = localAudioFlow(audioPath)
+            return processor.processAndJoinDetailed(audioFlow) { samples ->
+                if (recordingStateManager.state.value.isActive) {
+                    waitForInactiveRecording(recordingId, correlationId, durationMs)
+                }
+                if (!transcriberProvider.isReady() && !transcriberProvider.initialize()) {
+                    throw RetryableTranscriptionException("Failed to re-initialize speech recognition model")
+                }
+                mapOutcomeForChunkTranscription(
+                    transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE),
+                )
+            }
+        }
+
+        private fun localAudioFlow(audioPath: String): Flow<FloatArray> {
+            val audioFile = File(audioPath)
+            return if (audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {
+                if (audioFile.length() % Float.SIZE_BYTES != 0L) {
+                    throw NonRetryableTranscriptionException("Raw keyboard audio is truncated")
+                }
+                InlineAudioSource
+                    .PcmFloatFile(
+                        path = audioPath,
+                        sampleCount = audioFile.length() / Float.SIZE_BYTES,
+                        sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
+                    ).asSampleFlow()
+            } else {
+                audioDecoder.decodeAsFlow(audioPath)
+            }
+        }
+
+        private suspend fun transcribeWithGoogleCloud(
+            recordingId: UUID,
+            executionToken: String,
+            audioPath: String,
+            durationMs: Long,
+        ): JoinedChunkTranscription? {
+            val sourceFile = File(audioPath)
+            val uploadAudio = prepareCloudUploadAudio(sourceFile, recordingId, executionToken) ?: return null
+            val outcome =
+                cloudTranscriber.transcribeFile(
+                    CloudFileTranscriptionRequest(
+                        recordingId = recordingId,
+                        executionToken = executionToken,
+                        audioPath = uploadAudio.file.absolutePath,
+                        mimeType = uploadAudio.mimeType,
+                        durationMs = durationMs,
+                    ),
+                )
+            val mapped = mapOutcomeForChunkTranscription(outcome)
+            return JoinedChunkTranscription(mapped.text, mapped.wordTimings)
+        }
+
+        private suspend fun prepareCloudUploadAudio(
+            sourceFile: File,
+            recordingId: UUID,
+            executionToken: String,
+        ): CloudUploadAudio? {
+            if (!sourceFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {
+                return CloudUploadAudio(
+                    file = sourceFile,
+                    mimeType = cloudMimeType(sourceFile),
+                )
+            }
+            if (sourceFile.length() % Float.SIZE_BYTES != 0L) {
+                throw NonRetryableTranscriptionException("Raw keyboard audio is truncated")
+            }
+            val safeToken = executionToken.filter { it.isLetterOrDigit() }.take(64)
+            val durableWavFile =
+                File(
+                    sourceFile.parentFile,
+                    "${sourceFile.nameWithoutExtension}-$recordingId-${safeToken.ifBlank { "run" }}.wav",
+                )
+            val encoded =
+                withContext(Dispatchers.IO) {
+                    runCatching { durableWavFile.delete() }
+                    audioEncoder.encodePcmFloatFile(
+                        inputPath = sourceFile.absolutePath,
+                        sampleCount = sourceFile.length() / Float.SIZE_BYTES,
+                        sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
+                        outputPath = durableWavFile.absolutePath,
+                        format = RecordingOutputFormat.WAV,
+                    )
+                }
+            if (!encoded || !WavFileWriter.hasAccurateHeader(durableWavFile)) {
+                withContext(Dispatchers.IO) {
+                    runCatching { durableWavFile.delete() }
+                }
+                throw NonRetryableTranscriptionException("Could not prepare keyboard audio for cloud transcription")
+            }
+            val swapped =
+                recordingRepository.swapAudioPathForTranscriptionExecution(
+                    recordingId = recordingId,
+                    executionToken = executionToken,
+                    expectedAudioPath = sourceFile.absolutePath,
+                    newAudioPath = durableWavFile.absolutePath,
+                )
+            if (!swapped) {
+                withContext(Dispatchers.IO) {
+                    runCatching { durableWavFile.delete() }
+                }
+                return null
+            }
+            withContext(Dispatchers.IO) {
+                runCatching { sourceFile.delete() }
+            }
+            return CloudUploadAudio(durableWavFile, "audio/wav")
+        }
+
+        private fun cloudMimeType(file: File): String =
+            when (file.extension.lowercase()) {
+                "m4a", "mp4" -> "audio/mp4"
+                "wav" -> "audio/wav"
+                "mp3" -> "audio/mpeg"
+                else -> throw NonRetryableTranscriptionException("Unsupported cloud transcription audio format")
+            }
 
         private suspend fun resolveEnhancementIntent(
             recordingId: UUID,
@@ -325,21 +520,48 @@ class TranscriptionWorker
             processedText: String,
             correlationId: String,
         ): RecordingEnhancementIntent? {
-            val profile = recording.profileId?.let { profileRepository.getProfile(it) }
             val policy =
-                resolveRecordingEnhancementPolicy(
-                    profile = profile,
-                    globalAutoTitle = textEnhancement.defaultAutoTitleEnabled(),
-                    globalAutoSummary = textEnhancement.defaultAutoSummaryEnabled(),
-                )
+                if (recording.enhancementRequestSnapshotted) {
+                    RecordingEnhancementPolicy(
+                        processingModeId = recording.requestedProcessingModeId,
+                        autoTitle = false,
+                        autoSummary = false,
+                    )
+                } else {
+                    val profile = recording.profileId?.let { profileRepository.getProfile(it) }
+                    resolveRecordingEnhancementPolicy(
+                        profile = profile,
+                        globalAutoTitle = textEnhancement.defaultAutoTitleEnabled(),
+                        globalAutoSummary = textEnhancement.defaultAutoSummaryEnabled(),
+                    )
+                }
             if (!policy.hasRequestedWork) {
                 ReliabilityEventLogger
                     .scoped(ReliabilityStage.ENHANCEMENT, correlationId, recordingId)
                     .skipped("enhancement_not_requested")
                 return null
             }
+            if (!textEnhancement.isEnhancementEnabled()) {
+                ReliabilityEventLogger
+                    .scoped(ReliabilityStage.ENHANCEMENT, correlationId, recordingId)
+                    .skipped("enhancement_disabled")
+                return null
+            }
 
-            val runtimeSnapshot = textEnhancement.runtimeSnapshot()
+            val runtimeSnapshot =
+                when {
+                    recording.requestedLlmProviderId != null || recording.requestedLlmModelId != null ->
+                        LlmRuntimeSnapshot(
+                            providerId = recording.requestedLlmProviderId,
+                            modelId = recording.requestedLlmModelId,
+                        )
+                    recording.transcriptionEngineId == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id ->
+                        LlmRuntimeSnapshot(
+                            providerId = GOOGLE_CLOUD_VERTEX_PROVIDER_ID,
+                            modelId = null,
+                        )
+                    else -> textEnhancement.runtimeSnapshot()
+                }
             val processingModeSnapshot =
                 policy.processingModeId?.let { modeId ->
                     textEnhancement.resolveProcessingModeSnapshot(processedText, modeId)
@@ -388,6 +610,18 @@ class TranscriptionWorker
             showTranscriptionErrorNotification(applicationContext, recordingId, errorMessage)
         }
 
+        private suspend fun notifyTerminalFailure(
+            recordingId: UUID,
+            requested: Boolean,
+            errorText: String,
+        ) {
+            if (requested) {
+                terminalNotificationDelivery.deliverRequested(recordingId)
+            } else {
+                showTranscriptionErrorNotification(recordingId, errorText)
+            }
+        }
+
         private fun logStaleTranscription(
             recordingId: UUID,
             correlationId: String,
@@ -416,31 +650,35 @@ class TranscriptionWorker
                 .scoped(ReliabilityStage.TRANSCRIPTION, correlationId, recordingId)
                 .failure("worker_exception", message = errorMessage)
 
-            try {
-                val updated =
+            val updated =
+                try {
                     recordingRepository.failTranscriptionExecution(
                         recordingId,
                         executionToken,
                         disposition.status,
                         errorMessage,
                     )
-                if (!updated) {
-                    logStaleTranscription(recordingId, correlationId, "transcription_error_stale")
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    Log.e(TAG, "Failed to persist transcription error state", e)
+                    false
                 }
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                Log.e(TAG, "Failed to persist transcription error state", e)
+            if (!updated) {
+                logStaleTranscription(recordingId, correlationId, "transcription_error_stale")
             }
 
             return if (disposition.retry) {
                 Result.retry()
             } else {
-                // I18N-05: the notification shows classified, actionable copy; the raw
-                // exception message stays in the reliability log and the persisted row.
-                showTranscriptionErrorNotification(
-                    recordingId,
-                    transcriptionFailureNotificationText(applicationContext, exception),
-                )
+                if (updated) {
+                    val notificationRequested =
+                        recordingRepository.getRecording(recordingId)?.terminalNotificationPending == true
+                    notifyTerminalFailure(
+                        recordingId = recordingId,
+                        requested = notificationRequested,
+                        errorText = transcriptionFailureNotificationText(applicationContext, exception),
+                    )
+                }
                 buildTranscriptionFailureResult(errorMessage)
             }
         }
@@ -491,4 +729,10 @@ class TranscriptionWorker
                 false
             }
         }
+
+        private data class CloudUploadAudio(
+            val file: File,
+            val mimeType: String,
+        )
+
     }

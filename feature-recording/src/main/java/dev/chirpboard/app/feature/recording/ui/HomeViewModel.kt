@@ -88,7 +88,13 @@ data class RecordingDisplayItem(
     val createdAtMs get() = recording.createdAt.time
     val durationMs get() = recording.durationMs
     val errorMessage get() = recording.errorMessage
+    val isAudioReady get() = isPlaybackAndShareReadyAudioPath(audioPath)
 }
+
+internal fun isPlaybackAndShareReadyAudioPath(audioPath: String): Boolean =
+    audioPath.isNotBlank() && !File(audioPath).extension.equals(RAW_KEYBOARD_AUDIO_EXTENSION, ignoreCase = true)
+
+private const val RAW_KEYBOARD_AUDIO_EXTENSION = "f32pcm"
 
 /**
  * Quick stats for the home screen header.
@@ -495,8 +501,10 @@ class HomeViewModel
         }
 
         fun playRecording(item: RecordingDisplayItem) {
-            if (item.audioPath.isBlank()) {
-                _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_audio_missing)
+            if (!item.isAudioReady) {
+                if (item.audioPath.isBlank()) {
+                    _errorMessage.value = appContext.getString(CoreUiR.string.rec_msg_audio_missing)
+                }
                 return
             }
             playbackController.play(item.id, item.title, item.audioPath)
@@ -621,6 +629,7 @@ class HomeViewModel
             context: Context,
         ) {
             viewModelScope.launch {
+                if (!recording.isAudioReady) return@launch
                 val file = File(recording.audioPath)
 
                 // Check file existence on IO dispatcher

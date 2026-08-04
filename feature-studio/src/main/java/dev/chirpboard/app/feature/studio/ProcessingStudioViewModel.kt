@@ -413,7 +413,7 @@ class ProcessingStudioViewModel
             title: String,
             audioPath: String,
         ) {
-            if (audioPath.isBlank()) return
+            if (!isPlaybackAndShareReadyAudioPath(audioPath)) return
             val revealKey = PlaybackRevealKey(recordingId = recordingId, audioPath = audioPath)
             if (lastScheduledPlaybackRevealKey == revealKey) return
 
@@ -437,7 +437,7 @@ class ProcessingStudioViewModel
         fun togglePlayPause() {
             val recordingId = currentRecordingId ?: return
             val screen = _uiState.value
-            if (screen.audioPath.isBlank()) return
+            if (!screen.isAudioReady) return
             val playback = playbackController.state.value
             if (playback.recordingId == recordingId) {
                 playbackController.togglePlayPause()
@@ -449,6 +449,7 @@ class ProcessingStudioViewModel
         fun seekTo(positionMs: Long) {
             val recordingId = currentRecordingId ?: return
             val screen = _uiState.value
+            if (!screen.isAudioReady) return
             val playback = playbackController.state.value
             if (playback.recordingId != recordingId) {
                 playbackController.prepare(recordingId, screen.title, screen.audioPath)
@@ -458,10 +459,12 @@ class ProcessingStudioViewModel
         }
 
         fun skipForward() {
+            if (!_uiState.value.isAudioReady) return
             playbackController.skipForward()
         }
 
         fun skipBackward() {
+            if (!_uiState.value.isAudioReady) return
             playbackController.skipBackward()
         }
 
@@ -493,6 +496,7 @@ class ProcessingStudioViewModel
             }
 
         fun onWordClicked(timestamp: Long) {
+            if (!_uiState.value.isAudioReady) return
             if (!_uiState.value.canUseTranscriptInteractions()) return
             seekTo(timestamp)
             val recordingId = currentRecordingId ?: return
@@ -1024,7 +1028,7 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val state = _uiState.value
                 val path = state.audioPath
-                if (path.isEmpty()) return@launch
+                if (!state.isAudioReady) return@launch
                 val file = File(path)
                 val exists = withContext(Dispatchers.IO) { file.exists() }
                 if (!exists) {
@@ -1104,7 +1108,7 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val state = _uiState.value
                 val path = state.audioPath
-                if (path.isEmpty()) return@launch
+                if (!state.isAudioReady) return@launch
                 val file = File(path)
                 val exists = withContext(Dispatchers.IO) { file.exists() }
                 if (!exists) {

@@ -64,4 +64,29 @@ data class Recording(
      * [dev.chirpboard.app.data.repository.RecordingRepository.updateNotes].
      */
     val notes: String? = null,
+    /**
+     * File-level transcription engine captured before queued work starts. Null means a new row
+     * whose engine has not been stamped yet; migrated rows are pinned to the local engine. The
+     * worker resolves the current default once and persists it before touching the audio.
+     */
+    @ColumnInfo(defaultValue = "NULL")
+    val transcriptionEngineId: String? = null,
+    /** Optional processing mode captured by a durable dictation handoff. */
+    @ColumnInfo(defaultValue = "NULL")
+    val requestedProcessingModeId: String? = null,
+    /** Optional LLM provider captured with [requestedProcessingModeId]. */
+    @ColumnInfo(defaultValue = "NULL")
+    val requestedLlmProviderId: String? = null,
+    /** Optional LLM model captured with [requestedProcessingModeId]. */
+    @ColumnInfo(defaultValue = "NULL")
+    val requestedLlmModelId: String? = null,
+    /** Immutable capture-time preference for a terminal ready or failure notification. */
+    @ColumnInfo(defaultValue = "0")
+    val notifyWhenReady: Boolean = false,
+    /** Room-backed outbox marker, cleared only after the requested notification post succeeds. */
+    @ColumnInfo(defaultValue = "0")
+    val terminalNotificationPending: Boolean = false,
+    /** Whether the requested enhancement fields form a complete capture-time snapshot. */
+    @ColumnInfo(defaultValue = "0")
+    val enhancementRequestSnapshotted: Boolean = false,
 )

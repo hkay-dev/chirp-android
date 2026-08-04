@@ -6,6 +6,7 @@ import android.content.pm.ServiceInfo
 import androidx.work.Data
 import androidx.work.ForegroundInfo
 import androidx.work.ForegroundUpdater
+import androidx.work.ListenableWorker
 import androidx.work.WorkerParameters
 import androidx.work.impl.utils.futures.SettableFuture
 import dev.chirpboard.app.core.llm.LlmRuntimeSnapshot
@@ -35,13 +36,16 @@ import io.mockk.runs
 import io.mockk.unmockkStatic
 import io.mockk.slot
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import java.io.IOException
 import java.util.Date
 import java.util.UUID
 
@@ -57,6 +61,7 @@ class RecordingEnhancementWorkerTest {
     private lateinit var textEnhancement: FakeRecordingTextEnhancement
     private lateinit var foregroundUpdater: ForegroundUpdater
     private lateinit var completionExporter: TranscriptionCompletionExporter
+    private lateinit var terminalNotificationDelivery: TerminalRecordingNotificationDelivery
 
     @Before
     fun setup() {
@@ -65,6 +70,7 @@ class RecordingEnhancementWorkerTest {
         workerParams = mockk(relaxed = true)
         foregroundUpdater = mockk(relaxed = true)
         every { workerParams.foregroundUpdater } returns foregroundUpdater
+        every { workerParams.runAttemptCount } returns 0
         every { foregroundUpdater.setForegroundAsync(any(), any(), any()) } answers {
             SettableFuture.create<Void?>().apply { set(null) }
         }
@@ -73,6 +79,8 @@ class RecordingEnhancementWorkerTest {
         wordReplacer = mockk(relaxed = true)
         textEnhancement = FakeRecordingTextEnhancement()
         completionExporter = mockk(relaxed = true)
+        terminalNotificationDelivery = mockk(relaxed = true)
+        coEvery { recordingRepository.failEnhancement(any(), any(), any()) } returns true
 
         mockkObject(ReliabilityEventLogger)
         mockkStatic("dev.chirpboard.app.feature.transcription.TranscriptionWorkerSupportKt")
@@ -84,6 +92,8 @@ class RecordingEnhancementWorkerTest {
                 mockk(relaxed = true),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
             )
+        every { showTranscriptionCleanupRetryNotification(any(), any()) } just runs
+        every { showTranscriptionReadyNotification(any(), any()) } just runs
     }
 
     @After
@@ -93,20 +103,141 @@ class RecordingEnhancementWorkerTest {
     }
 
     @Test
-    fun `requested enhancement fails recoverably when LLM is disabled`() =
+    fun `disabled LLM finishes with the saved raw transcript`() =
         runTest {
             val recordingId = UUID.randomUUID()
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery { recordingRepository.skipEnhancement(recordingId, EXECUTION_TOKEN) } returns true
+            textEnhancement.enabled = false
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            coVerify(exactly = 1) { recordingRepository.skipEnhancement(recordingId, EXECUTION_TOKEN) }
+            coVerify(exactly = 1) { completionExporter.exportIfCompleted(recordingId) }
+            coVerify(exactly = 0) { recordingRepository.failEnhancement(any(), any(), any()) }
+            assertEquals(0, textEnhancement.titleCalls)
+            assertEquals(0, textEnhancement.summaryCalls)
+        }
+
+    @Test
+    fun `temporary token refresh failure reparks the same token and retries`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery {
+                recordingRepository.reparkEnhancementExecution(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "token refresh unavailable",
+                )
+            } returns true
+            textEnhancement.availabilityFailure = IOException("token refresh unavailable")
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Retry)
+            coVerify(exactly = 1) {
+                recordingRepository.reparkEnhancementExecution(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "token refresh unavailable",
+                )
+            }
+            coVerify(exactly = 0) { recordingRepository.failEnhancement(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `temporary generation failure reparks the same token and retries`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery {
+                recordingRepository.reparkEnhancementExecution(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "Vertex generation is temporarily unavailable",
+                )
+            } returns true
+            textEnhancement.available = true
+            textEnhancement.titleResult = Result.failure(IOException("Vertex generation is temporarily unavailable"))
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Retry)
+            coVerify(exactly = 1) {
+                recordingRepository.reparkEnhancementExecution(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "Vertex generation is temporarily unavailable",
+                )
+            }
+            coVerify(exactly = 0) { recordingRepository.failEnhancement(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any()) }
+            assertEquals(0, textEnhancement.summaryCalls)
+        }
+
+    @Test
+    fun `temporary generation failure becomes terminal after the retry budget`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            every { workerParams.runAttemptCount } returns RecordingEnhancementWorker.MAX_RUN_ATTEMPTS - 1
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            textEnhancement.available = true
+            textEnhancement.titleResult = Result.failure(IOException("Vertex generation is temporarily unavailable"))
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Failure)
+            coVerify(exactly = 0) { recordingRepository.reparkEnhancementExecution(any(), any(), any()) }
+            coVerify(exactly = 1) {
+                recordingRepository.failEnhancement(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "Vertex generation is temporarily unavailable",
+                )
+            }
+        }
+
+    @Test
+    fun `unavailable cleanup posts a saved transcript retry notification`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns
+                snapshot(
+                    recordingId,
+                    notifyWhenReady = true,
+                    terminalNotificationPending = true,
+                )
             textEnhancement.available = false
 
             worker().doWork()
 
-            coVerify(exactly = 1) {
-                recordingRepository.failEnhancement(recordingId, EXECUTION_TOKEN, "LLM credentials unavailable for queued enhancement")
-            }
-            assertEquals(0, textEnhancement.titleCalls)
-            assertEquals(0, textEnhancement.summaryCalls)
+            coVerify(exactly = 1) { terminalNotificationDelivery.deliverRequested(recordingId) }
+        }
+
+    @Test
+    fun `cleared pending marker does not replay from the immutable preference`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns
+                snapshot(
+                    recordingId,
+                    notifyWhenReady = true,
+                    terminalNotificationPending = false,
+                )
+            textEnhancement.available = false
+
+            worker().doWork()
+
+            coVerify(exactly = 0) { terminalNotificationDelivery.deliverRequested(any()) }
         }
 
     @Test
@@ -133,6 +264,7 @@ class RecordingEnhancementWorkerTest {
             assertNull(resultSlot.captured.summary)
             assertEquals(EnhancementSubworkStatus.FAILED, resultSlot.captured.titleStatus)
             assertEquals(EnhancementSubworkStatus.FAILED, resultSlot.captured.summaryStatus)
+            coVerify(exactly = 0) { recordingRepository.reparkEnhancementExecution(any(), any(), any()) }
         }
 
     @Test
@@ -244,6 +376,7 @@ class RecordingEnhancementWorkerTest {
             wordReplacer = wordReplacer,
             textEnhancement = textEnhancement,
             completionExporter = completionExporter,
+            terminalNotificationDelivery = terminalNotificationDelivery,
         )
 
     private fun inputData(recordingId: UUID): Data =
@@ -260,6 +393,8 @@ class RecordingEnhancementWorkerTest {
         titleErrorMessage: String? = null,
         summaryStatus: EnhancementSubworkStatus = EnhancementSubworkStatus.PENDING,
         summaryErrorMessage: String? = null,
+        notifyWhenReady: Boolean = false,
+        terminalNotificationPending: Boolean = false,
     ): RecordingEnhancementSnapshot =
         RecordingEnhancementSnapshot(
             recording =
@@ -269,6 +404,8 @@ class RecordingEnhancementWorkerTest {
                     audioPath = "",
                     status = RecordingStatus.ENHANCING,
                     source = RecordingSource.APP,
+                    notifyWhenReady = notifyWhenReady,
+                    terminalNotificationPending = terminalNotificationPending,
                 ),
             transcript =
                 Transcript(
@@ -314,14 +451,21 @@ class RecordingEnhancementWorkerTest {
         )
 
     private class FakeRecordingTextEnhancement : RecordingTextEnhancementPort {
+        var enabled = true
         var available = true
+        var availabilityFailure: Exception? = null
         var titleResult: Result<String> = Result.success("title")
         var summaryResult: Result<String> = Result.success("summary")
         var titleCalls = 0
         var summaryCalls = 0
         val contextTexts = mutableListOf<String>()
 
-        override suspend fun isEnhancementAvailable(providerId: String?): Boolean = available
+        override suspend fun isEnhancementEnabled(): Boolean = enabled
+
+        override suspend fun isEnhancementAvailable(providerId: String?): Boolean {
+            availabilityFailure?.let { throw it }
+            return available
+        }
 
         override suspend fun defaultAutoTitleEnabled(): Boolean = false
 

@@ -881,10 +881,15 @@ fun HomeScreen(
             ) {
                 RecordingActionsSheet(
                     item = item,
-                    onShare = {
-                        viewModel.shareRecording(item, context)
-                        dismissSheet()
-                    },
+                    onShare =
+                        if (item.isAudioReady) {
+                            {
+                                viewModel.shareRecording(item, context)
+                                dismissSheet()
+                            }
+                        } else {
+                            null
+                        },
                     onDelete = {
                         // Stage the confirmation; the actual delete runs only from the
                         // dialog's explicit confirm (sweep fix: no silent one-tap delete).

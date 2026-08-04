@@ -3,8 +3,14 @@ package dev.chirpboard.app.feature.transcription
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.RecoveryOwnershipState
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingProcessingNoteCodes
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.File
 import java.util.UUID
 
 // I18N-06: the persisted marker strings are owned by the data module's typed classifier so
@@ -13,6 +19,24 @@ internal const val MANUAL_RECOVERY_PREFIX = RecordingProcessingNoteCodes.MANUAL_
 internal const val RECOVERABLE_QUEUE_HANDOFF_PREFIX = RecordingProcessingNoteCodes.RECOVERABLE_QUEUE_HANDOFF_PREFIX
 internal const val RECOVERABLE_STALE_TRANSCRIBING_PREFIX = RecordingProcessingNoteCodes.RECOVERABLE_STALE_TRANSCRIBING_PREFIX
 internal const val RECOVERABLE_STALE_ENHANCING_PREFIX = RecordingProcessingNoteCodes.RECOVERABLE_STALE_ENHANCING_PREFIX
+
+private val queueSchedulingMutex = Mutex()
+
+/**
+ * Keeps every in-process execution-token claim paired with the work request that owns it.
+ * The mutex lives at module scope so manager calls and reconciliation passes use the same gate.
+ */
+internal suspend fun <T> withSerializedQueueScheduling(block: suspend () -> T): T =
+    queueSchedulingMutex.withLock { block() }
+
+/**
+ * Oversized cloud recordings must run without a network constraint so the worker can start
+ * offline and reroute them to the local engine before trying a cloud request.
+ */
+internal fun Recording.requiresNetworkForTranscription(): Boolean =
+    transcriptionEngineId == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id &&
+        durationMs <= GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS &&
+        File(audioPath).length() <= GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES
 
 internal data class ParsedRecoveryMetadata(
     val reason: String?,

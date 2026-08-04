@@ -28,6 +28,15 @@ interface RecordingDao {
     @Query("SELECT * FROM recordings WHERE status IN (:statuses) ORDER BY createdAt ASC, id ASC")
     suspend fun getRecordingsByStatuses(statuses: List<RecordingStatus>): List<Recording>
 
+    @Query(
+        """
+        SELECT * FROM recordings
+        WHERE terminalNotificationPending = 1 AND status IN ('COMPLETED', 'FAILED')
+        ORDER BY createdAt ASC, id ASC
+        """,
+    )
+    suspend fun getPendingTerminalNotifications(): List<Recording>
+
     @Query("SELECT * FROM recordings WHERE profileId = :profileId ORDER BY createdAt DESC, id ASC")
     fun getRecordingsByProfile(profileId: UUID): Flow<List<Recording>>
     @Query("SELECT audioPath FROM recordings")
@@ -142,6 +151,49 @@ interface RecordingDao {
         expectedExecutionToken: String?,
     ): Int
 
+    /**
+     * Claims transcription ownership and re-arms the terminal notification outbox from the
+     * immutable capture-time preference in the same database write.
+     */
+    @Query(
+        """
+        UPDATE recordings
+        SET status = :status,
+            errorMessage = :errorMessage,
+            transcriptionExecutionToken = :executionToken,
+            terminalNotificationPending = notifyWhenReady
+        WHERE id = :id AND status IN (:allowedCurrentStatuses)
+        """,
+    )
+    suspend fun claimTranscriptionExecution(
+        id: UUID,
+        status: RecordingStatus,
+        errorMessage: String?,
+        executionToken: String,
+        allowedCurrentStatuses: List<RecordingStatus>,
+    ): Int
+
+    @Query(
+        """
+        UPDATE recordings
+        SET terminalNotificationPending = notifyWhenReady
+        WHERE id = :id
+        """,
+    )
+    suspend fun rearmTerminalNotification(id: UUID): Int
+
+    @Query(
+        """
+        UPDATE recordings
+        SET terminalNotificationPending = 0
+        WHERE id = :id AND terminalNotificationPending = 1 AND status = :expectedStatus
+        """,
+    )
+    suspend fun clearPendingTerminalNotification(
+        id: UUID,
+        expectedStatus: RecordingStatus,
+    ): Int
+
     @Query(
         """
         UPDATE recordings
@@ -199,6 +251,61 @@ interface RecordingDao {
     suspend fun updateNotes(
         id: UUID,
         notes: String?,
+    ): Int
+
+    /**
+     * Stamps the transcription engine exactly once. The null guard keeps retries and queue
+     * reconciliation pinned to the same backend even if the global setting changes later.
+     */
+    @Query(
+        """
+        UPDATE recordings
+        SET transcriptionEngineId = :engineId
+        WHERE id = :id AND transcriptionEngineId IS NULL
+        """,
+    )
+    suspend fun setTranscriptionEngineIfUnset(
+        id: UUID,
+        engineId: String,
+    ): Int
+
+    /**
+     * Swaps a transcription-owned recording to a replacement audio file. The old path and
+     * execution-token guards stop a stale worker from redirecting a row after another run has
+     * taken ownership or already replaced the source.
+     */
+    @Query(
+        """
+        UPDATE recordings
+        SET audioPath = :newAudioPath
+        WHERE id = :id
+            AND status = 'TRANSCRIBING'
+            AND transcriptionExecutionToken = :executionToken
+            AND audioPath = :expectedAudioPath
+        """,
+    )
+    suspend fun swapAudioPathForTranscriptionExecution(
+        id: UUID,
+        executionToken: String,
+        expectedAudioPath: String,
+        newAudioPath: String,
+    ): Int
+
+    @Query(
+        """
+        UPDATE recordings
+        SET transcriptionEngineId = :newEngineId
+        WHERE id = :id
+            AND status = 'TRANSCRIBING'
+            AND transcriptionExecutionToken = :executionToken
+            AND transcriptionEngineId = :expectedEngineId
+        """,
+    )
+    suspend fun rerouteTranscriptionEngineForExecution(
+        id: UUID,
+        executionToken: String,
+        expectedEngineId: String,
+        newEngineId: String,
     ): Int
 
     @Query("UPDATE recordings SET lastExportedPath = :path, lastExportedAt = :exportedAt WHERE id = :id")

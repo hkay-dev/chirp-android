@@ -103,5 +103,8 @@ internal object ProcessingStudioShare {
         file: File,
     ): Uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
 
-    internal fun audioMimeType(file: File): String = RecordingOutputFormat.fromFile(file).mimeType
+    internal fun audioMimeType(file: File): String {
+        require(isPlaybackAndShareReadyAudioPath(file.path)) { "Raw keyboard audio is not shareable" }
+        return RecordingOutputFormat.fromFile(file).mimeType
+    }
 }

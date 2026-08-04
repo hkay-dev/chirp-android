@@ -6,6 +6,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -15,7 +16,10 @@ import androidx.work.ForegroundInfo
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.core.transcription.ACTION_OPEN_TRANSCRIPTION_RECORDING
+import dev.chirpboard.app.core.transcription.EXTRA_TRANSCRIPTION_RECORDING_ID
 import dev.chirpboard.app.data.model.RecordingStatus
+import dev.chirpboard.app.data.entity.Transcript
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -29,6 +33,8 @@ internal const val TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID = 2001
 internal const val TRANSCRIPTION_FOREGROUND_CHANNEL_ID = "transcription_progress"
 internal const val ENHANCEMENT_FOREGROUND_NOTIFICATION_ID = 2002
 internal const val ENHANCEMENT_FOREGROUND_CHANNEL_ID = "enhancement_progress"
+private const val COPY_RAW_REQUEST_CODE_MASK = 0x13579BDF
+private const val COPY_AI_REQUEST_CODE_MASK = 0x2468ACE
 
 // I18N-08: notification titles/bodies/channel names live in strings.xml, not Kotlin literals.
 internal fun transcriptionProgressNotificationTitle(context: Context): String =
@@ -170,9 +176,19 @@ private fun ensureEnhancementProgressChannel(context: Context) {
     notificationManager.createNotificationChannel(channel)
 }
 
-private const val TRANSCRIPTION_ERROR_CHANNEL_ID = "transcription_errors"
+internal const val TRANSCRIPTION_ERROR_CHANNEL_ID = "transcription_errors"
 private const val TRANSCRIPTION_ERROR_GROUP = "transcription_error_group"
 private const val TRANSCRIPTION_ERROR_SUMMARY_NOTIFICATION_ID = 2003
+internal const val TRANSCRIPTION_READY_CHANNEL_ID = "transcription_ready"
+
+internal fun transcriptionErrorLaunchIntent(
+    context: Context,
+    recordingId: UUID,
+) =
+    context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+        action = ACTION_OPEN_TRANSCRIPTION_RECORDING
+        putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+    }
 
 /**
  * PIPE-04: terminal-failure notification with a branded small icon, a tap action into
@@ -201,7 +217,7 @@ internal fun showTranscriptionErrorNotification(
     }
 
     val contentIntent =
-        context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+        transcriptionErrorLaunchIntent(context, recordingId)?.let { launchIntent ->
             PendingIntent.getActivity(
                 context,
                 recordingId.hashCode(),
@@ -231,6 +247,175 @@ internal fun showTranscriptionErrorNotification(
         .build()
     notificationManager.notify(TRANSCRIPTION_ERROR_SUMMARY_NOTIFICATION_ID, groupSummary)
 }
+
+internal fun showTranscriptionReadyNotification(
+    context: Context,
+    recordingId: UUID,
+    transcript: Transcript? = null,
+) {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    if (notificationManager.getNotificationChannel(TRANSCRIPTION_READY_CHANNEL_ID) == null) {
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                TRANSCRIPTION_READY_CHANNEL_ID,
+                context.getString(R.string.transcription_ready_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
+    }
+    val contentIntent =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+            launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING
+            launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+            PendingIntent.getActivity(
+                context,
+                recordingId.hashCode(),
+                launchIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        }
+    val notification =
+        NotificationCompat
+            .Builder(context, TRANSCRIPTION_READY_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notif_transcription)
+            .setContentTitle(context.getString(R.string.transcription_ready_notification_title))
+            .setContentText(
+                transcript?.processedText?.takeIf { it.isNotBlank() }
+                    ?: transcript?.rawText?.takeIf { it.isNotBlank() }
+                    ?: context.getString(R.string.transcription_ready_notification_body),
+            )
+            .apply {
+                transcript?.let { value ->
+                    setStyle(NotificationCompat.BigTextStyle().bigText(terminalTranscriptNotificationText(context, value)))
+                    addTranscriptCopyActions(context, recordingId, value)
+                }
+            }
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(buildPrivateTranscriptionPublicVersion(context))
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .apply { contentIntent?.let(::setContentIntent) }
+            .build()
+    notificationManager.notify(recordingId.hashCode(), notification)
+}
+
+internal fun showTranscriptionCleanupRetryNotification(
+    context: Context,
+    recordingId: UUID,
+    transcript: Transcript? = null,
+) {
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    if (notificationManager.getNotificationChannel(TRANSCRIPTION_READY_CHANNEL_ID) == null) {
+        notificationManager.createNotificationChannel(
+            NotificationChannel(
+                TRANSCRIPTION_READY_CHANNEL_ID,
+                context.getString(R.string.transcription_ready_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
+    }
+    val contentIntent =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
+            launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING
+            launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+            PendingIntent.getActivity(
+                context,
+                recordingId.hashCode(),
+                launchIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+        }
+    val notification =
+        NotificationCompat
+            .Builder(context, TRANSCRIPTION_READY_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notif_transcription)
+            .setContentTitle(context.getString(R.string.transcription_cleanup_retry_notification_title))
+            .setContentText(
+                transcript?.rawText?.takeIf { it.isNotBlank() }
+                    ?: context.getString(R.string.transcription_cleanup_retry_notification_body),
+            )
+            .apply {
+                transcript?.let { value ->
+                    setStyle(NotificationCompat.BigTextStyle().bigText(terminalTranscriptNotificationText(context, value)))
+                    addTranscriptCopyActions(context, recordingId, value)
+                }
+            }
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(buildPrivateTranscriptionPublicVersion(context))
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .apply { contentIntent?.let(::setContentIntent) }
+            .build()
+    notificationManager.notify(recordingId.hashCode(), notification)
+}
+
+internal fun terminalTranscriptNotificationText(
+    context: Context,
+    transcript: Transcript,
+): String {
+    val raw = transcript.rawText.trim()
+    val processed = transcript.processedText?.trim()?.takeIf { it.isNotEmpty() && it != raw }
+    return if (processed == null) {
+        raw
+    } else {
+        context.getString(R.string.transcription_ready_ai_label) + "\n" + processed +
+            "\n\n" + context.getString(R.string.transcription_ready_raw_label) + "\n" + raw
+    }
+}
+
+private fun NotificationCompat.Builder.addTranscriptCopyActions(
+    context: Context,
+    recordingId: UUID,
+    transcript: Transcript,
+) {
+    if (transcript.rawText.isNotBlank()) {
+        addAction(
+            0,
+            context.getString(R.string.transcription_ready_copy_raw),
+            transcriptionCopyPendingIntent(context, recordingId, copyAiResult = false),
+        )
+    }
+    val processedText = transcript.processedText
+    if (!processedText.isNullOrBlank() && processedText.trim() != transcript.rawText.trim()) {
+        addAction(
+            0,
+            context.getString(R.string.transcription_ready_copy_ai),
+            transcriptionCopyPendingIntent(context, recordingId, copyAiResult = true),
+        )
+    }
+}
+
+private fun transcriptionCopyPendingIntent(
+    context: Context,
+    recordingId: UUID,
+    copyAiResult: Boolean,
+): PendingIntent {
+    val action =
+        if (copyAiResult) {
+            TranscriptionCopyActionReceiver.ACTION_COPY_AI
+        } else {
+            TranscriptionCopyActionReceiver.ACTION_COPY_RAW
+        }
+    val requestCode = recordingId.hashCode() xor if (copyAiResult) COPY_AI_REQUEST_CODE_MASK else COPY_RAW_REQUEST_CODE_MASK
+    val intent =
+        Intent(context, TranscriptionCopyActionReceiver::class.java)
+            .setAction(action)
+            .putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+    return PendingIntent.getBroadcast(
+        context,
+        requestCode,
+        intent,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+}
+
+private fun buildPrivateTranscriptionPublicVersion(context: Context): Notification =
+    NotificationCompat
+        .Builder(context, TRANSCRIPTION_READY_CHANNEL_ID)
+        .setSmallIcon(R.drawable.ic_notif_transcription)
+        .setContentTitle(context.getString(R.string.transcription_ready_notification_title))
+        .setContentText(context.getString(R.string.transcription_ready_notification_body))
+        .build()
 
 internal fun buildTranscriptionFailureResult(errorMessage: String): androidx.work.ListenableWorker.Result {
     return androidx.work.ListenableWorker.Result.failure(
@@ -284,14 +469,25 @@ internal fun mapOutcomeForChunkTranscription(outcome: TranscriptionOutcome): Chu
 internal fun transcriptionFailureNotificationText(
     context: Context,
     exception: Exception,
+): String = transcriptionFailureNotificationText(context, exception.message)
+
+internal fun transcriptionFailureNotificationText(
+    context: Context,
+    errorMessage: String?,
 ): String {
-    val message = exception.message.orEmpty()
+    val message = errorMessage.orEmpty()
     return when {
         dev.chirpboard.app.data.model.isWaitingForSpeechModel(message) ->
             context.getString(R.string.transcription_error_model_missing)
 
         message.contains("ENOSPC") || message.contains("No space left", ignoreCase = true) ->
             context.getString(R.string.transcription_error_storage_full)
+
+        message.contains("Audio file not found", ignoreCase = true) ->
+            context.getString(R.string.transcription_error_audio_missing)
+
+        message.contains("Out of memory", ignoreCase = true) ->
+            context.getString(R.string.transcription_error_out_of_memory)
 
         else -> context.getString(R.string.transcription_error_generic)
     }

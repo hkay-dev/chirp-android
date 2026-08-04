@@ -20,6 +20,7 @@ import dev.chirpboard.app.core.export.TranscriptExportPort
 import dev.chirpboard.app.core.export.TranscriptExportRecording
 import dev.chirpboard.app.core.llm.ProcessingModeListItem
 import dev.chirpboard.app.core.llm.ProcessingModePort
+import dev.chirpboard.app.core.llm.GOOGLE_CLOUD_VERTEX_PROVIDER_ID
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.llm.RecordingTextEnrichment
@@ -32,6 +33,7 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.llm.TextProcessor
+import dev.chirpboard.app.cloud.VertexTextGenerationClient
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
@@ -45,8 +47,11 @@ import dev.chirpboard.app.feature.transcription.inline.buildCapturePersistencePl
 import dev.chirpboard.app.feature.transcription.inline.captureOutputFormat
 import dev.chirpboard.app.feature.transcription.inline.captureRecordingQualityPreset
 import dev.chirpboard.app.feature.transcription.inline.saveCaptureRecording
+import dev.chirpboard.app.feature.transcription.inline.COMMIT_REFUSED_MESSAGE
+import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
 import dev.chirpboard.app.feature.transcription.inline.shouldPersistCaptures
 import dev.chirpboard.app.feature.transcription.audio.discardTemporaryFile
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -140,8 +145,14 @@ class LlmRecordingTextEnhancementPort
         private val modeRepository: ProcessingModeRepository,
         private val llmClient: LlmClient,
         private val llmPreferences: LlmPreferences,
+        private val vertexTextGenerationClient: VertexTextGenerationClient,
     ) : RecordingTextEnhancementPort {
+        override suspend fun isEnhancementEnabled(): Boolean = llmPreferences.getLlmEnabled()
+
         override suspend fun isEnhancementAvailable(providerId: String?): Boolean {
+            if (providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
+                return llmPreferences.getLlmEnabled() && vertexTextGenerationClient.isConfigured()
+            }
             val provider = LlmProvider.fromId(providerId)
             return llmPreferences.getLlmEnabled() && llmPreferences.hasApiKeyFor(provider)
         }
@@ -184,6 +195,20 @@ class LlmRecordingTextEnhancementPort
             prompt: String?,
             fallbackProcessingModeId: String,
         ): Result<String> {
+            if (context.providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
+                vertexAvailabilityFailure()?.let { return Result.failure(it) }
+                val resolvedPrompt =
+                    prompt ?: run {
+                        val mode = modeRepository.resolveMode(fallbackProcessingModeId)
+                        textProcessor.resolvePromptForSnapshot(context.text, mode)
+                    } ?: return Result.failure(IllegalStateException("Processing prompt is unavailable"))
+                return vertexTextGenerationClient.generate(
+                    text = context.text,
+                    prompt = resolvedPrompt,
+                    model = context.modelId,
+                    recordingId = context.recordingId,
+                )
+            }
             val transcriptContext =
                 TranscriptLlmContext(context.text, context.providerId, context.modelId)
             return if (prompt.isNullOrBlank()) {
@@ -200,15 +225,49 @@ class LlmRecordingTextEnhancementPort
         override suspend fun generateSummary(transcript: String): Result<String> =
             llmClient.generateSummary(TranscriptLlmContext(transcript))
 
-        override suspend fun generateTitle(context: RecordingTextEnhancementContext): Result<String> =
-            llmClient.generateTitle(
+        override suspend fun generateTitle(context: RecordingTextEnhancementContext): Result<String> {
+            if (context.providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
+                vertexAvailabilityFailure()?.let { return Result.failure(it) }
+                return vertexTextGenerationClient.generate(
+                    text = context.text,
+                    prompt = VERTEX_TITLE_PROMPT,
+                    model = context.modelId,
+                    recordingId = context.recordingId,
+                )
+            }
+            return llmClient.generateTitle(
                 TranscriptLlmContext(context.text, context.providerId, context.modelId),
             )
+        }
 
-        override suspend fun generateSummary(context: RecordingTextEnhancementContext): Result<String> =
-            llmClient.generateSummary(
+        override suspend fun generateSummary(context: RecordingTextEnhancementContext): Result<String> {
+            if (context.providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
+                vertexAvailabilityFailure()?.let { return Result.failure(it) }
+                return vertexTextGenerationClient.generate(
+                    text = context.text,
+                    prompt = VERTEX_SUMMARY_PROMPT,
+                    model = context.modelId,
+                    recordingId = context.recordingId,
+                )
+            }
+            return llmClient.generateSummary(
                 TranscriptLlmContext(context.text, context.providerId, context.modelId),
             )
+        }
+
+        private suspend fun vertexAvailabilityFailure(): IllegalStateException? =
+            when {
+                !llmPreferences.getLlmEnabled() -> IllegalStateException("AI processing is turned off")
+                !vertexTextGenerationClient.isConfigured() -> IllegalStateException("Google Cloud AI is not configured")
+                else -> null
+            }
+
+        private companion object {
+            const val VERTEX_TITLE_PROMPT =
+                "Generate a brief, descriptive title of 5 to 8 words. Return only the title text."
+            const val VERTEX_SUMMARY_PROMPT =
+                "Summarize the main points and key information in 2 to 3 sentences. Return only the summary text."
+        }
     }
 
 @Singleton
@@ -220,6 +279,7 @@ class AppKeyboardInlineCapturePersistence
         private val keyboardPreferences: KeyboardPreferences,
         private val transcriptExportPort: TranscriptExportPort,
         private val audioEncoder: AudioEncoder,
+        private val terminalNotificationDelivery: dagger.Lazy<TerminalRecordingNotificationDelivery>,
     ) : InlineCapturePersistence {
         private var pendingAudioSource: InlineAudioSource? = null
 
@@ -277,6 +337,8 @@ class AppKeyboardInlineCapturePersistence
                     }
 
                     val plan = buildCapturePersistencePlan(rawText, processedText, errorMessage)
+                    val notifyUndeliveredResult =
+                        rawText != null && errorMessage == COMMIT_REFUSED_MESSAGE
                     val recording =
                         saveCaptureRecording(
                             filesDir = context.filesDir,
@@ -286,11 +348,22 @@ class AppKeyboardInlineCapturePersistence
                             audioSource = source,
                             recordingQualityPreset = captureRecordingQualityPreset(keyboardPreferences),
                             outputFormat = captureOutputFormat(keyboardPreferences),
+                            allowTextOnlyFallback = !isRescueEntry,
+                            terminalNotificationPending = notifyUndeliveredResult,
                         )
+                    if (recording == null) {
+                        if (isRescueEntry) {
+                            throw IOException("Could not save rescued keyboard audio")
+                        }
+                        return@withContext
+                    }
                     sourceHandled = true
+                    if (notifyUndeliveredResult) {
+                        terminalNotificationDelivery.get().deliverRequested(recording.id)
+                    }
 
                     val transcript = processedText ?: rawText
-                    if (recording != null && transcript != null) {
+                    if (transcript != null) {
                         transcriptExportPort
                             .exportIfEnabled(
                                 recording =
@@ -308,7 +381,7 @@ class AppKeyboardInlineCapturePersistence
                             }
                     }
                 } finally {
-                    if (!sourceHandled) {
+                    if (!sourceHandled && reason != InlineCapturePersistReason.RESCUE) {
                         source.discardTemporaryFile()
                     }
                 }

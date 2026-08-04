@@ -9,15 +9,18 @@ import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.db.AppDatabase
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.RecordingEnhancementSnapshotEntity
 import dev.chirpboard.app.data.entity.toEntity
 import dev.chirpboard.app.data.entity.toModel
 import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.model.EnhancementSubworkStatus
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeSnapshot
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -80,6 +83,30 @@ class RecordingRepositoryTest {
             status = status,
             errorMessage = errorMessage,
             transcriptionExecutionToken = executionToken,
+        )
+
+    private fun enhancementSnapshot(recordingId: UUID): RecordingEnhancementSnapshotEntity =
+        RecordingEnhancementSnapshotEntity(
+            recordingId = recordingId,
+            sourceTranscriptRevision = "raw transcript||",
+            sourceProcessedTextRevision = null,
+            processingModeRequested = false,
+            processingModeId = null,
+            processingModeLabel = null,
+            processingModeType = null,
+            processingModePrompt = null,
+            processingModeStatus = EnhancementSubworkStatus.SKIPPED,
+            processingModeErrorMessage = null,
+            titleRequested = true,
+            titleStatus = EnhancementSubworkStatus.PENDING,
+            titleErrorMessage = null,
+            summaryRequested = false,
+            summaryStatus = EnhancementSubworkStatus.SKIPPED,
+            summaryErrorMessage = null,
+            llmProviderId = "vertex",
+            llmModelId = null,
+            activeEnhancementExecutionToken = null,
+            legacyRequiresResolution = false,
         )
 
     @Test
@@ -172,13 +199,12 @@ class RecordingRepositoryTest {
             val id = UUID.randomUUID()
             val allowedStatuses = slot<List<RecordingStatus>>()
             coEvery {
-                recordingDao.updateStatusWithTranscriptionToken(
+                recordingDao.claimTranscriptionExecution(
                     id = id,
                     status = RecordingStatus.PENDING_TRANSCRIPTION,
                     errorMessage = null,
                     executionToken = "token-1",
                     allowedCurrentStatuses = capture(allowedStatuses),
-                    expectedExecutionToken = null,
                 )
             } returns 1
 
@@ -199,13 +225,12 @@ class RecordingRepositoryTest {
             val id = UUID.randomUUID()
             val allowedStatuses = slot<List<RecordingStatus>>()
             coEvery {
-                recordingDao.updateStatusWithTranscriptionToken(
+                recordingDao.claimTranscriptionExecution(
                     id = id,
                     status = RecordingStatus.PENDING_TRANSCRIPTION,
                     errorMessage = null,
                     executionToken = "token-1",
                     allowedCurrentStatuses = capture(allowedStatuses),
-                    expectedExecutionToken = null,
                 )
             } returns 1
 
@@ -222,13 +247,12 @@ class RecordingRepositoryTest {
         runTest {
             val id = UUID.randomUUID()
             coEvery {
-                recordingDao.updateStatusWithTranscriptionToken(
+                recordingDao.claimTranscriptionExecution(
                     id = any(),
                     status = any(),
                     errorMessage = any(),
                     executionToken = any(),
                     allowedCurrentStatuses = any(),
-                    expectedExecutionToken = any(),
                 )
             } returns 0
 
@@ -240,17 +264,122 @@ class RecordingRepositoryTest {
         runTest {
             val id = UUID.randomUUID()
             coEvery {
-                recordingDao.updateStatusWithTranscriptionToken(
+                recordingDao.claimTranscriptionExecution(
                     id = any(),
                     status = any(),
                     errorMessage = any(),
                     executionToken = any(),
                     allowedCurrentStatuses = any(),
-                    expectedExecutionToken = any(),
                 )
             } returns 0
 
             assertFalse(repository.claimTranscriptionExecution(id, "token-1"))
+        }
+
+    @Test
+    fun `claimEnhancementExecution re-arms terminal delivery in the claim transaction`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val snapshot = enhancementSnapshot(id)
+            val allowedStatuses = slot<List<RecordingStatus>>()
+            coEvery { enhancementSnapshotDao.getSnapshot(id) } returns snapshot
+            coEvery {
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = null,
+                    allowedStatuses = capture(allowedStatuses),
+                )
+            } returns 1
+            coEvery { recordingDao.rearmTerminalNotification(id) } returns 1
+
+            val claimed = repository.claimEnhancementExecution(id, "enhancement-token")
+
+            assertTrue(claimed)
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.PENDING_ENHANCEMENT))
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.ENHANCING))
+            assertTrue(allowedStatuses.captured.contains(RecordingStatus.FAILED))
+            coVerifyOrder {
+                enhancementSnapshotDao.getSnapshot(id)
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = null,
+                    allowedStatuses = any(),
+                )
+                enhancementSnapshotDao.upsert(
+                    match {
+                        it.recordingId == id &&
+                            it.activeEnhancementExecutionToken == "enhancement-token" &&
+                            it.lastErrorMessage == null
+                    },
+                )
+                recordingDao.rearmTerminalNotification(id)
+            }
+        }
+
+    @Test
+    fun `reparkEnhancementExecution keeps the active token and pending subwork`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val snapshot =
+                enhancementSnapshot(id).copy(
+                    activeEnhancementExecutionToken = "enhancement-token",
+                )
+            coEvery { enhancementSnapshotDao.getSnapshot(id) } returns snapshot
+            coEvery {
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = "temporary outage",
+                    allowedStatuses = listOf(RecordingStatus.ENHANCING),
+                )
+            } returns 1
+
+            val reparked =
+                repository.reparkEnhancementExecution(
+                    recordingId = id,
+                    executionToken = "enhancement-token",
+                    errorMessage = "temporary outage",
+                )
+
+            assertTrue(reparked)
+            coVerifyOrder {
+                enhancementSnapshotDao.getSnapshot(id)
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = "temporary outage",
+                    allowedStatuses = listOf(RecordingStatus.ENHANCING),
+                )
+                enhancementSnapshotDao.upsert(
+                    match {
+                        it.recordingId == id &&
+                            it.activeEnhancementExecutionToken == "enhancement-token" &&
+                            it.titleStatus == EnhancementSubworkStatus.PENDING &&
+                            it.lastErrorMessage == "temporary outage"
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `reparkEnhancementExecution rejects a stale token`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { enhancementSnapshotDao.getSnapshot(id) } returns
+                enhancementSnapshot(id).copy(activeEnhancementExecutionToken = "new-owner")
+
+            val reparked =
+                repository.reparkEnhancementExecution(
+                    recordingId = id,
+                    executionToken = "stale-owner",
+                    errorMessage = "temporary outage",
+                )
+
+            assertFalse(reparked)
+            coVerify(exactly = 0) { recordingDao.updateStatusWithErrorIfCurrentIn(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { enhancementSnapshotDao.upsert(any()) }
         }
 
     @Test
@@ -305,6 +434,71 @@ class RecordingRepositoryTest {
             val started = repository.beginTranscriptionExecution(id, "token-1")
 
             assertEquals(RecordingStatus.TRANSCRIBING, started?.status)
+        }
+
+    @Test
+    fun `audio path swap carries the source path and execution token guards`() =
+        runTest {
+            val id = UUID.randomUUID()
+            var updatedRows = 1
+            coEvery {
+                recordingDao.swapAudioPathForTranscriptionExecution(
+                    id = id,
+                    executionToken = "token-1",
+                    expectedAudioPath = "/tmp/capture.f32pcm",
+                    newAudioPath = "/tmp/capture.wav",
+                )
+            } answers { updatedRows }
+
+            assertTrue(
+                repository.swapAudioPathForTranscriptionExecution(
+                    recordingId = id,
+                    executionToken = "token-1",
+                    expectedAudioPath = "/tmp/capture.f32pcm",
+                    newAudioPath = "/tmp/capture.wav",
+                ),
+            )
+            updatedRows = 0
+            assertFalse(
+                repository.swapAudioPathForTranscriptionExecution(
+                    recordingId = id,
+                    executionToken = "token-1",
+                    expectedAudioPath = "/tmp/capture.f32pcm",
+                    newAudioPath = "/tmp/capture.wav",
+                ),
+            )
+            coVerify(exactly = 2) {
+                recordingDao.swapAudioPathForTranscriptionExecution(
+                    id = id,
+                    executionToken = "token-1",
+                    expectedAudioPath = "/tmp/capture.f32pcm",
+                    newAudioPath = "/tmp/capture.wav",
+                )
+            }
+        }
+
+    @Test
+    fun `engine reroute carries the execution token and expected engine guards`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery {
+                recordingDao.rerouteTranscriptionEngineForExecution(
+                    id = id,
+                    executionToken = "token-1",
+                    expectedEngineId = "google_cloud_chirp_3",
+                    newEngineId = "local_parakeet",
+                )
+            } returns 1
+
+            val rerouted =
+                repository.rerouteTranscriptionEngineForExecution(
+                    recordingId = id,
+                    executionToken = "token-1",
+                    expectedEngineId = "google_cloud_chirp_3",
+                    newEngineId = "local_parakeet",
+                )
+
+            assertTrue(rerouted)
         }
 
     @Test

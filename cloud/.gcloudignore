@@ -1,0 +1,17 @@
+.gcloudignore
+.git
+.gitignore
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+*.json
+*.jks
+*.key
+*.keystore
+*.p12
+*.pem
+test_app.py
+README.md
+scripts/

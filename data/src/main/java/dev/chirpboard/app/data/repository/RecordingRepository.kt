@@ -351,6 +351,19 @@ class RecordingRepository
             notes: String?,
         ): Boolean = recordingDao.updateNotes(id, notes?.takeUnless { it.isBlank() }) > 0
 
+        /**
+         * Persists a queue's chosen file-level engine before network or recognizer work starts.
+         * Returns the winning row so a concurrent retry always uses the value already stored.
+         */
+        suspend fun stampTranscriptionEngineIfUnset(
+            id: UUID,
+            engineId: String,
+        ): Recording? =
+            database.withTransaction {
+                recordingDao.setTranscriptionEngineIfUnset(id, engineId)
+                recordingDao.getRecording(id)
+            }
+
         suspend fun updateExportInfo(
             id: UUID,
             path: String,
@@ -387,6 +400,15 @@ class RecordingRepository
         }
 
         suspend fun getTranscript(recordingId: UUID): Transcript? = transcriptDao.getTranscript(recordingId)
+
+        suspend fun getPendingTerminalNotifications(): List<Recording> =
+            recordingDao.getPendingTerminalNotifications()
+
+        suspend fun clearPendingTerminalNotification(
+            recordingId: UUID,
+            expectedStatus: RecordingStatus,
+        ): Boolean =
+            recordingDao.clearPendingTerminalNotification(recordingId, expectedStatus) > 0
 
         fun getTranscriptFlow(recordingId: UUID): Flow<RepositoryFlowState<Transcript?>> =
             transcriptDao.getTranscriptFlow(recordingId).catchRepositoryFlowState(TAG, null)
@@ -452,13 +474,12 @@ class RecordingRepository
             status: RecordingStatus = RecordingStatus.PENDING_TRANSCRIPTION,
             errorMessage: String? = null,
         ): Boolean =
-            recordingDao.updateStatusWithTranscriptionToken(
+            recordingDao.claimTranscriptionExecution(
                 id = recordingId,
                 status = status,
                 errorMessage = errorMessage,
                 executionToken = executionToken,
                 allowedCurrentStatuses = TRANSCRIPTION_CLAIMABLE_STATUSES,
-                expectedExecutionToken = null,
             ) > 0
 
         /**
@@ -473,13 +494,12 @@ class RecordingRepository
             recordingId: UUID,
             executionToken: String,
         ): Boolean =
-            recordingDao.updateStatusWithTranscriptionToken(
+            recordingDao.claimTranscriptionExecution(
                 id = recordingId,
                 status = RecordingStatus.PENDING_TRANSCRIPTION,
                 errorMessage = null,
                 executionToken = executionToken,
                 allowedCurrentStatuses = RETRANSCRIPTION_CLAIMABLE_STATUSES,
-                expectedExecutionToken = null,
             ) > 0
 
         suspend fun beginTranscriptionExecution(
@@ -515,6 +535,37 @@ class RecordingRepository
                     recording.copy(status = RecordingStatus.TRANSCRIBING, errorMessage = null)
                 }
             }
+
+        /**
+         * Redirects the recording to a replacement audio file only while this transcription
+         * run still owns the row and the row still points at [expectedAudioPath]. Callers must
+         * finish writing the replacement before this swap, then may delete the old duplicate.
+         */
+        suspend fun swapAudioPathForTranscriptionExecution(
+            recordingId: UUID,
+            executionToken: String,
+            expectedAudioPath: String,
+            newAudioPath: String,
+        ): Boolean =
+            recordingDao.swapAudioPathForTranscriptionExecution(
+                id = recordingId,
+                executionToken = executionToken,
+                expectedAudioPath = expectedAudioPath,
+                newAudioPath = newAudioPath,
+            ) > 0
+
+        suspend fun rerouteTranscriptionEngineForExecution(
+            recordingId: UUID,
+            executionToken: String,
+            expectedEngineId: String,
+            newEngineId: String,
+        ): Boolean =
+            recordingDao.rerouteTranscriptionEngineForExecution(
+                id = recordingId,
+                executionToken = executionToken,
+                expectedEngineId = expectedEngineId,
+                newEngineId = newEngineId,
+            ) > 0
 
         suspend fun failTranscriptionExecution(
             recordingId: UUID,
@@ -678,6 +729,7 @@ class RecordingRepository
                         lastErrorMessage = null,
                     ),
                 )
+                recordingDao.rearmTerminalNotification(recordingId)
                 true
             }
 
@@ -748,6 +800,30 @@ class RecordingRepository
                     transcript = transcript,
                     execution = snapshot.copy(lastAttemptedAt = Date()).toModel(),
                 )
+            }
+
+        suspend fun reparkEnhancementExecution(
+            recordingId: UUID,
+            executionToken: String,
+            errorMessage: String,
+        ): Boolean =
+            database.withTransaction {
+                val snapshot = enhancementSnapshotDao.getSnapshot(recordingId) ?: return@withTransaction false
+                if (snapshot.activeEnhancementExecutionToken != executionToken) {
+                    return@withTransaction false
+                }
+                val transition =
+                    transitionRecordingStatusLocked(
+                        id = recordingId,
+                        destinationStatus = RecordingStatus.PENDING_ENHANCEMENT,
+                        allowedSourceStatuses = listOf(RecordingStatus.ENHANCING),
+                        errorMessage = errorMessage,
+                    )
+                if (transition != RecordingStatusTransitionResult.TransitionApplied) {
+                    return@withTransaction false
+                }
+                enhancementSnapshotDao.upsert(snapshot.copy(lastErrorMessage = errorMessage))
+                true
             }
 
         suspend fun completeEnhancement(

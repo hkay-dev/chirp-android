@@ -9,4 +9,8 @@
     <include domain="file" path="datastore/" />
     <exclude domain="file" path="datastore/keyboard_pending_stop.preferences_pb" />
     <exclude domain="file" path="datastore/recording_recovery.preferences_pb" />
+    <!-- Short-lived GCS resumable session bearer URIs must stay on this device. -->
+    <exclude domain="file" path="datastore/cloud_dictation_checkpoints.preferences_pb" />
+    <!-- A cloud route is only valid with this device's endpoint and Firebase session. -->
+    <exclude domain="file" path="datastore/transcription_routing.preferences_pb" />
 </full-backup-content>

@@ -1,15 +1,21 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import androidx.work.Data
 import androidx.work.ListenableWorker
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.transcription.ACTION_OPEN_TRANSCRIPTION_RECORDING
+import dev.chirpboard.app.core.transcription.EXTRA_TRANSCRIPTION_RECORDING_ID
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -17,6 +23,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -101,12 +108,31 @@ class TranscriptionWorkerSupportTest {
     // Context, so these tests pin the stable ids and the resource lookup rather than literals.
     @Test
     fun `transcription foreground helpers use stable ids`() {
-        val context = mockk<android.content.Context>()
+        val context = mockk<Context>()
         every { context.getString(R.string.transcription_progress_notification_title) } returns "Transcribing recording"
         assertEquals("transcription_progress", TRANSCRIPTION_FOREGROUND_CHANNEL_ID)
         assertEquals(2001, TRANSCRIPTION_FOREGROUND_NOTIFICATION_ID)
         assertEquals("Transcribing recording", transcriptionProgressNotificationTitle(context))
         assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC, backgroundWorkerForegroundServiceType())
+    }
+
+    @Test
+    fun `failure notification launch intent opens the exact recording`() {
+        val context = mockk<Context>()
+        val packageManager = mockk<PackageManager>()
+        val launchIntent = mockk<Intent>(relaxed = true)
+        val recordingId = UUID.randomUUID()
+        every { context.packageManager } returns packageManager
+        every { context.packageName } returns "dev.chirpboard.app"
+        every { packageManager.getLaunchIntentForPackage("dev.chirpboard.app") } returns launchIntent
+
+        val result = transcriptionErrorLaunchIntent(context, recordingId)
+
+        assertSame(launchIntent, result)
+        verify(exactly = 1) { launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING }
+        verify(exactly = 1) {
+            launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+        }
     }
 
     @Test
@@ -124,6 +150,8 @@ class TranscriptionWorkerSupportTest {
         val context = mockk<android.content.Context>()
         every { context.getString(R.string.transcription_error_model_missing) } returns "model-missing"
         every { context.getString(R.string.transcription_error_storage_full) } returns "storage-full"
+        every { context.getString(R.string.transcription_error_audio_missing) } returns "audio-missing"
+        every { context.getString(R.string.transcription_error_out_of_memory) } returns "out-of-memory"
         every { context.getString(R.string.transcription_error_generic) } returns "generic"
 
         assertEquals(
@@ -139,6 +167,14 @@ class TranscriptionWorkerSupportTest {
                 context,
                 java.io.IOException("write failed: ENOSPC (No space left on device)"),
             ),
+        )
+        assertEquals(
+            "audio-missing",
+            transcriptionFailureNotificationText(context, "Audio file not found"),
+        )
+        assertEquals(
+            "out-of-memory",
+            transcriptionFailureNotificationText(context, "Out of memory during transcription"),
         )
         assertEquals(
             "generic",

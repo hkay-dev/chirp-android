@@ -14,6 +14,8 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.inject.Inject
@@ -625,11 +627,12 @@ class AudioEncoder
         inputPath: String,
         onChunk: (FloatArray) -> Unit,
     ) {
-        PcmFloatFileReader(inputPath).use { reader ->
-            while (true) {
-                val chunk = reader.readFloatChunk() ?: break
-                onChunk(chunk)
-            }
+        FileInputStream(inputPath).use { input ->
+            forEachPcmFloatChunk(
+                input = input,
+                chunkSamples = STREAM_CHUNK_SAMPLES,
+                onChunk = onChunk,
+            )
         }
     }
 
@@ -637,23 +640,68 @@ class AudioEncoder
         inputPath: String,
     ) : AutoCloseable {
         private val input = FileInputStream(inputPath)
-        private val buffer = ByteArray(STREAM_CHUNK_SAMPLES * java.lang.Float.BYTES)
+        private val reader = PcmFloatStreamReader(input, STREAM_CHUNK_SAMPLES)
 
-        fun readFloatChunk(): FloatArray? {
-            val bytesRead = input.read(buffer)
-            if (bytesRead <= 0) {
-                return null
-            }
-            val sampleCount = bytesRead / java.lang.Float.BYTES
-            val byteBuffer = ByteBuffer.wrap(buffer, 0, sampleCount * java.lang.Float.BYTES)
-                .order(ByteOrder.LITTLE_ENDIAN)
-            return FloatArray(sampleCount) { byteBuffer.float }
-        }
-
-        fun readPcm16Chunk(): ByteArray? = readFloatChunk()?.let(::floatToPcm16)
+        fun readPcm16Chunk(): ByteArray? = reader.readFloatChunk()?.let(::floatToPcm16)
 
         override fun close() {
             input.close()
         }
     }
+}
+
+/** Streams little-endian float PCM without assuming one read ends on a sample boundary. */
+internal fun forEachPcmFloatChunk(
+    input: InputStream,
+    chunkSamples: Int,
+    onChunk: (FloatArray) -> Unit,
+) {
+    val reader = PcmFloatStreamReader(input, chunkSamples)
+    while (true) {
+        val chunk = reader.readFloatChunk() ?: return
+        onChunk(chunk)
+    }
+}
+
+private class PcmFloatStreamReader(
+    private val input: InputStream,
+    chunkSamples: Int,
+) {
+    private val buffer: ByteArray
+
+    init {
+        require(chunkSamples > 0) { "chunkSamples must be positive" }
+        buffer = ByteArray(chunkSamples * java.lang.Float.BYTES)
+    }
+
+    fun readFloatChunk(): FloatArray? {
+        var bufferedBytes = 0
+
+        while (bufferedBytes < buffer.size) {
+            val bytesRead = input.read(buffer, bufferedBytes, buffer.size - bufferedBytes)
+            if (bytesRead < 0) {
+                if (bufferedBytes == 0) return null
+                if (bufferedBytes % java.lang.Float.BYTES != 0) {
+                    throw IOException("Raw float PCM file ends with an incomplete sample")
+                }
+                break
+            }
+            if (bytesRead == 0) continue
+
+            bufferedBytes += bytesRead
+        }
+
+        return decodeFloatPcm(buffer, bufferedBytes)
+    }
+}
+
+private fun decodeFloatPcm(
+    buffer: ByteArray,
+    byteCount: Int,
+): FloatArray {
+    val byteBuffer =
+        ByteBuffer
+            .wrap(buffer, 0, byteCount)
+            .order(ByteOrder.LITTLE_ENDIAN)
+    return FloatArray(byteCount / java.lang.Float.BYTES) { byteBuffer.float }
 }

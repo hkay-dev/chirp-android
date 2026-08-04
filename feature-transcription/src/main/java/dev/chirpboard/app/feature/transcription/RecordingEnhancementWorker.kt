@@ -18,6 +18,7 @@ import dev.chirpboard.app.data.model.RecordingEnhancementSubworkState
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.WordReplacementRepository
 import kotlinx.coroutines.CancellationException
+import java.io.IOException
 import java.util.UUID
 
 @HiltWorker
@@ -31,10 +32,22 @@ class RecordingEnhancementWorker
         private val wordReplacer: WordReplacer,
         private val textEnhancement: RecordingTextEnhancementPort,
         private val completionExporter: TranscriptionCompletionExporter,
+        private val terminalNotificationDelivery: TerminalRecordingNotificationDelivery,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "RecordingEnhancement"
             const val OUTPUT_ERROR = "error"
+            // This work deliberately has no network constraint so turning AI off can resolve a
+            // queued row while the phone is offline. Twelve exponential attempts cover an
+            // overnight loss of connectivity, then leave the saved raw transcript in a
+            // terminal retryable state instead of retrying forever.
+            internal const val MAX_RUN_ATTEMPTS = 12
+
+            internal fun shouldRetry(
+                exception: Throwable,
+                runAttemptCount: Int,
+                maxRunAttempts: Int = MAX_RUN_ATTEMPTS,
+            ): Boolean = exception is IOException && runAttemptCount + 1 < maxRunAttempts
         }
 
         override suspend fun doWork(): Result {
@@ -84,8 +97,11 @@ class RecordingEnhancementWorker
                 }
                 if (transcript == null) {
                     val errorMessage = "No transcript found for enhancement"
-                    recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
+                    val failed = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
                     enhancementLog.failure("enhancement_missing_transcript", message = errorMessage)
+                    if (failed && recording.terminalNotificationPending) {
+                        terminalNotificationDelivery.deliverRequested(recordingId)
+                    }
                     return buildEnhancementFailureResult(errorMessage)
                 }
                 enhancementLog.skipped("enhancement_ownership_lost")
@@ -104,19 +120,38 @@ class RecordingEnhancementWorker
                     // Skip resolves the row to terminal COMPLETED; this recording never
                     // passed the transcription worker's export site, so export here.
                     completionExporter.exportIfCompleted(recordingId)
+                    if (snapshot.recording.terminalNotificationPending) {
+                        terminalNotificationDelivery.deliverRequested(recordingId)
+                    }
                 }
                 return Result.success()
             }
             if (!hasExecutableSubwork && execution.legacyRequiresResolution) {
                 val errorMessage = "Legacy enhancement request requires full recovery"
-                recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
+                val failed = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
                 enhancementLog.failure("legacy_enhancement_requires_resolution", message = errorMessage)
+                if (failed && snapshot.recording.terminalNotificationPending) {
+                    terminalNotificationDelivery.deliverRequested(recordingId)
+                }
                 return buildEnhancementFailureResult(errorMessage)
+            }
+            if (!textEnhancement.isEnhancementEnabled()) {
+                enhancementLog.skipped("enhancement_disabled")
+                if (recordingRepository.skipEnhancement(recordingId, executionToken)) {
+                    completionExporter.exportIfCompleted(recordingId)
+                    if (snapshot.recording.terminalNotificationPending) {
+                        terminalNotificationDelivery.deliverRequested(recordingId)
+                    }
+                }
+                return Result.success()
             }
             if (!textEnhancement.isEnhancementAvailable(execution.llmProviderId)) {
                 val errorMessage = "LLM credentials unavailable for queued enhancement"
-                recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
+                val failed = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
                 enhancementLog.failure("llm_unavailable", message = errorMessage)
+                if (failed && snapshot.recording.terminalNotificationPending) {
+                    terminalNotificationDelivery.deliverRequested(recordingId)
+                }
                 return buildEnhancementFailureResult(errorMessage)
             }
 
@@ -141,6 +176,7 @@ class RecordingEnhancementWorker
                     text = textForEnrichment,
                     providerId = execution.llmProviderId,
                     modelId = execution.llmModelId,
+                    recordingId = recordingId.toString(),
                 )
             var transformedText: String? = null
             var transformedMode: String? = null
@@ -167,11 +203,18 @@ class RecordingEnhancementWorker
                             text = textForEnrichment,
                             providerId = execution.llmProviderId,
                             modelId = execution.llmModelId,
+                            recordingId = recordingId.toString(),
                         )
                     transformedText = textForEnrichment
                     transformedMode = modeId
                     processingStatus = EnhancementSubworkStatus.SUCCEEDED
                 } else {
+                    handleRetryableSubworkFailure(
+                        recordingId = recordingId,
+                        correlationId = correlationId,
+                        executionToken = executionToken,
+                        exception = transformResult.exceptionOrNull(),
+                    )?.let { return it }
                     val message = transformResult.exceptionOrNull()?.message ?: "Processing mode transform failed"
                     processingStatus = EnhancementSubworkStatus.FAILED
                     processingError = message
@@ -196,6 +239,12 @@ class RecordingEnhancementWorker
                         Log.w(TAG, "Skipping title generation: sanitized title was empty")
                     }
                 } else {
+                    handleRetryableSubworkFailure(
+                        recordingId = recordingId,
+                        correlationId = correlationId,
+                        executionToken = executionToken,
+                        exception = titleResult.exceptionOrNull(),
+                    )?.let { return it }
                     val message = titleResult.exceptionOrNull()?.message ?: "Title generation failed"
                     titleStatus = EnhancementSubworkStatus.FAILED
                     titleError = message
@@ -217,6 +266,12 @@ class RecordingEnhancementWorker
                         Log.w(TAG, "Skipping summary generation: sanitized summary was empty")
                     }
                 } else {
+                    handleRetryableSubworkFailure(
+                        recordingId = recordingId,
+                        correlationId = correlationId,
+                        executionToken = executionToken,
+                        exception = summaryResult.exceptionOrNull(),
+                    )?.let { return it }
                     val message = summaryResult.exceptionOrNull()?.message ?: "Summary generation failed"
                     summaryStatus = EnhancementSubworkStatus.FAILED
                     summaryError = message
@@ -260,8 +315,23 @@ class RecordingEnhancementWorker
                 // the row status, so an unresolved-subwork commit that landed in FAILED is
                 // never exported (PLH-3/ERR-5).
                 completionExporter.exportIfCompleted(recordingId)
+                if (snapshot.recording.terminalNotificationPending) {
+                    terminalNotificationDelivery.deliverRequested(recordingId)
+                }
             }
             return Result.success()
+        }
+
+        private suspend fun handleRetryableSubworkFailure(
+            recordingId: UUID,
+            correlationId: String,
+            executionToken: String,
+            exception: Throwable?,
+        ): Result? {
+            if (exception is CancellationException) throw exception
+            return (exception as? IOException)?.let {
+                handleError(recordingId, correlationId, executionToken, it)
+            }
         }
 
         private suspend fun handleError(
@@ -271,15 +341,41 @@ class RecordingEnhancementWorker
             exception: Exception,
         ): Result {
             val errorMessage = exception.message ?: "Unknown enhancement error"
-            val updated = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
             val enhancementLog =
                 ReliabilityEventLogger.scoped(
                     stage = ReliabilityStage.ENHANCEMENT,
                     correlationId = correlationId,
                     recordingId = recordingId,
                 )
+            if (shouldRetry(exception, runAttemptCount)) {
+                val reparked =
+                    try {
+                        recordingRepository.reparkEnhancementExecution(
+                            recordingId = recordingId,
+                            executionToken = executionToken,
+                            errorMessage = errorMessage,
+                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Could not persist enhancement retry state", e)
+                        false
+                    }
+                if (reparked) {
+                    enhancementLog.failure("enhancement_retryable_exception", message = errorMessage)
+                } else {
+                    enhancementLog.skipped("enhancement_retry_stale", message = errorMessage)
+                }
+                return Result.retry()
+            }
+
+            val updated = recordingRepository.failEnhancement(recordingId, executionToken, errorMessage)
             if (updated) {
                 enhancementLog.failure("enhancement_exception", message = errorMessage)
+                val recording = recordingRepository.getRecording(recordingId)
+                if (recording?.terminalNotificationPending == true) {
+                    terminalNotificationDelivery.deliverRequested(recordingId)
+                }
             } else {
                 enhancementLog.skipped("enhancement_error_stale", message = errorMessage)
             }

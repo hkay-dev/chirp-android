@@ -1,14 +1,14 @@
 package dev.chirpboard.app.feature.transcription
 
 import android.content.Context
-import androidx.work.Constraints
+import androidx.work.BackoffPolicy
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /**
  * Helper object for creating and enqueuing saved-recording LLM enhancement work.
@@ -19,6 +19,7 @@ object RecordingEnhancementWorkRequest {
     const val INPUT_CORRELATION_ID = "correlation_id"
     const val INPUT_EXECUTION_TOKEN = "execution_token"
     private const val WORK_NAME_PREFIX = "enhancement_"
+    private const val RETRY_BACKOFF_SECONDS = 30L
 
     fun workName(recordingId: UUID): String = "$WORK_NAME_PREFIX$recordingId"
 
@@ -37,15 +38,13 @@ object RecordingEnhancementWorkRequest {
             inputDataBuilder.putString(INPUT_CORRELATION_ID, correlationId)
         }
 
-        val constraints =
-            Constraints
-                .Builder()
-                .setRequiredNetworkType(NetworkType.CONNECTED)
-                .build()
-
         return OneTimeWorkRequestBuilder<RecordingEnhancementWorker>()
             .setInputData(inputDataBuilder.build())
-            .setConstraints(constraints)
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                RETRY_BACKOFF_SECONDS,
+                TimeUnit.SECONDS,
+            )
             .addTag(WORK_TAG_ENHANCEMENT)
             .addTag("${TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX}$recordingId")
             .build()

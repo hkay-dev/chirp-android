@@ -9,9 +9,17 @@
     <string name="transcription_delete_model_message">This will delete the %1$s model from your device. You will need to download it again to use transcription.</string>
     <string name="transcription_delete">Delete</string>
     <string name="transcription_cancel">Cancel</string>
-    <string name="transcription_title">Voice Model</string>
+    <string name="transcription_title">Transcription</string>
+    <string name="transcription_section_engine">Transcription engine</string>
+    <string name="transcription_engine_local_title">On-device Parakeet</string>
+    <string name="transcription_engine_local_subtitle">Fast inline dictation that keeps audio on this phone</string>
+    <string name="transcription_engine_cloud_title">Google Cloud Chirp 3</string>
+    <string name="transcription_engine_cloud_ready">Saves audio, sends it to your private Google Cloud project, and notifies you when it’s done</string>
+    <string name="transcription_engine_cloud_auth_needed">Set up Google sign-in to use private background transcription</string>
+    <string name="transcription_engine_cloud_temporarily_unavailable">Google sign-in could not be checked. Try again when the connection is back.</string>
+    <string name="transcription_engine_cloud_endpoint_needed">Deploy the private cloud service to use background transcription</string>
     <string name="transcription_section_model">Model Details</string>
-    <string name="transcription_model_help">The local speech recognition model. It transcribes English speech and runs entirely on your device — audio never leaves your phone.</string>
+    <string name="transcription_model_help">Parakeet is used for on-device transcription. It runs entirely on your phone.</string>
     <string name="transcription_retry">Retry</string>
     <string name="transcription_cancel_download">Cancel Download</string>
     <string name="transcription_download_waiting">Waiting for connection…</string>
@@ -29,6 +37,18 @@
     <string name="transcription_error_channel_name">Transcription errors</string>
     <string name="transcription_error_notification_title">Transcription failed</string>
     <string name="transcription_error_group_summary">Some recordings could not be transcribed</string>
+    <string name="transcription_ready_channel_name">Finished transcriptions</string>
+    <string name="transcription_ready_notification_title">Transcription ready</string>
+    <string name="transcription_ready_notification_body">Tap to open it in Chirp</string>
+    <string name="transcription_ready_raw_label">Transcript</string>
+    <string name="transcription_ready_ai_label">AI result</string>
+    <string name="transcription_ready_copy_raw">Copy transcript</string>
+    <string name="transcription_ready_copy_ai">Copy AI result</string>
+    <string name="transcription_ready_copied_raw">Transcript copied</string>
+    <string name="transcription_ready_copied_ai">AI result copied</string>
+    <string name="transcription_ready_copy_failed">That transcription is no longer available</string>
+    <string name="transcription_cleanup_retry_notification_title">Transcript saved</string>
+    <string name="transcription_cleanup_retry_notification_body">AI cleanup needs a retry. Tap to open it in Chirp.</string>
 
     <!-- I18N-08: worker foreground notifications + channels (previously Kotlin literals). -->
     <string name="transcription_progress_channel_name">Transcription</string>

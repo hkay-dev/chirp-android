@@ -8,6 +8,7 @@ internal class FakeTranscriptionWorkScheduler : TranscriptionWorkScheduler {
         val executionToken: String,
         val correlationId: String?,
         val workName: String,
+        val requiresNetwork: Boolean = false,
     )
 
     val transcriptions = mutableListOf<EnqueuedWork>()
@@ -16,14 +17,16 @@ internal class FakeTranscriptionWorkScheduler : TranscriptionWorkScheduler {
     val cancelledEnhancements = mutableListOf<UUID>()
     val recordingTagInfos = mutableMapOf<UUID, List<ScheduledWorkInfo>?>()
     val uniqueWorkInfos = mutableMapOf<String, List<ScheduledWorkInfo>?>()
+    var beforeEnhancementEnqueue: (() -> Unit)? = null
 
     override fun enqueueTranscription(
         recordingId: UUID,
         executionToken: String,
         correlationId: String?,
+        requiresNetwork: Boolean,
     ): String {
         val workName = TranscriptionWorkRequest.workName(recordingId)
-        transcriptions += EnqueuedWork(recordingId, executionToken, correlationId, workName)
+        transcriptions += EnqueuedWork(recordingId, executionToken, correlationId, workName, requiresNetwork)
         return workName
     }
 
@@ -32,6 +35,7 @@ internal class FakeTranscriptionWorkScheduler : TranscriptionWorkScheduler {
         executionToken: String,
         correlationId: String?,
     ): String {
+        beforeEnhancementEnqueue?.invoke()
         val workName = RecordingEnhancementWorkRequest.workName(recordingId)
         enhancements += EnqueuedWork(recordingId, executionToken, correlationId, workName)
         return workName

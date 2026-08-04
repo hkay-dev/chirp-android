@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
+import androidx.work.BackoffPolicy
 import androidx.work.NetworkType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -15,7 +16,7 @@ class RecordingEnhancementWorkRequestTest {
     }
 
     @Test
-    fun `build creates network constrained enhancement work`() {
+    fun `build lets disabled enhancement work resolve offline with exponential retry backoff`() {
         val request =
             RecordingEnhancementWorkRequest.build(
                 recordingId = recordingId,
@@ -28,6 +29,7 @@ class RecordingEnhancementWorkRequestTest {
         assertEquals("enhancement-token", request.workSpec.input.getString(RecordingEnhancementWorkRequest.INPUT_EXECUTION_TOKEN))
         assertTrue(request.tags.contains(RecordingEnhancementWorkRequest.WORK_TAG_ENHANCEMENT))
         assertTrue(request.tags.contains("${TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX}$recordingId"))
-        assertEquals(NetworkType.CONNECTED, request.workSpec.constraints.requiredNetworkType)
+        assertEquals(NetworkType.NOT_REQUIRED, request.workSpec.constraints.requiredNetworkType)
+        assertEquals(BackoffPolicy.EXPONENTIAL, request.workSpec.backoffPolicy)
     }
 }

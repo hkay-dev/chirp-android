@@ -37,8 +37,10 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - Version 10: Dropped the orphaned recording_enhancement_intents table (superseded by
  *     recording_enhancement_snapshots; no production code read or wrote it)
  *   - Version 11: Added nullable freeform notes column to recordings (per-recording user note)
+ *   - Version 12: Added durable transcription engine, requested cleanup, enhancement snapshot,
+ *     and ready-notification routing fields to recordings
  *
- * Current Schema (v11):
+ * Current Schema (v12):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -54,6 +56,13 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - lastExportedAt: INTEGER (nullable, Date as timestamp)
  *   - transcriptionExecutionToken: TEXT (nullable)
  *   - notes: TEXT (nullable, freeform user note)
+ *   - transcriptionEngineId: TEXT (nullable, stamped once before queued work starts)
+ *   - requestedProcessingModeId: TEXT (nullable)
+ *   - requestedLlmProviderId: TEXT (nullable)
+ *   - requestedLlmModelId: TEXT (nullable)
+ *   - notifyWhenReady: INTEGER (immutable capture-time notification preference)
+ *   - terminalNotificationPending: INTEGER (boolean terminal-notification outbox marker)
+ *   - enhancementRequestSnapshotted: INTEGER (boolean capture-time enhancement snapshot marker)
  *   Indices: profileId, createdAt, status
  *
  * transcripts:
@@ -152,7 +161,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
         RecordingTag::class,
         WordReplacement::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

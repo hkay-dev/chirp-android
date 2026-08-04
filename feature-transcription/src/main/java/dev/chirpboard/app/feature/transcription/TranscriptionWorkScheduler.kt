@@ -34,6 +34,7 @@ interface TranscriptionWorkScheduler {
         recordingId: UUID,
         executionToken: String,
         correlationId: String? = null,
+        requiresNetwork: Boolean = false,
     ): String
 
     fun enqueueEnhancement(
@@ -63,11 +64,20 @@ internal class WorkManagerTranscriptionWorkScheduler
             recordingId: UUID,
             executionToken: String,
             correlationId: String?,
+            requiresNetwork: Boolean,
         ): String {
             workManager.enqueueUniqueWork(
                 TranscriptionWorkRequest.workName(recordingId),
-                androidx.work.ExistingWorkPolicy.KEEP,
-                TranscriptionWorkRequest.build(recordingId, executionToken, correlationId),
+                // Every enqueue has already stamped its execution token in Room. REPLACE makes
+                // the unique WorkManager owner match that winning token if two enqueue paths race;
+                // KEEP could retain the old request after its token had been superseded.
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                TranscriptionWorkRequest.build(
+                    recordingId,
+                    executionToken,
+                    correlationId,
+                    requiresNetwork,
+                ),
             )
             return TranscriptionWorkRequest.workName(recordingId)
         }
@@ -79,7 +89,7 @@ internal class WorkManagerTranscriptionWorkScheduler
         ): String {
             workManager.enqueueUniqueWork(
                 RecordingEnhancementWorkRequest.workName(recordingId),
-                androidx.work.ExistingWorkPolicy.KEEP,
+                androidx.work.ExistingWorkPolicy.REPLACE,
                 RecordingEnhancementWorkRequest.build(recordingId, executionToken, correlationId),
             )
             return RecordingEnhancementWorkRequest.workName(recordingId)

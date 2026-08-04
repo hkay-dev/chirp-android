@@ -161,7 +161,7 @@ class MigrationTest {
             close()
         }
 
-        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 11, true, *Migrations.ALL)
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 12, true, *Migrations.ALL)
         migratedDb.query(
             """
             SELECT recordings.title, transcripts.rawText, tags.name
@@ -182,6 +182,53 @@ class MigrationTest {
         ).use { cursor ->
             org.junit.Assert.assertTrue(cursor.moveToFirst())
             org.junit.Assert.assertEquals(1, cursor.getInt(0))
+        }
+        migratedDb.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate11To12_pinsExistingRecordingToLocalWithoutChangingItsContent() {
+        val recordingId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+        helper.createDatabase(TEST_DB, 11).apply {
+            execSQL(
+                """
+                INSERT INTO recordings(
+                    id, title, audioPath, status, source, profileId, createdAt, durationMs,
+                    errorMessage, lastExportedPath, lastExportedAt, transcriptionExecutionToken,
+                    notes
+                ) VALUES(
+                    '$recordingId', 'Legacy route', '/tmp/legacy-route.m4a',
+                    'PENDING_TRANSCRIPTION', 'KEYBOARD', NULL, $createdAt, 4200,
+                    NULL, NULL, NULL, NULL, 'keep this note'
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb =
+            helper.runMigrationsAndValidate(TEST_DB, 12, true, Migrations.MIGRATION_11_12)
+
+        migratedDb.query(
+            """
+            SELECT title, notes, transcriptionEngineId, requestedProcessingModeId,
+                requestedLlmProviderId, requestedLlmModelId, notifyWhenReady,
+                terminalNotificationPending, enhancementRequestSnapshotted
+            FROM recordings WHERE id = '$recordingId'
+            """.trimIndent(),
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("Legacy route", cursor.getString(0))
+            org.junit.Assert.assertEquals("keep this note", cursor.getString(1))
+            org.junit.Assert.assertEquals("local_parakeet", cursor.getString(2))
+            org.junit.Assert.assertTrue(cursor.isNull(3))
+            org.junit.Assert.assertTrue(cursor.isNull(4))
+            org.junit.Assert.assertTrue(cursor.isNull(5))
+            org.junit.Assert.assertEquals(0, cursor.getInt(6))
+            org.junit.Assert.assertEquals(0, cursor.getInt(7))
+            org.junit.Assert.assertEquals(0, cursor.getInt(8))
         }
         migratedDb.close()
     }

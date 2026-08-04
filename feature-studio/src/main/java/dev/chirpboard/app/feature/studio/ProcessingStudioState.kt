@@ -5,6 +5,7 @@ import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 import dev.chirpboard.app.feature.llm.model.ChatMessage
+import java.io.File
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -54,7 +55,15 @@ data class ProcessingStudioState(
         showFailedRetry = false,
         actionsEnabled = true,
     ),
-)
+) {
+    val isAudioReady: Boolean
+        get() = isPlaybackAndShareReadyAudioPath(audioPath)
+}
+
+internal fun isPlaybackAndShareReadyAudioPath(audioPath: String): Boolean =
+    audioPath.isNotBlank() && !File(audioPath).extension.equals(RAW_KEYBOARD_AUDIO_EXTENSION, ignoreCase = true)
+
+private const val RAW_KEYBOARD_AUDIO_EXTENSION = "f32pcm"
 
 /**
  * High-frequency playback projection hoisted out of [ProcessingStudioState] so the 10 Hz

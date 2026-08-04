@@ -32,6 +32,7 @@ import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -1027,6 +1028,37 @@ class HomeViewModelTest {
                     status = RecordingStatus.COMPLETED,
                 ),
         )
+
+    @Test
+    fun `raw cloud capture cannot start playback or audio sharing`() =
+        runTest(testDispatcher) {
+            val playbackController =
+                mockk<dev.chirpboard.app.core.playback.RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns MutableStateFlow(dev.chirpboard.app.core.playback.RecordingPlaybackState())
+                }
+            val localViewModel = createHomeViewModel(playbackControllerOverride = playbackController)
+            val rawItem =
+                RecordingDisplayItem(
+                    recording =
+                        Recording(
+                            id = UUID.randomUUID(),
+                            title = "Cloud dictation",
+                            audioPath = "/tmp/cloud-dictation.f32pcm",
+                            source = RecordingSource.KEYBOARD,
+                            status = RecordingStatus.PENDING_TRANSCRIPTION,
+                        ),
+                )
+            val shareContext = mockk<Context>(relaxed = true)
+
+            localViewModel.playRecording(rawItem)
+            localViewModel.shareRecording(rawItem, shareContext)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertFalse(rawItem.isAudioReady)
+            assertTrue(isPlaybackAndShareReadyAudioPath("/tmp/cloud-dictation.wav"))
+            verify(exactly = 0) { playbackController.play(any(), any(), any()) }
+            verify(exactly = 0) { shareContext.startActivity(any()) }
+        }
 
     @Test
     fun `deleteRecording stops the mini player when deleting the playing recording`() =

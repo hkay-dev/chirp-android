@@ -185,16 +185,16 @@
     <string name="about_description_title">Offline voice-to-text keyboard with AI-powered processing</string>
     <string name="about_description_body">Transcribe your voice locally using the Parakeet TDT model, then optionally polish your text with your choice of AI provider.</string>
     <string name="about_privacy_title">Privacy Notice</string>
-    <string name="about_privacy_subtitle">All transcription happens on-device</string>
+    <string name="about_privacy_subtitle">Local by default, with optional Google Cloud transcription</string>
     <!-- PLH-9: in-app Privacy Notice dialog. Wording for backups must stay in sync with the
          policy documented in res/xml/data_extraction_rules.xml. -->
     <!-- PROP-8: short per-paragraph lead-in labels make the privacy notice scannable. -->
-    <string name="about_privacy_notice_transcription_label">On-device transcription</string>
-    <string name="about_privacy_notice_transcription">Transcription is fully on-device. Speech recognition runs locally with the downloaded model — your voice audio is never uploaded to transcribe it.</string>
-    <string name="about_privacy_notice_storage_label">Local storage</string>
-    <string name="about_privacy_notice_storage">Recordings, transcripts, and settings are stored only in this app\'s private storage on this device. Deleting a recording removes its audio and transcript.</string>
-    <string name="about_privacy_notice_cloud_label">Optional cloud AI</string>
-    <string name="about_privacy_notice_cloud">Optional AI processing (text polish, titles, summaries) sends only the transcript text to the cloud provider you configure with your own API key — never the audio. With no provider configured, no recording data leaves the device.</string>
+    <string name="about_privacy_notice_transcription_label">Transcription choices</string>
+    <string name="about_privacy_notice_transcription">Local mode runs the downloaded Parakeet speech model entirely on this device. If you choose Google Cloud Chirp 3, Chirp uploads the recording to your private Google Cloud project for transcription.</string>
+    <string name="about_privacy_notice_storage_label">Local and cloud storage</string>
+    <string name="about_privacy_notice_storage">Recordings, transcripts, and settings stay in this app\'s private storage on this device. Google Cloud mode also keeps private audio, provider output, and job data in your cloud project, scheduled for cleanup after 30 days. Deleting a local recording removes its local audio and transcript; remote data follows the cloud cleanup schedule for now.</string>
+    <string name="about_privacy_notice_cloud_label">Optional AI cleanup</string>
+    <string name="about_privacy_notice_cloud">Text polish, titles, and summaries send transcript text to the provider you configure. Google Cloud dictation can use Vertex in your private cloud project. Turning off AI processing skips this cleanup, though choosing Google Cloud transcription still uploads audio for speech recognition.</string>
     <string name="about_privacy_notice_backup_label">Backup &amp; restore</string>
     <string name="about_privacy_notice_backup">Android backups and device transfers include settings only. Recordings, transcripts, and API keys are never backed up — after a restore you keep your settings but start with an empty library, and Obsidian vault access must be granted again.</string>
     <string name="about_privacy_notice_confirm">Got it</string>

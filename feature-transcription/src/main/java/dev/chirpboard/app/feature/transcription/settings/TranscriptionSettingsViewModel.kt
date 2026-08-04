@@ -4,6 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
+import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +24,8 @@ class TranscriptionSettingsViewModel
     constructor(
         private val modelManager: SpeechModelManager,
         private val savedStateHandle: SavedStateHandle,
+        private val transcriptionRoutingStore: TranscriptionRoutingStore,
+        private val cloudTranscriber: CloudFileTranscriptionProvider,
     ) : ViewModel() {
         companion object {
             internal const val KEY_AUTO_DOWNLOAD = "autoDownload"
@@ -39,6 +45,9 @@ class TranscriptionSettingsViewModel
             val errorMessage: String? = null,
             val showDeleteConfirmation: Boolean = false,
             val showStorageChoice: Boolean = false,
+            val selectedEngine: TranscriptionEngine = TranscriptionEngine.LOCAL_PARAKEET,
+            val cloudConfigurationStatus: CloudTranscriptionConfigurationStatus =
+                CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING,
         )
 
         private val _uiState = MutableStateFlow(UiState())
@@ -113,7 +122,30 @@ class TranscriptionSettingsViewModel
                 }
             }
 
+            viewModelScope.launch {
+                transcriptionRoutingStore.selectedEngine.collect { engine ->
+                    _uiState.update { it.copy(selectedEngine = engine) }
+                }
+            }
+
+            refreshCloudConfiguration()
+
             modelManager.refreshStatus()
+        }
+
+        fun selectEngine(engine: TranscriptionEngine) {
+            viewModelScope.launch {
+                transcriptionRoutingStore.setSelectedEngine(engine)
+            }
+        }
+
+        fun refreshCloudConfiguration() {
+            viewModelScope.launch {
+                val status =
+                    runCatching { cloudTranscriber.configurationStatus() }
+                        .getOrDefault(CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE)
+                _uiState.update { it.copy(cloudConfigurationStatus = status) }
+            }
         }
 
         /**

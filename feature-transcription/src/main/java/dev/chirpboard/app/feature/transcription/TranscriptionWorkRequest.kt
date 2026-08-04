@@ -4,8 +4,9 @@ import android.content.Context
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.UUID
 
@@ -29,6 +30,7 @@ object TranscriptionWorkRequest {
         recordingId: UUID,
         executionToken: String,
         correlationId: String? = null,
+        requiresNetwork: Boolean = false,
     ): OneTimeWorkRequest {
         val inputDataBuilder = Data.Builder()
             .putString(TranscriptionWorker.INPUT_RECORDING_ID, recordingId.toString())
@@ -41,6 +43,9 @@ object TranscriptionWorkRequest {
         val constraints = Constraints.Builder()
             .setRequiresBatteryNotLow(true)
             .setRequiresStorageNotLow(true)
+            .setRequiredNetworkType(
+                if (requiresNetwork) NetworkType.CONNECTED else NetworkType.NOT_REQUIRED,
+            )
             .build()
 
         return OneTimeWorkRequestBuilder<TranscriptionWorker>()
@@ -66,12 +71,13 @@ object TranscriptionWorkRequest {
         recordingId: UUID,
         correlationId: String? = null,
         executionToken: String = UUID.randomUUID().toString(),
+        requiresNetwork: Boolean = false,
     ): String {
         WorkManager.getInstance(context)
             .enqueueUniqueWork(
                 workName(recordingId),
                 ExistingWorkPolicy.KEEP,
-                build(recordingId, executionToken, correlationId)
+                build(recordingId, executionToken, correlationId, requiresNetwork)
             )
 
         return workName(recordingId)

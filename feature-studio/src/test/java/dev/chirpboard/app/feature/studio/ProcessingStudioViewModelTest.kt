@@ -362,6 +362,48 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `raw cloud capture never reaches playback or audio sharing`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            val rawRecording =
+                sampleRecording(recordingId).copy(
+                    audioPath = "/tmp/cloud-dictation.f32pcm",
+                    status = RecordingStatus.TRANSCRIBING,
+                    source = RecordingSource.KEYBOARD,
+                )
+            val playbackController =
+                mockk<RecordingPlaybackController>(relaxed = true) {
+                    every { state } returns MutableStateFlow(RecordingPlaybackState())
+                }
+            every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(rawRecording))
+            stubSupportingFlows(recordingId)
+
+            val viewModel = createViewModel(recordingId = recordingId.toString(), playbackController = playbackController)
+            runCurrent()
+            advanceTimeBy(ChirpMotion.RECORD_HANDOFF_MS)
+            runCurrent()
+
+            viewModel.togglePlayPause()
+            viewModel.seekTo(500L)
+            viewModel.skipForward()
+            viewModel.skipBackward()
+            viewModel.shareAudio(context)
+            viewModel.shareBoth(context)
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isAudioReady)
+            assertTrue(isPlaybackAndShareReadyAudioPath("/tmp/cloud-dictation.wav"))
+            verify(exactly = 0) { playbackController.onStudioOpened(any(), any(), any()) }
+            verify(exactly = 0) { playbackController.play(any(), any(), any()) }
+            verify(exactly = 0) { playbackController.prepare(any(), any(), any()) }
+            verify(exactly = 0) { playbackController.skipForward() }
+            verify(exactly = 0) { playbackController.skipBackward() }
+            verify(exactly = 0) { context.startActivity(any()) }
+        }
+
+    @Test
     fun `playback tick carries active segment index without clobbering it`() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)

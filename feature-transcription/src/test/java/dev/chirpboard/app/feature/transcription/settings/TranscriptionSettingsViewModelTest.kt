@@ -4,6 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
 import dev.chirpboard.app.feature.transcription.SpeechModelManager.ModelStatus
+import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
+import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -13,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -32,6 +37,9 @@ class TranscriptionSettingsViewModelTest {
     private lateinit var mockStatusFlow: MutableStateFlow<ModelStatus>
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var viewModel: TranscriptionSettingsViewModel
+    private lateinit var routingStore: TranscriptionRoutingStore
+    private lateinit var selectedEngine: MutableStateFlow<TranscriptionEngine>
+    private lateinit var cloudTranscriber: CloudFileTranscriptionProvider
 
     @Before
     fun setup() {
@@ -42,8 +50,20 @@ class TranscriptionSettingsViewModelTest {
         coEvery { mockModelManager.getDownloadedSize() } returns 0L
 
         savedStateHandle = SavedStateHandle()
+        routingStore = mockk(relaxed = true)
+        selectedEngine = MutableStateFlow(TranscriptionEngine.LOCAL_PARAKEET)
+        every { routingStore.selectedEngine } returns selectedEngine
+        cloudTranscriber = mockk()
+        coEvery { cloudTranscriber.configurationStatus() } returns
+            CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING
 
-        viewModel = TranscriptionSettingsViewModel(mockModelManager, savedStateHandle)
+        viewModel =
+            TranscriptionSettingsViewModel(
+                mockModelManager,
+                savedStateHandle,
+                routingStore,
+                cloudTranscriber,
+            )
     }
 
     @After
@@ -103,10 +123,32 @@ class TranscriptionSettingsViewModelTest {
     }
 
     @Test
+    fun `failed cloud auth check is shown as temporary instead of a missing endpoint`() =
+        runTest {
+            coEvery { cloudTranscriber.configurationStatus() } throws IllegalStateException("auth service unavailable")
+
+            viewModel.refreshCloudConfiguration()
+            advanceUntilIdle()
+
+            assertEquals(
+                CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE,
+                viewModel.uiState.value.cloudConfigurationStatus,
+            )
+        }
+
+    @Test
     fun `cancelDownload delegates to the model manager`() = runTest {
         viewModel.cancelDownload()
 
         verify { mockModelManager.cancelDownload() }
+    }
+
+    @Test
+    fun `selectEngine saves the cloud engine`() = runTest {
+        viewModel.selectEngine(TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3)
+        advanceUntilIdle()
+
+        coVerify { routingStore.setSelectedEngine(TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3) }
     }
 
     // LIF-06/ERR-3: the autoDownload nav-arg fires exactly once — re-running the effect

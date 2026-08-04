@@ -347,13 +347,15 @@ fun ProcessingStudioScreen(
                                 Icon(Icons.Rounded.Share, contentDescription = stringResource(CoreR.string.desc_share))
                             }
                             DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(CoreR.string.rec_share_audio)) },
-                                    onClick = {
-                                        showShareMenu = false
-                                        viewModel.shareAudio(context)
-                                    },
-                                )
+                                if (state.isAudioReady) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(CoreR.string.rec_share_audio)) },
+                                        onClick = {
+                                            showShareMenu = false
+                                            viewModel.shareAudio(context)
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(CoreR.string.rec_share_transcript)) },
                                     onClick = {
@@ -361,13 +363,15 @@ fun ProcessingStudioScreen(
                                         viewModel.shareTranscript(context)
                                     },
                                 )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(CoreR.string.rec_share_both)) },
-                                    onClick = {
-                                        showShareMenu = false
-                                        viewModel.shareBoth(context)
-                                    },
-                                )
+                                if (state.isAudioReady) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(CoreR.string.rec_share_both)) },
+                                        onClick = {
+                                            showShareMenu = false
+                                            viewModel.shareBoth(context)
+                                        },
+                                    )
+                                }
                             }
                         }
                             IconButton(
@@ -580,7 +584,7 @@ fun ProcessingStudioScreen(
             val showPlayer =
                 screenRecordingId != null &&
                     state.playerRevealReady &&
-                    state.audioPath.isNotBlank() &&
+                    state.isAudioReady &&
                     state.status != RecordingStatus.RECORDING
 
             StudioProcessingHeader(

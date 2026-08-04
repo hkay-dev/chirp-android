@@ -48,4 +48,11 @@ class ProcessingStudioShareTest {
         assertEquals("audio/mpeg", ProcessingStudioShare.audioMimeType(File("recording.mp3")))
         assertEquals("audio/wav", ProcessingStudioShare.audioMimeType(File("recording.wav")))
     }
+
+    @Test
+    fun `audioMimeType refuses raw keyboard PCM instead of calling it MP4`() {
+        val failure = runCatching { ProcessingStudioShare.audioMimeType(File("recording.f32pcm")) }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+    }
 }

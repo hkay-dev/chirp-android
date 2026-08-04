@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudDownload
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.material3.TextButton
@@ -54,6 +56,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
+import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
@@ -107,6 +111,7 @@ fun TranscriptionSettingsScreen(
     // if they granted access, the download they asked for starts without another tap.
     LifecycleResumeEffect(Unit) {
         viewModel.onResumed(hasAllFilesAccess = !AllFilesAccessRequester.needsPermission())
+        viewModel.refreshCloudConfiguration()
         onPauseOrDispose { }
     }
 
@@ -120,6 +125,20 @@ fun TranscriptionSettingsScreen(
                 .fillMaxSize(),
             contentPadding = padding,
         ) {
+
+            item {
+                SettingsSectionHeader(
+                    title = stringResource(R.string.transcription_section_engine),
+                )
+            }
+
+            item {
+                TranscriptionEngineCard(
+                    selectedEngine = uiState.selectedEngine,
+                    cloudStatus = uiState.cloudConfigurationStatus,
+                    onEngineSelected = viewModel::selectEngine,
+                )
+            }
 
             // Model Status Section
             item {
@@ -202,6 +221,78 @@ fun TranscriptionSettingsScreen(
             onUseAppStorage = { viewModel.downloadModel(preferInternalStorage = true) },
             onDismiss = viewModel::dismissStorageChoice,
         )
+    }
+}
+
+@Composable
+private fun TranscriptionEngineCard(
+    selectedEngine: TranscriptionEngine,
+    cloudStatus: CloudTranscriptionConfigurationStatus,
+    onEngineSelected: (TranscriptionEngine) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ChirpSpacing.ScreenHorizontal),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = ChirpSpacing.Small)) {
+            EngineChoiceRow(
+                title = stringResource(R.string.transcription_engine_local_title),
+                subtitle = stringResource(R.string.transcription_engine_local_subtitle),
+                selected = selectedEngine == TranscriptionEngine.LOCAL_PARAKEET,
+                onClick = { onEngineSelected(TranscriptionEngine.LOCAL_PARAKEET) },
+            )
+            EngineChoiceRow(
+                title = stringResource(R.string.transcription_engine_cloud_title),
+                subtitle =
+                    when (cloudStatus) {
+                        CloudTranscriptionConfigurationStatus.READY ->
+                            stringResource(R.string.transcription_engine_cloud_ready)
+                        CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING ->
+                            stringResource(R.string.transcription_engine_cloud_auth_needed)
+                        CloudTranscriptionConfigurationStatus.ENDPOINT_MISSING ->
+                            stringResource(R.string.transcription_engine_cloud_endpoint_needed)
+                        CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE ->
+                            stringResource(R.string.transcription_engine_cloud_temporarily_unavailable)
+                    },
+                selected = selectedEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3,
+                enabled = cloudStatus == CloudTranscriptionConfigurationStatus.READY,
+                onClick = { onEngineSelected(TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun EngineChoiceRow(
+    title: String,
+    subtitle: String,
+    selected: Boolean,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = ChirpSpacing.Large, vertical = ChirpSpacing.Medium),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
+        Spacer(Modifier.width(ChirpSpacing.Medium))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

@@ -2,6 +2,8 @@ package dev.chirpboard.app.core.llm
 
 import kotlinx.coroutines.flow.Flow
 
+const val GOOGLE_CLOUD_VERTEX_PROVIDER_ID = "google_cloud_vertex"
+
 data class ProcessingMode(
     val id: String,
     val displayName: String,
@@ -32,6 +34,7 @@ data class RecordingTextEnhancementContext(
     val text: String,
     val providerId: String? = null,
     val modelId: String? = null,
+    val recordingId: String? = null,
 )
 
 object ProcessingModeDefaults {
@@ -61,6 +64,8 @@ interface ProcessingModePort {
 }
 
 interface RecordingTextEnhancementPort : RecordingTextEnrichment {
+    suspend fun isEnhancementEnabled(): Boolean = true
+
     suspend fun isEnhancementAvailable(providerId: String?): Boolean
 
     suspend fun defaultAutoTitleEnabled(): Boolean

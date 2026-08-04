@@ -4,7 +4,11 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.reliability.ReliabilityOutcome
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.data.repository.RecordingStatusTransitionResult
@@ -37,12 +41,14 @@ class TranscriptionQueueOrchestrationTest {
     private lateinit var constraintChecker: WorkConstraintChecker
     private lateinit var reconciler: TranscriptionQueueReconciler
     private lateinit var workScheduler: FakeTranscriptionWorkScheduler
+    private lateinit var transcriptionRoutingStore: TranscriptionRoutingStore
 
     @Before
     fun setup() {
         recordingRepository = mockk(relaxed = true)
         constraintChecker = mockk(relaxed = true)
         workScheduler = FakeTranscriptionWorkScheduler()
+        transcriptionRoutingStore = mockk(relaxed = true)
 
         mockkObject(ReliabilityEventLogger)
         every { ReliabilityEventLogger.newCorrelationId(any()) } returns "test-corr-id"
@@ -51,12 +57,14 @@ class TranscriptionQueueOrchestrationTest {
         coEvery { constraintChecker.checkConstraints() } returns WorkConstraintChecker.ConstraintStatus.Ready
         coEvery { constraintChecker.getConstraintMessage(any()) } returns null
         coEvery { recordingRepository.claimTranscriptionExecution(any(), any(), any(), any()) } returns true
+        coEvery { transcriptionRoutingStore.getSelectedEngine() } returns TranscriptionEngine.LOCAL_PARAKEET
 
         reconciler =
             TranscriptionQueueReconciler(
                 recordingRepository = recordingRepository,
                 constraintChecker = constraintChecker,
                 workScheduler = workScheduler,
+                transcriptionRoutingStore = transcriptionRoutingStore,
                 setConstraintWarning = {},
                 setActiveCount = {},
             )
@@ -98,6 +106,7 @@ class TranscriptionQueueOrchestrationTest {
         every { pendingRecording.id } returns id
         every { pendingRecording.status } returns RecordingStatus.PENDING_TRANSCRIPTION
         every { pendingRecording.errorMessage } returns null
+        every { pendingRecording.transcriptionEngineId } returns TranscriptionEngine.LOCAL_PARAKEET.id
         
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(listOf(pendingRecording)))
@@ -113,12 +122,87 @@ class TranscriptionQueueOrchestrationTest {
     }
 
     @Test
+    fun `reconcileQueueHealth stamps an orphaned cloud row before scheduling it`() = runTest {
+        val id = UUID.randomUUID()
+        val pendingRecording =
+            Recording(
+                id = id,
+                title = "Orphaned cloud dictation",
+                audioPath = "/tmp/orphaned.wav",
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+            )
+        val routedRecording =
+            pendingRecording.copy(
+                transcriptionEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+            )
+        coEvery { transcriptionRoutingStore.getSelectedEngine() } returns
+            TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3
+        coEvery {
+            recordingRepository.stampTranscriptionEngineIfUnset(
+                id,
+                TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+            )
+        } returns routedRecording
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns
+            flowOf(RepositoryFlowState(listOf(pendingRecording)))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        workScheduler.uniqueWorkInfos[TranscriptionWorkRequest.workName(id)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.CANCELLED))
+
+        reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
+
+        assertEquals(true, workScheduler.transcriptions.single().requiresNetwork)
+        coVerify(exactly = 1) {
+            recordingRepository.stampTranscriptionEngineIfUnset(
+                id,
+                TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+            )
+        }
+    }
+
+    @Test
+    fun `reconcileQueueHealth lets an oversized cloud row start offline`() = runTest {
+        val id = UUID.randomUUID()
+        val pendingRecording =
+            Recording(
+                id = id,
+                title = "Oversized cloud dictation",
+                audioPath = "/tmp/oversized-cloud.wav",
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                source = RecordingSource.KEYBOARD,
+                durationMs = GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS + 1,
+                transcriptionEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+            )
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns
+            flowOf(RepositoryFlowState(listOf(pendingRecording)))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_ENHANCEMENT) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.ENHANCING) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+        workScheduler.uniqueWorkInfos[TranscriptionWorkRequest.workName(id)] =
+            listOf(ScheduledWorkInfo(ScheduledWorkState.CANCELLED))
+
+        reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
+
+        assertEquals(false, workScheduler.transcriptions.single().requiresNetwork)
+    }
+
+    @Test
     fun `reconcileQueueHealth does not requeue pending recording when claim is rejected`() = runTest {
         val pendingRecording = mockk<Recording>()
         val id = UUID.randomUUID()
         every { pendingRecording.id } returns id
         every { pendingRecording.status } returns RecordingStatus.PENDING_TRANSCRIPTION
         every { pendingRecording.errorMessage } returns null
+        every { pendingRecording.transcriptionEngineId } returns TranscriptionEngine.LOCAL_PARAKEET.id
 
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(listOf(pendingRecording)))
@@ -141,6 +225,7 @@ class TranscriptionQueueOrchestrationTest {
         every { pendingRecording.id } returns id
         every { pendingRecording.status } returns RecordingStatus.PENDING_TRANSCRIPTION
         every { pendingRecording.errorMessage } returns "${RECOVERABLE_QUEUE_HANDOFF_PREFIX}Enqueue failed"
+        every { pendingRecording.transcriptionEngineId } returns TranscriptionEngine.LOCAL_PARAKEET.id
 
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.TRANSCRIBING) } returns flowOf(RepositoryFlowState(emptyList()))
         coEvery { recordingRepository.getRecordingsByStatus(RecordingStatus.PENDING_TRANSCRIPTION) } returns flowOf(RepositoryFlowState(listOf(pendingRecording)))

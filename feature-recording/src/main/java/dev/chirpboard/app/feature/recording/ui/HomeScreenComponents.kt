@@ -144,27 +144,29 @@ internal fun RecordingListItem(
                 modifier = Modifier.weight(1f),
             )
             if (!item.isLiveCapture) {
-                // A11Y-6: no fixed 40dp size on either button — the M3 default keeps the 40dp
-                // visual container while restoring 48dp interactive bounds; these two controls
-                // sit 4-8dp apart, so fixed 40dp nodes got no touch-bounds expansion between
-                // each other.
-                FilledTonalIconButton(
-                    onClick = onPlayClick,
-                    colors =
-                        IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        ),
-                ) {
-                    Icon(
-                        imageVector = if (isPlayingCurrent) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                        contentDescription =
-                            if (isPlayingCurrent) {
-                                stringResource(R.string.desc_pause)
-                            } else {
-                                stringResource(R.string.desc_play)
-                            },
-                    )
+                if (item.isAudioReady) {
+                    // A11Y-6: no fixed 40dp size on either button — the M3 default keeps the 40dp
+                    // visual container while restoring 48dp interactive bounds; these two controls
+                    // sit 4-8dp apart, so fixed 40dp nodes got no touch-bounds expansion between
+                    // each other.
+                    FilledTonalIconButton(
+                        onClick = onPlayClick,
+                        colors =
+                            IconButtonDefaults.filledTonalIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            ),
+                    ) {
+                        Icon(
+                            imageVector = if (isPlayingCurrent) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription =
+                                if (isPlayingCurrent) {
+                                    stringResource(R.string.desc_pause)
+                                } else {
+                                    stringResource(R.string.desc_play)
+                                },
+                        )
+                    }
                 }
                 // PRM-4: a visible, discoverable overflow affordance. Premium lists expose row
                 // actions (share/delete/…) without forcing the user to guess at a long-press; this
@@ -455,7 +457,7 @@ private fun CompactTagChip(
 @Composable
 internal fun RecordingActionsSheet(
     item: RecordingDisplayItem,
-    onShare: () -> Unit,
+    onShare: (() -> Unit)?,
     onDelete: () -> Unit,
     onRetryTranscription: (() -> Unit)?,
     onGenerateTitle: (() -> Unit)?,
@@ -486,12 +488,13 @@ internal fun RecordingActionsSheet(
 
         HorizontalDivider()
 
-        // Share
-        SheetActionItem(
-            icon = Icons.Rounded.Share,
-            text = stringResource(CoreR.string.rec_share),
-            onClick = onShare,
-        )
+        if (onShare != null) {
+            SheetActionItem(
+                icon = Icons.Rounded.Share,
+                text = stringResource(CoreR.string.rec_share),
+                onClick = onShare,
+            )
+        }
 
         // AI Options (for completed recordings)
         if (onGenerateTitle != null || onGenerateSummary != null) {
