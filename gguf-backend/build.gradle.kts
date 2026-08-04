@@ -7,7 +7,7 @@ val kleidiAiEnabled =
     providers
         .gradleProperty("chirp.gguf.kleidiai")
         .map { it.equals("true", ignoreCase = true) }
-        .orElse(false)
+        .orElse(true)
 
 android {
     namespace = "dev.chirpboard.app.gguf"

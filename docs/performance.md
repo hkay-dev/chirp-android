@@ -98,8 +98,11 @@ digests matched. Q6_K and Q4_K_M both missed the 90-second production cutoff on 
 so Q8 remains the performance default pending a kernel improvement. The smaller files save storage
 and load bytes, though they do not currently improve transcription latency on this device.
 
-KleidiAI kernels are available through `-Pchirp.gguf.kleidiai=true`; generic GGML CPU kernels stay
-linked as the fallback. Vulkan selection is wired as an alpha experiment with automatic load-time
+KleidiAI kernels are enabled by default; `-Pchirp.gguf.kleidiai=false` keeps a reproducible generic
+CPU control build, and generic GGML kernels stay linked as the runtime fallback. On the same Q8
+clip, KleidiAI cut cold decode from 61.8 to 55.1 seconds and warm decode from the 66.0 to 68.0
+second range to 57.0 seconds with an identical transcript digest. Vulkan selection is wired as an
+alpha experiment with automatic load-time
 and decode-time CPU recovery, though the pinned Android native build does not yet ship Vulkan.
 The upstream shader generator currently emits declarations with no linked shader data in this
 embedded Android build, so selecting Vulkan reports the actual CPU fallback rather than pretending
