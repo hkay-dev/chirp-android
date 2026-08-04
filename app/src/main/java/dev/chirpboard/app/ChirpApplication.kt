@@ -11,6 +11,7 @@ import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import dev.chirpboard.app.download.SpeechModelWarmupCoordinator
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
+import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
 import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
@@ -42,6 +43,9 @@ class ChirpApplication : Application(), Configuration.Provider {
 
     @Inject
     lateinit var keyboardDictationHandoff: Lazy<KeyboardDictationHandoff>
+
+    @Inject
+    lateinit var inlineCapturePersistence: Lazy<InlineCapturePersistence>
 
     @Inject
     lateinit var terminalRecordingNotificationDelivery: Lazy<TerminalRecordingNotificationDelivery>
@@ -106,6 +110,16 @@ class ChirpApplication : Application(), Configuration.Provider {
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to recover keyboard handoffs on startup", e)
+            }
+
+            try {
+                val recoveredCheckpoints = inlineCapturePersistence.get().recoverCheckpoints()
+                if (recoveredCheckpoints > 0) {
+                    Log.i(TAG, "Recovered $recoveredCheckpoints interrupted keyboard checkpoint(s)")
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to recover keyboard checkpoints on startup", e)
             }
 
             launch {

@@ -190,6 +190,36 @@ class InlineTranscriptionCoordinatorImpl
                 rawTextForPersistence = rawText
                 transcriptionLog.success("transcription_completed")
 
+                // Make the raw recognition useful immediately. The sidecar checkpoint is best
+                // effort and never delays capture; when it succeeds, process death between this
+                // commit and the terminal recording persist still leaves both audio and text.
+                runCatching {
+                    persistence?.checkpointAudioSource(
+                        audioSource = request.audioSource,
+                        trustedSampleCount = request.audioSource.totalSamples(),
+                        partialTranscript = rawText,
+                    )
+                }.onFailure { error -> Log.w(tag, "Could not checkpoint raw transcript", error) }
+
+                val rawCommitted = withContext(Dispatchers.Main) { commitText("$rawText ") }
+                if (!rawCommitted) {
+                    Log.w(tag, "Raw transcript commit refused; persisting it as a rescue entry")
+                    transcriptionLog.failure("commit_refused")
+                    val rescued =
+                        rescueCapture(
+                            persistence = persistence,
+                            audioSource = request.audioSource,
+                            rawText = rawText,
+                            errorMessage = COMMIT_REFUSED_MESSAGE,
+                            reason = InlineCapturePersistReason.RESCUE,
+                        )
+                    captureResolved.set(rescued)
+                    val message = if (rescued) COMMIT_REFUSED_MESSAGE else COMMIT_REFUSED_UNSAVED_MESSAGE
+                    _phase.value = InlineTranscriptionPhase.Error(message)
+                    onRecordingError(message)
+                    return
+                }
+
                 if (request.llmEnabled) {
                     enhancementLog.started("enhancement_started")
                     _phase.value = InlineTranscriptionPhase.Polishing
@@ -199,98 +229,54 @@ class InlineTranscriptionCoordinatorImpl
                             textEnhancement.process(rawText, request.processingModeId)
                         }
 
-                    withContext(Dispatchers.Main) {
-                        if (result != null) {
+                    val (processedText, terminalPhase) =
+                        if (result == null) {
+                            enhancementLog.failure("enhancement_timeout")
+                            null to InlineTranscriptionPhase.LlmError(ENHANCEMENT_TIMEOUT_MESSAGE)
+                        } else {
                             result.fold(
                                 onSuccess = { polishedText ->
-                                    val openingDropped = aiResultDropsOpening(rawText, polishedText)
-                                    if (openingDropped) {
+                                    if (aiResultDropsOpening(rawText, polishedText)) {
                                         enhancementLog.failure("enhancement_opening_content_guard")
+                                        polishedText to InlineTranscriptionPhase.LlmError(AI_CONTENT_GUARD_MESSAGE)
                                     } else {
                                         enhancementLog.success("enhancement_completed")
+                                        polishedText to InlineTranscriptionPhase.Idle
                                     }
-                                    deliverTranscript(
-                                        delivery =
-                                            TranscriptDelivery(
-                                                request = request,
-                                                persistence = persistence,
-                                                rawText = rawText,
-                                                processedText = polishedText,
-                                                useProcessedTextForCommit = !openingDropped,
-                                                phaseOnCommit =
-                                                    if (openingDropped) {
-                                                        InlineTranscriptionPhase.LlmError(AI_CONTENT_GUARD_MESSAGE)
-                                                    } else {
-                                                        InlineTranscriptionPhase.Idle
-                                                    },
-                                                correlationId = correlationId,
-                                                captureResolved = captureResolved,
-                                            ),
-                                        commitText = commitText,
-                                        onRecordingCompleted = onRecordingCompleted,
-                                        onRecordingError = onRecordingError,
-                                    )
                                 },
                                 onFailure = { error ->
                                     enhancementLog.failure("enhancement_failed", error)
-                                    deliverTranscript(
-                                        delivery =
-                                            TranscriptDelivery(
-                                                request = request,
-                                                persistence = persistence,
-                                                rawText = rawText,
-                                                processedText = null,
-                                                phaseOnCommit =
-                                                    InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}"),
-                                                correlationId = correlationId,
-                                                captureResolved = captureResolved,
-                                            ),
-                                        commitText = commitText,
-                                        onRecordingCompleted = onRecordingCompleted,
-                                        onRecordingError = onRecordingError,
-                                    )
+                                    null to InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}")
                                 },
                             )
-                        } else {
-                            enhancementLog.failure("enhancement_timeout")
-                            // ERR-19: an enhancement timeout degrades to the raw transcript just
-                            // like an enhancement failure, so it surfaces the same LlmError panel
-                            // instead of silently returning to Idle.
-                            deliverTranscript(
-                                delivery =
-                                    TranscriptDelivery(
-                                        request = request,
-                                        persistence = persistence,
-                                        rawText = rawText,
-                                        processedText = null,
-                                        phaseOnCommit =
-                                            InlineTranscriptionPhase.LlmError(ENHANCEMENT_TIMEOUT_MESSAGE),
-                                        correlationId = correlationId,
-                                        captureResolved = captureResolved,
-                                    ),
-                                commitText = commitText,
-                                onRecordingCompleted = onRecordingCompleted,
-                                onRecordingError = onRecordingError,
-                            )
                         }
+                    // The raw transcript already reached the target. Mark resolution before
+                    // this cancellable persist so cancellation cannot create a duplicate rescue.
+                    // Its checkpoint remains available if the terminal persist is interrupted.
+                    captureResolved.set(true)
+                    persistence?.persistAudioSource(
+                        audioSource = request.audioSource,
+                        rawText = rawText,
+                        processedText = processedText,
+                        errorMessage = null,
+                        reason = InlineCapturePersistReason.COMPLETED,
+                    )
+                    withContext(Dispatchers.Main) {
+                        onRecordingCompleted()
+                        _phase.value = terminalPhase
                     }
                 } else {
+                    captureResolved.set(true)
+                    persistence?.persistAudioSource(
+                        audioSource = request.audioSource,
+                        rawText = rawText,
+                        processedText = null,
+                        errorMessage = null,
+                        reason = InlineCapturePersistReason.COMPLETED,
+                    )
                     withContext(Dispatchers.Main) {
-                        deliverTranscript(
-                            delivery =
-                                TranscriptDelivery(
-                                    request = request,
-                                    persistence = persistence,
-                                    rawText = rawText,
-                                    processedText = null,
-                                    phaseOnCommit = InlineTranscriptionPhase.Idle,
-                                    correlationId = correlationId,
-                                    captureResolved = captureResolved,
-                                ),
-                            commitText = commitText,
-                            onRecordingCompleted = onRecordingCompleted,
-                            onRecordingError = onRecordingError,
-                        )
+                        onRecordingCompleted()
+                        _phase.value = InlineTranscriptionPhase.Idle
                     }
                 }
             } catch (e: CancellationException) {
@@ -421,59 +407,6 @@ class InlineTranscriptionCoordinatorImpl
             }
         }
 
-        /**
-         * Commits the transcript to its target, falling back to a rescue persistence entry
-         * when the commit is refused (stale input session or missing input connection) so
-         * the user's speech is never silently dropped.
-         */
-        private suspend fun deliverTranscript(
-            delivery: TranscriptDelivery,
-            commitText: (String) -> Boolean,
-            onRecordingCompleted: () -> Unit,
-            onRecordingError: (String) -> Unit,
-        ) {
-            val textToCommit =
-                delivery.processedText?.takeIf { delivery.useProcessedTextForCommit }
-                    ?: delivery.rawText
-            val committed = commitText("$textToCommit ")
-            if (committed) {
-                // The transcript reached its target; mark the capture resolved BEFORE the
-                // (cancellable) persist below so a cancellation surfacing at this
-                // dispatcher boundary cannot re-persist the same capture in the
-                // CancellationException handler.
-                delivery.captureResolved.set(true)
-                delivery.persistence?.persistAudioSource(
-                    audioSource = delivery.request.audioSource,
-                    rawText = delivery.rawText,
-                    processedText = delivery.processedText,
-                    errorMessage = null,
-                    reason = InlineCapturePersistReason.COMPLETED,
-                )
-                onRecordingCompleted()
-                _phase.value = delivery.phaseOnCommit
-                return
-            }
-
-            Log.w(tag, "Commit refused; persisting transcript as a rescue entry")
-            ReliabilityEventLogger
-                .scoped(
-                    stage = ReliabilityStage.TRANSCRIPTION,
-                    correlationId = delivery.correlationId,
-                    reasonPrefix = delivery.request.correlationPrefix,
-                ).failure("commit_refused")
-            rescueCapture(
-                persistence = delivery.persistence,
-                audioSource = delivery.request.audioSource,
-                rawText = delivery.rawText,
-                processedText = delivery.processedText,
-                errorMessage = COMMIT_REFUSED_MESSAGE,
-                reason = InlineCapturePersistReason.RESCUE,
-            )
-            delivery.captureResolved.set(true)
-            onRecordingError(COMMIT_REFUSED_MESSAGE)
-            _phase.value = InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE)
-        }
-
         private suspend fun ensureRecognizerReady(): Boolean {
             if (transcriberProvider.isReady()) {
                 return true
@@ -555,6 +488,9 @@ private const val SINGLE_UTTERANCE_MAX_SECONDS = 60
 const val COMMIT_REFUSED_MESSAGE =
     "Couldn't insert dictated text into the field; transcript saved to recordings"
 
+const val COMMIT_REFUSED_UNSAVED_MESSAGE =
+    "Couldn't insert dictated text into the field or save its recovery entry"
+
 internal const val CANCELLATION_RESCUE_MESSAGE =
     "Dictation was interrupted before it finished; the capture was saved to recordings"
 
@@ -567,17 +503,6 @@ internal const val AI_CONTENT_GUARD_MESSAGE =
 
 /** ERR-25: appended to rescue-backed errors so users know their speech was not lost. */
 internal const val RESCUE_SAVED_SUFFIX = " — your audio was saved to recordings"
-
-private data class TranscriptDelivery(
-    val request: InlineTranscriptionRequest,
-    val persistence: InlineCapturePersistence?,
-    val rawText: String,
-    val processedText: String?,
-    val useProcessedTextForCommit: Boolean = true,
-    val phaseOnCommit: InlineTranscriptionPhase,
-    val correlationId: String,
-    val captureResolved: AtomicBoolean,
-)
 
 internal fun aiResultDropsOpening(
     rawText: String,

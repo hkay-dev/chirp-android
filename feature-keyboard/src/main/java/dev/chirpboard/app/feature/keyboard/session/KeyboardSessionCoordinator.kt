@@ -679,7 +679,7 @@ class KeyboardSessionCoordinator(
                                             .onFailure { Log.e(tag, "Could not journal live keyboard capture", it) }
                                     }
                                 }
-                            startRollingTranscription()
+                            startRollingTranscription(historyPersistenceSuppressed())
                             recordingJob =
                                 scope.launch {
                                     // MIC-014: surface a hot-unplug of the session's active
@@ -795,16 +795,34 @@ class KeyboardSessionCoordinator(
      * lossless source of truth. A slow or unavailable recognizer can only delay this preview. It
      * cannot block AudioRecord or change the final full-file transcription.
      */
-    private fun startRollingTranscription() {
+    private fun startRollingTranscription(suppressHistory: Boolean) {
         rollingTranscriptionJob?.cancel()
         if (selectedEngine.value != TranscriptionEngine.LOCAL_PARAKEET) return
         rollingTranscriptionJob =
             scope.launch(Dispatchers.Default) {
                 delay(LIVE_TRANSCRIPTION_INITIAL_DELAY_MS)
+                val checkpointPersistence =
+                    if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
                 while (isRecording.value) {
-                    if (transcriberProvider.isReady()) {
-                        val snapshot = capture.activeFileBackedSnapshot()
-                        if (snapshot != null && snapshot.sampleCount >= snapshot.sampleRate * LIVE_TRANSCRIPTION_MIN_SECONDS) {
+                    val snapshot = capture.activeFileBackedSnapshot()
+                    if (snapshot != null && snapshot.sampleCount >= snapshot.sampleRate * LIVE_TRANSCRIPTION_MIN_SECONDS) {
+                        val checkpointSource =
+                            InlineAudioSource.PcmFloatFile(
+                                path = snapshot.file.absolutePath,
+                                sampleCount = snapshot.sampleCount.toLong(),
+                                sampleRate = snapshot.sampleRate,
+                            )
+                        runCatching {
+                            checkpointPersistence.checkpointAudioSource(
+                                audioSource = checkpointSource,
+                                trustedSampleCount = snapshot.sampleCount.toLong(),
+                                partialTranscript = livePartialTranscript.value,
+                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                            )
+                        }.onFailure { error ->
+                            Log.w(tag, "Could not checkpoint live keyboard capture", error)
+                        }
+                        if (transcriberProvider.isReady()) {
                             val samples =
                                 withContext(teardownDispatcher) {
                                     readRollingPcmWindow(
@@ -816,8 +834,18 @@ class KeyboardSessionCoordinator(
                             if (samples.isNotEmpty() && isRecording.value) {
                                 when (val outcome = transcriberProvider.transcribe(samples, snapshot.sampleRate)) {
                                     is TranscriptionOutcome.Success -> {
-                                        livePartialTranscript.value =
-                                            mergeRollingTranscript(livePartialTranscript.value, outcome.text)
+                                        val merged = mergeRollingTranscript(livePartialTranscript.value, outcome.text)
+                                        livePartialTranscript.value = merged
+                                        runCatching {
+                                            checkpointPersistence.checkpointAudioSource(
+                                                audioSource = checkpointSource,
+                                                trustedSampleCount = snapshot.sampleCount.toLong(),
+                                                partialTranscript = merged,
+                                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                            )
+                                        }.onFailure { error ->
+                                            Log.w(tag, "Could not checkpoint rolling transcript", error)
+                                        }
                                     }
 
                                     else -> Unit

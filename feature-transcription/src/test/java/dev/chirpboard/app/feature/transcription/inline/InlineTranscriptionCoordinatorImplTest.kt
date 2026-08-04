@@ -233,6 +233,24 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     @Test
+    fun `refused commit does not claim a save when rescue persistence fails`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello world")
+        val persistence = CapturingPersistence { throw IllegalStateException("disk unavailable") }
+        var reportedError: String? = null
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(),
+            persistence = persistence,
+            commitText = { false },
+            onRecordingError = { reportedError = it },
+        )
+
+        assertEquals(COMMIT_REFUSED_UNSAVED_MESSAGE, reportedError)
+        assertEquals(InlineTranscriptionPhase.Error(COMMIT_REFUSED_UNSAVED_MESSAGE), coordinator.phase.value)
+    }
+
+    @Test
     fun `accepted commit persists transcript without an error message`() = runTest {
         every { transcriberProvider.isReady() } returns true
         coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("hello world")
@@ -458,7 +476,7 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     @Test
-    fun `llm polish success commits processed text and persists raw and processed`() = runTest {
+    fun `llm polish success commits raw immediately and persists both versions`() = runTest {
         every { transcriberProvider.isReady() } returns true
         coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
         coEvery { textEnhancement.process("raw words", "proofread") } returns Result.success("Polished words.")
@@ -474,10 +492,41 @@ class InlineTranscriptionCoordinatorImplTest {
             },
         )
 
-        assertEquals("Polished words. ", committed)
+        assertEquals("raw words ", committed)
         assertEquals("raw words", persistence.lastRawText)
         assertEquals("Polished words.", persistence.lastProcessedText)
         assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
+    }
+
+    @Test
+    fun `raw transcript reaches the target before slow AI cleanup finishes`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw now")
+        val cleanupGate = CompletableDeferred<Unit>()
+        coEvery { textEnhancement.process("raw now", "proofread") } coAnswers {
+            cleanupGate.await()
+            Result.success("Raw later.")
+        }
+        val committed = CompletableDeferred<String>()
+        val persistence = CapturingPersistence()
+
+        val job =
+            launch {
+                coordinator.transcribeWithCommitResult(
+                    request = inMemoryRequest(llmEnabled = true),
+                    persistence = persistence,
+                    commitText = { text ->
+                        committed.complete(text)
+                        true
+                    },
+                )
+            }
+
+        assertEquals("raw now ", committed.await())
+        assertEquals(0, persistence.persistCalls)
+        cleanupGate.complete(Unit)
+        job.join()
+        assertEquals("Raw later.", persistence.lastProcessedText)
     }
 
     @Test

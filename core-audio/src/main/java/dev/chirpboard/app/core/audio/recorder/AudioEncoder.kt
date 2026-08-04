@@ -64,9 +64,9 @@ class AudioEncoder
             return false
         }
         return when (format) {
-            RecordingOutputFormat.M4A -> encodePcmFloatFileToM4a(inputPath, sampleRate, outputPath, config)
-            RecordingOutputFormat.WAV -> encodePcmFloatFileToWav(inputPath, sampleRate, outputPath)
-            RecordingOutputFormat.MP3 -> encodePcmFloatFileToMp3(inputPath, sampleRate, outputPath, config)
+            RecordingOutputFormat.M4A -> encodePcmFloatFileToM4a(inputPath, sampleCount, sampleRate, outputPath, config)
+            RecordingOutputFormat.WAV -> encodePcmFloatFileToWav(inputPath, sampleCount, sampleRate, outputPath)
+            RecordingOutputFormat.MP3 -> encodePcmFloatFileToMp3(inputPath, sampleCount, sampleRate, outputPath, config)
         }
     }
 
@@ -206,13 +206,14 @@ class AudioEncoder
 
     private fun encodePcmFloatFileToWav(
         inputPath: String,
+        sampleCount: Long,
         sampleRate: Int,
         outputPath: String,
     ): Boolean =
         runCatching {
             File(outputPath).parentFile?.mkdirs()
             WavFileWriter(File(outputPath), sampleRate).use { writer ->
-                forEachFloatChunk(inputPath) { chunk ->
+                forEachFloatChunk(inputPath, sampleCount) { chunk ->
                     val pcm = floatToPcm16(chunk)
                     writer.appendPcm16(pcm, pcm.size)
                 }
@@ -276,6 +277,7 @@ class AudioEncoder
 
     private fun encodePcmFloatFileToMp3(
         inputPath: String,
+        sampleCount: Long,
         sampleRate: Int,
         outputPath: String,
         config: KeyboardRecordingQualityConfig,
@@ -291,7 +293,7 @@ class AudioEncoder
                     .build()
             val mp3Buffer = ByteArray(MP3_BUFFER_SIZE)
             BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
-                forEachFloatChunk(inputPath) { chunk ->
+                forEachFloatChunk(inputPath, sampleCount) { chunk ->
                     val shorts = floatToShorts(chunk)
                     val encodedSize = lame.encode(shorts, shorts, shorts.size, mp3Buffer)
                     if (encodedSize > 0) {
@@ -313,6 +315,7 @@ class AudioEncoder
 
     private fun encodePcmFloatFileToM4a(
         inputPath: String,
+        sampleCount: Long,
         sampleRate: Int,
         outputPath: String,
         config: KeyboardRecordingQualityConfig,
@@ -338,7 +341,7 @@ class AudioEncoder
             muxer = mux
             val session = MuxerSession(mux)
             muxerSession = session
-            reader = PcmFloatFileReader(inputPath)
+            reader = PcmFloatFileReader(inputPath, sampleCount)
 
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
@@ -625,12 +628,14 @@ class AudioEncoder
 
     private fun forEachFloatChunk(
         inputPath: String,
+        sampleCount: Long,
         onChunk: (FloatArray) -> Unit,
     ) {
         FileInputStream(inputPath).use { input ->
             forEachPcmFloatChunk(
                 input = input,
                 chunkSamples = STREAM_CHUNK_SAMPLES,
+                sampleLimit = sampleCount,
                 onChunk = onChunk,
             )
         }
@@ -638,9 +643,10 @@ class AudioEncoder
 
     private inner class PcmFloatFileReader(
         inputPath: String,
+        sampleCount: Long,
     ) : AutoCloseable {
         private val input = FileInputStream(inputPath)
-        private val reader = PcmFloatStreamReader(input, STREAM_CHUNK_SAMPLES)
+        private val reader = PcmFloatStreamReader(input, STREAM_CHUNK_SAMPLES, sampleCount)
 
         fun readPcm16Chunk(): ByteArray? = reader.readFloatChunk()?.let(::floatToPcm16)
 
@@ -654,9 +660,10 @@ class AudioEncoder
 internal fun forEachPcmFloatChunk(
     input: InputStream,
     chunkSamples: Int,
+    sampleLimit: Long = Long.MAX_VALUE,
     onChunk: (FloatArray) -> Unit,
 ) {
-    val reader = PcmFloatStreamReader(input, chunkSamples)
+    val reader = PcmFloatStreamReader(input, chunkSamples, sampleLimit)
     while (true) {
         val chunk = reader.readFloatChunk() ?: return
         onChunk(chunk)
@@ -666,20 +673,32 @@ internal fun forEachPcmFloatChunk(
 private class PcmFloatStreamReader(
     private val input: InputStream,
     chunkSamples: Int,
+    sampleLimit: Long,
 ) {
     private val buffer: ByteArray
+    private var remainingSamples = sampleLimit
 
     init {
         require(chunkSamples > 0) { "chunkSamples must be positive" }
+        require(sampleLimit >= 0L) { "sampleLimit must not be negative" }
         buffer = ByteArray(chunkSamples * java.lang.Float.BYTES)
     }
 
     fun readFloatChunk(): FloatArray? {
+        if (remainingSamples == 0L) return null
         var bufferedBytes = 0
+        val requestedBytes =
+            minOf(
+                buffer.size.toLong(),
+                remainingSamples.coerceAtMost(Long.MAX_VALUE / java.lang.Float.BYTES) * java.lang.Float.BYTES,
+            ).toInt()
 
-        while (bufferedBytes < buffer.size) {
-            val bytesRead = input.read(buffer, bufferedBytes, buffer.size - bufferedBytes)
+        while (bufferedBytes < requestedBytes) {
+            val bytesRead = input.read(buffer, bufferedBytes, requestedBytes - bufferedBytes)
             if (bytesRead < 0) {
+                if (remainingSamples != Long.MAX_VALUE) {
+                    throw IOException("Raw float PCM file contains fewer samples than declared")
+                }
                 if (bufferedBytes == 0) return null
                 if (bufferedBytes % java.lang.Float.BYTES != 0) {
                     throw IOException("Raw float PCM file ends with an incomplete sample")
@@ -691,7 +710,11 @@ private class PcmFloatStreamReader(
             bufferedBytes += bytesRead
         }
 
-        return decodeFloatPcm(buffer, bufferedBytes)
+        val decoded = decodeFloatPcm(buffer, bufferedBytes)
+        if (remainingSamples != Long.MAX_VALUE) {
+            remainingSamples -= decoded.size
+        }
+        return decoded
     }
 }
 

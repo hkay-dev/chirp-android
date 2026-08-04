@@ -51,6 +51,41 @@ class AudioEncoderPcmStreamTest {
         }
     }
 
+    @Test
+    fun `float PCM reader stops at the trusted sample limit`() {
+        val bytes = floatBytes(floatArrayOf(0.1f, 0.2f, 0.3f, 0.4f))
+        val decoded = mutableListOf<Float>()
+
+        forEachPcmFloatChunk(
+            input = ShortReadInputStream(bytes, maxReadBytes = 3),
+            chunkSamples = 3,
+            sampleLimit = 2,
+        ) { chunk -> decoded += chunk.toList() }
+
+        assertArrayEquals(floatArrayOf(0.1f, 0.2f), decoded.toFloatArray(), 0f)
+    }
+
+    @Test
+    fun `float PCM reader rejects a file shorter than its trusted count`() {
+        val bytes = floatBytes(floatArrayOf(0.1f, 0.2f))
+
+        assertThrows(IOException::class.java) {
+            forEachPcmFloatChunk(
+                input = ShortReadInputStream(bytes, maxReadBytes = 3),
+                chunkSamples = 3,
+                sampleLimit = 3,
+                onChunk = {},
+            )
+        }
+    }
+
+    private fun floatBytes(samples: FloatArray): ByteArray =
+        ByteBuffer
+            .allocate(samples.size * Float.SIZE_BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .apply { samples.forEach(::putFloat) }
+            .array()
+
     private class ShortReadInputStream(
         private val bytes: ByteArray,
         private val maxReadBytes: Int,
