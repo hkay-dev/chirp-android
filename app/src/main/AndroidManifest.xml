@@ -74,7 +74,7 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
-            android:windowSoftInputMode="stateAlwaysHidden">
+            android:windowSoftInputMode="stateUnchanged|adjustNothing">
             <intent-filter>
                 <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
                 <category android:name="android.intent.category.DEFAULT" />

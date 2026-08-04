@@ -268,8 +268,21 @@ class VoiceRecognitionActivity : ComponentActivity() {
         // as a focused modal rather than a leaky overlay. Outside taps are handled by the Compose
         // scrim layer's tap-to-cancel; the old FLAG_WATCH_OUTSIDE_TOUCH path never fires with a
         // full-screen window and was removed (IME-24).
-        params.flags = params.flags or
-            android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
+        params.flags =
+            params.flags or
+                android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                // This activity never edits text itself. Keeping it outside the IME
+                // target relationship prevents Android from tearing down the caller's
+                // keyboard window and its editor connection while the speech sheet is up.
+                android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM or
+                android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        // The old stateAlwaysHidden manifest setting explicitly hid the caller's keyboard
+        // as this window took focus. Twitter-like editors then received the activity result
+        // before a fresh InputConnection existed, so text could remain invisible until the
+        // field was tapped. Preserve the existing IME state and leave layout to our insets.
+        params.softInputMode =
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED or
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
         params.dimAmount = DIALOG_DIM_AMOUNT
         window.attributes = params
 
@@ -682,6 +695,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                                         floatArrayOf(1f),
                                     )
                                 },
+                            finishImmediately = true,
                         )
                     }
 
@@ -899,10 +913,20 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun dismissWithResult(
         resultCode: Int,
         data: Intent? = null,
+        finishImmediately: Boolean = false,
     ) {
         setResult(resultCode, data)
-        Log.d(TAG, "Triggering dismiss animation")
         _shouldDismiss.value = true
+        if (finishImmediately) {
+            // A successful voice result is latency-sensitive. Finishing in the same main
+            // loop turn lets the caller resume and restore its InputConnection before its
+            // keyboard commits the returned text. Error and cancel paths keep the sheet's
+            // explanatory exit animation.
+            Log.d(TAG, "Finishing immediately with recognition result")
+            finish()
+        } else {
+            Log.d(TAG, "Triggering dismiss animation")
+        }
     }
 
     companion object {

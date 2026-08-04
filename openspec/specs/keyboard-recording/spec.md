@@ -225,6 +225,30 @@ Keyboard dictation SHALL NOT insert transcribed text into sensitive input fields
 - **WHEN** the keyboard starts input for a password or no-personalized-learning field
 - **THEN** dictation commit is refused and any active keyboard recording is stopped through the normal keyboard stop path.
 
+### Requirement: Recognition Activity Preserves Caller IME State
+
+The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the caller's software keyboard while its speech sheet is visible.
+
+#### Scenario: Quick input launched from another keyboard
+
+- **GIVEN** a third-party keyboard is bound to a focused editor
+- **WHEN** it launches Chirp's recognition activity
+- **THEN** Chirp requests unchanged soft-input visibility
+- **AND** its non-editing window stays outside the IME target relationship
+- **AND** the caller's keyboard can keep its existing editor connection for result delivery.
+
+#### Scenario: Successful speech result is ready
+
+- **WHEN** transcription produces a non-empty result
+- **THEN** Chirp returns `RESULT_OK` with `RecognizerIntent.EXTRA_RESULTS`
+- **AND** finishes the recognition activity immediately without waiting for a decorative exit animation.
+
+#### Scenario: Host editor still drops focus
+
+- **WHEN** a host app deliberately clears its editor because another activity was launched
+- **THEN** Chirp MUST NOT attempt cross-app focus manipulation or accessibility injection
+- **AND** the standard recognition result remains the only authoritative delivery channel.
+
 ## Audit backlog (2026-05-25)
 
 | Priority | Gap | Change |
