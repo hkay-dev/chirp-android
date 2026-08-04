@@ -386,12 +386,18 @@ class AppKeyboardInlineCapturePersistence
                                 val trustedSamples =
                                     requireNotNull(properties.getProperty("trustedSampleCount")).toLong()
                                 require(sampleRate in MIN_CHECKPOINT_SAMPLE_RATE..MAX_CHECKPOINT_SAMPLE_RATE)
-                                require(trustedSamples > 0L && trustedSamples <= audio.length() / java.lang.Float.BYTES)
+                                val completeSamples = audio.length() / java.lang.Float.BYTES
+                                require(trustedSamples > 0L && trustedSamples <= completeSamples)
+                                // The checkpoint proves ownership of this exact cache file. Once
+                                // the owning process is dead, every later complete float written
+                                // to that file is also recoverable. Use that crash-truncated tail
+                                // rather than throwing away everything recorded after the first
+                                // checkpoint. A partial final float is naturally excluded.
                                 RecoveredCheckpoint(
                                     source =
                                         InlineAudioSource.PcmFloatFile(
                                             path = audio.absolutePath,
-                                            sampleCount = trustedSamples,
+                                            sampleCount = completeSamples,
                                             sampleRate = sampleRate,
                                         ),
                                     rawText = properties.getProperty("partialTranscript")?.takeIf(String::isNotBlank),

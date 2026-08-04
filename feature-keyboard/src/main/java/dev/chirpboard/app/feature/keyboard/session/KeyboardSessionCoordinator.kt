@@ -676,6 +676,10 @@ class KeyboardSessionCoordinator(
                             }
                             latencyTrace?.mark("first_hardware_sample")
                             latencyTrace?.mark("first_durable_sample")
+                            checkpointFirstDurableAudio(
+                                suppressHistory = historyPersistenceSuppressed(),
+                                cloudCapture = liveCapture?.transcriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3,
+                            )
                             Log.i(
                                 tag,
                                 "Keyboard microphone ready ${System.nanoTime() / NANOS_PER_MILLISECOND - startRequestedAtMs}ms after tap",
@@ -747,6 +751,38 @@ class KeyboardSessionCoordinator(
                     startJob = null
                 }
             }
+    }
+
+    /**
+     * Journals the first complete file-backed block as soon as capture proves it can write audio.
+     * The microphone and collector are already live, and this work runs on the teardown dispatcher,
+     * so checkpoint fsync cannot delay the speak-now boundary or compete on the capture-write lock.
+     * Later checkpoints replace this one with a longer trusted prefix. Cloud captures already own a
+     * stronger live-capture journal, and incognito sessions must not leave a history sidecar.
+     */
+    private fun checkpointFirstDurableAudio(
+        suppressHistory: Boolean,
+        cloudCapture: Boolean,
+    ) {
+        if (suppressHistory || cloudCapture) return
+        val snapshot = capture.activeFileBackedSnapshot() ?: return
+        scope.launch(teardownDispatcher) {
+            runCatching {
+                persistence.checkpointAudioSource(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = snapshot.file.absolutePath,
+                            sampleCount = snapshot.sampleCount.toLong(),
+                            sampleRate = snapshot.sampleRate,
+                        ),
+                    trustedSampleCount = snapshot.sampleCount.toLong(),
+                    partialTranscript = null,
+                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                )
+            }.onFailure { error ->
+                Log.w(tag, "Could not checkpoint the first durable keyboard audio", error)
+            }
+        }
     }
 
     private suspend fun abandonActiveLiveCapture() {

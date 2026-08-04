@@ -613,6 +613,42 @@ class KeyboardSessionCoordinatorTest {
         }
 
     @Test
+    fun startRecording_checkpointsTheFirstDurableLocalAudioBlock() =
+        runTest {
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
+            every { capture.activeFileBackedSnapshot() } returns
+                dev.chirpboard.app.core.audio.recorder.VoiceRecorder.CapturedPcmFloatFile(
+                    file = java.io.File("/tmp/first-block.f32pcm"),
+                    sampleRate = 16_000,
+                    sampleCount = 1_024,
+                )
+            val coordinator = buildCoordinator()
+
+            coordinator.startRecording()
+
+            assertEquals(1, persistence.checkpointCalls)
+            assertEquals(1_024L, persistence.lastCheckpointSamples)
+        }
+
+    @Test
+    fun startRecording_incognitoDoesNotCheckpointTheFirstAudioBlock() =
+        runTest {
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
+            every { capture.activeFileBackedSnapshot() } returns
+                dev.chirpboard.app.core.audio.recorder.VoiceRecorder.CapturedPcmFloatFile(
+                    file = java.io.File("/tmp/incognito-first-block.f32pcm"),
+                    sampleRate = 16_000,
+                    sampleCount = 1_024,
+                )
+            val coordinator = buildCoordinator()
+            coordinator.historyPersistenceSuppressed = { true }
+
+            coordinator.startRecording()
+
+            assertEquals(0, persistence.checkpointCalls)
+        }
+
+    @Test
     fun startRecording_failedRecorderDropsItsLiveJournal() =
         runTest {
             val live = KeyboardDictationLiveCapture(UUID.randomUUID(), "/durable/keyboard.f32pcm")
@@ -1458,7 +1494,20 @@ class KeyboardSessionCoordinatorTest {
         var lastErrorMessage: String? = null
         var lastReason: InlineCapturePersistReason? = null
         var releasePendingCalls = 0
+        var checkpointCalls = 0
+        var lastCheckpointSamples = 0L
         var persistError: Throwable? = null
+
+        override suspend fun checkpointAudioSource(
+            audioSource: InlineAudioSource,
+            trustedSampleCount: Long,
+            partialTranscript: String?,
+            estimatedGapMs: Long?,
+        ): Boolean {
+            checkpointCalls++
+            lastCheckpointSamples = trustedSampleCount
+            return true
+        }
 
         override fun releasePendingAudioSource() {
             releasePendingCalls++

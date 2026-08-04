@@ -755,16 +755,18 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
-    fun recoverCheckpoints_savesTheTrustedPrefixAndRemovesTheCheckpoint() =
+    fun recoverCheckpoints_savesEveryCompleteSampleWrittenAfterTheCheckpoint() =
         runTest {
             val root = createTempDir("keyboard-checkpoint-recovery")
             val captureDirectory = File(root, "cache/keyboard-capture").apply { mkdirs() }
             val audio = File(captureDirectory, "dictation-recovery.f32pcm").apply { writeBytes(ByteArray(40)) }
             val repository = mockk<RecordingRepository>()
             coEvery { repository.createRecordingWithTranscript(any(), any(), any()) } answers { firstArg() }
+            var recoveredSampleCount = 0L
             val encoder =
                 mockk<AudioEncoder> {
                     every { encodePcmFloatFile(any(), any(), any(), any(), any(), any()) } answers {
+                        recoveredSampleCount = secondArg()
                         File(arg<String>(3)).writeText("recovered audio")
                         true
                     }
@@ -794,6 +796,7 @@ class AppKeyboardInlineCapturePersistenceTest {
 
             assertEquals(1, persistence.recoverCheckpoints())
 
+            assertEquals(10L, recoveredSampleCount)
             assertFalse(audio.exists())
             assertFalse(File("${audio.absolutePath}.chirp-checkpoint").exists())
             coVerify {

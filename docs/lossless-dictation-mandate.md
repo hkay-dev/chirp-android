@@ -11,7 +11,9 @@ Chirp must prefer preserving captured speech over speed, polish, storage savings
 5. Live partial text is disposable. Final text always comes from the complete saved audio.
 6. Raw transcription and AI-processed text remain separate. AI output that appears to omit the opening cannot replace the raw text automatically.
 7. Losing the input connection turns the capture into a recoverable recording with a result notification. It never turns into a silent discard.
-8. Process death between microphone start and journal creation is recoverable by scanning old, valid cloud-capture files.
+8. Local capture journals its first complete PCM block off the microphone path. Recovery uses that
+   ownership checkpoint plus every later complete float already present in the same file. Cloud
+   capture keeps its stronger pre-microphone journal and final app-private path.
 9. Explicit user cancellation is the only normal path allowed to discard captured speech before durable ownership moves.
 10. Capture timing, first-sample latency, frame count, elapsed duration, and estimated gaps stay measurable without logging dictated text.
 

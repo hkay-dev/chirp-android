@@ -4,7 +4,7 @@
 
 Chirp Keyboard will have two transcription paths.
 
-- **Local inline** keeps the current Parakeet flow. It is fast, writes back into the active field, and stays on the device. It also keeps the old IME-scoped lifecycle, so a hard process kill can still lose an unjournaled local capture. Pick cloud background when never losing a long dictation matters more than immediate insertion.
+- **Local inline** keeps the current Parakeet flow. It is fast, writes back into the active field, and stays on the device. Its first complete PCM block creates an asynchronous ownership checkpoint, so a later process can recover every complete float left in the file. Pick cloud background when queued delivery matters more than immediate insertion.
 - **Cloud background** makes the audio durable before any speech model runs. It sends the saved recording to a private Cloud Run service, transcribes it with Google Cloud Speech-to-Text V2 `chirp_3`, runs optional Vertex AI cleanup as a separate step, saves both raw and polished text, and notifies the user when the result is ready.
 
 Cloud background mode never keeps an `InputConnection` alive and never streams partial text into the field. The recording and queue row are the source of truth. Before AudioRecord starts, the app writes and syncs a live-capture journal and gives the recorder its final app-private path. Every completed PCM write goes straight to the file descriptor rather than sitting in a userspace output buffer. A later process instance replays an interrupted capture from its first complete audio block. The current process token stops the delayed startup pass from claiming a recording that is still live.

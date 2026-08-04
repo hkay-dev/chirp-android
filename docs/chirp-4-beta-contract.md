@@ -13,6 +13,8 @@ This contract is a release gate. Performance work must not weaken content preser
 - A proven native memory ceiling may select chunk recovery before decoding; it must never risk
   process death or lost audio for an unbounded whole-file call.
 - Backend, post-processing, activity, IME, and process failures must leave recoverable audio behind.
+- Local capture checkpoints ownership after its first durable block and recovers the later complete
+  file tail. Cloud capture journals ownership before opening the microphone.
 
 ## Model residency
 
@@ -39,7 +41,8 @@ This contract is a release gate. Performance work must not weaken content preser
 ## Beta release gates
 
 - A beta build updates the existing 4.0 alpha package in place and keeps its app data and IME identity.
-- The selected recognizer begins warming shortly after process startup, independently of recovery and janitorial work.
+- The selected recognizer begins warming shortly after process startup, independently of recovery
+  and janitorial work, with bounded retries for transient warmup failure.
 - Content-free diagnostics remain bounded and must not queue one disk rewrite per recovery chunk.
 - The reliability matrix, minified beta build, installed-package upgrade, and launch smoke test must pass.
 - Experimental backends stay capability-gated until the shipped native binary and device benchmark prove them.
