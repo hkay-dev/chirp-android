@@ -151,12 +151,12 @@ class RapidSelectionThrashTest {
             assertEquals(enumerationsAfterLiveStart, enumerations.get())
 
             // stop -> start: the next engine start resolves the device exactly once,
-            // honoring the FINAL selection (Automatic -> top-ranked = USB), never any
+            // honoring the FINAL selection (Automatic -> top-ranked = built-in), never any
             // earlier thrashed key (which would have resolved wired or built-in).
             val resolved = selector.resolvePreferredDevice()
 
-            assertEquals(usb.id, resolved?.id)
-            assertEquals("USB Mic", selector.activeDeviceLabel.value)
+            assertEquals(builtIn.id, resolved?.id)
+            assertEquals("Built-in microphone", selector.activeDeviceLabel.value)
             // Automatic never reports a missing preferred device, so no stale-key fallback notice.
             assertEquals(null, selector.activeDevice.value?.fallbackFromPreferredName)
             // Exactly one device enumeration for the new session: no double-start.

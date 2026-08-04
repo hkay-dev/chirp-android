@@ -41,7 +41,7 @@ class AudioInputDeviceSelectorTest {
     // --- Priority / ranking ----------------------------------------------------------
 
     @Test
-    fun devicePriority_ranksUsbOverBluetoothOverWiredOverBuiltIn() {
+    fun devicePriority_ranksBuiltInThenUsbAndLeavesBluetoothLast() {
         val usb = AudioInputDeviceSelector.devicePriority(AudioDeviceInfo.TYPE_USB_HEADSET)
         val ble = AudioInputDeviceSelector.devicePriority(AudioDeviceInfo.TYPE_BLE_HEADSET)
         val sco = AudioInputDeviceSelector.devicePriority(AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
@@ -49,15 +49,15 @@ class AudioInputDeviceSelectorTest {
         val builtIn = AudioInputDeviceSelector.devicePriority(AudioDeviceInfo.TYPE_BUILTIN_MIC)
         val other = AudioInputDeviceSelector.devicePriority(AudioDeviceInfo.TYPE_FM_TUNER)
 
-        assertTrue(usb < ble)
+        assertTrue(builtIn < usb)
+        assertTrue(usb < wired)
+        assertTrue(wired < ble)
         assertTrue(ble < sco)
-        assertTrue(sco < wired)
-        assertTrue(wired < builtIn)
-        assertTrue(builtIn < other)
+        assertTrue(sco < other)
     }
 
     @Test
-    fun rankDevices_putsExternalMicsBeforeBuiltIn() {
+    fun rankDevices_defaultsToBuiltInThenUsbAndBluetoothLast() {
         val builtIn = summary(1, AudioInputDeviceKind.BuiltIn)
         val bluetooth = summary(2, AudioInputDeviceKind.Bluetooth)
         val usb = summary(3, AudioInputDeviceKind.Usb)
@@ -65,7 +65,7 @@ class AudioInputDeviceSelectorTest {
 
         val ranked = AudioInputDeviceSelector.rankDevices(listOf(builtIn, wired, bluetooth, usb))
 
-        assertEquals(listOf(3, 2, 4, 1), ranked.map { it.id })
+        assertEquals(listOf(1, 3, 4, 2), ranked.map { it.id })
     }
 
     // --- Selection algorithm matrix ----------------------------------------------------
@@ -99,7 +99,7 @@ class AudioInputDeviceSelectorTest {
                 manualKey = "card=9;device=9",
             )
 
-        assertEquals(bluetooth.id, choice.device?.id)
+        assertEquals(builtIn.id, choice.device?.id)
         assertTrue(choice.preferredMissing)
     }
 
@@ -131,9 +131,12 @@ class AudioInputDeviceSelectorTest {
                 .device
                 ?.id
 
-        assertEquals(usb.id, pick(listOf(builtIn, wired, bluetooth, usb)))
-        assertEquals(bluetooth.id, pick(listOf(builtIn, wired, bluetooth)))
-        assertEquals(wired.id, pick(listOf(builtIn, wired)))
+        assertEquals(builtIn.id, pick(listOf(builtIn, wired, bluetooth, usb)))
+        assertEquals(builtIn.id, pick(listOf(builtIn, wired, bluetooth)))
+        assertEquals(builtIn.id, pick(listOf(builtIn, wired)))
+        assertEquals(usb.id, pick(listOf(wired, bluetooth, usb)))
+        assertEquals(wired.id, pick(listOf(wired, bluetooth)))
+        assertEquals(bluetooth.id, pick(listOf(bluetooth)))
         assertEquals(builtIn.id, pick(listOf(builtIn)))
         assertNull(pick(emptyList()))
     }

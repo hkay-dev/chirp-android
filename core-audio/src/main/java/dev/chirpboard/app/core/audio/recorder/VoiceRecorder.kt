@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
+import android.media.AudioTimestamp
 import android.media.MediaRecorder
 import android.os.Process
 import android.os.SystemClock
@@ -73,6 +74,7 @@ class VoiceRecorder(
     private val inputDeviceSelector: AudioInputDeviceSelector? = null,
     private val captureStorageMode: CaptureStorageMode = CaptureStorageMode.InMemory,
     private val captureOutputFactory: (File) -> OutputStream = { file -> FileOutputStream(file) },
+    private val availableStorageBytes: (File) -> Long = { directory -> directory.usableSpace },
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -97,6 +99,11 @@ class VoiceRecorder(
 
         private const val FIRST_SAMPLES_READY_TIMEOUT_MS = 500L
         private const val CAPTURE_GAP_TOLERANCE_MS = 250L
+        private const val TIMESTAMP_GAP_TOLERANCE_FRAMES = CAPTURE_READ_BUFFER_SIZE * 2L
+        private const val MAX_DEAD_OBJECT_RECOVERIES = 1
+
+        /** Keeps enough headroom for ten minutes of float PCM plus filesystem overhead. */
+        const val MIN_CAPTURE_FREE_BYTES = 48L * 1024L * 1024L
 
         /** Sustained all-zero input (4s) before [onSilenceStateChanged] reports silence. */
         const val SILENCE_WARNING_SAMPLES = SAMPLE_RATE * 4L
@@ -130,12 +137,72 @@ class VoiceRecorder(
         val capturedMs: Long,
         val estimatedGapMs: Long,
         val sampleCount: Int,
+        val timestampGapFrames: Long = 0L,
+        val timestampGapCount: Int = 0,
+        val recorderRestartCount: Int = 0,
     )
+
+    internal data class TimestampGap(
+        val missingFrames: Long,
+        val hardwareFramePosition: Long,
+    )
+
+    /** Thread-safe per-session continuity state. The capture thread is its only writer. */
+    internal class CaptureContinuityTracker(
+        private val sampleRate: Int = SAMPLE_RATE,
+        private val toleranceFrames: Long = TIMESTAMP_GAP_TOLERANCE_FRAMES,
+    ) {
+        private var previousFramePosition: Long? = null
+        private var previousNanoTime: Long? = null
+        private var previousCapturedFrames = 0L
+        private var gapFrames = 0L
+        private var gapCount = 0
+        private var restartCount = 0
+
+        @Synchronized
+        fun observe(
+            framePosition: Long,
+            nanoTime: Long,
+            capturedFrames: Long,
+        ): TimestampGap? {
+            val priorPosition = previousFramePosition
+            val priorNanos = previousNanoTime
+            val priorCaptured = previousCapturedFrames
+            previousFramePosition = framePosition
+            previousNanoTime = nanoTime
+            previousCapturedFrames = capturedFrames
+            if (priorPosition == null || priorNanos == null || framePosition < priorPosition) return null
+
+            val hardwareDelta = framePosition - priorPosition
+            val deliveredDelta = (capturedFrames - priorCaptured).coerceAtLeast(0L)
+            val clockFrames =
+                (((nanoTime - priorNanos).coerceAtLeast(0L) * sampleRate) / 1_000_000_000L)
+            val unreadHardwareFrames = hardwareDelta - deliveredDelta - toleranceFrames
+            val stalledHardwareFrames = clockFrames - hardwareDelta - toleranceFrames
+            val missing = maxOf(unreadHardwareFrames, stalledHardwareFrames, 0L)
+            if (missing == 0L) return null
+            gapFrames += missing
+            gapCount += 1
+            return TimestampGap(missingFrames = missing, hardwareFramePosition = framePosition)
+        }
+
+        @Synchronized
+        fun markRecorderRestart() {
+            restartCount += 1
+            previousFramePosition = null
+            previousNanoTime = null
+        }
+
+        @Synchronized
+        fun snapshot(): Triple<Long, Int, Int> = Triple(gapFrames, gapCount, restartCount)
+    }
 
     private var audioRecord: AudioRecord? = null
     private var collectorJob: Job? = null
     private var firstSamplesReady = CompletableDeferred<Boolean>()
     @Volatile private var lastIntegrityReport: CaptureIntegrityReport? = null
+    @Volatile private var continuityTracker = CaptureContinuityTracker()
+    private var nativeBufferSizeBytes = 0
 
     /**
      * Active-device publication token for the live capture (from
@@ -156,7 +223,7 @@ class VoiceRecorder(
      * FileBacked mode never allocates it.
      */
     private var samples = EMPTY_SAMPLES
-    private var sampleCount = 0
+    @Volatile private var sampleCount = 0
     private var sampleFile: File? = null
     private var sampleOutput: OutputStream? = null
 
@@ -168,6 +235,8 @@ class VoiceRecorder(
      */
     private var captureWriteBuffer: ByteArray? = null
     private val sampleLock = Any()
+    /** File writes are serialized separately so slow storage never holds recorder control state. */
+    private val captureWriteLock = Any()
 
     /**
      * Identifies the live capture session. Bumped under [sampleLock] whenever a
@@ -299,7 +368,30 @@ class VoiceRecorder(
         val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
             ready.completeExceptionally(IllegalStateException("Invalid buffer size"))
+            attempt.firstSamplesReady?.complete(false)
             return false
+        }
+        nativeBufferSizeBytes = bufferSize * 2
+
+        if (captureStorageMode == CaptureStorageMode.FileBacked) {
+            val captureDirectory =
+                attempt.requestedCaptureFile?.parentFile
+                    ?: File(context.cacheDir, KEYBOARD_CAPTURE_CACHE_DIR)
+            val hasCaptureStorage =
+                runCatching {
+                    (captureDirectory.isDirectory || captureDirectory.mkdirs()) &&
+                        availableStorageBytes(captureDirectory) >= MIN_CAPTURE_FREE_BYTES
+                }.getOrElse { error ->
+                    Log.e(TAG, "Could not inspect capture storage", error)
+                    false
+                }
+            if (!hasCaptureStorage) {
+                hasError = true
+                ready.completeExceptionally(IllegalStateException("Insufficient capture storage"))
+                attempt.firstSamplesReady?.complete(false)
+                onRecordingError?.invoke(RecordingError.StorageUnavailable)
+                return false
+            }
         }
 
         return try {
@@ -325,7 +417,7 @@ class VoiceRecorder(
                                     sampleRate = SAMPLE_RATE,
                                     channelConfig = CHANNEL_CONFIG,
                                     audioFormat = AUDIO_FORMAT,
-                                    bufferSize = bufferSize * 2,
+                                    bufferSize = nativeBufferSizeBytes,
                                 )
                             attempt.pendingSessionToken = session.sessionToken
                             session.record
@@ -334,7 +426,7 @@ class VoiceRecorder(
                             SAMPLE_RATE,
                             CHANNEL_CONFIG,
                             AUDIO_FORMAT,
-                            bufferSize * 2,
+                            nativeBufferSizeBytes,
                         )
                     if (attempt.pendingRecord?.state == AudioRecord.STATE_INITIALIZED) {
                         break
@@ -401,6 +493,7 @@ class VoiceRecorder(
                 attempt.pendingCaptureOutput = null
                 attempt.pendingSessionToken = null
                 recordingStartTimeMs = SystemClock.elapsedRealtime()
+                continuityTracker = CaptureContinuityTracker()
                 attempt.publishedGeneration = sessionGeneration.incrementAndGet()
                 isRecording.set(true)
             }
@@ -490,7 +583,7 @@ class VoiceRecorder(
                 runCatching { Process.getThreadPriority(Process.myTid()) }.getOrNull()
             runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO) }
             try {
-                val record: AudioRecord?
+                var record: AudioRecord?
                 val collectGeneration: Long
                 val collectFirstSamplesReady: CompletableDeferred<Boolean>
                 synchronized(sampleLock) {
@@ -505,9 +598,13 @@ class VoiceRecorder(
                 var firstReadLogged = false
                 var silentSampleRun = 0L
                 var silenceNotified = false
+                var deadObjectRecoveries = 0
+                var capturedFramesForTimestamp = 0L
+                val timestamp = AudioTimestamp()
 
                 while (isActive && isRecording.get() && sessionGeneration.get() == collectGeneration) {
-                val readResult = record.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
+                val activeRecord = record ?: return@withContext
+                val readResult = activeRecord.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
 
                 // Check for errors
                 when {
@@ -522,8 +619,23 @@ class VoiceRecorder(
                     }
 
                     readResult == AudioRecord.ERROR_DEAD_OBJECT -> {
-                        failCollect(collectGeneration, RecordingError.DeadObject)
-                        return@withContext
+                        if (!isRecording.get() || sessionGeneration.get() != collectGeneration) {
+                            return@withContext
+                        }
+                        val replacement =
+                            if (deadObjectRecoveries < MAX_DEAD_OBJECT_RECOVERIES) {
+                                recoverDeadAudioRecord(collectGeneration, activeRecord)
+                            } else {
+                                null
+                            }
+                        if (replacement == null) {
+                            failCollect(collectGeneration, RecordingError.DeadObject)
+                            return@withContext
+                        }
+                        deadObjectRecoveries += 1
+                        record = replacement
+                        routingChecked = false
+                        continue
                     }
 
                     readResult < 0 -> {
@@ -541,68 +653,77 @@ class VoiceRecorder(
                                 )
                             }
                         }
-                        var writeFailed = false
-                        var writeFailureEndedSession = false
-                        // Normal case - process samples
-                        synchronized(sampleLock) {
-                            if (sessionGeneration.get() != collectGeneration) {
-                                // Session was stopped or superseded while this
-                                // read was in flight; the state is no longer ours.
-                                return@withContext
+                        val sampleCapacity =
+                            when (captureStorageMode) {
+                                CaptureStorageMode.InMemory -> MAX_SAMPLE_CAPACITY
+                                CaptureStorageMode.FileBacked -> MAX_FILE_BACKED_SAMPLE_CAPACITY
                             }
-                            val sampleCapacity =
-                                when (captureStorageMode) {
-                                    CaptureStorageMode.InMemory -> MAX_SAMPLE_CAPACITY
-                                    CaptureStorageMode.FileBacked -> MAX_FILE_BACKED_SAMPLE_CAPACITY
-                                }
-                            val spaceLeft = sampleCapacity - sampleCount
-                            val toProcess = minOf(readResult, spaceLeft)
-
-                            if (toProcess > 0) {
-                                when (captureStorageMode) {
-                                    CaptureStorageMode.InMemory -> {
+                        val writeFailure =
+                            when (captureStorageMode) {
+                                CaptureStorageMode.InMemory -> {
+                                    synchronized(sampleLock) {
+                                        if (sessionGeneration.get() != collectGeneration) return@withContext
+                                        val toProcess = minOf(readResult, sampleCapacity - sampleCount)
                                         ensureInMemoryCapacityLocked(sampleCount + toProcess)
                                         for (i in 0 until toProcess) {
                                             samples[sampleCount + i] = boostedSample(buffer[i])
                                         }
+                                        sampleCount += toProcess
                                     }
-
-                                    CaptureStorageMode.FileBacked -> {
-                                        writeFailed =
-                                            runCatching {
-                                                writeFloatSamplesLocked(buffer, toProcess)
-                                            }.isFailure
-                                        if (writeFailed) {
-                                            // End the session atomically with the
-                                            // failure so a concurrently landing
-                                            // stop() cannot suppress the report.
-                                            writeFailureEndedSession = endSessionLocked()
-                                            return@synchronized
-                                        }
-                                    }
+                                    null
                                 }
-                                sampleCount += toProcess
+
+                                CaptureStorageMode.FileBacked ->
+                                    runCatching {
+                                        synchronized(captureWriteLock) {
+                                            if (sessionGeneration.get() != collectGeneration) return@withContext
+                                            val toProcess = minOf(readResult, sampleCapacity - sampleCount)
+                                            if (toProcess > 0) {
+                                                writeFloatSamples(buffer, toProcess)
+                                                // A block becomes trusted only once its entire direct write returns.
+                                                sampleCount += toProcess
+                                            }
+                                        }
+                                    }.exceptionOrNull()
                             }
 
-                            if (sampleCount >= sampleCapacity && isRecording.get()) {
-                                isRecording.set(false)
-                                onLimitReached?.invoke()
-                                return@withContext
-                            }
-                        }
-                        if (writeFailed) {
-                            Log.e(TAG, "Failed to write file-backed capture samples")
-                            if (writeFailureEndedSession) {
+                        if (writeFailure != null) {
+                            Log.e(TAG, "Failed to write file-backed capture samples", writeFailure)
+                            val ended =
+                                synchronized(sampleLock) {
+                                    if (sessionGeneration.get() != collectGeneration) false else endSessionLocked()
+                                }
+                            if (ended) {
                                 onRecordingError?.invoke(RecordingError.StorageUnavailable)
                             }
+                            return@withContext
+                        }
+                        if (sampleCount >= sampleCapacity && isRecording.getAndSet(false)) {
+                            onLimitReached?.invoke()
                             return@withContext
                         }
                         collectFirstSamplesReady.complete(true)
                         if (!routingChecked) {
                             routingChecked = true
                             inputDeviceSelector?.let { selector ->
-                                runCatching { selector.refreshActiveDeviceFromRouting(record) }
+                                runCatching { selector.refreshActiveDeviceFromRouting(activeRecord) }
                             }
+                        }
+                        capturedFramesForTimestamp += readResult
+                        if (activeRecord.getTimestamp(timestamp, AudioTimestamp.TIMEBASE_MONOTONIC) == AudioRecord.SUCCESS) {
+                            continuityTracker
+                                .observe(
+                                    framePosition = timestamp.framePosition,
+                                    nanoTime = timestamp.nanoTime,
+                                    capturedFrames = capturedFramesForTimestamp,
+                                )
+                                ?.let { gap ->
+                                    Log.w(
+                                        TAG,
+                                        "Audio timestamp discontinuity: ${gap.missingFrames} frames " +
+                                            "near hardware frame ${gap.hardwareFramePosition}",
+                                    )
+                                }
                         }
                         // Calculate amplitude for visualization (RMS of buffer)
                         var sum = 0f
@@ -634,6 +755,88 @@ class VoiceRecorder(
                 }
             }
         }
+
+    /**
+     * Rebuilds a dead platform recorder once and atomically swaps it into the same logical
+     * capture. The durable file and trusted sample count stay untouched, so every block before
+     * the platform failure remains the prefix of the recovered recording.
+     */
+    @SuppressLint("MissingPermission")
+    private suspend fun recoverDeadAudioRecord(
+        generation: Long,
+        deadRecord: AudioRecord,
+    ): AudioRecord? {
+        Log.w(TAG, "AudioRecord died; attempting one in-place capture recovery")
+        var replacement: AudioRecord? = null
+        var replacementToken: Long? = null
+        try {
+            val builtRecord =
+                inputDeviceSelector?.let { selector ->
+                    val session =
+                        selector.buildAudioRecord(
+                            audioSource = MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                            sampleRate = SAMPLE_RATE,
+                            channelConfig = CHANNEL_CONFIG,
+                            audioFormat = AUDIO_FORMAT,
+                            bufferSize = nativeBufferSizeBytes,
+                        )
+                    replacementToken = session.sessionToken
+                    session.record
+                } ?: AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    SAMPLE_RATE,
+                    CHANNEL_CONFIG,
+                    AUDIO_FORMAT,
+                    nativeBufferSizeBytes,
+                )
+            replacement = builtRecord
+            if (builtRecord.state != AudioRecord.STATE_INITIALIZED) {
+                builtRecord.release()
+                replacementToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
+                return null
+            }
+            builtRecord.startRecording()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            runCatching { replacement?.stop() }
+            replacement?.release()
+            replacementToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
+            throw error
+        } catch (error: Exception) {
+            runCatching { replacement?.stop() }
+            replacement?.release()
+            replacementToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
+            Log.e(TAG, "AudioRecord recovery failed", error)
+            return null
+        }
+        val readyReplacement = checkNotNull(replacement)
+
+        var swapped = false
+        synchronized(sampleLock) {
+            if (isRecording.get() && sessionGeneration.get() == generation && audioRecord === deadRecord) {
+                val oldToken = selectorSessionToken
+                audioRecord = readyReplacement
+                selectorSessionToken = replacementToken
+                // Complete the routing-listener handoff under the same lock used by stop. A stop
+                // racing immediately after the swap must not release the replacement between the
+                // swap and observeRouting(), which would register a listener on a dead recorder.
+                inputDeviceSelector?.stopObservingRouting(deadRecord)
+                runCatching { deadRecord.stop() }
+                deadRecord.release()
+                oldToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
+                inputDeviceSelector?.observeRouting(readyReplacement)
+                continuityTracker.markRecorderRestart()
+                swapped = true
+            }
+        }
+        if (!swapped) {
+            runCatching { readyReplacement.stop() }
+            readyReplacement.release()
+            replacementToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
+            return null
+        }
+        Log.i(TAG, "AudioRecord recovery resumed the existing logical capture")
+        return readyReplacement
+    }
 
     /**
      * Waits briefly for the first native microphone block. Capture is already live during this
@@ -780,12 +983,21 @@ class VoiceRecorder(
             isRecording.set(false)
             val durationMs = SystemClock.elapsedRealtime() - recordingStartTimeMs
             val capturedMs = (sampleCount * 1000L) / SAMPLE_RATE
+            val (timestampGapFrames, timestampGapCount, restartCount) = continuityTracker.snapshot()
+            val timestampGapMs = (timestampGapFrames * 1000L) / SAMPLE_RATE
             val integrityReport =
                 CaptureIntegrityReport(
                     elapsedMs = durationMs,
                     capturedMs = capturedMs,
-                    estimatedGapMs = (durationMs - capturedMs - CAPTURE_GAP_TOLERANCE_MS).coerceAtLeast(0L),
+                    estimatedGapMs =
+                        maxOf(
+                            (durationMs - capturedMs - CAPTURE_GAP_TOLERANCE_MS).coerceAtLeast(0L),
+                            timestampGapMs,
+                        ),
                     sampleCount = sampleCount,
+                    timestampGapFrames = timestampGapFrames,
+                    timestampGapCount = timestampGapCount,
+                    recorderRestartCount = restartCount,
                 )
             lastIntegrityReport = integrityReport
             if (integrityReport.estimatedGapMs > 0L) {
@@ -793,7 +1005,9 @@ class VoiceRecorder(
                     Log.w(
                         TAG,
                         "Capture integrity gap estimated at ${integrityReport.estimatedGapMs}ms " +
-                            "(${integrityReport.sampleCount} samples across ${integrityReport.elapsedMs}ms)",
+                            "(${integrityReport.sampleCount} samples across ${integrityReport.elapsedMs}ms, " +
+                            "timestampGaps=${integrityReport.timestampGapCount}, " +
+                            "restarts=${integrityReport.recorderRestartCount})",
                     )
                 }
             }
@@ -895,7 +1109,7 @@ class VoiceRecorder(
         return File.createTempFile(DICTATION_CAPTURE_FILE_PREFIX, DICTATION_CAPTURE_FILE_SUFFIX, dir)
     }
 
-    private fun writeFloatSamplesLocked(
+    private fun writeFloatSamples(
         buffer: FloatArray,
         count: Int,
     ) {
@@ -948,13 +1162,14 @@ class VoiceRecorder(
         }
     }
 
-    private fun closeSampleOutputLocked() {
-        runCatching { sampleOutput?.flush() }
-        runCatching { (sampleOutput as? FileOutputStream)?.fd?.sync() }
-        runCatching { sampleOutput?.close() }
-        sampleOutput = null
-        // Release the per-session write scratch so it does not stay resident
-        // between dictations in the always-on IME/recognition processes.
-        captureWriteBuffer = null
-    }
+    private fun closeSampleOutputLocked() =
+        synchronized(captureWriteLock) {
+            runCatching { sampleOutput?.flush() }
+            runCatching { (sampleOutput as? FileOutputStream)?.fd?.sync() }
+            runCatching { sampleOutput?.close() }
+            sampleOutput = null
+            // Release the per-session write scratch so it does not stay resident
+            // between dictations in the always-on IME/recognition processes.
+            captureWriteBuffer = null
+        }
 }

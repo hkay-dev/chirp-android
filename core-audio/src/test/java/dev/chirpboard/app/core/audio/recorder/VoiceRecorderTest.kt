@@ -57,6 +57,7 @@ class VoiceRecorderTest {
     fun setUp() {
         mockkStatic(Log::class)
         every { Log.d(any(), any<String>()) } returns 0
+        every { Log.i(any(), any<String>()) } returns 0
         every { Log.w(any(), any<String>()) } returns 0
         every { Log.e(any(), any<String>()) } returns 0
         every { Log.e(any(), any<String>(), any()) } returns 0
@@ -74,6 +75,7 @@ class VoiceRecorderTest {
         every { AudioRecord.getMinBufferSize(any(), any(), any()) } returns 4096
 
         every { record.state } returns AudioRecord.STATE_INITIALIZED
+        every { record.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
         coEvery {
             selector.buildAudioRecord(any(), any(), any(), any(), any())
         } returns AudioCaptureSession(record, sessionToken = 1L)
@@ -89,19 +91,81 @@ class VoiceRecorderTest {
     }
 
     @Test
-    fun `dead object read error stops and releases the recorder`() =
+    fun `dead object recovery appends to the same durable capture`() =
         runBlocking {
-            every { record.read(any<FloatArray>(), any(), any(), any()) } returns AudioRecord.ERROR_DEAD_OBJECT
+            val fileRecorder = fileBackedRecorder()
+            val replacement = mockk<AudioRecord>(relaxUnitFun = true)
+            every { replacement.state } returns AudioRecord.STATE_INITIALIZED
+            every { replacement.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
+            coEvery {
+                selector.buildAudioRecord(any(), any(), any(), any(), any())
+            } returnsMany
+                listOf(
+                    AudioCaptureSession(record, sessionToken = 1L),
+                    AudioCaptureSession(replacement, sessionToken = 2L),
+                )
+            var originalReads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                if (originalReads++ == 0) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    AudioRecord.ERROR_DEAD_OBJECT
+                }
+            }
+            var captured: VoiceRecorder.CapturedPcmFloatFile? = null
+            var replacementReads = 0
+            every { replacement.read(any<FloatArray>(), any(), any(), any()) } answers {
+                if (replacementReads++ == 0) {
+                    firstArg<FloatArray>().fill(0.5f)
+                    READ_BUFFER_SIZE
+                } else {
+                    captured = fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
             val errors = mutableListOf<RecordingError>()
-            recorder.onRecordingError = { errors.add(it) }
+            fileRecorder.onRecordingError = { errors.add(it) }
 
-            assertTrue(recorder.start())
-            recorder.collectSamples()
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
 
-            assertEquals(listOf<RecordingError>(RecordingError.DeadObject), errors)
-            assertFalse(recorder.isRecording())
+            assertTrue(errors.isEmpty())
+            assertEquals(READ_BUFFER_SIZE * 2, requireNotNull(captured).sampleCount)
+            assertEquals(1, requireNotNull(fileRecorder.latestIntegrityReport()).recorderRestartCount)
             verify { record.stop() }
             verify { record.release() }
+            verify { replacement.startRecording() }
+        }
+
+    @Test
+    fun `file backed start refuses critically low storage before opening the microphone`() =
+        runBlocking {
+            val fileRecorder = fileBackedRecorder(availableBytes = VoiceRecorder.MIN_CAPTURE_FREE_BYTES - 1)
+            val errors = mutableListOf<RecordingError>()
+            fileRecorder.onRecordingError = errors::add
+
+            assertFalse(fileRecorder.start())
+
+            assertEquals(listOf<RecordingError>(RecordingError.StorageUnavailable), errors)
+            coVerify(exactly = 0) { selector.buildAudioRecord(any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { record.startRecording() }
+        }
+
+    @Test
+    fun `file backed start converts storage inspection failure into a recorder error`() =
+        runBlocking {
+            val fileRecorder =
+                fileBackedRecorder(
+                    availableStorageBytes = { throw SecurityException("storage hidden") },
+                )
+            val errors = mutableListOf<RecordingError>()
+            fileRecorder.onRecordingError = errors::add
+
+            assertFalse(fileRecorder.start())
+
+            assertEquals(listOf<RecordingError>(RecordingError.StorageUnavailable), errors)
+            coVerify(exactly = 0) { selector.buildAudioRecord(any(), any(), any(), any(), any()) }
         }
 
     @Test
@@ -155,6 +219,7 @@ class VoiceRecorderTest {
 
             val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
             every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            every { secondRecord.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
             coEvery {
                 selector.buildAudioRecord(any(), any(), any(), any(), any())
             } returns AudioCaptureSession(secondRecord, sessionToken = 2L)
@@ -302,6 +367,7 @@ class VoiceRecorderTest {
             recorder.onRecordingError = { errors.add(it) }
             val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
             every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            every { secondRecord.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
             every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
                 // The old session is stopped and a new one started while this
                 // read is still in flight; its failure must then be ignored.
@@ -599,6 +665,7 @@ class VoiceRecorderTest {
 
             val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
             every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            every { secondRecord.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
             recorder.afterStopAudioRecordForTest = {
                 // A fresh start() publishes a new session inside the gap between
                 // the stop's two lock blocks; the stop must leave it untouched.
@@ -628,6 +695,7 @@ class VoiceRecorderTest {
 
             val secondRecord = mockk<AudioRecord>(relaxUnitFun = true)
             every { secondRecord.state } returns AudioRecord.STATE_INITIALIZED
+            every { secondRecord.getTimestamp(any(), any()) } returns AudioRecord.ERROR_INVALID_OPERATION
             fileRecorder.afterStopAudioRecordForTest = {
                 fileRecorder.afterStopAudioRecordForTest = null
                 coEvery {
@@ -714,6 +782,8 @@ class VoiceRecorderTest {
         }
 
     private fun fileBackedRecorder(
+        availableBytes: Long = Long.MAX_VALUE,
+        availableStorageBytes: ((File) -> Long)? = null,
         captureOutputFactory: ((File) -> OutputStream)? = null,
     ): VoiceRecorder {
         every { context.cacheDir } returns cacheDir
@@ -723,6 +793,7 @@ class VoiceRecorderTest {
             inputDeviceSelector = selector,
             captureStorageMode = VoiceRecorder.CaptureStorageMode.FileBacked,
             captureOutputFactory = captureOutputFactory ?: { file -> java.io.FileOutputStream(file) },
+            availableStorageBytes = availableStorageBytes ?: { availableBytes },
         )
     }
 
