@@ -16,6 +16,10 @@ class GgufNativeRecognizer {
         System.loadLibrary("chirp_gguf")
     }
 
+    fun supportsVulkan(): Boolean = nativeSupportsVulkan()
+
+    fun usesKleidiAi(): Boolean = nativeUsesKleidiAi()
+
     fun load(modelPath: String, threads: Int, useVulkan: Boolean = false): Boolean =
         nativeLoad(modelPath, threads, if (useVulkan) BACKEND_VULKAN else BACKEND_CPU)
 
@@ -46,6 +50,10 @@ class GgufNativeRecognizer {
     fun release() = nativeRelease()
 
     private external fun nativeLoad(modelPath: String, threads: Int, backendCode: Int): Boolean
+
+    private external fun nativeSupportsVulkan(): Boolean
+
+    private external fun nativeUsesKleidiAi(): Boolean
 
     private external fun nativeLoadedBackend(): String
 

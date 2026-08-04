@@ -16,6 +16,8 @@ import dev.chirpboard.app.core.audio.recorder.CaptureEmergencyReserve
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
@@ -63,6 +65,9 @@ class ChirpApplication : Application(), Configuration.Provider {
 
     @Inject
     lateinit var transcriberProvider: Lazy<TranscriberProvider>
+
+    @Inject
+    lateinit var localSpeechModelSelectionStore: Lazy<LocalSpeechModelSelectionStore>
 
     @Inject
     lateinit var recordingStartupCoordinator: Lazy<RecordingStartupCoordinator>
@@ -113,6 +118,19 @@ class ChirpApplication : Application(), Configuration.Provider {
                 File(filesDir, "diagnostics/gguf-decode-history.tsv"),
             )
 
+            val modelSelection = localSpeechModelSelectionStore.get()
+            if (
+                modelSelection.selectedComputeBackend.value == LocalSpeechComputeBackend.VULKAN &&
+                    !GgufNativeCapabilities.supportsVulkan
+            ) {
+                try {
+                    modelSelection.selectComputeBackend(LocalSpeechComputeBackend.CPU)
+                    Log.i(TAG, "Reset unavailable Vulkan speech backend to CPU")
+                } catch (error: Exception) {
+                    Log.e(TAG, "Could not persist the Vulkan-to-CPU speech backend migration", error)
+                }
+            }
+
             // Prepare content-free disk headroom after the cold-start latency window. This only
             // schedules background allocation; capture never waits for it or extends its PCM file.
             CaptureEmergencyReserve.initialize(this@ChirpApplication)
@@ -141,6 +159,7 @@ class ChirpApplication : Application(), Configuration.Provider {
 
             launch {
                 try {
+                    if (GgufNativeSessionReservation.isReserved()) return@launch
                     val lifecycle = transcriptionQueueLifecycle.get()
                     lifecycle.processPendingOnStartup()
                     lifecycle.startContinuousReconciliation(applicationScope)
@@ -164,6 +183,7 @@ class ChirpApplication : Application(), Configuration.Provider {
 
             launch {
                 try {
+                    if (GgufNativeSessionReservation.isReserved()) return@launch
                     speechModelWarmupCoordinator.get().warmupOnAppStartupIfCandidate()
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
@@ -173,6 +193,7 @@ class ChirpApplication : Application(), Configuration.Provider {
 
             launch {
                 try {
+                    if (GgufNativeSessionReservation.isReserved()) return@launch
                     val provider = transcriberProvider.get()
                     if (provider.isModelDownloaded() && !provider.isReady()) {
                         val loaded = provider.initialize()

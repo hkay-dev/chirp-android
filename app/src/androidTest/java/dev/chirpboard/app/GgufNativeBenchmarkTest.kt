@@ -12,11 +12,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.runBlocking
 
 /** Controlled cold-load plus warm-decode harness for one file-backed GGUF model. */
 class GgufNativeBenchmarkTest {
     @Test
-    fun benchmarkFileBackedModel() {
+    fun benchmarkFileBackedModel() = runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
         val model = requiredFile(arguments.getString("modelPath"), "modelPath")
         val audio = requiredFile(arguments.getString("audioPath"), "audioPath")
@@ -28,15 +29,22 @@ class GgufNativeBenchmarkTest {
         assertTrue("PCM float input must contain complete samples", audio.length() % Float.SIZE_BYTES == 0L)
 
         val recognizer = GgufNativeRecognizer()
+        val dispatcher = GgufDecodeDispatcher(GgufDecodeControls(threadCountOverride = threads))
+        val reserved = GgufRecognizerManager.reserveNativeSessionForBenchmark()
         try {
+            assertTrue("Could not reserve the process-global GGUF session", reserved)
             val loadStarted = SystemClock.elapsedRealtime()
-            assertTrue("Failed to load $modelLabel", recognizer.load(model.absolutePath, threads, useVulkan))
+            assertTrue(
+                "Failed to load $modelLabel",
+                dispatcher.run { recognizer.load(model.absolutePath, threads, useVulkan) },
+            )
             val loadMs = SystemClock.elapsedRealtime() - loadStarted
             Log.i(
                 TAG,
                 "event=load model=$modelLabel requestedBackend=${if (useVulkan) "vulkan" else "cpu"} " +
                     "actualBackend=${recognizer.loadedBackend()} cpuFallback=${recognizer.usedCpuFallback()} " +
-                    "threads=$threads modelBytes=${model.length()} loadMs=$loadMs",
+                    "kleidiai=${recognizer.usesKleidiAi()} threads=$threads " +
+                    "modelBytes=${model.length()} loadMs=$loadMs",
             )
 
             val watchdog =
@@ -56,7 +64,8 @@ class GgufNativeBenchmarkTest {
                             TimeUnit.SECONDS,
                         )
                     val started = SystemClock.elapsedRealtime()
-                    val transcript = recognizer.transcribePcmFloatFile(audio.absolutePath, sampleCount)
+                    val transcript =
+                        dispatcher.run { recognizer.transcribePcmFloatFile(audio.absolutePath, sampleCount) }
                     timeout.cancel(false)
                     val elapsedMs = SystemClock.elapsedRealtime() - started
                     val telemetry = recognizer.decodeTelemetry(operationId)
@@ -75,7 +84,9 @@ class GgufNativeBenchmarkTest {
                 watchdog.shutdownNow()
             }
         } finally {
-            recognizer.release()
+            if (reserved) dispatcher.run { recognizer.release() }
+            dispatcher.close()
+            if (reserved) GgufRecognizerManager.releaseNativeSessionReservation()
         }
     }
 

@@ -94,9 +94,14 @@ internal class GgufRecognizer(
                 val audioDurationMs = samples.size * 1_000L / sampleRate
                 if (audioDurationMs > CONTINUOUS_DECODE_MAX_SECONDS * 1_000L) {
                     Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; using preserved-audio recovery")
-                    return@withLock recoveryOutcome(
-                        transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate),
-                    )
+                    var recovered = transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate)
+                    if (recovered == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
+                        switchToCpu()?.let { cpuEngine ->
+                            engine = cpuEngine
+                            recovered = transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate)
+                        }
+                    }
+                    return@withLock recoveryOutcome(recovered)
                 }
                 val started = SystemClock.elapsedRealtime()
 
@@ -169,13 +174,24 @@ internal class GgufRecognizer(
                 val audioDurationMs = sampleCount * 1_000L / sampleRate
                 if (audioDurationMs > CONTINUOUS_DECODE_MAX_SECONDS * 1_000L) {
                     Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; using the preserved PCM file")
-                    return@withLock recoveryOutcome(
+                    var recovered =
                         transcribeRecoveryChunks(
                             engine = engine,
                             audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
                             sampleRate = sampleRate,
-                        ),
-                    )
+                        )
+                    if (recovered == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
+                        switchToCpu()?.let { cpuEngine ->
+                            engine = cpuEngine
+                            recovered =
+                                transcribeRecoveryChunks(
+                                    engine = engine,
+                                    audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
+                                    sampleRate = sampleRate,
+                                )
+                        }
+                    }
+                    return@withLock recoveryOutcome(recovered)
                 }
                 val started = SystemClock.elapsedRealtime()
                 var continuous =
@@ -425,6 +441,7 @@ internal object GgufRecognizerManager {
         config: GgufRuntimeConfig,
     ): Boolean =
         mutex.withLock {
+            if (GgufNativeSessionReservation.isReserved()) return@withLock false
             peekReadyRecognizer(config)?.let { return@withLock true }
             val previous = peekReadyRecognizer()
             if (previous != null && activeLeases.get() != 0) return@withLock false
@@ -439,14 +456,34 @@ internal object GgufRecognizerManager {
             }
         }
 
-    suspend fun <T> withUsageLease(block: suspend () -> T): T {
-        mutex.withLock { activeLeases.incrementAndGet() }
+    suspend fun <T> withUsageLeaseOrNull(block: suspend () -> T): T? {
+        val acquired =
+            mutex.withLock {
+                if (GgufNativeSessionReservation.isReserved()) false else {
+                    activeLeases.incrementAndGet()
+                    true
+                }
+            }
+        if (!acquired) return null
         return try {
             block()
         } finally {
             mutex.withLock { activeLeases.decrementAndGet() }
         }
     }
+
+    suspend fun reserveNativeSessionForBenchmark(): Boolean =
+        mutex.withLock {
+            if (activeLeases.get() != 0 || !GgufNativeSessionReservation.tryReserve()) {
+                return@withLock false
+            }
+            recognizer?.release()
+            recognizer = null
+            true
+        }
+
+    suspend fun releaseNativeSessionReservation() =
+        mutex.withLock { GgufNativeSessionReservation.release() }
 
     suspend fun releaseIfUnused(): Boolean =
         mutex.withLock {
@@ -458,6 +495,29 @@ internal object GgufRecognizerManager {
         }
 }
 
+internal object GgufNativeSessionReservation {
+    private val reserved = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun tryReserve(): Boolean = reserved.compareAndSet(false, true)
+
+    fun release() = reserved.set(false)
+
+    fun isReserved(): Boolean = reserved.get()
+}
+
+internal object GgufNativeCapabilities {
+    val supportsVulkan: Boolean by lazy { GgufNativeRecognizer().supportsVulkan() }
+}
+
+internal fun effectiveGgufComputeBackend(
+    requested: LocalSpeechComputeBackend,
+): LocalSpeechComputeBackend =
+    if (requested == LocalSpeechComputeBackend.VULKAN && !GgufNativeCapabilities.supportsVulkan) {
+        LocalSpeechComputeBackend.CPU
+    } else {
+        requested
+    }
+
 class GgufRecognizerProvider(
     private val downloader: ModelDownloader,
     private val selectionStore: LocalSpeechModelSelectionStore,
@@ -465,7 +525,7 @@ class GgufRecognizerProvider(
     private fun selectedConfig(): GgufRuntimeConfig =
         GgufRuntimeConfig(
             modelId = selectionStore.selectedModel.value,
-            computeBackend = selectionStore.selectedComputeBackend.value,
+            computeBackend = effectiveGgufComputeBackend(selectionStore.selectedComputeBackend.value),
         )
 
     override fun prefersContinuousAudio(): Boolean = true
@@ -480,28 +540,28 @@ class GgufRecognizerProvider(
         GgufRecognizerManager.initialize(downloader, config)
 
     override suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome =
-        GgufRecognizerManager.withUsageLease {
+        GgufRecognizerManager.withUsageLeaseOrNull {
             val config = selectedConfig()
             val recognizer =
                 GgufRecognizerManager.peekReadyRecognizer(config)
                     ?: (if (initialize(config)) GgufRecognizerManager.peekReadyRecognizer(config) else null)
-                    ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+                    ?: return@withUsageLeaseOrNull TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
             recognizer.transcribe(samples, sampleRate)
-        }
+        } ?: TranscriptionOutcome.ModelUnavailable("Recognizer is reserved for a controlled benchmark")
 
     override suspend fun transcribePcmFloatFile(
         path: String,
         sampleCount: Long,
         sampleRate: Int,
     ): TranscriptionOutcome =
-        GgufRecognizerManager.withUsageLease {
+        GgufRecognizerManager.withUsageLeaseOrNull {
             val config = selectedConfig()
             val recognizer =
                 GgufRecognizerManager.peekReadyRecognizer(config)
                     ?: (if (initialize(config)) GgufRecognizerManager.peekReadyRecognizer(config) else null)
-                    ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
+                    ?: return@withUsageLeaseOrNull TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
             recognizer.transcribePcmFloatFile(path, sampleCount, sampleRate)
-        }
+        } ?: TranscriptionOutcome.ModelUnavailable("Recognizer is reserved for a controlled benchmark")
 
     override suspend fun release() {
         GgufRecognizerManager.releaseIfUnused()

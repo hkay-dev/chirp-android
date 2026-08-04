@@ -3,8 +3,8 @@ project(chirp_gguf LANGUAGES C CXX)
 
 include(FetchContent)
 
-# KleidiAI stays opt-in until device benchmarks show a consistent win. GGML always keeps its
-# generic CPU buffer type alongside KleidiAI, so unsupported operations and CPUs fall back safely.
+# KleidiAI is the measured default. GGML keeps its generic CPU buffer type alongside KleidiAI, so
+# unsupported operations and CPUs still fall back safely.
 option(CHIRP_GGUF_KLEIDIAI "Enable GGML KleidiAI CPU kernels" ON)
 set(GGML_CPU_KLEIDIAI ${CHIRP_GGUF_KLEIDIAI} CACHE BOOL "Enable GGML KleidiAI CPU kernels" FORCE)
 
@@ -26,5 +26,11 @@ add_library(chirp_gguf SHARED chirp_gguf_jni.cpp)
 
 target_compile_features(chirp_gguf PRIVATE cxx_std_17)
 target_compile_options(chirp_gguf PRIVATE -O3 -DNDEBUG -march=armv8.2-a+dotprod+fp16)
+target_compile_definitions(
+    chirp_gguf
+    PRIVATE
+        CHIRP_GGUF_KLEIDIAI=$<BOOL:${CHIRP_GGUF_KLEIDIAI}>
+        CHIRP_GGUF_VULKAN=$<BOOL:${TRANSCRIBE_VULKAN}>
+)
 target_include_directories(chirp_gguf PRIVATE ${transcribe_cpp_SOURCE_DIR}/include)
 target_link_libraries(chirp_gguf PRIVATE transcribe android log)

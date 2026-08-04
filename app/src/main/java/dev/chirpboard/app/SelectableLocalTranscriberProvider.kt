@@ -94,11 +94,16 @@ class SelectableLocalTranscriberProvider(
             try {
                 selectionStore.selectModel(modelId)
             } catch (error: Exception) {
-                if (provider(current) === target) {
-                    initializeModel(current)
-                } else {
+                val rolledBack =
+                    if (provider(current) === target) {
+                        initializeModel(current)
+                    } else {
+                        target.release()
+                        initializeModel(current)
+                    }
+                if (!rolledBack) {
                     target.release()
-                    initializeModel(current)
+                    Log.e(TAG, "Model selection persistence failed and the prior model could not be restored")
                 }
                 return@withLock LocalSpeechModelActivationResult.Failed(
                     error.message ?: "Could not save the selected speech model",
@@ -120,6 +125,11 @@ class SelectableLocalTranscriberProvider(
                     "CPU and Vulkan selection applies only to the 110M GGUF models",
                 )
             }
+            if (backend == LocalSpeechComputeBackend.VULKAN && !GgufNativeCapabilities.supportsVulkan) {
+                return@withLock LocalSpeechComputeBackendActivationResult.Failed(
+                    "This alpha build does not include the Vulkan native backend",
+                )
+            }
             val priorBackend = selectionStore.selectedComputeBackend.value
             val config = GgufRuntimeConfig(modelId, backend)
             if (!gguf.initialize(config)) {
@@ -130,7 +140,10 @@ class SelectableLocalTranscriberProvider(
             try {
                 selectionStore.selectComputeBackend(backend)
             } catch (error: Exception) {
-                gguf.initialize(GgufRuntimeConfig(modelId, priorBackend))
+                if (!gguf.initialize(GgufRuntimeConfig(modelId, effectiveGgufComputeBackend(priorBackend)))) {
+                    gguf.release()
+                    Log.e(TAG, "Compute selection persistence failed and the prior backend could not be restored")
+                }
                 return@withLock LocalSpeechComputeBackendActivationResult.Failed(
                     error.message ?: "Could not save the selected compute backend",
                 )
@@ -163,7 +176,12 @@ class SelectableLocalTranscriberProvider(
 
     private suspend fun initializeModel(modelId: LocalSpeechModelId): Boolean =
         if (isGgufModel(modelId)) {
-            gguf.initialize(GgufRuntimeConfig(modelId, selectionStore.selectedComputeBackend.value))
+            gguf.initialize(
+                GgufRuntimeConfig(
+                    modelId,
+                    effectiveGgufComputeBackend(selectionStore.selectedComputeBackend.value),
+                ),
+            )
         } else {
             sherpa.initialize()
         }

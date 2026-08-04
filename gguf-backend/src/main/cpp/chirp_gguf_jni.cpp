@@ -117,6 +117,24 @@ void close_locked() {
 }  // namespace
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeSupportsVulkan(JNIEnv *, jobject) {
+#if CHIRP_GGUF_VULKAN
+    return JNI_TRUE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeUsesKleidiAi(JNIEnv *, jobject) {
+#if CHIRP_GGUF_KLEIDIAI
+    return JNI_TRUE;
+#else
+    return JNI_FALSE;
+#endif
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
     JNIEnv * env,
     jobject,
