@@ -110,7 +110,7 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     @Test
-    fun `file backed dictation is transcribed in bounded chunks`() = runTest {
+    fun `ordinary file backed dictation is transcribed as one continuous utterance`() = runTest {
         val sampleCount = 480_000 + 4_000
         val file = temporaryFolder.newFile("long-dictation.f32pcm")
         writeFloatPcm(file, sampleCount)
@@ -136,8 +136,74 @@ class InlineTranscriptionCoordinatorImplTest {
             persistence = CapturingPersistence(),
             commitText = { committed = it },
         )
-        assertEquals("chunk1 chunk2 ", committed)
-        assertEquals(2, calls)
+        assertEquals("chunk1 ", committed)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `long file backed dictation uses bounded overlapping chunks`() = runTest {
+        val sampleCount = 960_000 + 4_000
+        val file = temporaryFolder.newFile("long-dictation.f32pcm")
+        writeFloatPcm(file, sampleCount)
+        every { transcriberProvider.isReady() } returns true
+        var calls = 0
+        coEvery { transcriberProvider.transcribe(any(), any()) } coAnswers {
+            calls++
+            TranscriptionOutcome.Success("chunk$calls")
+        }
+
+        var committed = ""
+        coordinator.transcribe(
+            request =
+                InlineTranscriptionRequest(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = file.absolutePath,
+                            sampleCount = sampleCount.toLong(),
+                        ),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                ),
+            persistence = CapturingPersistence(),
+            commitText = { committed = it },
+        )
+        assertEquals("chunk1 chunk2 chunk3 ", committed)
+        assertEquals(3, calls)
+    }
+
+    @Test
+    fun `failed continuous decode retries from overlapping chunks`() = runTest {
+        val sampleCount = 480_000 + 4_000
+        val file = temporaryFolder.newFile("continuous-retry.f32pcm")
+        writeFloatPcm(file, sampleCount)
+        every { transcriberProvider.isReady() } returns true
+        var calls = 0
+        coEvery { transcriberProvider.transcribe(any(), any()) } coAnswers {
+            calls++
+            if (calls == 1) {
+                TranscriptionOutcome.EngineError("continuous decode failed", retryable = true)
+            } else {
+                TranscriptionOutcome.Success("backup${calls - 1}")
+            }
+        }
+
+        var committed = ""
+        coordinator.transcribe(
+            request =
+                InlineTranscriptionRequest(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = file.absolutePath,
+                            sampleCount = sampleCount.toLong(),
+                        ),
+                    llmEnabled = false,
+                    processingModeId = "proofread",
+                ),
+            persistence = CapturingPersistence(),
+            commitText = { committed = it },
+        )
+        assertEquals("backup1 backup2 ", committed)
+        assertEquals(3, calls)
     }
 
     @Test
@@ -415,6 +481,31 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     @Test
+    fun `llm result that drops an opening commits raw while keeping both versions`() = runTest {
+        val raw = "Please remember that we should ship the release today"
+        val processed = "We should ship the release today."
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success(raw)
+        coEvery { textEnhancement.process(raw, "proofread") } returns Result.success(processed)
+        val persistence = CapturingPersistence()
+        var committed = ""
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(llmEnabled = true),
+            persistence = persistence,
+            commitText = { text ->
+                committed = text
+                true
+            },
+        )
+
+        assertEquals("$raw ", committed)
+        assertEquals(raw, persistence.lastRawText)
+        assertEquals(processed, persistence.lastProcessedText)
+        assertEquals(InlineTranscriptionPhase.LlmError(AI_CONTENT_GUARD_MESSAGE), coordinator.phase.value)
+    }
+
+    @Test
     fun `llm polish failure commits raw text with LlmError phase`() = runTest {
         every { transcriberProvider.isReady() } returns true
         coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
@@ -521,6 +612,26 @@ class InlineTranscriptionCoordinatorImplTest {
             InlineTranscriptionPhase.Error("Transcription engine failed: decode failed$RESCUE_SAVED_SUFFIX"),
             coordinator.phase.value,
         )
+    }
+
+    @Test
+    fun `failed rescue does not tell the user the audio was saved`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns
+            TranscriptionOutcome.EngineError("decode failed")
+        val persistence = CapturingPersistence { throw IllegalStateException("database unavailable") }
+        var reportedError: String? = null
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(),
+            persistence = persistence,
+            commitText = { true },
+            onRecordingError = { reportedError = it },
+        )
+
+        val expected = "Transcription engine failed: decode failed"
+        assertEquals(expected, reportedError)
+        assertEquals(InlineTranscriptionPhase.Error(expected), coordinator.phase.value)
     }
 
     private fun inMemoryRequest(llmEnabled: Boolean = false): InlineTranscriptionRequest =

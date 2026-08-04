@@ -17,6 +17,8 @@ import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.feature.transcription.WordReplacer
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import dev.chirpboard.app.feature.transcription.audio.asSampleFlow
+import dev.chirpboard.app.feature.transcription.audio.readAllSamples
+import dev.chirpboard.app.feature.transcription.audio.totalSamples
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -201,7 +203,12 @@ class InlineTranscriptionCoordinatorImpl
                         if (result != null) {
                             result.fold(
                                 onSuccess = { polishedText ->
-                                    enhancementLog.success("enhancement_completed")
+                                    val openingDropped = aiResultDropsOpening(rawText, polishedText)
+                                    if (openingDropped) {
+                                        enhancementLog.failure("enhancement_opening_content_guard")
+                                    } else {
+                                        enhancementLog.success("enhancement_completed")
+                                    }
                                     deliverTranscript(
                                         delivery =
                                             TranscriptDelivery(
@@ -209,7 +216,13 @@ class InlineTranscriptionCoordinatorImpl
                                                 persistence = persistence,
                                                 rawText = rawText,
                                                 processedText = polishedText,
-                                                phaseOnCommit = InlineTranscriptionPhase.Idle,
+                                                useProcessedTextForCommit = !openingDropped,
+                                                phaseOnCommit =
+                                                    if (openingDropped) {
+                                                        InlineTranscriptionPhase.LlmError(AI_CONTENT_GUARD_MESSAGE)
+                                                    } else {
+                                                        InlineTranscriptionPhase.Idle
+                                                    },
                                                 correlationId = correlationId,
                                                 captureResolved = captureResolved,
                                             ),
@@ -419,7 +432,9 @@ class InlineTranscriptionCoordinatorImpl
             onRecordingCompleted: () -> Unit,
             onRecordingError: (String) -> Unit,
         ) {
-            val textToCommit = delivery.processedText ?: delivery.rawText
+            val textToCommit =
+                delivery.processedText?.takeIf { delivery.useProcessedTextForCommit }
+                    ?: delivery.rawText
             val committed = commitText("$textToCommit ")
             if (committed) {
                 // The transcript reached its target; mark the capture resolved BEFORE the
@@ -474,23 +489,36 @@ class InlineTranscriptionCoordinatorImpl
             }
         }
 
-        private suspend fun transcribeAudioSource(audioSource: InlineAudioSource): InlineTranscriptionResolution =
-            when (audioSource) {
-                is InlineAudioSource.InMemory ->
-                    // Long in-memory captures (recognition-surface dictations can reach the
-                    // 10-minute recorder cap) go through the same bounded 30s chunking as the
-                    // file-backed path: a single multi-minute utterance costs quadratic native
-                    // attention memory in sherpa-onnx and risks an unrecoverable native OOM.
-                    if (audioSource.samples.size > audioSource.sampleRate * SINGLE_UTTERANCE_MAX_SECONDS) {
-                        transcribeChunked(audioSource)
-                    } else {
-                        mapInlineTranscriptionOutcome(
-                            transcriberProvider.transcribe(audioSource.samples, audioSource.sampleRate),
-                        )
-                    }
+        private suspend fun transcribeAudioSource(audioSource: InlineAudioSource): InlineTranscriptionResolution {
+            // The recorder always produces one continuous PCM source. Decode that complete
+            // utterance as the primary path for normal IME dictations, including file-backed
+            // captures. Chunking is recovery for a failed continuous decode and the bounded path
+            // for long captures whose native attention scratch could otherwise OOM the process.
+            val continuousDecodeIsSafe =
+                audioSource.totalSamples() <=
+                    audioSource.sampleRate.toLong() * SINGLE_UTTERANCE_MAX_SECONDS
+            if (!continuousDecodeIsSafe) return transcribeChunked(audioSource)
 
-                is InlineAudioSource.PcmFloatFile -> transcribeChunked(audioSource)
+            val continuous =
+                mapInlineTranscriptionOutcome(
+                    transcriberProvider.transcribe(
+                        audioSource.readAllSamples(),
+                        audioSource.sampleRate,
+                    ),
+                )
+            if (continuous is InlineTranscriptionResolution.Success) return continuous
+
+            Log.w(tag, "Continuous decode produced no usable transcript; retrying from overlapping chunks")
+            return try {
+                transcribeChunked(audioSource)
+            } catch (error: InlineTranscriptionFailureException) {
+                if (continuous is InlineTranscriptionResolution.Failure) {
+                    continuous
+                } else {
+                    InlineTranscriptionResolution.Failure(error.message ?: "Chunk recovery failed")
+                }
             }
+        }
 
         private suspend fun transcribeChunked(audioSource: InlineAudioSource): InlineTranscriptionResolution {
             val processor =
@@ -524,7 +552,7 @@ class InlineTranscriptionCoordinatorImpl
 /** In-memory captures longer than this are decoded in bounded chunks instead of one utterance. */
 private const val SINGLE_UTTERANCE_MAX_SECONDS = 60
 
-internal const val COMMIT_REFUSED_MESSAGE =
+const val COMMIT_REFUSED_MESSAGE =
     "Couldn't insert dictated text into the field; transcript saved to recordings"
 
 internal const val CANCELLATION_RESCUE_MESSAGE =
@@ -534,6 +562,9 @@ internal const val CANCELLATION_RESCUE_MESSAGE =
 internal const val ENHANCEMENT_TIMEOUT_MESSAGE =
     "AI processing timed out — inserted the raw transcript"
 
+internal const val AI_CONTENT_GUARD_MESSAGE =
+    "AI may have dropped the opening — inserted the raw transcript"
+
 /** ERR-25: appended to rescue-backed errors so users know their speech was not lost. */
 internal const val RESCUE_SAVED_SUFFIX = " — your audio was saved to recordings"
 
@@ -542,10 +573,33 @@ private data class TranscriptDelivery(
     val persistence: InlineCapturePersistence?,
     val rawText: String,
     val processedText: String?,
+    val useProcessedTextForCommit: Boolean = true,
     val phaseOnCommit: InlineTranscriptionPhase,
     val correlationId: String,
     val captureResolved: AtomicBoolean,
 )
+
+internal fun aiResultDropsOpening(
+    rawText: String,
+    processedText: String,
+): Boolean {
+    val rawWords = contentGuardWords(rawText)
+    val processedWords = contentGuardWords(processedText)
+    if (rawWords.size < 5 || processedWords.size < 3) return false
+    val firstProcessed = processedWords.first()
+    val rawStart = rawWords.indexOf(firstProcessed)
+    if (rawStart <= 0) return false
+    val comparableRun = minOf(4, processedWords.size, rawWords.size - rawStart)
+    if (comparableRun < 3) return false
+    return rawWords.subList(rawStart, rawStart + comparableRun) == processedWords.take(comparableRun)
+}
+
+private fun contentGuardWords(text: String): List<String> =
+    text
+        .lowercase()
+        .split(Regex("\\s+"))
+        .map { word -> word.filter(Char::isLetterOrDigit) }
+        .filter(String::isNotEmpty)
 
 private class InlineTranscriptionFailureException(
     message: String,

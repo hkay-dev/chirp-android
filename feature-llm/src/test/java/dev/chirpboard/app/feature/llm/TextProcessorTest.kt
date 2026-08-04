@@ -34,7 +34,12 @@ class TextProcessorTest {
 
             textProcessor.process("test", ProcessingMode.Formal)
 
-            coVerify { llmClient.process(any<TranscriptLlmContext>(), "formal prompt") }
+            coVerify {
+                llmClient.process(
+                    any<TranscriptLlmContext>(),
+                    match { it.contains("LOSSLESS TRANSCRIPT MANDATE") && it.endsWith("formal prompt") },
+                )
+            }
         }
 
     @Test
@@ -45,7 +50,12 @@ class TextProcessorTest {
             val mode = ProcessingMode.Custom("My custom prompt")
             textProcessor.process("test", mode)
 
-            coVerify { llmClient.process(any<TranscriptLlmContext>(), "My custom prompt") }
+            coVerify {
+                llmClient.process(
+                    any<TranscriptLlmContext>(),
+                    match { it.contains("LOSSLESS TRANSCRIPT MANDATE") && it.endsWith("My custom prompt") },
+                )
+            }
         }
 
     @Test
@@ -58,7 +68,12 @@ class TextProcessorTest {
             val text = "Dear John, please find the attachment."
             textProcessor.process(text, mode)
 
-            coVerify { llmClient.process(any<TranscriptLlmContext>(), ProcessingMode.Email.prompt!!) }
+            coVerify {
+                llmClient.process(
+                    any<TranscriptLlmContext>(),
+                    match { it.contains("LOSSLESS TRANSCRIPT MANDATE") && it.endsWith(ProcessingMode.Email.prompt!!) },
+                )
+            }
         }
 
     @Test
@@ -71,6 +86,11 @@ class TextProcessorTest {
             val text = "public static void main(String[] args) {}"
             textProcessor.process(text, mode)
 
-            coVerify { llmClient.process(any<TranscriptLlmContext>(), ProcessingMode.Code.prompt!!) }
+            coVerify {
+                llmClient.process(
+                    any<TranscriptLlmContext>(),
+                    match { it.contains("LOSSLESS TRANSCRIPT MANDATE") && it.endsWith(ProcessingMode.Code.prompt!!) },
+                )
+            }
         }
 }

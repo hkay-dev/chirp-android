@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -38,6 +39,37 @@ class InlineAudioSourceStreamsTest {
         assertEquals(sampleCount, chunks.sumOf { it.size })
         assertEquals(INLINE_AUDIO_SOURCE_CHUNK_SAMPLES, chunks.first().size)
         assertEquals(77, chunks.last().size)
+    }
+
+    @Test
+    fun `raw pcm helper preserves little endian float values`() = runTest {
+        val file = temporaryFolder.newFile("known-values.f32pcm")
+        val expected = floatArrayOf(-1f, -0.25f, 0f, 0.5f, 1f)
+        file.writeBytes(
+            ByteBuffer.allocate(expected.size * Float.SIZE_BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN)
+                .apply { expected.forEach { sample -> putFloat(sample) } }
+                .array(),
+        )
+
+        val actual = rawPcmFloatFileAsFlow(file.absolutePath, chunkSamples = 2).toList()
+
+        assertEquals(expected.toList(), actual.flatMap { it.toList() })
+    }
+
+    @Test
+    fun `raw pcm helper rejects a truncated float`() = runTest {
+        val file = temporaryFolder.newFile("truncated.f32pcm")
+        file.writeBytes(byteArrayOf(0, 0, 0, 0, 1))
+
+        var failed = false
+        try {
+            rawPcmFloatFileAsFlow(file.absolutePath, chunkSamples = 2).toList()
+        } catch (error: java.io.IOException) {
+            failed = error.message?.contains("incomplete sample") == true
+        }
+
+        assertTrue(failed)
     }
 
     private fun writeFloatPcm(

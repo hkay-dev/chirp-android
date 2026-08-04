@@ -20,6 +20,11 @@ class TextProcessor
         private val modeRepository: ProcessingModeRepository,
     ) {
         companion object {
+            private const val LOSSLESS_TRANSCRIPT_MANDATE =
+                """# LOSSLESS TRANSCRIPT MANDATE
+Every source idea and meaningful word must survive in the output. Never omit the opening or closing portion of the transcript. Filler removal may remove only non-semantic hesitation sounds. If uncertain whether words carry meaning, keep them.
+
+"""
             private val CODE_PATTERNS =
                 listOf(
                     "function",
@@ -85,8 +90,9 @@ class TextProcessor
         private suspend fun resolvePrompt(
             text: String,
             mode: ProcessingMode,
-        ): String =
-            when (mode) {
+        ): String {
+            val modePrompt =
+                when (mode) {
                 is ProcessingMode.Smart -> {
                     val detectedId = detectContentType(text).id
                     modeRepository.getPrompt(detectedId)
@@ -104,7 +110,9 @@ class TextProcessor
                     modeRepository.getPrompt(mode.id)
                         ?: mode.prompt
                         ?: error("No prompt available for mode ${mode.id}")
-            }
+                }
+            return LOSSLESS_TRANSCRIPT_MANDATE + modePrompt
+        }
 
         private fun detectContentType(text: String): ProcessingMode {
             val lowerText = text.lowercase()
