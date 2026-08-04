@@ -241,7 +241,9 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 
 - **WHEN** transcription produces a non-empty result
 - **THEN** Chirp returns `RESULT_OK` with `RecognizerIntent.EXTRA_RESULTS`
-- **AND** finishes the recognition activity immediately without waiting for a decorative exit animation.
+- **AND** temporarily yields key-window focus to the caller's editor
+- **AND** finishes on the next draw boundary without waiting for a decorative exit animation
+- **AND** uses a bounded fallback if the platform omits the expected focus-loss callback.
 
 #### Scenario: Host editor still drops focus
 
