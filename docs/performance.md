@@ -66,6 +66,17 @@ one-second Java read loop, float reconstruction, whole-utterance `FloatArray`, a
 array copy. The file length must match the declared sample count exactly. Any map or native decode
 failure keeps the file intact and falls back to the existing overlapping recovery path.
 
+Each native call reports transcribe.cpp's load, mel, encoder, and decoder stage times plus the
+wall-clock total. Chirp keeps only the newest 64 content-free entries in process memory. The
+history contains durations, source kind, native status, and outcome only. It never contains audio,
+transcript text, file paths, package names, prompts, or error messages.
+
+A decode watchdog uses a 30 to 90 second audio-scaled deadline. It asks transcribe.cpp to abort at
+its next safe polling boundary, waits for the native call to unwind on the dedicated decode thread,
+and retries from the untouched audio in bounded overlapping chunks. Operation identifiers prevent
+a late timeout from cancelling a newer decode. File recovery validates the exact byte length and
+reads little-endian float32 samples in bounded slices, leaving the source file unchanged.
+
 The Galaxy S25 Ultra production cap remains four native decode threads. A controlled five-minute
 warm run at four threads completed in 37.2 seconds. An eight-thread run had not completed after 75
 seconds and grew beyond 2.1 GB native RSS, so higher parallelism was rejected. The 110M model

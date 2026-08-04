@@ -1,6 +1,7 @@
 #include <jni.h>
 #include <android/log.h>
 
+#include <atomic>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -20,6 +21,27 @@ constexpr const char * kTag = "ChirpGgufNative";
 std::mutex g_mutex;
 transcribe_session * g_session = nullptr;
 std::string g_last_error;
+std::atomic<jlong> g_next_operation_id{0};
+std::atomic<jlong> g_active_operation_id{0};
+std::atomic<jlong> g_cancelled_operation_id{0};
+
+struct decode_telemetry {
+    jlong operation_id = 0;
+    float load_ms = 0.0F;
+    float mel_ms = 0.0F;
+    float encode_ms = 0.0F;
+    float decode_ms = 0.0F;
+    bool aborted = false;
+    transcribe_status status = TRANSCRIBE_OK;
+};
+
+decode_telemetry g_last_telemetry;
+
+bool should_abort(void *) {
+    const jlong active = g_active_operation_id.load(std::memory_order_acquire);
+    return active != 0 &&
+        g_cancelled_operation_id.load(std::memory_order_acquire) == active;
+}
 
 void set_error(const char * operation, transcribe_status status) {
     g_last_error = std::string(operation) + ": " + transcribe_status_string(status);
@@ -31,6 +53,32 @@ void set_errno_error(const char * operation, int error_number = errno) {
     __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
 }
 
+jlong begin_decode_locked() {
+    if (g_session == nullptr) return 0;
+    transcribe_reset_timings(g_session);
+    const jlong operation_id = g_next_operation_id.fetch_add(1, std::memory_order_relaxed) + 1;
+    g_active_operation_id.store(operation_id, std::memory_order_release);
+    return operation_id;
+}
+
+void capture_telemetry_locked(transcribe_status status) {
+    transcribe_timings timings;
+    transcribe_timings_init(&timings);
+    if (g_session != nullptr) {
+        transcribe_get_timings(g_session, &timings);
+    }
+    g_last_telemetry = {
+        g_active_operation_id.load(std::memory_order_acquire),
+        timings.load_ms,
+        timings.mel_ms,
+        timings.encode_ms,
+        timings.decode_ms,
+        g_session != nullptr && transcribe_was_aborted(g_session),
+        status,
+    };
+    g_active_operation_id.store(0, std::memory_order_release);
+}
+
 jstring run_locked(JNIEnv * env, const float * pcm, int count, const char * operation) {
     if (g_session == nullptr) {
         g_last_error = "recognizer is not loaded";
@@ -40,7 +88,11 @@ jstring run_locked(JNIEnv * env, const float * pcm, int count, const char * oper
     transcribe_run_params run_params;
     transcribe_run_params_init(&run_params);
     run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
+    if (g_active_operation_id.load(std::memory_order_acquire) == 0) {
+        begin_decode_locked();
+    }
     const transcribe_status status = transcribe_run(g_session, pcm, count, &run_params);
+    capture_telemetry_locked(status);
     if (status != TRANSCRIBE_OK) {
         set_error(operation, status);
         return nullptr;
@@ -51,6 +103,7 @@ jstring run_locked(JNIEnv * env, const float * pcm, int count, const char * oper
 }
 
 void close_locked() {
+    g_active_operation_id.store(0, std::memory_order_release);
     if (g_session != nullptr) {
         transcribe_close(g_session);
         g_session = nullptr;
@@ -84,6 +137,7 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
         close_locked();
         return JNI_FALSE;
     }
+    transcribe_set_abort_callback(g_session, should_abort, nullptr);
 
     const transcribe_model * model = transcribe_get_model(g_session);
     transcribe_capabilities capabilities;
@@ -100,6 +154,45 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
         threads,
         capabilities_loaded && capabilities.supports_streaming ? "true" : "false");
     return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeBeginDecode(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return begin_decode_locked();
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeCancelDecode(
+    JNIEnv *,
+    jobject,
+    jlong operation_id) {
+    if (operation_id <= 0 ||
+        g_active_operation_id.load(std::memory_order_acquire) != operation_id) {
+        return JNI_FALSE;
+    }
+    g_cancelled_operation_id.store(operation_id, std::memory_order_release);
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeDecodeTelemetry(
+    JNIEnv * env,
+    jobject,
+    jlong operation_id) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    if (operation_id <= 0 || g_last_telemetry.operation_id != operation_id) return nullptr;
+    const jfloat values[] = {
+        g_last_telemetry.load_ms,
+        g_last_telemetry.mel_ms,
+        g_last_telemetry.encode_ms,
+        g_last_telemetry.decode_ms,
+        g_last_telemetry.aborted ? 1.0F : 0.0F,
+        static_cast<jfloat>(g_last_telemetry.status),
+    };
+    jfloatArray result = env->NewFloatArray(6);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, 6, values);
+    return result;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -237,8 +330,12 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
     transcribe_run_params run_params;
     transcribe_run_params_init(&run_params);
     run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
+    if (g_active_operation_id.load(std::memory_order_acquire) == 0) {
+        begin_decode_locked();
+    }
     const transcribe_status status =
         transcribe_run_batch(g_session, pcm_const.data(), lengths.data(), count, &run_params);
+    capture_telemetry_locked(status);
 
     for (size_t i = 0; i < arrays.size(); ++i) {
         env->ReleaseFloatArrayElements(arrays[i], pcm[i], JNI_ABORT);

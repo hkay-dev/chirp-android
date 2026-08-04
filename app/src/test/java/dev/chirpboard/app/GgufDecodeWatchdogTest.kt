@@ -1,0 +1,109 @@
+package dev.chirpboard.app
+
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class GgufDecodeWatchdogTest {
+    @Test
+    fun `timeout policy is bounded and scales with audio`() {
+        val policy = GgufDecodeWatchdogPolicy()
+
+        assertEquals(30_000L, policy.timeoutMs(1_000L))
+        assertEquals(45_000L, policy.timeoutMs(60_000L))
+        assertEquals(90_000L, policy.timeoutMs(300_000L))
+    }
+
+    @Test
+    fun `timeout cancels only its native operation and reports late completion`() = runTest {
+        val scheduler = ManualWatchdogScheduler()
+        var nowMs = 100L
+        var cancelledOperation = 0L
+        var lateCompletionTimedOut = false
+        val watchdog =
+            GgufDecodeWatchdog(
+                policy = GgufDecodeWatchdogPolicy(minimumTimeoutMs = 10, graceMs = 0, audioMultiplier = 1.0),
+                scheduler = scheduler,
+                nowMs = { nowMs },
+            )
+
+        val result =
+            watchdog.run(
+                audioDurationMs = 10,
+                beginDecode = { 42L },
+                cancelDecode = { operationId ->
+                    cancelledOperation = operationId
+                    true
+                },
+                operation = {
+                    nowMs = 110L
+                    scheduler.fire()
+                    "late"
+                },
+                onNativeFinished = { _, timedOut, _ -> lateCompletionTimedOut = timedOut },
+            )
+
+        assertTrue(result is GgufWatchdogResult.TimedOut)
+        assertEquals(42L, cancelledOperation)
+        assertTrue(lateCompletionTimedOut)
+    }
+
+    @Test
+    fun `caller cancellation requests native cancellation`() = runTest {
+        val scheduler = ManualWatchdogScheduler()
+        var cancelledOperation = 0L
+        val nativeStarted = CountDownLatch(1)
+        val nativeCancelled = CountDownLatch(1)
+        val watchdog =
+            GgufDecodeWatchdog(
+                scheduler = scheduler,
+                nowMs = { 0L },
+            )
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { dispatcher ->
+            val result =
+                launch(dispatcher) {
+                    watchdog.run(
+                        audioDurationMs = 1_000,
+                        beginDecode = { 7L },
+                        cancelDecode = { operationId ->
+                            cancelledOperation = operationId
+                            nativeCancelled.countDown()
+                            true
+                        },
+                        operation = {
+                            nativeStarted.countDown()
+                            check(nativeCancelled.await(1, TimeUnit.SECONDS))
+                            "unused"
+                        },
+                    )
+                }
+            assertTrue(nativeStarted.await(1, TimeUnit.SECONDS))
+            result.cancelAndJoin()
+        }
+
+        assertEquals(7L, cancelledOperation)
+    }
+
+    private class ManualWatchdogScheduler : GgufWatchdogScheduler {
+        private var task: (() -> Unit)? = null
+
+        override fun schedule(
+            delayMs: Long,
+            task: () -> Unit,
+        ): GgufScheduledTask {
+            this.task = task
+            return GgufScheduledTask { this.task = null }
+        }
+
+        fun fire() {
+            task?.invoke()
+        }
+    }
+}
