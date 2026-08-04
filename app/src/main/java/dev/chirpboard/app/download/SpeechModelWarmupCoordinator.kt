@@ -2,6 +2,8 @@ package dev.chirpboard.app.download
 
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.isWaitingForSpeechModel
@@ -16,6 +18,7 @@ class SpeechModelWarmupCoordinator
     constructor(
         private val recordingRepository: RecordingRepository,
         private val readinessGate: SpeechModelReadinessGate,
+        private val transcriptionRoutingStore: TranscriptionRoutingStore,
     ) {
         suspend fun warmupOnAppStartupIfCandidate() {
             when (detectStartupCandidate()) {
@@ -31,8 +34,12 @@ class SpeechModelWarmupCoordinator
 
         internal suspend fun detectStartupCandidate(): SpeechModelWarmupCandidate? {
             val pending = recordingRepository.getPendingRecordings()
-            if (pending.any { it.status == RecordingStatus.PENDING_TRANSCRIPTION }) {
-                return SpeechModelWarmupCandidate.QueuedTranscription
+            for (recording in pending) {
+                if (recording.status == RecordingStatus.PENDING_TRANSCRIPTION &&
+                    resolveEngine(recording) == TranscriptionEngine.LOCAL_PARAKEET
+                ) {
+                    return SpeechModelWarmupCandidate.QueuedTranscription
+                }
             }
 
             val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
@@ -41,6 +48,18 @@ class SpeechModelWarmupCoordinator
             } else {
                 null
             }
+        }
+
+        private suspend fun resolveEngine(recording: Recording): TranscriptionEngine? {
+            val routedRecording =
+                if (recording.transcriptionEngineId == null) {
+                    val defaultEngine = transcriptionRoutingStore.getSelectedEngine()
+                    recordingRepository.stampTranscriptionEngineIfUnset(recording.id, defaultEngine.id)
+                        ?: return null
+                } else {
+                    recording
+                }
+            return TranscriptionEngine.fromId(routedRecording.transcriptionEngineId)
         }
     }
 

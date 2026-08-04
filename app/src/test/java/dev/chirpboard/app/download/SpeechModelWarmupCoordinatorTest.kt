@@ -2,6 +2,8 @@ package dev.chirpboard.app.download
 
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -21,12 +23,15 @@ class SpeechModelWarmupCoordinatorTest {
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var readinessGate: SpeechModelReadinessGate
     private lateinit var coordinator: SpeechModelWarmupCoordinator
+    private lateinit var transcriptionRoutingStore: TranscriptionRoutingStore
 
     @Before
     fun setup() {
         recordingRepository = mockk()
         readinessGate = mockk(relaxed = true)
-        coordinator = SpeechModelWarmupCoordinator(recordingRepository, readinessGate)
+        transcriptionRoutingStore = mockk()
+        coEvery { transcriptionRoutingStore.getSelectedEngine() } returns TranscriptionEngine.LOCAL_PARAKEET
+        coordinator = SpeechModelWarmupCoordinator(recordingRepository, readinessGate, transcriptionRoutingStore)
     }
 
     @Test
@@ -70,9 +75,27 @@ class SpeechModelWarmupCoordinatorTest {
         verify { readinessGate.warmupIfNeeded(VerificationTrigger.RECOVERY) }
     }
 
+    @Test
+    fun `cloud-only startup skips speech model warmup`() = runTest {
+        coEvery { recordingRepository.getPendingRecordings() } returns
+            listOf(
+                recording(
+                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    transcriptionEngine = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3,
+                ),
+            )
+        every { recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED) } returns
+            flowOf(RepositoryFlowState(emptyList()))
+
+        coordinator.warmupOnAppStartupIfCandidate()
+
+        verify(exactly = 0) { readinessGate.warmupIfNeeded(any()) }
+    }
+
     private fun recording(
         status: RecordingStatus,
         errorMessage: String? = null,
+        transcriptionEngine: TranscriptionEngine = TranscriptionEngine.LOCAL_PARAKEET,
     ): Recording =
         Recording(
             id = UUID.randomUUID(),
@@ -81,5 +104,6 @@ class SpeechModelWarmupCoordinatorTest {
             source = RecordingSource.APP,
             status = status,
             errorMessage = errorMessage,
+            transcriptionEngineId = transcriptionEngine.id,
         )
 }
