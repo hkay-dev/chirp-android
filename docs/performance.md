@@ -35,18 +35,25 @@ Run the comparison benchmarks separately on an unlocked, idle phone.
   -Pandroid.testInstrumentationRunnerArguments.class=dev.chirpboard.app.baselineprofile.StartupBenchmark
 ```
 
-## Local Parakeet warm window
+## Local recognizer residency
 
 The process-wide recognizer follows these rules.
 
-1. A visible Chirp Voice window keeps Parakeet resident.
-2. Hiding the IME starts a five-minute grace window. Any later recognizer use moves that deadline
-   forward, so quick field and app switches stay warm.
-3. Active recording, an in-flight recognizer lease, and queued local transcription all block an
-   idle release.
-4. Confirmed low-memory trim signals and severe-or-higher thermal status may release an unused
-   recognizer immediately.
-5. The next IME bind or transcription request loads the model again if it was released.
+1. The selected downloaded model prewarms shortly after process startup.
+2. A loaded model stays resident across completed dictations, IME hides, app switches, and idle
+   time. There is no idle-release timer.
+3. Active recording, an in-flight recognizer lease, and queued local transcription block pressure
+   release.
+4. Confirmed low-memory signals and severe-or-higher thermal status may release an unused model.
+5. The next startup, IME bind, or transcription request loads a model again if pressure freed it.
 
 Warmup loads and verifies model resources only. Audio capture still begins solely from an explicit
-recording action, so the warm policy never opens or reserves the microphone.
+recording action, so residency never opens or reserves the microphone.
+
+## GGUF continuous decode ceiling
+
+Parakeet CTC 110M Q8 receives one continuous 16 kHz PCM buffer for recordings up to five minutes.
+Longer recordings take the preserved-audio recovery path with 30-second chunks and two-second
+overlap. The ceiling is a memory-safety gate based on the Galaxy S25 Ultra stress run. A 32:52
+whole-file call grew to about 5 GB RSS and Android killed the process, while the bounded recovery
+finished the same file with the model resident.

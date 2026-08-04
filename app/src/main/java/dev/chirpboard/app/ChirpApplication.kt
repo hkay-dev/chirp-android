@@ -17,6 +17,7 @@ import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
+import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
 import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
 import dev.chirpboard.app.feature.widget.WidgetStateObserver
@@ -61,13 +62,16 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var speechModelWarmupCoordinator: Lazy<SpeechModelWarmupCoordinator>
 
     @Inject
+    lateinit var transcriberProvider: Lazy<TranscriberProvider>
+
+    @Inject
     lateinit var recordingStartupCoordinator: Lazy<RecordingStartupCoordinator>
 
     @Inject
     lateinit var widgetStateObserver: WidgetStateObserver
 
     @Inject
-    lateinit var recognizerIdleReleasePolicy: RecognizerIdleReleasePolicy
+    lateinit var recognizerResidencyPolicy: RecognizerResidencyPolicy
 
     private val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
@@ -86,8 +90,6 @@ class ChirpApplication : Application(), Configuration.Provider {
             (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
 
-        // PRF-2: arm the usage-bound idle-release policy for the resident recognizer.
-        recognizerIdleReleasePolicy.start()
         registerRecognizerThermalRelease()
 
         widgetStateObserver.startObserving()
@@ -167,6 +169,19 @@ class ChirpApplication : Application(), Configuration.Provider {
 
             launch {
                 try {
+                    val provider = transcriberProvider.get()
+                    if (provider.isModelDownloaded() && !provider.isReady()) {
+                        val loaded = provider.initialize()
+                        Log.i(TAG, "Startup speech recognizer prewarm loaded=$loaded")
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e(TAG, "Failed to prewarm the selected speech recognizer", e)
+                }
+            }
+
+            launch {
+                try {
                     recordingStartupCoordinator.get().onAppStart()
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
@@ -190,12 +205,10 @@ class ChirpApplication : Application(), Configuration.Provider {
     }
 
     /**
-     * LOAD-1 / KBD-1 / PRF-1 / REL-09: the ~660MB Parakeet recognizer is kept warm while the
-     * keyboard is enabled (it is never released on a single surface's start/teardown). It is
-     * freed only by genuine memory pressure, severe thermal status, or the five-minute hidden
-     * IME warm window
-     * ([RecognizerIdleReleasePolicy]); both paths refuse to release while any capture or
-     * transcription surface could need the model synchronously.
+     * LOAD-1 / KBD-1 / PRF-1 / REL-09: the selected offline recognizer stays warm after loading.
+     * It is never released on a single surface's start or teardown. It is
+     * freed only by genuine memory pressure or severe thermal status. Both paths refuse to
+     * release while any capture or transcription surface could need the model synchronously.
      *
      * Pressure signalling, Android 16 reality: the legacy `RUNNING_LOW`/`RUNNING_CRITICAL`/
      * `COMPLETE` levels (and `onLowMemory`) are no longer delivered since API 34 — the system
@@ -235,15 +248,15 @@ class ChirpApplication : Application(), Configuration.Provider {
     ) {
         // Trim callbacks are only delivered after onCreate, but stay defensive about the
         // lateinit policy in case an OEM delivers one mid-injection.
-        if (!::recognizerIdleReleasePolicy.isInitialized) return
+        if (!::recognizerResidencyPolicy.isInitialized) return
         // Fast path: nothing resident, nothing to do (avoids the getMemoryInfo binder call on
         // every routine keyboard hide while the model is cold).
-        if (!RecognizerManager.isResident()) return
+        if (!RecognizerManager.isResident() && !GgufRecognizerManager.isResident()) return
         applicationScope.launch {
             try {
                 if (requireSystemLowMemory && !isSystemLowOnMemory()) return@launch
                 Log.i(TAG, "Releasing speech recognizer under memory pressure: $reason")
-                recognizerIdleReleasePolicy.releaseNowIfUnused(reason)
+                recognizerResidencyPolicy.releaseForConfirmedPressure(reason)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to release recognizer under memory pressure", e)
@@ -252,7 +265,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     }
 
     /**
-     * Severe thermal throttling makes a 660MB local model a poor background resident. Release it
+     * Severe thermal throttling makes a local model a poor background resident. Release it
      * only when no capture or decode owns it. The next visible IME session warms it normally.
      */
     private fun registerRecognizerThermalRelease() {
