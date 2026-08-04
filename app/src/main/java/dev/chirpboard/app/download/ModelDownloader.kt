@@ -378,7 +378,7 @@ class ModelDownloader(
         if (plan is ResumePlan.PromoteCompleted) {
             // Process died (or promote failed) after the full file landed: finish without network.
             if (validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256) &&
-                promoteTempFileAtomically(tempFile, destFile)
+                promoteModelCandidateAtomically(tempFile, destFile)
             ) {
                 etagFile.delete()
                 cacheValidationResult(destFile, file, valid = true)
@@ -464,7 +464,7 @@ class ModelDownloader(
                     return false
                 }
 
-                if (!promoteTempFileAtomically(tempFile, destFile)) {
+                if (!promoteModelCandidateAtomically(tempFile, destFile)) {
                     emit(DownloadState.Error("Failed to finalize ${file.name}", retryable = true))
                     return false
                 }
@@ -884,6 +884,39 @@ internal fun promoteTempFileAtomically(
         }
         tempFile.renameTo(destinationFile)
     }
+}
+
+internal const val LAST_WORKING_MODEL_SUFFIX = ".last-working"
+
+/** Keeps the prior artifact beside a candidate until native recognizer initialization confirms it. */
+internal fun promoteModelCandidateAtomically(
+    candidateFile: File,
+    destinationFile: File,
+): Boolean {
+    val backup = File(destinationFile.parentFile, "${destinationFile.name}$LAST_WORKING_MODEL_SUFFIX")
+    if (destinationFile.exists() && !backup.exists()) {
+        if (!promoteTempFileAtomically(destinationFile, backup)) return false
+    }
+    if (promoteTempFileAtomically(candidateFile, destinationFile)) return true
+    if (backup.exists()) promoteTempFileAtomically(backup, destinationFile)
+    return false
+}
+
+internal fun confirmModelActivation(modelDirectory: File) {
+    modelDirectory.listFiles { file -> file.name.endsWith(LAST_WORKING_MODEL_SUFFIX) }
+        .orEmpty()
+        .forEach(File::delete)
+}
+
+internal fun rollbackModelActivation(modelDirectory: File): Boolean {
+    var restored = true
+    modelDirectory.listFiles { file -> file.name.endsWith(LAST_WORKING_MODEL_SUFFIX) }
+        .orEmpty()
+        .forEach { backup ->
+            val destination = File(modelDirectory, backup.name.removeSuffix(LAST_WORKING_MODEL_SUFFIX))
+            restored = promoteTempFileAtomically(backup, destination) && restored
+        }
+    return restored
 }
 
 internal fun computeSha256(file: File): String {

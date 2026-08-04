@@ -1,5 +1,8 @@
 package dev.chirpboard.app.feature.keyboard.session
 
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetric
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -10,6 +13,44 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RollingTranscriptionTest {
+    @Test
+    fun `latency trace records content free budgets and soak failures`() {
+        DictationReliabilityMetrics.clear()
+        DictationReliabilityMetrics.startSoak(targetSessions = 1)
+        var now = 0L
+        val trace = DictationLatencyTrace("test", nowNanos = { now }, sink = {})
+        now = 100_000_000L
+        trace.mark("first_durable_sample")
+        now = 1_000_000_000L
+        trace.mark("stop_requested")
+        now = 2_000_000_000L
+        trace.asObserver().onRawTranscriptReady()
+        trace.recordIntegrity(
+            VoiceRecorder.CaptureIntegrityReport(
+                elapsedMs = 1_000,
+                capturedMs = 950,
+                estimatedGapMs = 30,
+                sampleCount = 15_200,
+                recorderRestartCount = 1,
+            ),
+        )
+        now = 2_050_000_000L
+        trace.asObserver().onCommitCompleted(accepted = true)
+
+        val snapshot = DictationReliabilityMetrics.snapshot.value
+        assertEquals(
+            100L,
+            snapshot.summaries.single { it.metric == DictationReliabilityMetric.PRESS_TO_AUDIO }.p95,
+        )
+        assertEquals(
+            1_000L,
+            snapshot.summaries.single { it.metric == DictationReliabilityMetric.STOP_TO_RAW }.p95,
+        )
+        assertEquals(1, snapshot.soak.completedSessions)
+        assertEquals(1, snapshot.soak.failedSessions)
+        DictationReliabilityMetrics.clear()
+    }
+
     @Test
     fun `latency trace reports content-free monotonic stages`() {
         var now = 1_000_000_000L

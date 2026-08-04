@@ -168,4 +168,29 @@ class ModelDownloaderTest {
             file.setReadable(true)
         }
     }
+
+    @Test
+    fun `candidate activation keeps the prior artifact until confirmation`() {
+        val destination = File(testDir, "encoder.onnx").apply { writeText("working") }
+        val candidate = File(testDir, "encoder.download").apply { writeText("candidate") }
+
+        assertTrue(promoteModelCandidateAtomically(candidate, destination))
+        assertEquals("candidate", destination.readText())
+        assertEquals("working", File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").readText())
+
+        confirmModelActivation(testDir)
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+    }
+
+    @Test
+    fun `failed native initialization can restore the last working artifact`() {
+        val destination = File(testDir, "encoder.onnx").apply { writeText("working") }
+        val candidate = File(testDir, "encoder.download").apply { writeText("bad candidate") }
+        assertTrue(promoteModelCandidateAtomically(candidate, destination))
+
+        assertTrue(rollbackModelActivation(testDir))
+
+        assertEquals("working", destination.readText())
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+    }
 }

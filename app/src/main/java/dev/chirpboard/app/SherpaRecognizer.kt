@@ -11,6 +11,8 @@ import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
+import dev.chirpboard.app.download.confirmModelActivation
+import dev.chirpboard.app.download.rollbackModelActivation
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import kotlinx.coroutines.Dispatchers
@@ -117,11 +119,15 @@ class SherpaRecognizer(
 
                     Log.d(TAG, "Creating OfflineRecognizer (this may take 10-30 seconds)...")
                     recognizer = OfflineRecognizer(assetManager = null, config = config)
+                    confirmModelActivation(modelPath)
                     Log.i(TAG, "Recognizer initialized successfully")
                     true
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to initialize recognizer", e)
+                    if (!rollbackModelActivation(modelPath)) {
+                        Log.e(TAG, "Could not restore the last working speech model")
+                    }
                     false
                 }
             }

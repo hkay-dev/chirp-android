@@ -14,6 +14,9 @@ import com.k2fsa.sherpa.onnx.OnlineStream
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.transcription.StreamingTranscriptionSession
+import dev.chirpboard.app.download.confirmModelActivation
+import dev.chirpboard.app.download.promoteModelCandidateAtomically
+import dev.chirpboard.app.download.rollbackModelActivation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -27,9 +30,6 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.nio.file.Files
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -85,11 +85,13 @@ class StreamingSherpaRecognizerProvider(
                                     decodingMethod = "greedy_search",
                                 ),
                         )
+                    confirmModelActivation(modelDir)
                 }
                 true
             }.getOrElse { failure ->
                 if (failure is CancellationException) throw failure
                 Log.w(TAG, "Streaming preview recognizer is unavailable", failure)
+                rollbackModelActivation(modelDir)
                 false
             }
         }
@@ -324,16 +326,7 @@ internal fun replaceDownloadedFile(
     temporary: File,
     target: File,
 ) {
-    try {
-        Files.move(
-            temporary.toPath(),
-            target.toPath(),
-            StandardCopyOption.ATOMIC_MOVE,
-            StandardCopyOption.REPLACE_EXISTING,
-        )
-    } catch (_: AtomicMoveNotSupportedException) {
-        Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
+    check(promoteModelCandidateAtomically(temporary, target)) { "Could not activate streaming model candidate" }
 }
 
 internal data class StreamingModelFile(

@@ -11,6 +11,7 @@ import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import dev.chirpboard.app.download.SpeechModelWarmupCoordinator
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
@@ -75,6 +76,7 @@ class ChirpApplication : Application(), Configuration.Provider {
         // ERR-21: local-only crash breadcrumbs (rotating stack-trace files; never uploaded).
         // Installed first so a crash anywhere in the startup path below is still recorded.
         CrashLogWriter(File(filesDir, CrashLogWriter.LOG_DIR_NAME)).install()
+        DictationReliabilityMetrics.initialize(this)
 
         DebugStrictMode.enableIfDebug(
             (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,

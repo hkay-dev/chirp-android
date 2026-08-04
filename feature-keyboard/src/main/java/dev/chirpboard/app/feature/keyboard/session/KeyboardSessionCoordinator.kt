@@ -11,6 +11,8 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.quickcapture.QuickCaptureStartResult
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetric
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
@@ -811,6 +813,7 @@ class KeyboardSessionCoordinator(
                 withContext(NonCancellable) {
                     awaitLiveCaptureJournal()
                     val audioSource = capture.stopAsAudioSource()
+                    capture.latestIntegrityReport()?.let { report -> latencyTrace?.recordIntegrity(report) }
                     latencyTrace?.mark("audio_synced")
                     finishStopAfterTeardown(audioSource, commitText, suppressHistory)
                 }
@@ -836,6 +839,9 @@ class KeyboardSessionCoordinator(
                     }
                 if (streamingSession != null) {
                     var consumedSamples = 0
+                    var previewReported = false
+                    val checkpointPersistence =
+                        if (suppressHistory) IncognitoCapturePersistence(persistence) else persistence
                     try {
                         while (isRecording.value) {
                             val snapshot = capture.activeFileBackedSnapshot()
@@ -850,8 +856,27 @@ class KeyboardSessionCoordinator(
                                     }
                                 if (samples.isNotEmpty()) {
                                     consumedSamples += samples.size
-                                    streamingSession.accept(samples).takeIf { it.isNotBlank() }?.let {
-                                        livePartialTranscript.value = it
+                                    streamingSession.accept(samples).takeIf { it.isNotBlank() }?.let { text ->
+                                        livePartialTranscript.value = text
+                                        if (!previewReported) {
+                                            previewReported = true
+                                            latencyTrace?.mark("streaming_first_text")
+                                        }
+                                        runCatching {
+                                            checkpointPersistence.checkpointAudioSource(
+                                                audioSource =
+                                                    InlineAudioSource.PcmFloatFile(
+                                                        path = snapshot.file.absolutePath,
+                                                        sampleCount = snapshot.sampleCount.toLong(),
+                                                        sampleRate = snapshot.sampleRate,
+                                                    ),
+                                                trustedSampleCount = snapshot.sampleCount.toLong(),
+                                                partialTranscript = text,
+                                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                            )
+                                        }.onFailure { error ->
+                                            Log.w(tag, "Could not checkpoint streaming preview", error)
+                                        }
                                     }
                                 }
                             }
@@ -1493,6 +1518,8 @@ internal class DictationLatencyTrace(
 ) {
     private val startedAtNanos = nowNanos()
     private var previousAtNanos = startedAtNanos
+    private val eventTimes = mutableMapOf("press" to startedAtNanos)
+    private var sessionHealthy = true
 
     @Synchronized
     fun mark(event: String) {
@@ -1500,7 +1527,49 @@ internal class DictationLatencyTrace(
         val totalMs = (now - startedAtNanos) / NANOS_PER_MILLISECOND
         val stageMs = (now - previousAtNanos) / NANOS_PER_MILLISECOND
         previousAtNanos = now
+        eventTimes[event] = now
+        when (event) {
+            "first_durable_sample" -> recordSince(DictationReliabilityMetric.PRESS_TO_AUDIO, "press", now)
+            "streaming_first_text" -> recordSince(DictationReliabilityMetric.STREAMING_FIRST_TEXT, "press", now)
+            "raw_transcript_ready" -> recordSince(DictationReliabilityMetric.STOP_TO_RAW, "stop_requested", now)
+            "ai_completed" -> recordSince(DictationReliabilityMetric.AI_PROCESSING, "ai_started", now)
+            "commit_completed" -> {
+                recordSince(DictationReliabilityMetric.COMMIT, "raw_transcript_ready", now)
+                DictationReliabilityMetrics.completeSoakSession(sessionHealthy)
+            }
+            "commit_refused" -> {
+                recordSince(DictationReliabilityMetric.COMMIT, "raw_transcript_ready", now, success = false)
+                DictationReliabilityMetrics.completeSoakSession(false)
+            }
+        }
         sink("Dictation latency event=$event totalMs=$totalMs stageMs=$stageMs")
+    }
+
+    @Synchronized
+    fun recordIntegrity(report: VoiceRecorder.CaptureIntegrityReport) {
+        DictationReliabilityMetrics.record(
+            DictationReliabilityMetric.CAPTURE_GAP,
+            report.estimatedGapMs,
+            success = report.estimatedGapMs <= DictationReliabilityMetric.CAPTURE_GAP.budget,
+        )
+        DictationReliabilityMetrics.record(
+            DictationReliabilityMetric.RECORDER_RESTARTS,
+            report.recorderRestartCount.toLong(),
+            success = report.recorderRestartCount == 0,
+        )
+        sessionHealthy = sessionHealthy && report.estimatedGapMs <= DictationReliabilityMetric.CAPTURE_GAP.budget
+        sessionHealthy = sessionHealthy && report.recorderRestartCount == 0
+    }
+
+    private fun recordSince(
+        metric: DictationReliabilityMetric,
+        startEvent: String,
+        endNanos: Long,
+        success: Boolean = true,
+    ) {
+        val start = eventTimes[startEvent] ?: return
+        DictationReliabilityMetrics.record(metric, (endNanos - start) / NANOS_PER_MILLISECOND, success)
+        sessionHealthy = sessionHealthy && success
     }
 
     fun asObserver(): InlineDictationLatencyObserver =

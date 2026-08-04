@@ -595,6 +595,11 @@ class ChirpKeyboardService :
         session: KeyboardInputCommitSession,
         text: String,
     ): Boolean {
+        if (dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.consumeCommitRefusal()) {
+            Log.w(TAG, "Reliability soak injected a commit refusal")
+            coordinator.setSessionError(getString(R.string.keyboard_input_changed))
+            return false
+        }
         val committed = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
         if (!committed) {
             Log.w(TAG, "Skipped dictation commit because the input session changed")

@@ -54,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +64,7 @@ fun DevMenuScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val reliabilityEvents by ReliabilityEventLogger.events.collectAsStateWithLifecycle()
+    val dictationReliability by DictationReliabilityMetrics.snapshot.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -295,6 +297,59 @@ fun DevMenuScreen(
             }
 
             // Reliability Timeline
+            item {
+                DevSection(
+                    title = "IME Reliability Soak",
+                    icon = Icons.Rounded.BugReport,
+                ) {
+                    val soak = dictationReliability.soak
+                    Text(
+                        text =
+                            if (soak.active) {
+                                "Running ${soak.completedSessions}/${soak.targetSessions}, failures ${soak.failedSessions}"
+                            } else {
+                                "Stopped at ${soak.completedSessions}/${soak.targetSessions}, failures ${soak.failedSessions}"
+                            },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { DictationReliabilityMetrics.startSoak(25) }) {
+                            Text("Start 25-session soak")
+                        }
+                        OutlinedButton(onClick = DictationReliabilityMetrics::stopSoak) {
+                            Text("Stop")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(onClick = DictationReliabilityMetrics::armCommitRefusal) {
+                        Text(if (soak.refuseNextCommit) "Commit refusal armed" else "Fault next commit")
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    dictationReliability.summaries.forEach { summary ->
+                        val marker = if (summary.exceedsBudget) "REGRESSION" else "OK"
+                        Text(
+                            text =
+                                "$marker  ${summary.metric.displayName}  n=${summary.count} " +
+                                    "p50=${summary.p50} p95=${summary.p95} p99=${summary.p99} " +
+                                    "budget=${summary.metric.budget} failures=${summary.failureCount}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color =
+                                if (summary.exceedsBudget) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(onClick = DictationReliabilityMetrics::clear) {
+                        Text("Clear IME metrics")
+                    }
+                }
+            }
+
             item {
                 DevSection(
                     title = "Reliability Timeline",
