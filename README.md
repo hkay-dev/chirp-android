@@ -45,6 +45,8 @@ On Android, most polished options I found were cloud-based, like Typeless and Wi
 
 It started as a recorder, then grew into transcription, LLM cleanup, summaries, and finally an input method. No local LLM support yet. The offline part is speech-to-text.
 
+The primary reliability rule is that captured speech must never disappear. The concrete capture, recovery, transcription, and AI invariants live in [the lossless dictation mandate](docs/lossless-dictation-mandate.md).
+
 ## Features
 
 - Record voice notes.
@@ -72,6 +74,8 @@ It started as a recorder, then grew into transcription, LLM cleanup, summaries, 
 ## IME
 
 Chirp can be used as its own Android input method through **Chirp Voice**. Switch keyboards, record, transcribe locally, optionally polish the text, and insert it where you were already typing.
+
+The keyboard also has a private background-transcription path under development. Cloud-routed dictation gets a synced journal and final app-private audio path before recording starts, so a killed IME can be recovered into Room and WorkManager on the next process start. It then uses Google Cloud Chirp 3 and optional Vertex cleanup. The architecture, privacy boundary, failure rules, and auth checkpoint live in [the cloud dictation design](docs/google-cloud-dictation-design.md).
 
 It can also work as a triggered speech recognition service from compatible keyboards and apps. SwiftKey supports this kind of flow. Gboard, sadly, does not currently expose the same choice.
 
