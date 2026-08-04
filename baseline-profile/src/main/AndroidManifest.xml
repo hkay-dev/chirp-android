@@ -3,6 +3,7 @@
     <application>
         <activity
             android:name=".ImeHostActivity"
-            android:exported="true" />
+            android:exported="true"
+            android:windowSoftInputMode="stateAlwaysVisible" />
     </application>
 </manifest>

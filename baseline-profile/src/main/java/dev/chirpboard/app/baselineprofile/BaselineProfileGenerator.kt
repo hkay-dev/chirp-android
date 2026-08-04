@@ -3,6 +3,8 @@ package dev.chirpboard.app.baselineprofile
 import androidx.benchmark.macro.junit4.BaselineProfileRule
 import androidx.benchmark.macro.MacrobenchmarkScope
 import androidx.test.filters.LargeTest
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 
@@ -37,7 +39,13 @@ class BaselineProfileGenerator {
                 device.executeShellCommand("ime enable $CHIRP_IME")
                 device.executeShellCommand("ime set $CHIRP_IME")
                 device.executeShellCommand("am start -W -n $IME_HOST_ACTIVITY")
+                val editor =
+                    checkNotNull(device.wait(Until.findObject(By.clazz("android.widget.EditText")), IME_WAIT_MS)) {
+                        "IME profile host editor never appeared"
+                    }
+                editor.click()
                 device.waitForIdle()
+                waitForChirpImeView()
             } finally {
                 if (originalIme.isNotBlank() && originalIme != "null") {
                     device.executeShellCommand("ime set $originalIme")
@@ -67,12 +75,29 @@ class BaselineProfileGenerator {
         }
     }
 
+    private fun MacrobenchmarkScope.waitForChirpImeView() {
+        val deadline = System.currentTimeMillis() + IME_WAIT_MS
+        do {
+            val state = device.executeShellCommand("dumpsys input_method")
+            val chirpSelected =
+                state.contains("mCurId=$CHIRP_IME") ||
+                    state.contains("mSelectedMethodId=$CHIRP_IME")
+            val inputViewStarted =
+                state.contains("mInputViewStarted=true") || state.contains("mInputShown=true")
+            if (chirpSelected && inputViewStarted) return
+            Thread.sleep(IME_POLL_MS)
+        } while (System.currentTimeMillis() < deadline)
+        error("Chirp IME input view never became visible; refusing to generate an app-only profile")
+    }
+
     private companion object {
         const val TARGET_PACKAGE = "dev.chirpboard.app"
         const val PROFILE_PACKAGE = "dev.chirpboard.app.baselineprofile"
         const val KEYBOARD_SETTINGS_ACTIVITY = "$TARGET_PACKAGE/.KeyboardSettingsLauncherActivity"
         const val CHIRP_IME =
-            "$TARGET_PACKAGE/dev.chirpboard.app.feature.keyboard.service.ChirpKeyboardService"
+            "$TARGET_PACKAGE/.feature.keyboard.service.ChirpKeyboardService"
         const val IME_HOST_ACTIVITY = "$PROFILE_PACKAGE/.ImeHostActivity"
+        const val IME_WAIT_MS = 10_000L
+        const val IME_POLL_MS = 100L
     }
 }
