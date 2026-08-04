@@ -8,6 +8,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.RecognizerManager
 import dev.chirpboard.app.SherpaRecognizer
+import dev.chirpboard.app.StreamingSherpaRecognizerProvider
+import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
@@ -25,6 +27,12 @@ object KeyboardModule {
         @ApplicationContext context: Context,
         modelDownloader: ModelDownloader,
     ): TranscriberProvider = SherpaRecognizerProvider(context, modelDownloader)
+
+    @Provides
+    @Singleton
+    fun provideStreamingTranscriberProvider(
+        @ApplicationContext context: Context,
+    ): StreamingTranscriberProvider = StreamingSherpaRecognizerProvider(context)
 }
 
 /**

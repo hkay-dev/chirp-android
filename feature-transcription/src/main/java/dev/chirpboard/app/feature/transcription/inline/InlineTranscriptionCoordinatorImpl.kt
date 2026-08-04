@@ -133,6 +133,7 @@ class InlineTranscriptionCoordinatorImpl
                 }
 
                 _phase.value = InlineTranscriptionPhase.Transcribing
+                request.latencyObserver?.onDecodeStarted()
 
                 val mappedOutcome =
                     try {
@@ -188,6 +189,7 @@ class InlineTranscriptionCoordinatorImpl
                 // the text is whatever the user dictated into another app. Log only its length.
                 Log.d(tag, "Transcribed ${rawText.length} chars")
                 rawTextForPersistence = rawText
+                request.latencyObserver?.onRawTranscriptReady()
                 transcriptionLog.success("transcription_completed")
 
                 // Make the raw recognition useful immediately. The sidecar checkpoint is best
@@ -202,6 +204,7 @@ class InlineTranscriptionCoordinatorImpl
                 }.onFailure { error -> Log.w(tag, "Could not checkpoint raw transcript", error) }
 
                 val rawCommitted = withContext(Dispatchers.Main) { commitText("$rawText ") }
+                request.latencyObserver?.onCommitCompleted(rawCommitted)
                 if (!rawCommitted) {
                     Log.w(tag, "Raw transcript commit refused; persisting it as a rescue entry")
                     transcriptionLog.failure("commit_refused")
@@ -221,6 +224,7 @@ class InlineTranscriptionCoordinatorImpl
                 }
 
                 if (request.llmEnabled) {
+                    request.latencyObserver?.onAiStarted()
                     enhancementLog.started("enhancement_started")
                     _phase.value = InlineTranscriptionPhase.Polishing
 
@@ -229,6 +233,7 @@ class InlineTranscriptionCoordinatorImpl
                             textEnhancement.process(rawText, request.processingModeId)
                         }
 
+                    request.latencyObserver?.onAiCompleted()
                     val (processedText, terminalPhase) =
                         if (result == null) {
                             enhancementLog.failure("enhancement_timeout")
