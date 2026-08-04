@@ -31,7 +31,6 @@ import dev.chirpboard.app.feature.recording.session.RecordingSegmentRotator
 import dev.chirpboard.app.feature.recording.session.RecordingSessionHeartbeat
 import dev.chirpboard.app.feature.recording.session.RecordingSessionJournal
 import dev.chirpboard.app.feature.recording.session.RecordingRecoveryStore
-import dev.chirpboard.app.feature.recording.session.RecordingSessionReconciler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -72,9 +71,6 @@ class RecordingService : Service() {
 
     @Inject
     lateinit var sessionJournal: RecordingSessionJournal
-
-    @Inject
-    lateinit var sessionReconciler: RecordingSessionReconciler
 
     @Inject
     lateinit var recoveryStore: RecordingRecoveryStore
@@ -437,15 +433,33 @@ class RecordingService : Service() {
                 correlationId = currentCorrelationId!!,
             )
 
-        val storageCheck = withContext(Dispatchers.IO) { storageMonitor.checkAvailableStorage() }
-        if (storageCheck.level == StorageCheckLevel.CRITICAL) {
+        val storageLevel =
+            try {
+                withContext(Dispatchers.IO) { storageMonitor.checkAvailableStorage() }.level
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A transient StatFs failure must not strand the global recording lock in
+                // Starting or delay microphone ownership. The live monitor retries once
+                // capture begins, and writer errors still stop with save.
+                Log.w(TAG, "Initial recording storage check failed", e)
+                StorageCheckLevel.OK
+            }
+        if (storageLevel == StorageCheckLevel.CRITICAL) {
             recordingStateManager.onRecordingError("Not enough storage to start recording")
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
         }
 
-        when (audioFocusManager.requestFocus()) {
+        val focusResult =
+            runCatching { audioFocusManager.requestFocus() }.getOrElse { error ->
+                recordingStateManager.onRecordingError("Could not acquire audio focus for recording", error)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return
+            }
+        when (focusResult) {
             is AudioFocusManager.FocusResult.Denied -> {
                 recordingStateManager.onRecordingError("Could not acquire audio focus for recording")
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -470,8 +484,6 @@ class RecordingService : Service() {
             withContext(Dispatchers.IO) {
                 startCancelMutex.withLock {
                     ensureStartNotCancelled()
-
-                    sessionReconciler.reconcileCompletedSessions()
 
                     val recordingQualityConfig =
                         audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
