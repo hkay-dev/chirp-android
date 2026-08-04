@@ -235,6 +235,7 @@ internal class GgufRecognizer(
         audioSource: Flow<FloatArray>,
         sampleRate: Int,
     ): String? {
+        var activeEngine = engine
         return ChunkedAudioProcessor(
                 chunkDurationMs = RECOVERY_CHUNK_SECONDS * 1_000L,
                 overlapDurationMs = RECOVERY_CHUNK_OVERLAP_MS,
@@ -244,21 +245,33 @@ internal class GgufRecognizer(
                 batchSize = RECOVERY_BATCH_SIZE,
             ) { batch ->
                 val audioDurationMs = batch.sumOf { it.size.toLong() } * 1_000L / sampleRate
-                when (
-                    val result =
-                        runNativeDecode(
-                            engine = engine,
-                            audioDurationMs = audioDurationMs,
-                            source = GgufDecodeSource.RECOVERY_BATCH,
-                            classify = { value ->
-                                when {
-                                    value == null -> GgufDecodeResultKind.ENGINE_FAILURE
-                                    value.any(String::isNotBlank) -> GgufDecodeResultKind.SUCCESS
-                                    else -> GgufDecodeResultKind.NO_SPEECH
-                                }
-                            },
-                        ) { engine.transcribeBatch(batch) }
-                ) {
+                val classifyBatch: (Array<String>?) -> GgufDecodeResultKind = { value ->
+                    when {
+                        value == null -> GgufDecodeResultKind.ENGINE_FAILURE
+                        value.any(String::isNotBlank) -> GgufDecodeResultKind.SUCCESS
+                        else -> GgufDecodeResultKind.NO_SPEECH
+                    }
+                }
+                var result =
+                    runNativeDecode(
+                        engine = activeEngine,
+                        audioDurationMs = audioDurationMs,
+                        source = GgufDecodeSource.RECOVERY_BATCH,
+                        classify = classifyBatch,
+                    ) { activeEngine.transcribeBatch(batch) }
+                if (result !is GgufWatchdogResult.Completed && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
+                    switchToCpu()?.let { cpuEngine ->
+                        activeEngine = cpuEngine
+                        result =
+                            runNativeDecode(
+                                engine = activeEngine,
+                                audioDurationMs = audioDurationMs,
+                                source = GgufDecodeSource.RECOVERY_BATCH,
+                                classify = classifyBatch,
+                            ) { activeEngine.transcribeBatch(batch) }
+                    }
+                }
+                when (result) {
                     is GgufWatchdogResult.Completed -> result.value.value?.toList()
                     is GgufWatchdogResult.Failed,
                     is GgufWatchdogResult.TimedOut,
