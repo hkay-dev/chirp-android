@@ -3,6 +3,11 @@ project(chirp_gguf LANGUAGES C CXX)
 
 include(FetchContent)
 
+# KleidiAI stays opt-in until device benchmarks show a consistent win. GGML always keeps its
+# generic CPU buffer type alongside KleidiAI, so unsupported operations and CPUs fall back safely.
+option(CHIRP_GGUF_KLEIDIAI "Enable GGML KleidiAI CPU kernels" OFF)
+set(GGML_CPU_KLEIDIAI ${CHIRP_GGUF_KLEIDIAI} CACHE BOOL "Enable GGML KleidiAI CPU kernels" FORCE)
+
 set(FETCHCONTENT_QUIET OFF)
 FetchContent_Declare(
     transcribe_cpp

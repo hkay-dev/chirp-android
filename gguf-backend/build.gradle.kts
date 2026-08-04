@@ -3,6 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val kleidiAiEnabled =
+    providers
+        .gradleProperty("chirp.gguf.kleidiai")
+        .map { it.equals("true", ignoreCase = true) }
+        .orElse(false)
+
 android {
     namespace = "dev.chirpboard.app.gguf"
     compileSdk = 36
@@ -22,6 +28,7 @@ android {
                     "-DTRANSCRIBE_BUILD_SHARED=OFF",
                     "-DTRANSCRIBE_USE_SYSTEM_BLAS=OFF",
                     "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16",
+                    "-DCHIRP_GGUF_KLEIDIAI=${if (kleidiAiEnabled.get()) "ON" else "OFF"}",
                 )
                 cppFlags += listOf("-O3", "-DNDEBUG", "-march=armv8.2-a+dotprod+fp16")
             }
@@ -48,4 +55,3 @@ android {
         jniLibs.useLegacyPackaging = false
     }
 }
-
