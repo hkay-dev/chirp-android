@@ -10,6 +10,7 @@ import androidx.work.Configuration
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import dev.chirpboard.app.download.SpeechModelWarmupCoordinator
+import dev.chirpboard.app.core.audio.recorder.CaptureEmergencyReserve
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
@@ -99,6 +100,10 @@ class ChirpApplication : Application(), Configuration.Provider {
         // moment after the latency-sensitive window rather than synchronously inside it.
         applicationScope.launch {
             delay(STARTUP_RECOVERY_DELAY_MS)
+
+            // Prepare content-free disk headroom after the cold-start latency window. This only
+            // schedules background allocation; capture never waits for it or extends its PCM file.
+            CaptureEmergencyReserve.initialize(this@ChirpApplication)
 
             // Replay the file-to-Room handoff before either queue or orphan cleanup observes
             // the recordings directory. This keeps an interrupted raw PCM move visible.

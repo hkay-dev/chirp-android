@@ -470,6 +470,55 @@ class VoiceRecorderTest {
         }
 
     @Test
+    fun `storage exhaustion reclaims reserve and retries the exact current block once`() =
+        runBlocking {
+            var writes = 0
+            var reclaimCalls = 0
+            var captured: VoiceRecorder.CapturedPcmFloatFile? = null
+            val fileRecorder =
+                fileBackedRecorder(
+                    reclaimEmergencyReserve = {
+                        reclaimCalls += 1
+                        true
+                    },
+                    captureOutputFactory = { file ->
+                        object : java.io.FileOutputStream(file) {
+                            override fun write(
+                                bytes: ByteArray,
+                                offset: Int,
+                                length: Int,
+                            ) {
+                                writes += 1
+                                if (writes == 1) {
+                                    super.write(bytes, offset, 13)
+                                    throw IOException("No space left on device")
+                                }
+                                super.write(bytes, offset, length)
+                            }
+                        }
+                    },
+                )
+            var reads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                if (reads++ == 0) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    captured = fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
+
+            assertEquals(1, reclaimCalls)
+            assertEquals(2, writes)
+            assertEquals(READ_BUFFER_SIZE, captured?.sampleCount)
+            assertEquals(READ_BUFFER_SIZE * Float.SIZE_BYTES.toLong(), captured?.file?.length())
+        }
+
+    @Test
     fun `file backed read error keeps captured samples for rescue`() =
         runBlocking {
             val fileRecorder = fileBackedRecorder()
@@ -831,6 +880,7 @@ class VoiceRecorderTest {
     private fun fileBackedRecorder(
         availableBytes: Long = Long.MAX_VALUE,
         availableStorageBytes: ((File) -> Long)? = null,
+        reclaimEmergencyReserve: () -> Boolean = { false },
         captureOutputFactory: ((File) -> OutputStream)? = null,
     ): VoiceRecorder {
         every { context.cacheDir } returns cacheDir
@@ -841,6 +891,7 @@ class VoiceRecorderTest {
             captureStorageMode = VoiceRecorder.CaptureStorageMode.FileBacked,
             captureOutputFactory = captureOutputFactory ?: { file -> java.io.FileOutputStream(file) },
             availableStorageBytes = availableStorageBytes ?: { availableBytes },
+            reclaimEmergencyReserve = reclaimEmergencyReserve,
         )
     }
 

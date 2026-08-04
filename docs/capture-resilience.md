@@ -7,9 +7,20 @@ count. It never starts a second logical recording or substitutes preview text fo
 ## Storage writes
 
 File-backed capture checks for 48 MiB of usable space ahead of microphone startup and writes each
-completed block directly to the capture file. Android's allocation API can take several seconds, so
-it is deliberately kept out of both startup and the active read loop. A write failure stops capture
-cleanly, trims any uncertain partial block, and keeps every earlier block for recovery.
+completed block directly to the capture file.
+
+Application startup asynchronously asks Android for one content-free 4 MiB cache reserve. The
+allocation never runs from microphone startup or the read/write loop, and it never extends the PCM
+file. Preparation uses a partial file and atomically promotes it only after allocation and sync
+succeed. Startup removes an incomplete partial or wrong-sized final reserve, which makes a process
+death during preparation safe and keeps the reserve bounded to one file.
+
+The active recorder ignores the reserve until a write reports `ENOSPC`, `EDQUOT`, or the platform's
+equivalent error text. It can delete a completed reserve without waiting for in-flight preparation,
+then retries the exact unchanged PCM block once. Any other failure, a missing reserve, or a failed
+retry stops capture cleanly, trims the uncertain tail, and keeps every earlier trusted block for
+recovery. The reserve is intentionally one-shot for the process. Rebuilding it during capture could
+compete with microphone I/O or consume the space it just released.
 
 ## Allocation discipline
 

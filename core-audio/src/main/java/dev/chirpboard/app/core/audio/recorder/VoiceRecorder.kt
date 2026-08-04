@@ -79,6 +79,7 @@ class VoiceRecorder(
     private val captureStorageMode: CaptureStorageMode = CaptureStorageMode.InMemory,
     private val captureOutputFactory: (File) -> OutputStream = { file -> FileOutputStream(file) },
     private val availableStorageBytes: (File) -> Long = { directory -> directory.usableSpace },
+    private val reclaimEmergencyReserve: () -> Boolean = CaptureEmergencyReserve::reclaim,
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -1298,7 +1299,19 @@ class VoiceRecorder(
             scratch[byteIndex + 3] = ((bits ushr (Byte.SIZE_BITS * 3)) and BYTE_MASK).toByte()
             byteIndex += java.lang.Float.BYTES
         }
-        output.write(scratch, 0, byteCount)
+        try {
+            output.write(scratch, 0, byteCount)
+        } catch (firstFailure: Exception) {
+            if (!firstFailure.isStorageExhaustion() || !reclaimEmergencyReserve()) throw firstFailure
+            val trustedBytes = sampleCount.toLong() * java.lang.Float.BYTES
+            val fileOutput = output as? FileOutputStream ?: throw firstFailure
+            runCatching {
+                fileOutput.channel.truncate(trustedBytes)
+                fileOutput.channel.position(trustedBytes)
+            }.getOrElse { throw firstFailure }
+            Log.w(TAG, "Capture storage exhausted; reclaimed emergency reserve and retrying current block")
+            output.write(scratch, 0, byteCount)
+        }
     }
 
     private fun resetFileBackedCaptureLocked(deleteExisting: Boolean) {
