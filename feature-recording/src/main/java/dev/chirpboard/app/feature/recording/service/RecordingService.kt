@@ -336,7 +336,12 @@ class RecordingService : Service() {
             )
 
         if (destroyPlan.scheduleEmergencyStop) {
+            val pendingStartJob = startRecordingJob
             emergencyStopScope.launch {
+                // onDestroy cancels the service scope below. Wait until a Starting job
+                // has left its setup critical section before the emergency finalizer
+                // snapshots fields or stops the capture engine it may have just opened.
+                pendingStartJob?.join()
                 emergencyFinalizeActiveCapture()
             }
             serviceScope.cancel()
@@ -551,12 +556,23 @@ class RecordingService : Service() {
             startStorageMonitoring()
             startSegmentRotation()
         } catch (e: kotlinx.coroutines.CancellationException) {
-            if (startGenerationToken != startGeneration.get()) {
+            val generationMatches = startGenerationToken == startGeneration.get()
+            if (!generationMatches) {
                 // A newer start, restart, cancel, or stop superseded this start and owns
                 // all cleanup and service lifecycle. Every superseding initiator bumps the
                 // start generation before cancelling this job; running this handler late
                 // would abandon the new session's audio focus, wipe its fields, and
                 // stopSelf() the service out from under the restarted recording.
+                throw e
+            }
+            if (
+                RecordingServiceLifecycleCleanup.shouldPreserveCancelledStartForEmergencyStop(
+                    destroyed = destroyed,
+                    startGenerationMatches = generationMatches,
+                )
+            ) {
+                // onDestroy owns cleanup now. Deleting the segment or journal here can
+                // race its emergency finalizer and lose audio captured during startup.
                 throw e
             }
             currentInProgressRecordingId?.let { recordingRepository.deleteInProgressRecording(it) }

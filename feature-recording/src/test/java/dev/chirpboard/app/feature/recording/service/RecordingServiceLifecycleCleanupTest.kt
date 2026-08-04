@@ -10,6 +10,32 @@ import org.junit.Test
 
 class RecordingServiceLifecycleCleanupTest {
     @Test
+    fun cancelledStart_isPreservedWhenServiceDestroyOwnsEmergencyFinalize() {
+        assertTrue(
+            RecordingServiceLifecycleCleanup.shouldPreserveCancelledStartForEmergencyStop(
+                destroyed = true,
+                startGenerationMatches = true,
+            ),
+        )
+    }
+
+    @Test
+    fun cancelledStart_isCleanedNormallyOutsideServiceDestroy() {
+        assertFalse(
+            RecordingServiceLifecycleCleanup.shouldPreserveCancelledStartForEmergencyStop(
+                destroyed = false,
+                startGenerationMatches = true,
+            ),
+        )
+        assertFalse(
+            RecordingServiceLifecycleCleanup.shouldPreserveCancelledStartForEmergencyStop(
+                destroyed = true,
+                startGenerationMatches = false,
+            ),
+        )
+    }
+
+    @Test
     fun prepareDestroy_cancelsJobsAndDetachesCallbacksBeforeSchedulingEmergencyStop() {
         val events = mutableListOf<String>()
 

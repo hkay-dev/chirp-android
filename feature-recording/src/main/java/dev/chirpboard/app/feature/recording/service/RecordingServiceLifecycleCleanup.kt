@@ -39,4 +39,14 @@ internal object RecordingServiceLifecycleCleanup {
                     state is RecordingState.Recording ||
                     state is RecordingState.Paused
             )
+
+    /**
+     * Service destruction transfers ownership of an in-flight start to emergency
+     * finalization. Its cancellation handler must leave every artifact in place until
+     * that finalizer has observed the completed cancellation.
+     */
+    fun shouldPreserveCancelledStartForEmergencyStop(
+        destroyed: Boolean,
+        startGenerationMatches: Boolean,
+    ): Boolean = destroyed && startGenerationMatches
 }
