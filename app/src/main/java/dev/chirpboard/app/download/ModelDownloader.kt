@@ -19,6 +19,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -378,7 +379,7 @@ class ModelDownloader(
         if (plan is ResumePlan.PromoteCompleted) {
             // Process died (or promote failed) after the full file landed: finish without network.
             if (validateFileIntegrity(tempFile, file.expectedSize, file.expectedSha256) &&
-                promoteTempFileAtomically(tempFile, destFile)
+                promoteModelCandidateAtomically(tempFile, destFile)
             ) {
                 etagFile.delete()
                 cacheValidationResult(destFile, file, valid = true)
@@ -464,7 +465,7 @@ class ModelDownloader(
                     return false
                 }
 
-                if (!promoteTempFileAtomically(tempFile, destFile)) {
+                if (!promoteModelCandidateAtomically(tempFile, destFile)) {
                     emit(DownloadState.Error("Failed to finalize ${file.name}", retryable = true))
                     return false
                 }
@@ -878,13 +879,101 @@ internal fun promoteTempFileAtomically(
             StandardCopyOption.ATOMIC_MOVE,
         )
         true
-    } catch (_: Exception) {
-        if (destinationFile.exists() && !destinationFile.delete()) {
+    } catch (_: AtomicMoveNotSupportedException) {
+        try {
+            Files.move(
+                tempFile.toPath(),
+                destinationFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+            true
+        } catch (_: Exception) {
             return false
         }
-        tempFile.renameTo(destinationFile)
+    } catch (_: Exception) {
+        false
     }
 }
+
+internal const val LAST_WORKING_MODEL_SUFFIX = ".last-working"
+internal const val MODEL_ROLLBACK_MARKER = ".rollback-in-progress"
+private const val MODEL_ROLLBACK_TEMP_SUFFIX = ".rollback-copy"
+
+/** Keeps the prior artifact beside a candidate until native recognizer initialization confirms it. */
+internal fun promoteModelCandidateAtomically(
+    candidateFile: File,
+    destinationFile: File,
+): Boolean {
+    val modelDirectory = destinationFile.parentFile ?: return false
+    if (!recoverInterruptedModelRollback(modelDirectory)) return false
+    val backup = File(modelDirectory, "${destinationFile.name}$LAST_WORKING_MODEL_SUFFIX")
+    if (destinationFile.exists() && !backup.exists()) {
+        if (!promoteTempFileAtomically(destinationFile, backup)) return false
+    }
+    if (promoteTempFileAtomically(candidateFile, destinationFile)) return true
+    if (backup.exists()) rollbackModelActivation(modelDirectory)
+    return false
+}
+
+internal fun confirmModelActivation(modelDirectory: File) {
+    modelDirectory.listFiles { file -> file.name.endsWith(LAST_WORKING_MODEL_SUFFIX) }
+        .orEmpty()
+        .forEach(File::delete)
+}
+
+internal fun hasPendingModelActivation(modelDirectory: File): Boolean =
+    modelDirectory.listFiles { file -> file.name.endsWith(LAST_WORKING_MODEL_SUFFIX) }
+        .orEmpty()
+        .isNotEmpty()
+
+internal fun rollbackModelActivation(modelDirectory: File): Boolean {
+    val backups =
+        modelDirectory.listFiles { file -> file.name.endsWith(LAST_WORKING_MODEL_SUFFIX) }
+            .orEmpty()
+    val marker = File(modelDirectory, MODEL_ROLLBACK_MARKER)
+    if (backups.isEmpty()) {
+        marker.delete()
+        return true
+    }
+    if (!writeRollbackMarker(marker)) return false
+
+    val restored =
+        backups.all { backup ->
+            val destination = File(modelDirectory, backup.name.removeSuffix(LAST_WORKING_MODEL_SUFFIX))
+            val rollbackCopy = File(modelDirectory, "${destination.name}$MODEL_ROLLBACK_TEMP_SUFFIX")
+            runCatching {
+                Files.copy(backup.toPath(), rollbackCopy.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                promoteTempFileAtomically(rollbackCopy, destination)
+            }.getOrDefault(false).also { rollbackCopy.delete() }
+        }
+    if (!restored) return false
+
+    backups.forEach(File::delete)
+    if (backups.any(File::exists)) return false
+    if (!marker.delete() && marker.exists()) return false
+    return restored
+}
+
+internal fun recoverInterruptedModelRollback(modelDirectory: File): Boolean {
+    val marker = File(modelDirectory, MODEL_ROLLBACK_MARKER)
+    val interruptedPromotion =
+        modelDirectory.listFiles { file -> file.name.endsWith(LAST_WORKING_MODEL_SUFFIX) }
+            .orEmpty()
+            .any { backup ->
+                !File(modelDirectory, backup.name.removeSuffix(LAST_WORKING_MODEL_SUFFIX)).exists()
+            }
+    return (!marker.exists() && !interruptedPromotion) || rollbackModelActivation(modelDirectory)
+}
+
+private fun writeRollbackMarker(marker: File): Boolean =
+    runCatching {
+        marker.parentFile?.mkdirs()
+        FileOutputStream(marker).use { output ->
+            output.write(1)
+            output.fd.sync()
+        }
+        true
+    }.getOrDefault(false)
 
 internal fun computeSha256(file: File): String {
     val digest = MessageDigest.getInstance("SHA-256")

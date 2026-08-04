@@ -168,4 +168,53 @@ class ModelDownloaderTest {
             file.setReadable(true)
         }
     }
+
+    @Test
+    fun `candidate activation keeps the prior artifact until confirmation`() {
+        val destination = File(testDir, "encoder.onnx").apply { writeText("working") }
+        val candidate = File(testDir, "encoder.download").apply { writeText("candidate") }
+
+        assertTrue(promoteModelCandidateAtomically(candidate, destination))
+        assertEquals("candidate", destination.readText())
+        assertEquals("working", File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").readText())
+
+        confirmModelActivation(testDir)
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+    }
+
+    @Test
+    fun `failed native initialization can restore the last working artifact`() {
+        val destination = File(testDir, "encoder.onnx").apply { writeText("working") }
+        val candidate = File(testDir, "encoder.download").apply { writeText("bad candidate") }
+        assertTrue(promoteModelCandidateAtomically(candidate, destination))
+
+        assertTrue(rollbackModelActivation(testDir))
+
+        assertEquals("working", destination.readText())
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+    }
+
+    @Test
+    fun `interrupted rollback is finished before native initialization retries`() {
+        val destination = File(testDir, "encoder.onnx").apply { writeText("bad candidate") }
+        File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").writeText("working")
+        File(testDir, MODEL_ROLLBACK_MARKER).writeText("1")
+
+        assertTrue(recoverInterruptedModelRollback(testDir))
+
+        assertEquals("working", destination.readText())
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+        assertFalse(File(testDir, MODEL_ROLLBACK_MARKER).exists())
+    }
+
+    @Test
+    fun `interrupted candidate promotion restores a missing active artifact`() {
+        val destination = File(testDir, "encoder.onnx")
+        File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").writeText("working")
+
+        assertTrue(recoverInterruptedModelRollback(testDir))
+
+        assertEquals("working", destination.readText())
+        assertFalse(File(testDir, "encoder.onnx$LAST_WORKING_MODEL_SUFFIX").exists())
+    }
 }

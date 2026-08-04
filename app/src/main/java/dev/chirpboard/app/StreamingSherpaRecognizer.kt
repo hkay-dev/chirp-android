@@ -14,6 +14,11 @@ import com.k2fsa.sherpa.onnx.OnlineStream
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.transcription.StreamingTranscriptionSession
+import dev.chirpboard.app.download.confirmModelActivation
+import dev.chirpboard.app.download.hasPendingModelActivation
+import dev.chirpboard.app.download.promoteModelCandidateAtomically
+import dev.chirpboard.app.download.recoverInterruptedModelRollback
+import dev.chirpboard.app.download.rollbackModelActivation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -27,9 +32,6 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.nio.file.Files
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -58,40 +60,51 @@ class StreamingSherpaRecognizerProvider(
                 return@withLock true
             }
             val modelDir = modelStore.ensureAvailable() ?: return@withLock false
-            runCatching {
-                withContext(previewDispatcher) {
-                    val model =
-                        OnlineModelConfig(
-                            transducer =
-                                OnlineTransducerModelConfig(
-                                    encoder = File(modelDir, ENCODER).absolutePath,
-                                    decoder = File(modelDir, DECODER).absolutePath,
-                                    joiner = File(modelDir, JOINER).absolutePath,
-                                ),
-                            tokens = File(modelDir, TOKENS).absolutePath,
-                            numThreads = 1,
-                            debug = false,
-                            provider = "cpu",
-                            modelType = "zipformer",
-                        )
-                    recognizer =
-                        OnlineRecognizer(
-                            assetManager = null,
-                            config =
-                                OnlineRecognizerConfig(
-                                    featConfig = FeatureConfig(sampleRate = 16_000, featureDim = 80),
-                                    modelConfig = model,
-                                    enableEndpoint = false,
-                                    decodingMethod = "greedy_search",
-                                ),
-                        )
+            if (!recoverInterruptedModelRollback(modelDir)) return@withLock false
+            for (attempt in 0..1) {
+                try {
+                    withContext(previewDispatcher) {
+                        val model =
+                            OnlineModelConfig(
+                                transducer =
+                                    OnlineTransducerModelConfig(
+                                        encoder = File(modelDir, ENCODER).absolutePath,
+                                        decoder = File(modelDir, DECODER).absolutePath,
+                                        joiner = File(modelDir, JOINER).absolutePath,
+                                    ),
+                                tokens = File(modelDir, TOKENS).absolutePath,
+                                numThreads = 1,
+                                debug = false,
+                                provider = "cpu",
+                                modelType = "zipformer",
+                            )
+                        val initializedRecognizer =
+                            OnlineRecognizer(
+                                assetManager = null,
+                                config =
+                                    OnlineRecognizerConfig(
+                                        featConfig = FeatureConfig(sampleRate = 16_000, featureDim = 80),
+                                        modelConfig = model,
+                                        enableEndpoint = false,
+                                        decodingMethod = "greedy_search",
+                                    ),
+                            )
+                        confirmModelActivation(modelDir)
+                        recognizer = initializedRecognizer
+                    }
+                    return@withLock true
+                } catch (failure: CancellationException) {
+                    throw failure
+                } catch (failure: Throwable) {
+                    Log.w(TAG, "Streaming preview recognizer is unavailable", failure)
+                    val canRetryLastWorking = attempt == 0 && hasPendingModelActivation(modelDir)
+                    if (!canRetryLastWorking || !rollbackModelActivation(modelDir)) {
+                        return@withLock false
+                    }
+                    Log.i(TAG, "Retrying streaming recognizer with the last working model")
                 }
-                true
-            }.getOrElse { failure ->
-                if (failure is CancellationException) throw failure
-                Log.w(TAG, "Streaming preview recognizer is unavailable", failure)
-                false
             }
+            false
         }
 
     override suspend fun openSession(sampleRate: Int): StreamingTranscriptionSession? {
@@ -324,16 +337,7 @@ internal fun replaceDownloadedFile(
     temporary: File,
     target: File,
 ) {
-    try {
-        Files.move(
-            temporary.toPath(),
-            target.toPath(),
-            StandardCopyOption.ATOMIC_MOVE,
-            StandardCopyOption.REPLACE_EXISTING,
-        )
-    } catch (_: AtomicMoveNotSupportedException) {
-        Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
+    check(promoteModelCandidateAtomically(temporary, target)) { "Could not activate streaming model candidate" }
 }
 
 internal data class StreamingModelFile(
