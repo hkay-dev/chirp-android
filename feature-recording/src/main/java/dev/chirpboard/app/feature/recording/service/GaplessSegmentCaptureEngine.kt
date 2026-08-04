@@ -55,6 +55,9 @@ interface GaplessSegmentCaptureEngine {
     fun stopAndFinalizeBounded(timeoutMs: Long): CaptureStopResult =
         BoundedCaptureStop.stop(this, timeoutMs)
 
+    /** Pushes the active segment's bytes to stable storage. */
+    fun checkpointDurability(): Boolean = true
+
     fun releaseWithoutSave()
 
     /**

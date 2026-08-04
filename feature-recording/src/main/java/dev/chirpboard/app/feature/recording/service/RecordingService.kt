@@ -1381,6 +1381,7 @@ class RecordingService : Service() {
                 scope = serviceScope,
                 sessionIdProvider = { currentSessionId },
                 activeFileProvider = { currentRecordingFile },
+                durabilityCheckpoint = { segmentCapture?.checkpointDurability() ?: true },
             )
     }
 
@@ -1572,7 +1573,17 @@ class RecordingService : Service() {
                 while (isActive) {
                     delay(15_000)
                     // StatFs is disk-class work; keep it off the Main-dispatcher service scope.
-                    val level = withContext(Dispatchers.IO) { storageMonitor.checkAvailableStorage() }.level
+                    val level =
+                        try {
+                            withContext(Dispatchers.IO) { storageMonitor.checkAvailableStorage() }.level
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // A transient StatFs failure must not permanently disable the
+                            // low-storage guard for the rest of a long recording.
+                            Log.w(TAG, "Recording storage check failed", e)
+                            continue
+                        }
                     when (level) {
                         StorageCheckLevel.LOW ->
                             if (!serviceEvents.storageLow.value) {

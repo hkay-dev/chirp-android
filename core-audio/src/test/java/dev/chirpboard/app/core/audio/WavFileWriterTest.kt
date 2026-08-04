@@ -39,6 +39,20 @@ class WavFileWriterTest {
     }
 
     @Test
+    fun `durability checkpoint keeps live WAV repairable`() {
+        val file = File(temporaryFolder.root, "checkpointed.wav")
+        val writer = WavFileWriter(file, sampleRate = 16_000)
+        writer.appendPcm16(ByteArray(4096) { 1 }, 4096)
+
+        writer.checkpointDurability()
+
+        assertTrue(WavFileWriter.hasValidHeader(file))
+        assertFalse(WavFileWriter.hasAccurateHeader(file))
+        writer.close()
+        assertTrue(WavFileWriter.hasAccurateHeader(file))
+    }
+
+    @Test
     fun `repairHeader fixes stale sizes while preserving sample rate`() {
         val file = File(temporaryFolder.root, "stale.wav")
         WavFileWriter(file, sampleRate = 48_000).use { writer ->

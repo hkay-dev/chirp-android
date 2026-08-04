@@ -27,6 +27,7 @@ class WavFileWriter(
         writeCanonicalHeader(randomAccessFile, sampleRate, dataBytes = 0L)
     }
 
+    @Synchronized
     fun appendPcm16(buffer: ByteArray, size: Int) {
         ensureWavSizeWithinLimit(dataBytesWritten, size.toLong())
         randomAccessFile.seek(WAV_HEADER_BYTES + dataBytesWritten)
@@ -34,13 +35,24 @@ class WavFileWriter(
         dataBytesWritten += size
     }
 
+    @Synchronized
     fun finalizeHeader() {
         writeCanonicalHeader(randomAccessFile, sampleRate, dataBytesWritten)
+    }
+
+    /**
+     * Pushes live PCM bytes to stable storage without finalizing the still-growing WAV
+     * header. Startup recovery repairs its declared sizes from the durable file length.
+     */
+    @Synchronized
+    fun checkpointDurability() {
+        randomAccessFile.fd.sync()
     }
 
     val totalBytes: Long
         get() = WAV_HEADER_BYTES + dataBytesWritten
 
+    @Synchronized
     override fun close() {
         try {
             finalizeHeader()

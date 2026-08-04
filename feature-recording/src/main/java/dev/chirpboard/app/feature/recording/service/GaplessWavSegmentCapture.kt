@@ -261,6 +261,16 @@ class GaplessWavSegmentCapture(
         }
     }
 
+    override fun checkpointDurability(): Boolean {
+        val activeWriter = synchronized(lock) { writer } ?: return true
+        return runCatching {
+            // WavFileWriter serializes this sync with appends and close. A concurrent
+            // segment transition may close it after the snapshot, which is harmless and
+            // retried at the next heartbeat for the new writer.
+            activeWriter.checkpointDurability()
+        }.isSuccess
+    }
+
     override fun releaseWithoutSave() {
         synchronized(controlLock) {
             synchronized(lock) { cancelPendingRotationLocked() }
