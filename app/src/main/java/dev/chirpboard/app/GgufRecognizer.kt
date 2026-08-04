@@ -38,6 +38,9 @@ internal class GgufRecognizer(
     @Volatile private var native: GgufNativeRecognizer? = null
     private val mutex = Mutex()
     private val released = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val threadCount: Int by lazy(LazyThreadSafetyMode.NONE) {
+        resolvedGgufThreadCount(decodeControls)
+    }
     var actualComputeBackend: LocalSpeechComputeBackend? = null
         private set
 
@@ -51,11 +54,10 @@ internal class GgufRecognizer(
                 val model = downloader.resolvedGgufModelFile(config.modelId) ?: return@withLock false
                 val candidate = GgufNativeRecognizer()
                 val started = SystemClock.elapsedRealtime()
-                val threads = resolvedGgufThreadCount(decodeControls)
                 val loaded =
                     candidate.load(
                         modelPath = model.absolutePath,
-                        threads = threads,
+                        threads = threadCount,
                         useVulkan = config.computeBackend == LocalSpeechComputeBackend.VULKAN,
                     )
                 Log.i(
@@ -63,7 +65,7 @@ internal class GgufRecognizer(
                     "backend=gguf-${config.modelId.persistedValue} phase=load " +
                         "requestedCompute=${config.computeBackend.persistedValue} " +
                         "actualCompute=${candidate.loadedBackend()} cpuFallback=${candidate.usedCpuFallback()} " +
-                        "elapsedMs=${SystemClock.elapsedRealtime() - started} threads=$threads success=$loaded",
+                        "elapsedMs=${SystemClock.elapsedRealtime() - started} threads=$threadCount success=$loaded",
                 )
                 if (loaded) {
                     native = candidate
@@ -328,7 +330,7 @@ internal class GgufRecognizer(
                     nativeResult?.telemetry.toDiagnostic(
                         modelId = config.modelId.persistedValue,
                         computeBackend = actualComputeBackend?.persistedValue ?: config.computeBackend.persistedValue,
-                        threadCount = resolvedGgufThreadCount(decodeControls),
+                        threadCount = threadCount,
                         source = source,
                         audioDurationMs = audioDurationMs,
                         totalMs = elapsedMs,
@@ -379,7 +381,7 @@ internal class GgufRecognizer(
         val loaded =
             candidate.load(
                 modelPath = model.absolutePath,
-                threads = resolvedGgufThreadCount(decodeControls),
+                threads = threadCount,
                 useVulkan = false,
             )
         if (!loaded) {

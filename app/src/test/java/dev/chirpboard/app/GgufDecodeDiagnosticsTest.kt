@@ -4,6 +4,8 @@ import dev.chirpboard.app.gguf.GgufNativeDecodeTelemetry
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.nio.file.Files
+import java.util.ArrayDeque
+import java.util.concurrent.Executor
 
 class GgufDecodeDiagnosticsTest {
     @Test
@@ -88,5 +90,31 @@ class GgufDecodeDiagnosticsTest {
 
         assertEquals(listOf(entry), store.read())
         directory.deleteRecursively()
+    }
+
+    @Test
+    fun `diagnostic writes coalesce a burst into one current snapshot`() {
+        val executor = QueuedExecutor()
+        var writes = 0
+        val coalescer = GgufDiagnosticWriteCoalescer(executor) { writes++ }
+
+        repeat(100) { coalescer.requestWrite() }
+
+        assertEquals(1, executor.pendingCount)
+        executor.runAll()
+        assertEquals(1, writes)
+    }
+
+    private class QueuedExecutor : Executor {
+        private val tasks = ArrayDeque<Runnable>()
+        val pendingCount: Int get() = tasks.size
+
+        override fun execute(command: Runnable) {
+            tasks.addLast(command)
+        }
+
+        fun runAll() {
+            while (tasks.isNotEmpty()) tasks.removeFirst().run()
+        }
     }
 }

@@ -23,7 +23,7 @@ class GgufNativeBenchmarkTest {
         val audio = requiredFile(arguments.getString("audioPath"), "audioPath")
         val modelLabel = arguments.getString("modelLabel") ?: model.nameWithoutExtension
         val threads = arguments.getString("threads")?.toIntOrNull()?.coerceIn(1, 8) ?: 4
-        val warmRuns = arguments.getString("warmRuns")?.toIntOrNull()?.coerceIn(1, 10) ?: 3
+        val warmRuns = arguments.getString("warmRuns")?.toIntOrNull()?.coerceIn(0, 10) ?: 3
         val useVulkan = arguments.getString("backend") == "vulkan"
         val sampleCount = audio.length() / Float.SIZE_BYTES
         assertTrue("PCM float input must contain complete samples", audio.length() % Float.SIZE_BYTES == 0L)

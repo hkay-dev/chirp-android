@@ -127,7 +127,7 @@ class SelectableLocalTranscriberProvider(
             }
             if (backend == LocalSpeechComputeBackend.VULKAN && !GgufNativeCapabilities.supportsVulkan) {
                 return@withLock LocalSpeechComputeBackendActivationResult.Failed(
-                    "This alpha build does not include the Vulkan native backend",
+                    "This beta build does not include the Vulkan native backend",
                 )
             }
             val priorBackend = selectionStore.selectedComputeBackend.value

@@ -3,7 +3,9 @@ package dev.chirpboard.app
 import android.util.Log
 import dev.chirpboard.app.gguf.GgufNativeDecodeTelemetry
 import java.io.File
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal enum class GgufDecodeSource {
     MEMORY,
@@ -75,6 +77,10 @@ internal object GgufDecodeDiagnostics {
             Thread(task, "chirp-gguf-diagnostics").apply { isDaemon = true }
         }
     @Volatile private var store: GgufDecodeDiagnosticStore? = null
+    private val writeCoalescer =
+        GgufDiagnosticWriteCoalescer(persistenceExecutor) {
+            store?.write(history.snapshot())
+        }
 
     fun installPersistence(file: File) {
         persistenceExecutor.execute {
@@ -87,10 +93,40 @@ internal object GgufDecodeDiagnostics {
 
     fun record(entry: GgufDecodeDiagnostic) {
         history.add(entry)
-        persistenceExecutor.execute { store?.write(history.snapshot()) }
+        writeCoalescer.requestWrite()
     }
 
     fun snapshot(): List<GgufDecodeDiagnostic> = history.snapshot()
+}
+
+/** Collapses bursts of recovery-chunk telemetry into the fewest current-snapshot writes. */
+internal class GgufDiagnosticWriteCoalescer(
+    private val executor: Executor,
+    private val writeSnapshot: () -> Unit,
+) {
+    private val dirty = AtomicBoolean(false)
+    private val scheduled = AtomicBoolean(false)
+
+    fun requestWrite() {
+        dirty.set(true)
+        scheduleIfNeeded()
+    }
+
+    private fun scheduleIfNeeded() {
+        if (scheduled.compareAndSet(false, true)) executor.execute(::drain)
+    }
+
+    private fun drain() {
+        try {
+            do {
+                dirty.set(false)
+                writeSnapshot()
+            } while (dirty.get())
+        } finally {
+            scheduled.set(false)
+            if (dirty.get()) scheduleIfNeeded()
+        }
+    }
 }
 
 internal class GgufDecodeDiagnosticStore(private val file: File) {

@@ -1,4 +1,4 @@
-# Chirp 4.0 alpha local transcription contract
+# Chirp 4.0 beta local transcription contract
 
 This contract is a release gate. Performance work must not weaken content preservation.
 
@@ -35,3 +35,11 @@ This contract is a release gate. Performance work must not weaken content preser
 - Compare identical audio with alternating run order and matched thermal conditions.
 - Keep short-dictation latency separate from long-file throughput.
 - Do not accept a speed win that causes missing, duplicated, reordered, or silently replaced words.
+
+## Beta release gates
+
+- A beta build updates the existing 4.0 alpha package in place and keeps its app data and IME identity.
+- The selected recognizer begins warming shortly after process startup, independently of recovery and janitorial work.
+- Content-free diagnostics remain bounded and must not queue one disk rewrite per recovery chunk.
+- The reliability matrix, minified beta build, installed-package upgrade, and launch smoke test must pass.
+- Experimental backends stay capability-gated until the shipped native binary and device benchmark prove them.

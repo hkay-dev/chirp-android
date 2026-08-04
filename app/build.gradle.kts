@@ -15,9 +15,9 @@ android {
         applicationId = "dev.chirpboard.app"
         minSdk = 36
         targetSdk = 36
-        versionCode = 40
-        versionName = "4.0-alpha.1"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        versionCode = 41
+        versionName = "4.0-beta.1"
+        testInstrumentationRunner = "dev.chirpboard.app.ChirpTestRunner"
 
         val cloudBaseUrl = providers.gradleProperty("CHIRP_CLOUD_BASE_URL").orElse("").get()
         buildConfigField(
@@ -80,8 +80,10 @@ android {
             buildConfigField("boolean", "GGUF_TRIAL", "true")
         }
 
-        create("alpha") {
+        create("beta") {
             initWith(getByName("release"))
+            // Keep the alpha package ID for an in-place upgrade. Changing it would strand the
+            // user's selected IME, preferences, API keys, diagnostics, and pending recovery work.
             applicationIdSuffix = ".alpha"
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "GGUF_TRIAL", "false")

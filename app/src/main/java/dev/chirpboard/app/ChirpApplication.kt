@@ -31,6 +31,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
 
+internal const val DISABLE_STARTUP_RECOGNIZER_PREWARM_PROPERTY =
+    "chirp.instrumentation.disableStartupRecognizerPrewarm"
+
 @HiltAndroidApp
 class ChirpApplication : Application(), Configuration.Provider {
     
@@ -104,7 +107,25 @@ class ChirpApplication : Application(), Configuration.Provider {
             Log.d(TAG, "API key migration result: $result")
         }
 
-        // START-2: the recovery/janitorial machinery (queue reconciliation kickoff, model-warmup
+        // The selected recognizer warms independently of recovery. A bounded delay protects the
+        // first IME frame, yet avoids letting journal scans or queue repair postpone model load.
+        applicationScope.launch {
+            delay(RECOGNIZER_PREWARM_DELAY_MS)
+            try {
+                if (System.getProperty(DISABLE_STARTUP_RECOGNIZER_PREWARM_PROPERTY) == "true") return@launch
+                if (GgufNativeSessionReservation.isReserved()) return@launch
+                val provider = transcriberProvider.get()
+                if (provider.isModelDownloaded() && !provider.isReady()) {
+                    val loaded = provider.initialize()
+                    Log.i(TAG, "Startup speech recognizer prewarm loaded=$loaded")
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to prewarm the selected speech recognizer", e)
+            }
+        }
+
+        // START-2: the recovery/janitorial machinery (queue reconciliation kickoff, readiness
         // candidate detection, journal pruning + recursive orphan sweep) does not need to complete
         // before the keyboard renders, yet it shares this process with the IME — so on a
         // keyboard-only cold start it was racing view inflation for CPU and disk IO. Defer it past
@@ -188,20 +209,6 @@ class ChirpApplication : Application(), Configuration.Provider {
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to evaluate speech model warmup candidates on startup", e)
-                }
-            }
-
-            launch {
-                try {
-                    if (GgufNativeSessionReservation.isReserved()) return@launch
-                    val provider = transcriberProvider.get()
-                    if (provider.isModelDownloaded() && !provider.isReady()) {
-                        val loaded = provider.initialize()
-                        Log.i(TAG, "Startup speech recognizer prewarm loaded=$loaded")
-                    }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e(TAG, "Failed to prewarm the selected speech recognizer", e)
                 }
             }
 
@@ -377,5 +384,6 @@ class ChirpApplication : Application(), Configuration.Provider {
          * shares this process). Short enough that recovery still happens promptly after launch.
          */
         private const val STARTUP_RECOVERY_DELAY_MS = 3_000L
+        private const val RECOGNIZER_PREWARM_DELAY_MS = 750L
     }
 }

@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 artifact_root="${CHIRP_BENCHMARK_ARTIFACTS:-/Users/harsha/Development/workspaces/ops_workspace/workbench/reports/chirp-gguf-benchmark}"
 package="dev.chirpboard.app"
-runner="$package.test/androidx.test.runner.AndroidJUnitRunner"
+runner="$package.test/dev.chirpboard.app.ChirpTestRunner"
 remote_root="/sdcard/Documents/.chirpboard/benchmarks"
 audio_name="vergecast-5min-16k-mono.f32pcm"
 kleidiai="${CHIRP_GGUF_KLEIDIAI:-true}"

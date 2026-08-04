@@ -23,6 +23,10 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Stop validation | Invalid M4A saved after failed finalize | `RecordingFileValidatorTest`, `RecordingStopOrchestratorTest` | `:feature-recording:testDebugUnitTest` |
 | Capture constraints | Storage exhaustion mid-session | `RecordingStorageMonitorTest` | `:core-audio:testDebugUnitTest` |
 | Input device policy | Wrong mic route (BT over built-in) | `AudioInputDeviceSelectorTest` | `:core-audio:testDebugUnitTest` |
+| GGUF preserved audio | Continuous or mapped decode failure loses the authoritative source; recovery chunks grow without bound | `GgufPreservedPcmTest`, `ChunkedAudioProcessorTest`, `InlineTranscriptionCoordinatorImplTest` | `:app:testDebugUnitTest`, `:feature-transcription:testDebugUnitTest` |
+| GGUF watchdog and scheduling | Decode stalls forever, stale cancellation kills a later run, or worker policy changes silently | `GgufDecodeWatchdogTest`, `GgufDecodeDispatcherTest` | `:app:testDebugUnitTest` |
+| GGUF diagnostics | Recovery bursts queue unbounded disk rewrites or persist transcript content | `GgufDecodeDiagnosticsTest` | `:app:testDebugUnitTest` |
+| Beta packaging | Minification, native linkage, or resource shrinking breaks the promoted build | Minified beta assembly | `:app:assembleBeta` |
 | Stop timeout scaling | False timeout on long finalize | `RecordingStateManagerTest` | `:core-contracts:testDebugUnitTest` |
 | NoAudioFile stop DB hygiene | Empty capture leaves phantom RECORDING row | `RecordingServiceStopOutcomesTest.noAudioFile_deletesInProgressRowAndCompletes` | `:feature-recording:testDebugUnitTest` |
 | Stop timeout vs persist race | Late persist after timeout flips Error→Idle or duplicates row | `RecordingServiceStopOutcomesTest.staleGeneration_discardsPersistResultWithoutStateTransition` | `:feature-recording:testDebugUnitTest` |

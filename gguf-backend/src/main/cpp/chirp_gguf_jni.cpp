@@ -59,6 +59,7 @@ jlong begin_decode_locked() {
     if (g_session == nullptr) return 0;
     transcribe_reset_timings(g_session);
     const jlong operation_id = g_next_operation_id.fetch_add(1, std::memory_order_relaxed) + 1;
+    g_cancelled_operation_id.store(0, std::memory_order_release);
     g_active_operation_id.store(operation_id, std::memory_order_release);
     return operation_id;
 }

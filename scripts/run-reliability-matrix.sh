@@ -7,6 +7,7 @@ set -euo pipefail
 ./gradlew \
 	detekt \
 	lintDebug \
+	:app:assembleBeta \
 	:core-contracts:testDebugUnitTest \
 	:core-audio:testDebugUnitTest \
 	:core-playback:testDebugUnitTest \

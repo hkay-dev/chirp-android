@@ -101,12 +101,17 @@ and load bytes, though they do not currently improve transcription latency on th
 KleidiAI kernels are enabled by default; `-Pchirp.gguf.kleidiai=false` keeps a reproducible generic
 CPU control build, and generic GGML kernels stay linked as the runtime fallback. On the same Q8
 clip, KleidiAI cut cold decode from 61.8 to 55.1 seconds and warm decode from the 66.0 to 68.0
-second range to 57.0 seconds with an identical transcript digest. Vulkan selection is wired as an
-alpha experiment with automatic load-time
+second range to 57.0 seconds with an identical transcript digest. Vulkan selection is wired as a
+beta experiment with automatic load-time
 and decode-time CPU recovery, though the pinned Android native build does not yet ship Vulkan.
 The upstream shader generator currently emits declarations with no linked shader data in this
 embedded Android build, so selecting Vulkan reports the actual CPU fallback rather than pretending
 GPU work ran.
+
+An explicit `POSIX_FADV_WILLNEED` plus `MADV_WILLNEED` mapped-audio experiment was rejected during
+the beta pass. Its clean-device Q8 run took 57.6 seconds cold and 69.2 seconds warm with the same
+transcript digest, versus the established 55.1-second cold and 57.0-second warm KleidiAI result.
+The existing sequential mapping hint remains; beta does not keep an unmeasured read-ahead tweak.
 
 The pinned 110M GGUF converter drops the hybrid model's auxiliary CTC head and exports its TDT head.
 A genuine CTC-only GGUF option therefore remains gated until a comparably small verified artifact
