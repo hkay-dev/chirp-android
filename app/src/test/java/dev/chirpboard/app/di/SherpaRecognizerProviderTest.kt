@@ -50,7 +50,7 @@ class SherpaRecognizerProviderTest {
 
     @Test
     fun `transcribe attempts a re-warm when the model files are present`() = runTest {
-        // PRF-2 defense in depth: after an idle release, a surface that goes straight to
+        // PRF-2 defense in depth: after a pressure release, a surface that goes straight to
         // transcribe must re-warm the shared recognizer rather than fail the dictation.
         mockkObject(RecognizerManager)
         every { RecognizerManager.peekReadyRecognizer() } returns null

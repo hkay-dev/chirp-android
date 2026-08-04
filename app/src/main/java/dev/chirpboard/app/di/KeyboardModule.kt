@@ -9,13 +9,16 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.RecognizerManager
+import dev.chirpboard.app.SelectableLocalTranscriberProvider
+import dev.chirpboard.app.SelectableStreamingTranscriberProvider
 import dev.chirpboard.app.SherpaRecognizer
 import dev.chirpboard.app.StreamingSherpaRecognizerProvider
 import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import dev.chirpboard.app.core.modelreadiness.LocalRecognizerWarmWindow
-import dev.chirpboard.app.RecognizerIdleReleasePolicy
 import dev.chirpboard.app.download.ModelDownloader
 import javax.inject.Singleton
 
@@ -27,22 +30,42 @@ import javax.inject.Singleton
 object KeyboardModule {
     @Provides
     @Singleton
-    fun provideLocalRecognizerWarmWindow(
-        policy: RecognizerIdleReleasePolicy,
-    ): LocalRecognizerWarmWindow = policy
+    fun provideLocalRecognizerWarmWindow(): LocalRecognizerWarmWindow =
+        object : LocalRecognizerWarmWindow {
+            override fun onImeVisibilityChanged(visible: Boolean) = Unit
+        }
+
+    @Provides
+    @Singleton
+    fun provideSelectableLocalTranscriberProvider(
+        @ApplicationContext context: Context,
+        modelDownloader: ModelDownloader,
+        selectionStore: LocalSpeechModelSelectionStore,
+    ): SelectableLocalTranscriberProvider =
+        SelectableLocalTranscriberProvider(context, modelDownloader, selectionStore)
 
     @Provides
     @Singleton
     fun provideTranscriberProvider(
-        @ApplicationContext context: Context,
-        modelDownloader: ModelDownloader,
-    ): TranscriberProvider = BuildTranscriberFactory.create(context, modelDownloader)
+        provider: SelectableLocalTranscriberProvider,
+    ): TranscriberProvider = provider
+
+    @Provides
+    @Singleton
+    fun provideLocalSpeechModelActivator(
+        provider: SelectableLocalTranscriberProvider,
+    ): LocalSpeechModelActivator = provider
 
     @Provides
     @Singleton
     fun provideStreamingTranscriberProvider(
         @ApplicationContext context: Context,
-    ): StreamingTranscriberProvider = BuildTranscriberFactory.createStreaming(context)
+        selectionStore: LocalSpeechModelSelectionStore,
+    ): StreamingTranscriberProvider =
+        SelectableStreamingTranscriberProvider(
+            selectionStore = selectionStore,
+            sherpa = StreamingSherpaRecognizerProvider(context),
+        )
 }
 
 /**
@@ -76,15 +99,11 @@ class SherpaRecognizerProvider(
     }
 
     /**
-     * Transcribes under a [RecognizerManager] usage lease so the idle/pressure release paths
-     * (PRF-1/PRF-2) treat the recognizer as in-use for the whole decode and refresh its
-     * recency stamp when the work completes.
+     * Transcribes under a [RecognizerManager] usage lease so pressure and model-switch release
+     * paths treat the recognizer as in use for the whole decode.
      *
-     * Defense in depth for the idle release: if the shared recognizer was freed since this
-     * surface last initialized (e.g. the keyboard sat open past the idle cutoff and no IME
-     * re-bind re-warmed it), re-warm it here instead of failing the dictation — a 10-30s
-     * masked model load is always better than returning ModelUnavailable for speech the user
-     * already produced. Only attempted when the model files are actually present.
+     * If confirmed pressure freed the shared recognizer, re-warm it here instead of failing a
+     * dictation whose complete audio has already been saved.
      */
     override suspend fun transcribe(
         samples: FloatArray,
@@ -128,14 +147,12 @@ class SherpaRecognizerProvider(
     /**
      * Frees the shared recognizer from memory. LOAD-1 / KBD-1: this releases the process-global
      * [RecognizerManager] singleton shared by the keyboard and the recognition Activity, so it must
-     * only be reached from an explicit user "free model memory" / delete-model intent — never from
-     * a single surface's start/teardown, which would force the next keyboard dictation to
-     * cold-reload the model. The OS-pressure and idle-timeout paths do NOT come through here; they
-     * use the gated `RecognizerManager.releaseIfUnused` via `RecognizerIdleReleasePolicy`.
+     * only be reached from an explicit model switch or delete-model intent, never from a single
+     * surface's start or teardown. Confirmed pressure uses the separate residency policy.
      */
     override suspend fun release() {
         recognizer = null
-        RecognizerManager.releaseRecognizer()
+        RecognizerManager.releaseForModelSwitchIfUnused()
     }
 
 }

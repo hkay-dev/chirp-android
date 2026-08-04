@@ -1,6 +1,6 @@
 package dev.chirpboard.app.gguf
 
-/** Narrow JNI owner for the trial-only transcribe.cpp backend. */
+/** Narrow JNI owner for the transcribe.cpp backend. */
 class GgufNativeRecognizer {
     init {
         System.loadLibrary("c++_shared")
@@ -13,6 +13,8 @@ class GgufNativeRecognizer {
 
     fun transcribe(samples: FloatArray): String? = nativeTranscribe(samples)
 
+    fun transcribeBatch(samples: Array<FloatArray>): Array<String>? = nativeTranscribeBatch(samples)
+
     fun lastError(): String = nativeLastError()
 
     fun release() = nativeRelease()
@@ -22,6 +24,8 @@ class GgufNativeRecognizer {
     private external fun nativeIsLoaded(): Boolean
 
     private external fun nativeTranscribe(samples: FloatArray): String?
+
+    private external fun nativeTranscribeBatch(samples: Array<FloatArray>): Array<String>?
 
     private external fun nativeLastError(): String
 

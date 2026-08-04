@@ -99,6 +99,40 @@ class ChunkedAudioProcessor(
     }
 
     /**
+     * Bounded native-batch recovery path. Only [batchSize] chunks are retained at once, keeping
+     * long recordings from duplicating their full PCM in memory.
+     */
+    suspend fun processAndJoinBatched(
+        audioSource: Flow<FloatArray>,
+        batchSize: Int,
+        transcribeBatch: suspend (Array<FloatArray>) -> List<String>?,
+    ): String? {
+        require(batchSize > 0) { "batchSize must be positive" }
+        val parts = mutableListOf<String>()
+        val pending = ArrayList<FloatArray>(batchSize)
+        var failed = false
+
+        suspend fun flush() {
+            if (pending.isEmpty() || failed) return
+            val batch = pending.toTypedArray()
+            pending.clear()
+            val decoded = transcribeBatch(batch)
+            if (decoded == null || decoded.size != batch.size) {
+                failed = true
+                return
+            }
+            parts += decoded.filter(String::isNotBlank)
+        }
+
+        consumeChunks(audioSource) { chunk, _ ->
+            pending += chunk
+            if (pending.size == batchSize) flush()
+        }
+        flush()
+        return if (failed) null else joinTranscripts(parts)
+    }
+
+    /**
      * Process and join all chunks into a single transcript with recording-relative timing.
      * Returns null timing when any chunk is untimed or the combined result fails integrity checks.
      */

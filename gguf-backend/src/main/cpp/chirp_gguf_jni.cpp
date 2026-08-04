@@ -3,6 +3,7 @@
 
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "transcribe.h"
 
@@ -80,10 +81,10 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribe(
     const jsize count = env->GetArrayLength(samples);
     if (count <= 0) return env->NewStringUTF("");
 
+    std::lock_guard<std::mutex> lock(g_mutex);
     jfloat * pcm = env->GetFloatArrayElements(samples, nullptr);
     if (pcm == nullptr) return nullptr;
 
-    std::lock_guard<std::mutex> lock(g_mutex);
     if (g_session == nullptr) {
         env->ReleaseFloatArrayElements(samples, pcm, JNI_ABORT);
         g_last_error = "recognizer is not loaded";
@@ -102,6 +103,93 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribe(
 
     const char * text = transcribe_full_text(g_session);
     return env->NewStringUTF(text == nullptr ? "" : text);
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
+    JNIEnv * env,
+    jobject,
+    jobjectArray sample_batches) {
+    if (sample_batches == nullptr) return nullptr;
+    const jsize count = env->GetArrayLength(sample_batches);
+    if (count <= 0) return nullptr;
+
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::vector<jfloatArray> arrays;
+    std::vector<jfloat *> pcm;
+    std::vector<const float *> pcm_const;
+    std::vector<int> lengths;
+    arrays.reserve(count);
+    pcm.reserve(count);
+    pcm_const.reserve(count);
+    lengths.reserve(count);
+
+    for (jsize i = 0; i < count; ++i) {
+        auto array = static_cast<jfloatArray>(env->GetObjectArrayElement(sample_batches, i));
+        if (array == nullptr || env->GetArrayLength(array) <= 0) {
+            for (size_t j = 0; j < arrays.size(); ++j) {
+                env->ReleaseFloatArrayElements(arrays[j], pcm[j], JNI_ABORT);
+                env->DeleteLocalRef(arrays[j]);
+            }
+            g_last_error = "batch contains empty audio";
+            return nullptr;
+        }
+        jfloat * samples = env->GetFloatArrayElements(array, nullptr);
+        if (samples == nullptr) {
+            for (size_t j = 0; j < arrays.size(); ++j) {
+                env->ReleaseFloatArrayElements(arrays[j], pcm[j], JNI_ABORT);
+                env->DeleteLocalRef(arrays[j]);
+            }
+            env->DeleteLocalRef(array);
+            return nullptr;
+        }
+        arrays.push_back(array);
+        pcm.push_back(samples);
+        pcm_const.push_back(samples);
+        lengths.push_back(env->GetArrayLength(array));
+    }
+
+    if (g_session == nullptr) {
+        for (size_t i = 0; i < arrays.size(); ++i) {
+            env->ReleaseFloatArrayElements(arrays[i], pcm[i], JNI_ABORT);
+            env->DeleteLocalRef(arrays[i]);
+        }
+        g_last_error = "recognizer is not loaded";
+        return nullptr;
+    }
+
+    transcribe_run_params run_params;
+    transcribe_run_params_init(&run_params);
+    run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
+    const transcribe_status status =
+        transcribe_run_batch(g_session, pcm_const.data(), lengths.data(), count, &run_params);
+
+    for (size_t i = 0; i < arrays.size(); ++i) {
+        env->ReleaseFloatArrayElements(arrays[i], pcm[i], JNI_ABORT);
+        env->DeleteLocalRef(arrays[i]);
+    }
+    if (status != TRANSCRIBE_OK) {
+        set_error("transcribe_run_batch", status);
+        return nullptr;
+    }
+
+    jclass string_class = env->FindClass("java/lang/String");
+    jobjectArray result = env->NewObjectArray(count, string_class, nullptr);
+    for (jsize i = 0; i < count; ++i) {
+        const transcribe_status item_status = transcribe_batch_status(g_session, i);
+        if (item_status != TRANSCRIBE_OK) {
+            set_error("transcribe_batch_status", item_status);
+            env->DeleteLocalRef(result);
+            env->DeleteLocalRef(string_class);
+            return nullptr;
+        }
+        const char * text = transcribe_batch_full_text(g_session, i);
+        jstring item = env->NewStringUTF(text == nullptr ? "" : text);
+        env->SetObjectArrayElement(result, i, item);
+        env->DeleteLocalRef(item);
+    }
+    env->DeleteLocalRef(string_class);
+    return result;
 }
 
 extern "C" JNIEXPORT jstring JNICALL

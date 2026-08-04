@@ -15,8 +15,8 @@ android {
         applicationId = "dev.chirpboard.app"
         minSdk = 36
         targetSdk = 36
-        versionCode = 31
-        versionName = "3.1"
+        versionCode = 40
+        versionName = "4.0-alpha.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         val cloudBaseUrl = providers.gradleProperty("CHIRP_CLOUD_BASE_URL").orElse("").get()
@@ -78,6 +78,13 @@ android {
             versionNameSuffix = "-gguf-trial"
             matchingFallbacks += listOf("release")
             buildConfigField("boolean", "GGUF_TRIAL", "true")
+        }
+
+        create("alpha") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".alpha"
+            matchingFallbacks += listOf("release")
+            buildConfigField("boolean", "GGUF_TRIAL", "false")
         }
 
         getByName("debug") {
@@ -151,7 +158,7 @@ dependencies {
 
     // Sherpa-ONNX for speech recognition (local AAR)
     implementation(files("libs/sherpa-onnx-1.12.19.aar"))
-    "ggufTrialImplementation"(project(":gguf-backend"))
+    implementation(project(":gguf-backend"))
 
     // Compose - latest stable
     implementation(platform("androidx.compose:compose-bom:2025.01.01"))

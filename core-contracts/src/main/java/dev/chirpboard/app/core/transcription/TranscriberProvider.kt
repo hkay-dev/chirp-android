@@ -39,6 +39,11 @@ interface TranscriberProvider {
 
 }
 
+/** Optional backend capability for one authoritative whole-recording call. */
+interface ContinuousAudioTranscriberPreference {
+    fun prefersContinuousAudio(): Boolean
+}
+
 /**
  * Optional low-latency first pass used only for visible partial text. Implementations must own
  * separate model and synchronization state from [TranscriberProvider] so preview work can never
