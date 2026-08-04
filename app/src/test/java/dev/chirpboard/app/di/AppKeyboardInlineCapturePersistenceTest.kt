@@ -14,6 +14,9 @@ import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.repository.RecordingRepository
+import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
+import dev.chirpboard.app.feature.transcription.inline.COMMIT_REFUSED_MESSAGE
+import dagger.Lazy
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -175,6 +178,43 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
+    fun persist_commitRefusedMarksAndPostsTheResultNotification() =
+        runTest {
+            val root = createTempDir("keyboard-persist-commit-refused")
+            val repository = mockk<RecordingRepository>()
+            val savedRecording = CompletableDeferred<Recording>()
+            coEvery { repository.createRecordingWithTranscript(any(), any(), any()) } answers {
+                firstArg<Recording>().also(savedRecording::complete)
+            }
+            val delivery = mockk<TerminalRecordingNotificationDelivery>()
+            coEvery { delivery.deliverRequested(any()) } returns true
+            val deliveryLazy = mockk<Lazy<TerminalRecordingNotificationDelivery>>()
+            every { deliveryLazy.get() } returns delivery
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoderWritingFile(),
+                    recordingRepository = repository,
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                    terminalNotificationDelivery = deliveryLazy,
+                )
+
+            persistence.persist(
+                samples = floatArrayOf(0.1f, 0.2f),
+                rawText = "raw opening",
+                processedText = "Polished opening.",
+                errorMessage = COMMIT_REFUSED_MESSAGE,
+                reason = InlineCapturePersistReason.RESCUE,
+            )
+
+            val recording = savedRecording.await()
+            assertTrue(recording.notifyWhenReady)
+            assertTrue(recording.terminalNotificationPending)
+            coVerify(exactly = 1) { delivery.deliverRequested(recording.id) }
+        }
+
+    @Test
     fun persist_userCancelledRespectsSaveDisabledAndRetainsNothing() =
         runTest {
             val root = createTempDir("keyboard-persist-user-cancelled")
@@ -241,7 +281,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 rawText = "rescued dictation",
                 processedText = null,
                 errorMessage = "Couldn't insert dictated text into the field",
-                reason = InlineCapturePersistReason.RESCUE,
+                reason = InlineCapturePersistReason.COMPLETED,
             )
 
             val recording = savedRecording.await()
@@ -285,7 +325,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 rawText = "rescued dictation",
                 processedText = null,
                 errorMessage = "Couldn't insert dictated text into the field",
-                reason = InlineCapturePersistReason.RESCUE,
+                reason = InlineCapturePersistReason.COMPLETED,
             )
 
             val recording = savedRecording.await()
@@ -300,12 +340,12 @@ class AppKeyboardInlineCapturePersistenceTest {
         }
 
     @Test
-    fun persist_whenEncodingFailsWithoutTranscriptSavesNothing() =
+    fun persist_rescueEncodeFailureKeepsFileBackedSourceAndThrows() =
         runTest {
             val root = createTempDir("keyboard-persist-encode-fails-no-text")
             val audioEncoder =
                 mockk<AudioEncoder> {
-                    every { encode(any(), any(), any(), any(), any()) } returns false
+                    every { encodePcmFloatFile(any(), any(), any(), any(), any(), any()) } returns false
                 }
             val recordingRepository = mockk<RecordingRepository>(relaxed = true)
             val persistence =
@@ -316,18 +356,120 @@ class AppKeyboardInlineCapturePersistenceTest {
                     saveRecordings = true,
                     transcriptExportPort = transcriptExportPort(),
                 )
+            val sourceFile = File(root, "rescue-source.f32pcm").apply { writeText("audio") }
 
-            persistence.persist(
-                samples = floatArrayOf(0.1f, 0.2f),
-                rawText = null,
-                processedText = null,
-                errorMessage = "Dictation stop timed out",
-                reason = InlineCapturePersistReason.RESCUE,
-            )
+            var failed = false
+            try {
+                persistence.persistAudioSource(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = sourceFile.absolutePath,
+                            sampleCount = 2,
+                        ),
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = "Dictation stop timed out",
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+            } catch (e: java.io.IOException) {
+                failed = true
+            }
 
+            assertTrue(failed)
+            assertTrue(sourceFile.exists())
             assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
             coVerify(exactly = 0) { recordingRepository.createRecordingWithTranscript(any(), any(), any()) }
             coVerify(exactly = 0) { recordingRepository.insert(any()) }
+        }
+
+    @Test
+    fun persist_rescueEncoderSuccessWithoutOutputKeepsFileBackedSourceAndThrows() =
+        runTest {
+            val root = createTempDir("keyboard-persist-missing-encoded-output")
+            val audioEncoder =
+                mockk<AudioEncoder> {
+                    every { encodePcmFloatFile(any(), any(), any(), any(), any(), any()) } returns true
+                }
+            val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val sourceFile = File(root, "rescue-source.f32pcm").apply { writeText("audio") }
+
+            var failed = false
+            try {
+                persistence.persistAudioSource(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = sourceFile.absolutePath,
+                            sampleCount = 2,
+                        ),
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = "Recording stopped unexpectedly",
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+            } catch (e: java.io.IOException) {
+                failed = true
+            }
+
+            assertTrue(failed)
+            assertTrue(sourceFile.exists())
+            assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
+            coVerify(exactly = 0) { recordingRepository.createRecordingWithTranscript(any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.insert(any()) }
+        }
+
+    @Test
+    fun persist_rescueDatabaseFailureKeepsSourceAndDeletesUnownedEncode() =
+        runTest {
+            val root = createTempDir("keyboard-persist-db-fails")
+            val sourceFile = File(root, "rescue-source.f32pcm").apply { writeText("audio") }
+            val audioEncoder =
+                mockk<AudioEncoder> {
+                    every { encodePcmFloatFile(any(), any(), any(), any(), any(), any()) } answers {
+                        File(arg<String>(3)).writeText("encoded")
+                        true
+                    }
+                }
+            val recordingRepository =
+                mockk<RecordingRepository> {
+                    coEvery { insert(any()) } throws IllegalStateException("database unavailable")
+                }
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = audioEncoder,
+                    recordingRepository = recordingRepository,
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+
+            var failed = false
+            try {
+                persistence.persistAudioSource(
+                    audioSource =
+                        InlineAudioSource.PcmFloatFile(
+                            path = sourceFile.absolutePath,
+                            sampleCount = 2,
+                        ),
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = "Dictation stop timed out",
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+            } catch (e: java.io.IOException) {
+                failed = true
+            }
+
+            assertTrue(failed)
+            assertTrue(sourceFile.exists())
+            assertTrue(File(root, "recordings").listFiles().isNullOrEmpty())
         }
 
     @Test
@@ -530,6 +672,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                     keyboardPreferences = keyboardPreferences,
                     transcriptExportPort = transcriptExportPort(),
                     audioEncoder = mockk(relaxed = true),
+                    terminalNotificationDelivery = mockk(relaxed = true),
                 )
 
             var failed = false
@@ -566,6 +709,7 @@ class AppKeyboardInlineCapturePersistenceTest {
         recordingRepository: RecordingRepository,
         saveRecordings: Boolean,
         transcriptExportPort: TranscriptExportPort,
+        terminalNotificationDelivery: Lazy<TerminalRecordingNotificationDelivery> = mockk(relaxed = true),
     ): AppKeyboardInlineCapturePersistence {
         val context =
             mockk<Context> {
@@ -583,6 +727,7 @@ class AppKeyboardInlineCapturePersistenceTest {
             keyboardPreferences = keyboardPreferences,
             transcriptExportPort = transcriptExportPort,
             audioEncoder = audioEncoder,
+            terminalNotificationDelivery = terminalNotificationDelivery,
         )
     }
 

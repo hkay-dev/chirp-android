@@ -10,8 +10,10 @@ import androidx.work.Configuration
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
 import dev.chirpboard.app.download.SpeechModelWarmupCoordinator
+import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.transcription.TranscriptionQueueLifecycle
 import dev.chirpboard.app.feature.recording.session.RecordingStartupCoordinator
+import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
 import dev.chirpboard.app.feature.widget.WidgetStateObserver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +39,12 @@ class ChirpApplication : Application(), Configuration.Provider {
     // onCreate path that races first-frame / keyboard inflation.
     @Inject
     lateinit var transcriptionQueueLifecycle: Lazy<TranscriptionQueueLifecycle>
+
+    @Inject
+    lateinit var keyboardDictationHandoff: Lazy<KeyboardDictationHandoff>
+
+    @Inject
+    lateinit var terminalRecordingNotificationDelivery: Lazy<TerminalRecordingNotificationDelivery>
 
     @Inject
     lateinit var apiKeyMigration: Lazy<ApiKeyMigration>
@@ -88,6 +96,18 @@ class ChirpApplication : Application(), Configuration.Provider {
         applicationScope.launch {
             delay(STARTUP_RECOVERY_DELAY_MS)
 
+            // Replay the file-to-Room handoff before either queue or orphan cleanup observes
+            // the recordings directory. This keeps an interrupted raw PCM move visible.
+            try {
+                val recoveredHandoffs = keyboardDictationHandoff.get().recoverPendingHandoffs()
+                if (recoveredHandoffs > 0) {
+                    Log.i(TAG, "Recovered $recoveredHandoffs interrupted keyboard handoff(s)")
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e(TAG, "Failed to recover keyboard handoffs on startup", e)
+            }
+
             launch {
                 try {
                     val lifecycle = transcriptionQueueLifecycle.get()
@@ -96,6 +116,18 @@ class ChirpApplication : Application(), Configuration.Provider {
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e(TAG, "Failed to recover transcriptions on startup", e)
+                }
+            }
+
+            launch {
+                try {
+                    val delivered = terminalRecordingNotificationDelivery.get().recoverPendingNotifications()
+                    if (delivered > 0) {
+                        Log.i(TAG, "Delivered $delivered pending transcription notification(s)")
+                    }
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e(TAG, "Failed to recover transcription notifications on startup", e)
                 }
             }
 

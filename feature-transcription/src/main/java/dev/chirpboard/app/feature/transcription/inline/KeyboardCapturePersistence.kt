@@ -59,7 +59,11 @@ suspend fun saveCaptureRecording(
     audioSource: InlineAudioSource,
     recordingQualityPreset: RecordingQualityPreset,
     outputFormat: RecordingOutputFormat,
+    allowTextOnlyFallback: Boolean = true,
+    terminalNotificationPending: Boolean = false,
 ): Recording? {
+    var encodedOutput: File? = null
+    var committed = false
     return try {
         withContext(NonCancellable) {
             val filename = "keyboard_${System.currentTimeMillis()}${outputFormat.fileExtension}"
@@ -67,7 +71,7 @@ suspend fun saveCaptureRecording(
             recordingsDir.mkdirs()
             val outputPath = File(recordingsDir, filename).absolutePath
 
-            val success =
+            val encoderReportedSuccess =
                 runCatching {
                     when (audioSource) {
                         is InlineAudioSource.InMemory ->
@@ -93,13 +97,16 @@ suspend fun saveCaptureRecording(
                     if (error is kotlinx.coroutines.CancellationException) throw error
                     Log.e(TAG, "Keyboard recording encoder threw", error)
                 }.getOrDefault(false)
+            val outputFile = File(outputPath)
+            val success = encoderReportedSuccess && outputFile.isFile && outputFile.length() > 0L
             val audioPath =
                 if (success) {
+                    encodedOutput = outputFile
                     outputPath
                 } else {
                     Log.e(TAG, "Failed to encode keyboard recording")
-                    runCatching { File(outputPath).delete() }
-                    if (plan.rawText == null) {
+                    runCatching { outputFile.delete() }
+                    if (plan.rawText == null || !allowTextOnlyFallback) {
                         return@withContext null
                     }
                     // The transcript is already in hand and needs no audio: never drop
@@ -119,6 +126,8 @@ suspend fun saveCaptureRecording(
                     profileId = null,
                     durationMs = durationMs,
                     errorMessage = plan.errorMessage,
+                    notifyWhenReady = terminalNotificationPending,
+                    terminalNotificationPending = terminalNotificationPending,
                 )
 
             val rawText = plan.rawText
@@ -135,6 +144,10 @@ suspend fun saveCaptureRecording(
                 recordingRepository.insert(recording)
             }
 
+            committed = true
+            // The Room row now owns the encoded output. Only this commit point makes it safe to
+            // delete a file-backed source. Failures keep that sole source available for rescue.
+            audioSource.discardTemporaryFile()
             Log.i(TAG, "Saved keyboard recording: ${recording.id}")
             recording
         }
@@ -144,7 +157,11 @@ suspend fun saveCaptureRecording(
         Log.e(TAG, "Failed to save keyboard recording", e)
         null
     } finally {
-        audioSource.discardTemporaryFile()
+        if (!committed) {
+            // A successfully encoded file has no durable owner when the Room commit fails.
+            // Delete that duplicate and leave the original source in place.
+            runCatching { encodedOutput?.delete() }
+        }
     }
 }
 

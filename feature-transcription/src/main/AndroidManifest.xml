@@ -3,6 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <application>
+        <receiver
+            android:name=".TranscriptionCopyActionReceiver"
+            android:exported="false" />
+
         <!-- WorkManager foreground worker (TranscriptionWorker setForeground) -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
