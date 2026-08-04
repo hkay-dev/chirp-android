@@ -729,6 +729,8 @@ class VoiceRecorder(
                                 CaptureStorageMode.InMemory -> MAX_SAMPLE_CAPACITY
                                 CaptureStorageMode.FileBacked -> MAX_FILE_BACKED_SAMPLE_CAPACITY
                             }
+                        val blockGain = gainMultiplier
+                        var blockAbsSum = 0f
                         val writeFailure =
                             when (captureStorageMode) {
                                 CaptureStorageMode.InMemory -> {
@@ -737,7 +739,9 @@ class VoiceRecorder(
                                         val toProcess = minOf(readResult, sampleCapacity - sampleCount)
                                         ensureInMemoryCapacityLocked(sampleCount + toProcess)
                                         for (i in 0 until toProcess) {
-                                            samples[sampleCount + i] = boostedSample(buffer[i])
+                                            val boosted = AudioGain.boost(buffer[i], blockGain)
+                                            samples[sampleCount + i] = boosted
+                                            blockAbsSum += abs(boosted)
                                         }
                                         sampleCount += toProcess
                                     }
@@ -750,7 +754,13 @@ class VoiceRecorder(
                                             if (sessionGeneration.get() != collectGeneration) return@withContext
                                             val toProcess = minOf(readResult, sampleCapacity - sampleCount)
                                             if (toProcess > 0) {
-                                                writeFloatSamples(buffer, toProcess, buffers.pcmBytes)
+                                                blockAbsSum =
+                                                    writeFloatSamples(
+                                                        buffer = buffer,
+                                                        count = toProcess,
+                                                        scratch = buffers.pcmBytes,
+                                                        gain = blockGain,
+                                                    )
                                                 // A block becomes trusted only once its entire direct write returns.
                                                 sampleCount += toProcess
                                             }
@@ -796,15 +806,12 @@ class VoiceRecorder(
                                     )
                                 }
                         }
-                        // Calculate amplitude for visualization (RMS of buffer)
-                        var sum = 0f
-                        for (i in 0 until readResult) {
-                            sum += abs(buffer[i] * gainMultiplier)
-                        }
-                        val amplitude = (sum / readResult).coerceIn(0f, 1f)
+                        // Encoding/copying already touched every sample. Reuse that pass for the
+                        // display amplitude so the urgent-audio thread does no redundant scan.
+                        val amplitude = (blockAbsSum / readResult).coerceIn(0f, 1f)
                         waveformBuffer.add(amplitude)
                         _sampleCountFlow.value += 1L
-                        if (sum == 0f) {
+                        if (blockAbsSum == 0f) {
                             silentSampleRun += readResult
                             if (!silenceNotified && silentSampleRun >= SILENCE_WARNING_SAMPLES) {
                                 silenceNotified = true
@@ -1237,8 +1244,6 @@ class VoiceRecorder(
      * peaks are compressed smoothly toward full scale rather than squared off, which kept
      * distortion out of both the recognizer input and the rescued audio.
      */
-    private fun boostedSample(sample: Float): Float = AudioGain.boost(sample, gainMultiplier)
-
     /**
      * Ensures the in-memory [samples] buffer can hold [requiredSize] floats,
      * allocating it lazily on first use (seeded at [INITIAL_SAMPLE_CAPACITY])
@@ -1262,12 +1267,16 @@ class VoiceRecorder(
         buffer: FloatArray,
         count: Int,
         scratch: ByteArray,
-    ) {
-        val output = sampleOutput ?: return
+        gain: Float,
+    ): Float {
+        val output = sampleOutput ?: return 0f
         val byteCount = count * java.lang.Float.BYTES
         var byteIndex = 0
+        var absSum = 0f
         for (index in 0 until count) {
-            val bits = java.lang.Float.floatToIntBits(boostedSample(buffer[index]))
+            val boosted = AudioGain.boost(buffer[index], gain)
+            absSum += abs(boosted)
+            val bits = java.lang.Float.floatToIntBits(boosted)
             scratch[byteIndex] = (bits and BYTE_MASK).toByte()
             scratch[byteIndex + 1] = ((bits ushr Byte.SIZE_BITS) and BYTE_MASK).toByte()
             scratch[byteIndex + 2] = ((bits ushr (Byte.SIZE_BITS * 2)) and BYTE_MASK).toByte()
@@ -1287,6 +1296,7 @@ class VoiceRecorder(
             Log.w(TAG, "Capture storage exhausted; reclaimed emergency reserve and retrying current block")
             output.write(scratch, 0, byteCount)
         }
+        return absSum
     }
 
     private fun resetFileBackedCaptureLocked(deleteExisting: Boolean) {

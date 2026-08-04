@@ -39,7 +39,8 @@ Run the comparison benchmarks separately on an unlocked, idle phone.
 
 The process-wide recognizer follows these rules.
 
-1. The selected downloaded model prewarms shortly after process startup.
+1. The selected downloaded model prewarms shortly after process startup. A failed warmup gets two
+   spaced retries, so one transient native or storage failure does not leave later dictations cold.
 2. A loaded model stays resident across completed dictations, IME hides, app switches, and idle
    time. There is no idle-release timer.
 3. Active recording, an in-flight recognizer lease, and queued local transcription block pressure
@@ -49,6 +50,18 @@ The process-wide recognizer follows these rules.
 
 Warmup loads and verifies model resources only. Audio capture still begins solely from an explicit
 recording action, so residency never opens or reserves the microphone.
+
+## Keyboard capture hot path
+
+The microphone starts independently of recognizer readiness. The user-facing recording state waits
+only for the first `AudioRecord` block to finish its direct file write. The first local block creates
+a checkpoint on the teardown dispatcher, so its sync cannot delay that speak-now boundary. At
+recovery time the checkpoint identifies the owned file and the complete float-aligned file length
+extends recovery through audio written after that first marker.
+
+The urgent capture thread allocates its read and conversion buffers once per session. Float encoding,
+gain, silence detection, and waveform amplitude share one sample pass per block. UI amplitude no
+longer rescans the buffer after the durable write.
 
 ## GGUF continuous decode ceiling
 

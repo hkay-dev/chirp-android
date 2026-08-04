@@ -9,6 +9,11 @@ count. It never starts a second logical recording or substitutes preview text fo
 File-backed capture checks for 48 MiB of usable space ahead of microphone startup and writes each
 completed block directly to the capture file.
 
+After the first local block completes, a background sidecar records ownership of the cache file and
+its initial trusted count. This does not run on the urgent capture thread. If the process dies later,
+recovery keeps every complete float in that same file, including blocks appended after the sidecar
+write. Cloud capture still uses its pre-start synced live journal and final app-private file path.
+
 Application startup asynchronously asks Android for one content-free 4 MiB cache reserve. The
 allocation never runs from microphone startup or the read/write loop, and it never extends the PCM
 file. Preparation uses a partial file and atomically promotes it only after allocation and sync
@@ -27,7 +32,8 @@ compete with microphone I/O or consume the space it just released.
 Each active collector owns one 1,024-sample `AudioRecord` read buffer and one 4,096-byte
 little-endian conversion buffer. They are allocated once per collector, not once per audio block.
 Session-local ownership also keeps a late read from a stopped recorder from overwriting a newer
-session's samples.
+session's samples. The conversion or in-memory copy pass also computes waveform amplitude and
+digital-silence state, avoiding a second full scan of every block.
 
 ## Health watchdog
 
