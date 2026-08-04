@@ -1,11 +1,11 @@
 package dev.chirpboard.app.feature.llm.settings
 
 /** Stable default for Google AI Studio generateContent calls. */
-const val DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
+const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 private val deprecatedGeminiModels =
     mapOf(
-        "gemini-3.1-flash-lite-preview" to DEFAULT_GEMINI_MODEL,
+        "gemini-3.1-flash-lite-preview" to "gemini-3.1-flash-lite",
         "gemini-3-flash-preview" to "gemini-3.5-flash",
         "gemini-3-pro-preview" to "gemini-3.1-pro-preview",
     )
@@ -14,9 +14,11 @@ private val catalog: Map<LlmProvider, List<LlmModelOption>> =
     mapOf(
         LlmProvider.GEMINI to
             listOf(
-                LlmModelOption(DEFAULT_GEMINI_MODEL, "Gemini 3.1 Flash-Lite"),
+                LlmModelOption(DEFAULT_GEMINI_MODEL, "Gemini 3.5 Flash-Lite"),
+                LlmModelOption("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite"),
                 LlmModelOption("gemini-2.5-flash", "Gemini 2.5 Flash"),
                 LlmModelOption("gemini-3.5-flash", "Gemini 3.5 Flash"),
+                LlmModelOption("gemini-3.6-flash", "Gemini 3.6 Flash"),
             ),
         LlmProvider.OPENAI to
             listOf(
