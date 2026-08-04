@@ -19,6 +19,7 @@ import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionRequest
+import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
 import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
@@ -823,7 +824,85 @@ class TranscriptionWorkerTest {
             coVerify(exactly = 1) { terminalNotificationDelivery.deliverRequested(recordingId) }
         }
 
-    private fun worker(scheduler: TranscriptionWorkScheduler = workScheduler): TranscriptionWorker =
+    @Test
+    fun `continuous backend receives the complete recording in one call`() =
+        runTest {
+            val sampleCount = 31 * AudioDecoder.TARGET_SAMPLE_RATE
+            every { audioDecoder.decodeAsFlow(audioPath) } returns flowOf(FloatArray(sampleCount))
+            stubOwnedRecording(durationMs = 31_000L)
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = any(),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+            val receivedSizes = mutableListOf<Int>()
+            val continuousProvider =
+                object : TranscriberProvider, ContinuousAudioTranscriberPreference {
+                    override fun prefersContinuousAudio(): Boolean = true
+
+                    override fun isReady(): Boolean = true
+
+                    override fun isModelDownloaded(): Boolean = true
+
+                    override suspend fun initialize(): Boolean = true
+
+                    override suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome {
+                        receivedSizes += samples.size
+                        return TranscriptionOutcome.Success("continuous transcript")
+                    }
+
+                    override suspend fun release() = Unit
+                }
+
+            val result = worker(provider = continuousProvider).doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            assertEquals(listOf(sampleCount), receivedSizes)
+        }
+
+    @Test
+    fun `continuous backend falls back to chunks past the native memory limit`() =
+        runTest {
+            val sampleCount = 31 * AudioDecoder.TARGET_SAMPLE_RATE
+            every { audioDecoder.decodeAsFlow(audioPath) } returns flowOf(FloatArray(sampleCount))
+            stubOwnedRecording(durationMs = 301_000L)
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = any(),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+            val receivedSizes = mutableListOf<Int>()
+            val continuousProvider =
+                object : TranscriberProvider, ContinuousAudioTranscriberPreference {
+                    override fun prefersContinuousAudio(): Boolean = true
+                    override fun isReady(): Boolean = true
+                    override fun isModelDownloaded(): Boolean = true
+                    override suspend fun initialize(): Boolean = true
+                    override suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome {
+                        receivedSizes += samples.size
+                        return TranscriptionOutcome.Success("chunk transcript")
+                    }
+                    override suspend fun release() = Unit
+                }
+
+            val result = worker(provider = continuousProvider).doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            assertEquals(2, receivedSizes.size)
+        }
+
+    private fun worker(
+        scheduler: TranscriptionWorkScheduler = workScheduler,
+        provider: TranscriberProvider = transcriberProvider,
+    ): TranscriptionWorker =
         TranscriptionWorker(
             appContext = context,
             workerParams = workerParams,
@@ -832,7 +911,7 @@ class TranscriptionWorkerTest {
             wordReplacementRepository = wordReplacementRepository,
             wordReplacer = WordReplacer(),
             textEnhancement = textEnhancement,
-            transcriberProvider = transcriberProvider,
+            transcriberProvider = provider,
             cloudTranscriber = cloudTranscriber,
             transcriptionRoutingStore = transcriptionRoutingStore,
             audioDecoder = audioDecoder,

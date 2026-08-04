@@ -24,6 +24,7 @@ import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.RecordingEnhancementIntent
@@ -86,6 +87,8 @@ class TranscriptionWorker
             const val OUTPUT_TRANSCRIPT_ID = "transcript_id"
             const val OUTPUT_ERROR = "error"
             private const val RAW_PCM_EXTENSION = "f32pcm"
+            private const val CONTINUOUS_HEAP_RESERVE_BYTES = 64L * 1024L * 1024L
+            private const val MAX_CONTINUOUS_GGUF_AUDIO_MS = 5L * 60L * 1_000L
         }
 
         override suspend fun doWork(): Result {
@@ -391,6 +394,52 @@ class TranscriptionWorker
             durationMs: Long,
         ): JoinedChunkTranscription {
             checkMemoryPressure()
+            if (
+                (transcriberProvider as? ContinuousAudioTranscriberPreference)?.prefersContinuousAudio() == true &&
+                canBufferContinuousAudio(audioPath, durationMs)
+            ) {
+                try {
+                    return transcribeContinuous(
+                        recordingId = recordingId,
+                        correlationId = correlationId,
+                        audioPath = audioPath,
+                        durationMs = durationMs,
+                    )
+                } catch (error: ContinuousAudioCapacityException) {
+                    Log.w(TAG, "Continuous decode buffer estimate was short; using lossless chunk recovery", error)
+                } catch (error: OutOfMemoryError) {
+                    Log.w(TAG, "Continuous decode could not reserve PCM; using lossless chunk recovery", error)
+                }
+            }
+            return transcribeLocallyChunked(recordingId, correlationId, audioPath, durationMs)
+        }
+
+        private suspend fun transcribeContinuous(
+            recordingId: UUID,
+            correlationId: String,
+            audioPath: String,
+            durationMs: Long,
+        ): JoinedChunkTranscription {
+            if (recordingStateManager.state.value.isActive) {
+                waitForInactiveRecording(recordingId, correlationId, durationMs)
+            }
+            if (!transcriberProvider.isReady() && !transcriberProvider.initialize()) {
+                throw RetryableTranscriptionException("Failed to re-initialize speech recognition model")
+            }
+            val samples = collectContinuousSamples(audioPath, durationMs)
+            val chunk =
+                mapOutcomeForChunkTranscription(
+                    transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE),
+                )
+            return JoinedChunkTranscription(chunk.text, chunk.wordTimings)
+        }
+
+        private suspend fun transcribeLocallyChunked(
+            recordingId: UUID,
+            correlationId: String,
+            audioPath: String,
+            durationMs: Long,
+        ): JoinedChunkTranscription {
             val processor =
                 ChunkedAudioProcessor(
                     chunkDurationMs = 30_000,
@@ -409,6 +458,65 @@ class TranscriptionWorker
                     transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE),
                 )
             }
+        }
+
+        private suspend fun collectContinuousSamples(
+            audioPath: String,
+            durationMs: Long,
+        ): FloatArray {
+            val audioFile = File(audioPath)
+            val expectedSamples =
+                if (audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {
+                    (audioFile.length() / Float.SIZE_BYTES).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                } else {
+                    (durationMs * AudioDecoder.TARGET_SAMPLE_RATE / 1_000L)
+                        .coerceIn(AudioDecoder.TARGET_SAMPLE_RATE.toLong(), Int.MAX_VALUE.toLong())
+                        .toInt()
+                }
+            val buffer = FloatArray(expectedSamples)
+            var size = 0
+            localAudioFlow(audioPath).collect { samples ->
+                if (size + samples.size > buffer.size) {
+                    throw ContinuousAudioCapacityException(buffer.size, size + samples.size)
+                }
+                System.arraycopy(samples, 0, buffer, size, samples.size)
+                size += samples.size
+            }
+            return when {
+                size == buffer.size -> buffer
+                buffer.size - size <= AudioDecoder.TARGET_SAMPLE_RATE -> buffer
+                else -> buffer.copyOf(size)
+            }
+        }
+
+        private fun canBufferContinuousAudio(
+            audioPath: String,
+            durationMs: Long,
+        ): Boolean {
+            val audioFile = File(audioPath)
+            val estimatedDurationMs =
+                if (audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {
+                    audioFile.length() / Float.SIZE_BYTES * 1_000L / AudioDecoder.TARGET_SAMPLE_RATE
+                } else {
+                    durationMs
+                }
+            if (estimatedDurationMs <= 0L || estimatedDurationMs > MAX_CONTINUOUS_GGUF_AUDIO_MS) {
+                Log.i(
+                    TAG,
+                    "Using lossless chunk recovery for ${estimatedDurationMs}ms recording; " +
+                        "continuous GGUF limit is ${MAX_CONTINUOUS_GGUF_AUDIO_MS}ms",
+                )
+                return false
+            }
+            val expectedBytes =
+                if (audioFile.extension.equals(RAW_PCM_EXTENSION, ignoreCase = true)) {
+                    audioFile.length()
+                } else {
+                    durationMs * AudioDecoder.TARGET_SAMPLE_RATE * Float.SIZE_BYTES / 1_000L
+                }
+            val runtime = Runtime.getRuntime()
+            val availableHeap = runtime.maxMemory() - runtime.totalMemory() + runtime.freeMemory()
+            return expectedBytes > 0L && expectedBytes + CONTINUOUS_HEAP_RESERVE_BYTES <= availableHeap
         }
 
         private fun localAudioFlow(audioPath: String): Flow<FloatArray> {
@@ -736,3 +844,8 @@ class TranscriptionWorker
         )
 
     }
+
+private class ContinuousAudioCapacityException(
+    expectedSamples: Int,
+    requiredSamples: Int,
+) : Exception("Continuous PCM estimate was $expectedSamples samples but needed $requiredSamples")
