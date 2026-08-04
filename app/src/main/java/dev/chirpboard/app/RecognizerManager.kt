@@ -74,13 +74,20 @@ object RecognizerManager {
      * and the idle countdown restarts from the moment the work finished.
      */
     suspend fun <T> withUsageLease(block: suspend () -> T): T {
-        activeLeases.incrementAndGet()
-        touch()
+        // Lease acquisition must serialize with releaseIfUnused. An atomic increment alone is
+        // insufficient because a release can snapshot zero leases immediately before the
+        // increment and free the native recognizer while the new caller starts using it.
+        mutex.withLock {
+            activeLeases.incrementAndGet()
+            touch()
+        }
         try {
             return block()
         } finally {
-            activeLeases.decrementAndGet()
-            touch()
+            mutex.withLock {
+                activeLeases.decrementAndGet()
+                touch()
+            }
         }
     }
 

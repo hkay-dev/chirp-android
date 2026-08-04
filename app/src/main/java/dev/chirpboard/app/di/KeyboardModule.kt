@@ -82,15 +82,17 @@ class SherpaRecognizerProvider(
     override suspend fun transcribe(
         samples: FloatArray,
         sampleRate: Int,
-    ): TranscriptionOutcome {
-        val activeRecognizer =
-            readyRecognizer()
-                ?: rewarmedRecognizer()
-                ?: return TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
-        return RecognizerManager.withUsageLease {
+    ): TranscriptionOutcome =
+        RecognizerManager.withUsageLease {
+            // Resolve the native instance only after the lease is visible to releaseIfUnused.
+            // A pressure release that won the mutex first may have freed the cached reference;
+            // in that case this safely re-warms under the already-active lease.
+            val activeRecognizer =
+                readyRecognizer()
+                    ?: rewarmedRecognizer()
+                    ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
             activeRecognizer.transcribeOutcome(samples, sampleRate)
         }
-    }
 
     /**
      * Prefers an instance that is still loaded: a cached reference whose native recognizer has
