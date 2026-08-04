@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import dev.chirpboard.app.core.transcription.LocalSpeechModelDeletionGuard
 import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
@@ -29,12 +32,13 @@ class SelectableLocalTranscriberProvider(
     private val selectionStore: LocalSpeechModelSelectionStore,
 ) : TranscriberProvider,
     LocalSpeechModelActivator,
+    LocalSpeechComputeBackendActivator,
     LocalSpeechModelDeletionGuard,
     ContinuousAudioTranscriberPreference,
     PcmFloatFileTranscriberProvider {
     private val switchMutex = Mutex()
     private val sherpa = SherpaRecognizerProvider(context.applicationContext, downloader)
-    private val gguf = GgufRecognizerProvider(downloader)
+    private val gguf = GgufRecognizerProvider(downloader, selectionStore)
 
     override fun isReady(): Boolean = provider(selectionStore.selectedModel.value).isReady()
 
@@ -83,7 +87,7 @@ class SelectableLocalTranscriberProvider(
             }
 
             val target = provider(modelId)
-            if (!target.initialize()) {
+            if (!initializeModel(modelId)) {
                 return@withLock LocalSpeechModelActivationResult.Failed("Could not load the selected speech model")
             }
 
@@ -97,8 +101,40 @@ class SelectableLocalTranscriberProvider(
             }
 
             Log.i(TAG, "Activated local speech model ${modelId.persistedValue}")
-            if (current != modelId) provider(current).release()
+            if (current != modelId && provider(current) !== target) provider(current).release()
             LocalSpeechModelActivationResult.Activated
+        }
+
+    override suspend fun activateComputeBackend(
+        backend: LocalSpeechComputeBackend,
+    ): LocalSpeechComputeBackendActivationResult =
+        switchMutex.withLock {
+            val modelId = selectionStore.selectedModel.value
+            if (!isGgufModel(modelId)) {
+                return@withLock LocalSpeechComputeBackendActivationResult.Failed(
+                    "CPU and Vulkan selection applies only to the 110M GGUF models",
+                )
+            }
+            val priorBackend = selectionStore.selectedComputeBackend.value
+            val config = GgufRuntimeConfig(modelId, backend)
+            if (!gguf.initialize(config)) {
+                return@withLock LocalSpeechComputeBackendActivationResult.Failed(
+                    "Could not load the selected compute backend",
+                )
+            }
+            try {
+                selectionStore.selectComputeBackend(backend)
+            } catch (error: Exception) {
+                gguf.initialize(GgufRuntimeConfig(modelId, priorBackend))
+                return@withLock LocalSpeechComputeBackendActivationResult.Failed(
+                    error.message ?: "Could not save the selected compute backend",
+                )
+            }
+            val actual = GgufRecognizerManager.actualComputeBackend(config) ?: LocalSpeechComputeBackend.CPU
+            LocalSpeechComputeBackendActivationResult.Activated(
+                actualBackend = actual,
+                usedCpuFallback = backend == LocalSpeechComputeBackend.VULKAN && actual == LocalSpeechComputeBackend.CPU,
+            )
         }
 
     override suspend fun release() {
@@ -113,13 +149,30 @@ class SelectableLocalTranscriberProvider(
 
                 LocalSpeechModelId.PARAKEET_CTC_110M_Q8 ->
                     !GgufRecognizerManager.isResident() || GgufRecognizerManager.releaseIfUnused()
+
+                LocalSpeechModelId.PARAKEET_TDT_110M_Q6_K,
+                LocalSpeechModelId.PARAKEET_TDT_110M_Q4_K_M,
+                -> !GgufRecognizerManager.isResident() || GgufRecognizerManager.releaseIfUnused()
             }
         }
+
+    private suspend fun initializeModel(modelId: LocalSpeechModelId): Boolean =
+        if (isGgufModel(modelId)) {
+            gguf.initialize(GgufRuntimeConfig(modelId, selectionStore.selectedComputeBackend.value))
+        } else {
+            sherpa.initialize()
+        }
+
+    private fun isGgufModel(modelId: LocalSpeechModelId): Boolean =
+        selectionStore.modelInfo(modelId).backend == dev.chirpboard.app.core.transcription.LocalSpeechBackend.TRANSCRIBE_GGUF
 
     private fun provider(modelId: LocalSpeechModelId): TranscriberProvider =
         when (modelId) {
             LocalSpeechModelId.PARAKEET_TDT_600M -> sherpa
-            LocalSpeechModelId.PARAKEET_CTC_110M_Q8 -> gguf
+            LocalSpeechModelId.PARAKEET_CTC_110M_Q8,
+            LocalSpeechModelId.PARAKEET_TDT_110M_Q6_K,
+            LocalSpeechModelId.PARAKEET_TDT_110M_Q4_K_M,
+            -> gguf
         }
 
     private companion object {

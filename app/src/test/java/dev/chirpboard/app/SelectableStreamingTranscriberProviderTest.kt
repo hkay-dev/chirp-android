@@ -1,6 +1,7 @@
 package dev.chirpboard.app
 
 import dev.chirpboard.app.core.transcription.LocalSpeechModelCatalog
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
 import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
@@ -44,14 +45,20 @@ class SelectableStreamingTranscriberProviderTest {
 
     private class FakeSelectionStore(initial: LocalSpeechModelId) : LocalSpeechModelSelectionStore {
         private val selected = MutableStateFlow(initial)
+        private val computeBackend = MutableStateFlow(LocalSpeechComputeBackend.CPU)
         override val availableModels: List<LocalSpeechModelInfo> = LocalSpeechModelCatalog.models
         override val selectedModel: StateFlow<LocalSpeechModelId> = selected
+        override val selectedComputeBackend: StateFlow<LocalSpeechComputeBackend> = computeBackend
 
         override fun modelInfo(modelId: LocalSpeechModelId): LocalSpeechModelInfo =
             LocalSpeechModelCatalog.requireModel(modelId)
 
         override suspend fun selectModel(modelId: LocalSpeechModelId) {
             selected.value = modelId
+        }
+
+        override suspend fun selectComputeBackend(backend: LocalSpeechComputeBackend) {
+            computeBackend.value = backend
         }
     }
 

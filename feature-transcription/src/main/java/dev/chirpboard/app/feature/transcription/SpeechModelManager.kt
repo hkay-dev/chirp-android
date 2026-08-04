@@ -9,6 +9,9 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import dev.chirpboard.app.core.transcription.LocalSpeechBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechModelDeletionGuard
@@ -113,6 +116,8 @@ class SpeechModelManager
         val managedModel: StateFlow<LocalSpeechModelId> = _managedModel.asStateFlow()
         val selectedModel: StateFlow<LocalSpeechModelId> =
             selectionStore?.selectedModel ?: MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
+        val selectedComputeBackend: StateFlow<LocalSpeechComputeBackend> =
+            selectionStore?.selectedComputeBackend ?: MutableStateFlow(LocalSpeechComputeBackend.CPU)
 
         init {
             scope.launch {
@@ -184,6 +189,14 @@ class SpeechModelManager
                 readinessGate.warmupIfNeeded()
             }
             return result
+        }
+
+        suspend fun activateComputeBackend(
+            backend: LocalSpeechComputeBackend,
+        ): LocalSpeechComputeBackendActivationResult {
+            val activator = modelActivator as? LocalSpeechComputeBackendActivator
+                ?: return LocalSpeechComputeBackendActivationResult.Failed("Compute switching is unavailable")
+            return activator.activateComputeBackend(backend)
         }
 
         suspend fun deleteModel(): Boolean =

@@ -16,7 +16,12 @@ class GgufNativeRecognizer {
         System.loadLibrary("chirp_gguf")
     }
 
-    fun load(modelPath: String, threads: Int): Boolean = nativeLoad(modelPath, threads)
+    fun load(modelPath: String, threads: Int, useVulkan: Boolean = false): Boolean =
+        nativeLoad(modelPath, threads, if (useVulkan) BACKEND_VULKAN else BACKEND_CPU)
+
+    fun loadedBackend(): String = nativeLoadedBackend()
+
+    fun usedCpuFallback(): Boolean = nativeUsedCpuFallback()
 
     fun isLoaded(): Boolean = nativeIsLoaded()
 
@@ -40,7 +45,11 @@ class GgufNativeRecognizer {
 
     fun release() = nativeRelease()
 
-    private external fun nativeLoad(modelPath: String, threads: Int): Boolean
+    private external fun nativeLoad(modelPath: String, threads: Int, backendCode: Int): Boolean
+
+    private external fun nativeLoadedBackend(): String
+
+    private external fun nativeUsedCpuFallback(): Boolean
 
     private external fun nativeIsLoaded(): Boolean
 
@@ -59,6 +68,11 @@ class GgufNativeRecognizer {
     private external fun nativeLastError(): String
 
     private external fun nativeRelease()
+
+    private companion object {
+        const val BACKEND_CPU = 0
+        const val BACKEND_VULKAN = 1
+    }
 }
 
 internal fun FloatArray.toDecodeTelemetry(): GgufNativeDecodeTelemetry? {

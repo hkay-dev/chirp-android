@@ -9,6 +9,7 @@ import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStat
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.LocalSpeechModelCatalog
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import io.mockk.coEvery
 import io.mockk.every
@@ -39,6 +40,7 @@ class TranscriptionSettingsViewModelTest {
     private lateinit var mockStatusFlow: MutableStateFlow<ModelStatus>
     private lateinit var selectedModel: MutableStateFlow<LocalSpeechModelId>
     private lateinit var managedModel: MutableStateFlow<LocalSpeechModelId>
+    private lateinit var selectedComputeBackend: MutableStateFlow<LocalSpeechComputeBackend>
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var viewModel: TranscriptionSettingsViewModel
     private lateinit var routingStore: TranscriptionRoutingStore
@@ -52,10 +54,12 @@ class TranscriptionSettingsViewModelTest {
         mockStatusFlow = MutableStateFlow(ModelStatus.NotDownloaded)
         selectedModel = MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
         managedModel = MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
+        selectedComputeBackend = MutableStateFlow(LocalSpeechComputeBackend.CPU)
         every { mockModelManager.modelStatus } returns mockStatusFlow
         every { mockModelManager.availableModels } returns LocalSpeechModelCatalog.models
         every { mockModelManager.selectedModel } returns selectedModel
         every { mockModelManager.managedModel } returns managedModel
+        every { mockModelManager.selectedComputeBackend } returns selectedComputeBackend
         every { mockModelManager.modelInfo(any()) } answers {
             LocalSpeechModelCatalog.requireModel(firstArg())
         }

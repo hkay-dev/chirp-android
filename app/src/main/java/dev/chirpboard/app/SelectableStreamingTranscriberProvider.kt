@@ -27,7 +27,7 @@ class SelectableStreamingTranscriberProvider(
     init {
         scope.launch {
             selectionStore.selectedModel.drop(1).collect { selected ->
-                if (selected == LocalSpeechModelId.PARAKEET_CTC_110M_Q8) {
+                if (selected != LocalSpeechModelId.PARAKEET_TDT_600M) {
                     runCatching { sherpa.release() }
                         .onFailure { Log.w(TAG, "Could not release the inactive streaming preview", it) }
                 }

@@ -21,7 +21,13 @@
     <string name="transcription_engine_cloud_temporarily_unavailable">Google sign-in could not be checked. Try again when the connection is back.</string>
     <string name="transcription_engine_cloud_endpoint_needed">Deploy the private cloud service to use background transcription</string>
     <string name="transcription_section_model">On-device model</string>
-    <string name="transcription_model_help">Both Parakeet models run entirely on your phone. Chirp loads a new model completely before switching and keeps the active model ready until Android reports memory pressure.</string>
+    <string name="transcription_model_help">Every Parakeet model runs entirely on your phone. Q8 on CPU is the reliable default. Chirp loads a new model completely before switching and keeps the active model ready until Android reports memory pressure.</string>
+    <string name="transcription_section_compute">Experimental compute</string>
+    <string name="transcription_compute_cpu_title">CPU</string>
+    <string name="transcription_compute_cpu_subtitle">Reliable default and automatic fallback</string>
+    <string name="transcription_compute_vulkan_title">Vulkan</string>
+    <string name="transcription_compute_vulkan_subtitle">Experimental GPU path; falls back to CPU if startup fails</string>
+    <string name="transcription_ctc_unavailable">CTC is not selectable for the 110M model. Its verified GGUF conversion contains the faster TDT head and drops the auxiliary CTC head. A CTC option stays gated until a verified small CTC artifact exists.</string>
     <string name="transcription_retry">Retry</string>
     <string name="transcription_cancel_download">Cancel Download</string>
     <string name="transcription_download_waiting">Waiting for connection…</string>

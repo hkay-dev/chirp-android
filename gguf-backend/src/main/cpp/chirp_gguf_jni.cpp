@@ -24,6 +24,8 @@ std::string g_last_error;
 std::atomic<jlong> g_next_operation_id{0};
 std::atomic<jlong> g_active_operation_id{0};
 std::atomic<jlong> g_cancelled_operation_id{0};
+std::string g_loaded_backend;
+bool g_used_cpu_fallback = false;
 
 struct decode_telemetry {
     jlong operation_id = 0;
@@ -108,6 +110,8 @@ void close_locked() {
         transcribe_close(g_session);
         g_session = nullptr;
     }
+    g_loaded_backend.clear();
+    g_used_cpu_fallback = false;
 }
 
 }  // namespace
@@ -117,7 +121,8 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
     JNIEnv * env,
     jobject,
     jstring model_path,
-    jint threads) {
+    jint threads,
+    jint backend_code) {
     if (model_path == nullptr) return JNI_FALSE;
     const char * path = env->GetStringUTFChars(model_path, nullptr);
     if (path == nullptr) return JNI_FALSE;
@@ -130,7 +135,26 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
     transcribe_session_params_init(&session_params);
     session_params.n_threads = threads;
 
-    const transcribe_status status = transcribe_open(path, nullptr, &session_params, &g_session);
+    const auto open_with_backend = [&](transcribe_backend_request backend) {
+        transcribe_model_load_params load_params;
+        transcribe_model_load_params_init(&load_params);
+        load_params.backend = backend;
+        return transcribe_open(path, &load_params, &session_params, &g_session);
+    };
+
+    const bool requested_vulkan = backend_code == 1;
+    transcribe_status status = open_with_backend(
+        requested_vulkan ? TRANSCRIBE_BACKEND_VULKAN : TRANSCRIBE_BACKEND_CPU);
+    if (status != TRANSCRIBE_OK && requested_vulkan) {
+        __android_log_print(
+            ANDROID_LOG_WARN,
+            kTag,
+            "Vulkan load failed (%s); retrying on CPU",
+            transcribe_status_string(status));
+        close_locked();
+        status = open_with_backend(TRANSCRIBE_BACKEND_CPU);
+        g_used_cpu_fallback = status == TRANSCRIBE_OK;
+    }
     env->ReleaseStringUTFChars(model_path, path);
     if (status != TRANSCRIBE_OK) {
         set_error("transcribe_open", status);
@@ -140,6 +164,8 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
     transcribe_set_abort_callback(g_session, should_abort, nullptr);
 
     const transcribe_model * model = transcribe_get_model(g_session);
+    const char * loaded_backend = transcribe_model_backend(model);
+    g_loaded_backend = loaded_backend == nullptr ? "unknown" : loaded_backend;
     transcribe_capabilities capabilities;
     transcribe_capabilities_init(&capabilities);
     const bool capabilities_loaded =
@@ -150,7 +176,7 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
         "loaded model arch=%s variant=%s backend=%s threads=%d streaming=%s",
         transcribe_model_arch_string(model),
         transcribe_model_variant_string(model),
-        transcribe_model_backend(model),
+        g_loaded_backend.c_str(),
         threads,
         capabilities_loaded && capabilities.supports_streaming ? "true" : "false");
     return JNI_TRUE;
@@ -193,6 +219,18 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeDecodeTelemetry(
     jfloatArray result = env->NewFloatArray(6);
     if (result != nullptr) env->SetFloatArrayRegion(result, 0, 6, values);
     return result;
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoadedBackend(JNIEnv * env, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return env->NewStringUTF(g_loaded_backend.c_str());
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeUsedCpuFallback(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_used_cpu_fallback ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

@@ -9,6 +9,9 @@ import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStat
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
+import dev.chirpboard.app.core.transcription.LocalSpeechBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
@@ -52,6 +55,8 @@ class TranscriptionSettingsViewModel
             val availableLocalModels: List<LocalSpeechModelInfo> = emptyList(),
             val selectedLocalModel: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_TDT_600M,
             val managedLocalModel: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_TDT_600M,
+            val selectedComputeBackend: LocalSpeechComputeBackend = LocalSpeechComputeBackend.CPU,
+            val computeBackendNotice: String? = null,
             val cloudConfigurationStatus: CloudTranscriptionConfigurationStatus =
                 CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING,
         )
@@ -62,6 +67,7 @@ class TranscriptionSettingsViewModel
                     availableLocalModels = modelManager.availableModels,
                     selectedLocalModel = modelManager.selectedModel.value,
                     managedLocalModel = modelManager.managedModel.value,
+                    selectedComputeBackend = modelManager.selectedComputeBackend.value,
                     modelName = modelManager.modelInfo(modelManager.managedModel.value).displayName,
                     modelSizeMb = modelManager.modelInfo(modelManager.managedModel.value).approximateSizeMb,
                 ),
@@ -150,6 +156,12 @@ class TranscriptionSettingsViewModel
             }
 
             viewModelScope.launch {
+                modelManager.selectedComputeBackend.collect { selected ->
+                    _uiState.update { it.copy(selectedComputeBackend = selected) }
+                }
+            }
+
+            viewModelScope.launch {
                 modelManager.managedModel.collect { managed ->
                     val info = modelManager.modelInfo(managed)
                     _uiState.update {
@@ -192,6 +204,29 @@ class TranscriptionSettingsViewModel
                 }
             }
         }
+
+        fun selectComputeBackend(backend: LocalSpeechComputeBackend) {
+            if (_uiState.value.selectedComputeBackend == backend) return
+            viewModelScope.launch {
+                when (val result = modelManager.activateComputeBackend(backend)) {
+                    is LocalSpeechComputeBackendActivationResult.Activated -> {
+                        val notice =
+                            if (result.usedCpuFallback) {
+                                "Vulkan could not start on this device. CPU fallback is active."
+                            } else {
+                                null
+                            }
+                        _uiState.update { it.copy(errorMessage = null, computeBackendNotice = notice) }
+                    }
+
+                    is LocalSpeechComputeBackendActivationResult.Failed ->
+                        _uiState.update { it.copy(errorMessage = result.message) }
+                }
+            }
+        }
+
+        fun managedModelUsesGguf(): Boolean =
+            modelManager.modelInfo(_uiState.value.managedLocalModel).backend == LocalSpeechBackend.TRANSCRIBE_GGUF
 
         fun refreshCloudConfiguration() {
             viewModelScope.launch {

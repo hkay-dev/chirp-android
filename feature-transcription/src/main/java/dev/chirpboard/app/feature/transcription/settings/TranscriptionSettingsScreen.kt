@@ -57,6 +57,8 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
+import dev.chirpboard.app.core.transcription.LocalSpeechBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
@@ -178,6 +180,24 @@ fun TranscriptionSettingsScreen(
                 )
             }
 
+            val managedModel = uiState.availableLocalModels.firstOrNull { it.id == uiState.managedLocalModel }
+            val activeModel = uiState.availableLocalModels.firstOrNull { it.id == uiState.selectedLocalModel }
+            if (managedModel?.backend == LocalSpeechBackend.TRANSCRIBE_GGUF) {
+                item {
+                    SettingsSectionHeader(
+                        title = stringResource(R.string.transcription_section_compute),
+                    )
+                }
+                item {
+                    ExperimentalComputeCard(
+                        selectedBackend = uiState.selectedComputeBackend,
+                        enabled = !uiState.isLoading && activeModel?.backend == LocalSpeechBackend.TRANSCRIBE_GGUF,
+                        notice = uiState.computeBackendNotice,
+                        onBackendSelected = viewModel::selectComputeBackend,
+                    )
+                }
+            }
+
             // Error Message (honest card with a manual Retry — never auto-retried, ERR-3)
             uiState.errorMessage?.let { error ->
                 item { Spacer(Modifier.height(ChirpSpacing.Small)) }
@@ -237,6 +257,51 @@ fun TranscriptionSettingsScreen(
             onUseAppStorage = { viewModel.downloadModel(preferInternalStorage = true) },
             onDismiss = viewModel::dismissStorageChoice,
         )
+    }
+}
+
+@Composable
+private fun ExperimentalComputeCard(
+    selectedBackend: LocalSpeechComputeBackend,
+    enabled: Boolean,
+    notice: String?,
+    onBackendSelected: (LocalSpeechComputeBackend) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ChirpSpacing.ScreenHorizontal),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = ChirpSpacing.Small)) {
+            EngineChoiceRow(
+                title = stringResource(R.string.transcription_compute_cpu_title),
+                subtitle = stringResource(R.string.transcription_compute_cpu_subtitle),
+                selected = selectedBackend == LocalSpeechComputeBackend.CPU,
+                enabled = enabled,
+                onClick = { onBackendSelected(LocalSpeechComputeBackend.CPU) },
+            )
+            EngineChoiceRow(
+                title = stringResource(R.string.transcription_compute_vulkan_title),
+                subtitle = stringResource(R.string.transcription_compute_vulkan_subtitle),
+                selected = selectedBackend == LocalSpeechComputeBackend.VULKAN,
+                enabled = enabled,
+                onClick = { onBackendSelected(LocalSpeechComputeBackend.VULKAN) },
+            )
+            notice?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.padding(horizontal = ChirpSpacing.Large, vertical = ChirpSpacing.Small),
+                )
+            }
+            Text(
+                text = stringResource(R.string.transcription_ctc_unavailable),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = ChirpSpacing.Large, vertical = ChirpSpacing.Small),
+            )
+        }
     }
 }
 

@@ -43,8 +43,13 @@ class ModelDownloader(
         private const val BASE_URL = "https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8/resolve/main"
         internal const val GGUF_MODEL_DIR = "parakeet-tdt-ctc-110m-q8"
         internal const val GGUF_MODEL_FILE = "parakeet-tdt_ctc-110m-Q8_0.gguf"
+        internal const val GGUF_Q6_MODEL_DIR = "parakeet-tdt-ctc-110m-q6-k"
+        internal const val GGUF_Q6_MODEL_FILE = "parakeet-tdt_ctc-110m-Q6_K.gguf"
+        internal const val GGUF_Q4_MODEL_DIR = "parakeet-tdt-ctc-110m-q4-k-m"
+        internal const val GGUF_Q4_MODEL_FILE = "parakeet-tdt_ctc-110m-Q4_K_M.gguf"
         private const val GGUF_BASE_URL =
-            "https://huggingface.co/handy-computer/parakeet-tdt_ctc-110m-gguf/resolve/main"
+            "https://huggingface.co/handy-computer/parakeet-tdt_ctc-110m-gguf/resolve/" +
+                "9d66d34f9e1594075c5dd72c90c0f4c321b29f21"
         internal const val VERIFICATION_PREFS_NAME = "model_verification_cache"
 
         private const val MIN_STORAGE_BUFFER_BYTES = 50L * 1024L * 1024L
@@ -86,6 +91,22 @@ class ModelDownloader(
                     name = GGUF_MODEL_FILE,
                     expectedSize = 135_373_280L,
                     expectedSha256 = "7dd44c74a331d788a4e5f8b16913b3feb29ced22cf5613aad0e0f6cd30516296",
+                ),
+            )
+        private val GGUF_Q6_MODEL_FILES =
+            listOf(
+                ModelFile(
+                    name = GGUF_Q6_MODEL_FILE,
+                    expectedSize = 112_311_264L,
+                    expectedSha256 = "c20520c245adf82e5166005f599cb3b95e7cf5192117e845be4bbcd39226d483",
+                ),
+            )
+        private val GGUF_Q4_MODEL_FILES =
+            listOf(
+                ModelFile(
+                    name = GGUF_Q4_MODEL_FILE,
+                    expectedSize = 89_989_600L,
+                    expectedSha256 = "486414fd90185a8c8a4ced7c123cfb133ff4f7958426c6b8bd9049946b56b448",
                 ),
             )
         internal val REQUIRED_MODEL_FILE_NAMES = MODEL_FILES.map { it.name }
@@ -175,6 +196,20 @@ class ModelDownloader(
                     files = GGUF_MODEL_FILES,
                     baseUrl = GGUF_BASE_URL,
                 )
+
+            LocalSpeechModelId.PARAKEET_TDT_110M_Q6_K ->
+                ModelSpec(
+                    directoryName = GGUF_Q6_MODEL_DIR,
+                    files = GGUF_Q6_MODEL_FILES,
+                    baseUrl = GGUF_BASE_URL,
+                )
+
+            LocalSpeechModelId.PARAKEET_TDT_110M_Q4_K_M ->
+                ModelSpec(
+                    directoryName = GGUF_Q4_MODEL_DIR,
+                    files = GGUF_Q4_MODEL_FILES,
+                    baseUrl = GGUF_BASE_URL,
+                )
         }
 
     private fun activeModelFiles(): List<ModelFile> = modelFiles ?: modelSpec().files
@@ -259,13 +294,17 @@ class ModelDownloader(
 
     fun isModelDownloaded(modelId: LocalSpeechModelId): Boolean = evaluateModelReadiness(modelId).isReady
 
-    internal fun resolvedGgufModelFile(): File? {
-        val persistent = File(modelDirectory(LocalSpeechModelId.PARAKEET_CTC_110M_Q8), GGUF_MODEL_FILE)
+    internal fun resolvedGgufModelFile(
+        modelId: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_CTC_110M_Q8,
+    ): File? {
+        val spec = modelSpec(modelId)
+        val ggufFile = spec.files.singleOrNull() ?: return null
+        val persistent = File(modelDirectory(modelId), ggufFile.name)
         if (persistent.exists()) return persistent
         val internal =
             File(
-                modelDirectory(LocalSpeechModelId.PARAKEET_CTC_110M_Q8, preferInternalStorage = true),
-                GGUF_MODEL_FILE,
+                modelDirectory(modelId, preferInternalStorage = true),
+                ggufFile.name,
             )
         return internal.takeIf(File::exists)
     }

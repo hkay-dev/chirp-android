@@ -5,6 +5,9 @@ import android.util.Log
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
+import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.download.ModelDownloader
@@ -26,6 +29,7 @@ private const val RECOVERY_BATCH_SIZE = 2
 
 internal class GgufRecognizer(
     private val downloader: ModelDownloader,
+    val config: GgufRuntimeConfig,
     private val decodeControls: GgufDecodeControls = GgufDecodeControls.fromSystemProperties(),
     private val decodeDispatcher: GgufDecodeDispatcher = GgufDecodeDispatcher(decodeControls),
     private val watchdog: GgufDecodeWatchdog = GgufDecodeWatchdog(),
@@ -33,6 +37,8 @@ internal class GgufRecognizer(
     @Volatile private var native: GgufNativeRecognizer? = null
     private val mutex = Mutex()
     private val released = java.util.concurrent.atomic.AtomicBoolean(false)
+    var actualComputeBackend: LocalSpeechComputeBackend? = null
+        private set
 
     val isReady: Boolean
         get() = native?.isLoaded() == true
@@ -41,18 +47,31 @@ internal class GgufRecognizer(
         decodeDispatcher.run {
             mutex.withLock {
                 if (native?.isLoaded() == true) return@withLock true
-                val model = downloader.resolvedGgufModelFile() ?: return@withLock false
+                val model = downloader.resolvedGgufModelFile(config.modelId) ?: return@withLock false
                 val candidate = GgufNativeRecognizer()
                 val started = SystemClock.elapsedRealtime()
                 val threads = resolvedGgufThreadCount(decodeControls)
-                val loaded = candidate.load(model.absolutePath, threads)
+                val loaded =
+                    candidate.load(
+                        modelPath = model.absolutePath,
+                        threads = threads,
+                        useVulkan = config.computeBackend == LocalSpeechComputeBackend.VULKAN,
+                    )
                 Log.i(
                     GGUF_TAG,
-                    "backend=gguf-parakeet-110m-q8 phase=load elapsedMs=${SystemClock.elapsedRealtime() - started} " +
-                        "threads=$threads success=$loaded",
+                    "backend=gguf-${config.modelId.persistedValue} phase=load " +
+                        "requestedCompute=${config.computeBackend.persistedValue} " +
+                        "actualCompute=${candidate.loadedBackend()} cpuFallback=${candidate.usedCpuFallback()} " +
+                        "elapsedMs=${SystemClock.elapsedRealtime() - started} threads=$threads success=$loaded",
                 )
                 if (loaded) {
                     native = candidate
+                    actualComputeBackend =
+                        if (candidate.usedCpuFallback()) {
+                            LocalSpeechComputeBackend.CPU
+                        } else {
+                            config.computeBackend
+                        }
                 } else {
                     Log.e(GGUF_TAG, "Native load failed: ${candidate.lastError()}")
                     candidate.release()
@@ -278,6 +297,7 @@ internal class GgufRecognizer(
                     mutex.withLock {
                         native?.release()
                         native = null
+                        actualComputeBackend = null
                     }
                 }
             }
@@ -298,19 +318,39 @@ internal object GgufRecognizerManager {
     private val activeLeases = AtomicInteger(0)
     private var recognizer: GgufRecognizer? = null
 
-    fun peekReadyRecognizer(): GgufRecognizer? = recognizer?.takeIf(GgufRecognizer::isReady)
+    fun peekReadyRecognizer(config: GgufRuntimeConfig? = null): GgufRecognizer? =
+        recognizer?.takeIf { it.isReady && (config == null || it.config == config) }
 
-    fun isResident(): Boolean = peekReadyRecognizer() != null
+    fun isResident(config: GgufRuntimeConfig? = null): Boolean = peekReadyRecognizer(config) != null
 
-    suspend fun initialize(downloader: ModelDownloader): Boolean =
+    fun actualComputeBackend(config: GgufRuntimeConfig): LocalSpeechComputeBackend? =
+        peekReadyRecognizer(config)?.actualComputeBackend
+
+    suspend fun initialize(
+        downloader: ModelDownloader,
+        config: GgufRuntimeConfig,
+    ): Boolean =
         mutex.withLock {
-            peekReadyRecognizer()?.let { return@withLock true }
-            val candidate = GgufRecognizer(downloader)
+            peekReadyRecognizer(config)?.let { return@withLock true }
+            val previous = peekReadyRecognizer()
+            if (previous != null && activeLeases.get() != 0) return@withLock false
+            previous?.release()
+            recognizer = null
+
+            val candidate = GgufRecognizer(downloader, config)
             if (candidate.initialize()) {
                 recognizer = candidate
                 true
             } else {
                 candidate.release()
+                previous?.let { prior ->
+                    val rollback = GgufRecognizer(downloader, prior.config)
+                    if (rollback.initialize()) {
+                        recognizer = rollback
+                    } else {
+                        rollback.release()
+                    }
+                }
                 false
             }
         }
@@ -336,20 +376,31 @@ internal object GgufRecognizerManager {
 
 class GgufRecognizerProvider(
     private val downloader: ModelDownloader,
+    private val selectionStore: LocalSpeechModelSelectionStore,
 ) : TranscriberProvider, ContinuousAudioTranscriberPreference, PcmFloatFileTranscriberProvider {
+    private fun selectedConfig(): GgufRuntimeConfig =
+        GgufRuntimeConfig(
+            modelId = selectionStore.selectedModel.value,
+            computeBackend = selectionStore.selectedComputeBackend.value,
+        )
+
     override fun prefersContinuousAudio(): Boolean = true
 
-    override fun isReady(): Boolean = GgufRecognizerManager.isResident()
+    override fun isReady(): Boolean = GgufRecognizerManager.isResident(selectedConfig())
 
-    override fun isModelDownloaded(): Boolean = downloader.resolvedGgufModelFile() != null
+    override fun isModelDownloaded(): Boolean = downloader.resolvedGgufModelFile(selectedConfig().modelId) != null
 
-    override suspend fun initialize(): Boolean = GgufRecognizerManager.initialize(downloader)
+    override suspend fun initialize(): Boolean = initialize(selectedConfig())
+
+    internal suspend fun initialize(config: GgufRuntimeConfig): Boolean =
+        GgufRecognizerManager.initialize(downloader, config)
 
     override suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome =
         GgufRecognizerManager.withUsageLease {
+            val config = selectedConfig()
             val recognizer =
-                GgufRecognizerManager.peekReadyRecognizer()
-                    ?: (if (initialize()) GgufRecognizerManager.peekReadyRecognizer() else null)
+                GgufRecognizerManager.peekReadyRecognizer(config)
+                    ?: (if (initialize(config)) GgufRecognizerManager.peekReadyRecognizer(config) else null)
                     ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
             recognizer.transcribe(samples, sampleRate)
         }
@@ -360,9 +411,10 @@ class GgufRecognizerProvider(
         sampleRate: Int,
     ): TranscriptionOutcome =
         GgufRecognizerManager.withUsageLease {
+            val config = selectedConfig()
             val recognizer =
-                GgufRecognizerManager.peekReadyRecognizer()
-                    ?: (if (initialize()) GgufRecognizerManager.peekReadyRecognizer() else null)
+                GgufRecognizerManager.peekReadyRecognizer(config)
+                    ?: (if (initialize(config)) GgufRecognizerManager.peekReadyRecognizer(config) else null)
                     ?: return@withUsageLease TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
             recognizer.transcribePcmFloatFile(path, sampleCount, sampleRate)
         }
@@ -371,6 +423,11 @@ class GgufRecognizerProvider(
         GgufRecognizerManager.releaseIfUnused()
     }
 }
+
+internal data class GgufRuntimeConfig(
+    val modelId: LocalSpeechModelId,
+    val computeBackend: LocalSpeechComputeBackend,
+)
 
 private fun FloatArray.asFlow(sliceSize: Int): Flow<FloatArray> =
     flow {
