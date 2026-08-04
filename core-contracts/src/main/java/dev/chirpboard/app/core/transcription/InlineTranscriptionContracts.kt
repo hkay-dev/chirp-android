@@ -97,6 +97,25 @@ interface InlineCapturePersistence {
     fun releasePendingAudioSource() = Unit
 
     /**
+     * Writes a recoverable, non-terminal checkpoint for a capture that is still owned by the
+     * caller. A checkpoint must never consume, move, or delete [audioSource]. Implementations
+     * return true only once the checkpoint is durably stored. The default keeps lightweight
+     * and incognito implementations source-compatible and makes no durability claim.
+     */
+    suspend fun checkpointAudioSource(
+        audioSource: InlineAudioSource,
+        trustedSampleCount: Long,
+        partialTranscript: String?,
+        estimatedGapMs: Long? = null,
+    ): Boolean = false
+
+    /** Removes a checkpoint only after the capture reached a terminal durable outcome. */
+    suspend fun clearCheckpoint(audioSource: InlineAudioSource) = Unit
+
+    /** Replays valid checkpoints left by a dead process and returns durable recovery count. */
+    suspend fun recoverCheckpoints(): Int = 0
+
+    /**
      * [reason] declares the caller's intent explicitly and drives retention: see
      * [InlineCapturePersistReason]. Every caller must state why the capture is being
      * persisted so implementations never have to infer rescue intent from error text.

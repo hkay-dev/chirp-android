@@ -25,6 +25,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import java.io.File
+import java.util.Properties
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flow
@@ -649,6 +650,117 @@ class AppKeyboardInlineCapturePersistenceTest {
             persistence.discardAudioSource(stagedSource)
 
             assertFalse(stagedFile.exists())
+        }
+
+    @Test
+    fun checkpointAudioSource_writesTrustedCountAndPartialTranscriptAtomically() =
+        runTest {
+            val root = createTempDir("keyboard-checkpoint")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val audio = File(root, "capture.f32pcm").apply { writeBytes(ByteArray(40)) }
+            val source = InlineAudioSource.PcmFloatFile(audio.absolutePath, sampleCount = 10)
+
+            assertTrue(
+                persistence.checkpointAudioSource(
+                    audioSource = source,
+                    trustedSampleCount = 8,
+                    partialTranscript = "recover these words",
+                    estimatedGapMs = 12,
+                ),
+            )
+
+            val checkpoint = File("${audio.absolutePath}.chirp-checkpoint")
+            val properties = Properties().apply { checkpoint.inputStream().use(::load) }
+            assertEquals("8", properties.getProperty("trustedSampleCount"))
+            assertEquals("recover these words", properties.getProperty("partialTranscript"))
+            assertEquals("12", properties.getProperty("estimatedGapMs"))
+            assertFalse(File("${checkpoint.absolutePath}.partial").exists())
+
+            assertTrue(persistence.checkpointAudioSource(source, 10, "newest words", 2))
+            val replaced = Properties().apply { checkpoint.inputStream().use(::load) }
+            assertEquals("10", replaced.getProperty("trustedSampleCount"))
+            assertEquals("newest words", replaced.getProperty("partialTranscript"))
+
+            persistence.clearCheckpoint(source)
+            assertFalse(checkpoint.exists())
+            assertTrue(audio.exists())
+        }
+
+    @Test
+    fun checkpointAudioSource_rejectsACountBeyondTheKnownCapture() =
+        runTest {
+            val root = createTempDir("keyboard-invalid-checkpoint")
+            val persistence =
+                persistence(
+                    root = root,
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = true,
+                    transcriptExportPort = transcriptExportPort(),
+                )
+            val audio = File(root, "capture.f32pcm").apply { writeBytes(ByteArray(40)) }
+            val source = InlineAudioSource.PcmFloatFile(audio.absolutePath, sampleCount = 10)
+
+            assertFalse(persistence.checkpointAudioSource(source, 11, "untrusted"))
+            assertFalse(File("${audio.absolutePath}.chirp-checkpoint").exists())
+        }
+
+    @Test
+    fun recoverCheckpoints_savesTheTrustedPrefixAndRemovesTheCheckpoint() =
+        runTest {
+            val root = createTempDir("keyboard-checkpoint-recovery")
+            val captureDirectory = File(root, "cache/keyboard-capture").apply { mkdirs() }
+            val audio = File(captureDirectory, "dictation-recovery.f32pcm").apply { writeBytes(ByteArray(40)) }
+            val repository = mockk<RecordingRepository>()
+            coEvery { repository.createRecordingWithTranscript(any(), any(), any()) } answers { firstArg() }
+            val encoder =
+                mockk<AudioEncoder> {
+                    every { encodePcmFloatFile(any(), any(), any(), any(), any(), any()) } answers {
+                        File(arg<String>(3)).writeText("recovered audio")
+                        true
+                    }
+                }
+            val context =
+                mockk<Context> {
+                    every { filesDir } returns root
+                    every { cacheDir } returns File(root, "cache")
+                }
+            val preferences =
+                mockk<KeyboardPreferences> {
+                    every { saveKeyboardRecordings } returns flowOf(false)
+                    every { recordingQualityPreset } returns flowOf(RecordingQualityPreset.High)
+                    every { outputFormat } returns flowOf(RecordingOutputFormat.WAV)
+                }
+            val persistence =
+                AppKeyboardInlineCapturePersistence(
+                    context = context,
+                    recordingRepository = repository,
+                    keyboardPreferences = preferences,
+                    transcriptExportPort = transcriptExportPort(),
+                    audioEncoder = encoder,
+                    terminalNotificationDelivery = mockk(relaxed = true),
+                )
+            val source = InlineAudioSource.PcmFloatFile(audio.absolutePath, sampleCount = 10)
+            assertTrue(persistence.checkpointAudioSource(source, 8, "surviving words", 0))
+
+            assertEquals(1, persistence.recoverCheckpoints())
+
+            assertFalse(audio.exists())
+            assertFalse(File("${audio.absolutePath}.chirp-checkpoint").exists())
+            coVerify {
+                repository.createRecordingWithTranscript(
+                    match { it.errorMessage?.startsWith("Dictation was interrupted") == true },
+                    match<Transcript> { it.rawText == "surviving words" },
+                    emptyList(),
+                )
+            }
         }
 
     @Test
