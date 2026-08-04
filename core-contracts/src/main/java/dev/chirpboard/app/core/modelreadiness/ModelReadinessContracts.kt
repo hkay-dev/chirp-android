@@ -90,3 +90,11 @@ interface SpeechModelReadinessGate {
 
     suspend fun ensureReady(trigger: VerificationTrigger): ModelReadyResult
 }
+
+/**
+ * Process-wide hint for keeping the local recognizer ready around real IME use. Implementations
+ * may load or retain model resources, but must never open the microphone from this callback.
+ */
+interface LocalRecognizerWarmWindow {
+    fun onImeVisibilityChanged(visible: Boolean)
+}

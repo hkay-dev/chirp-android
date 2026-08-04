@@ -12,6 +12,8 @@ import dev.chirpboard.app.StreamingSherpaRecognizerProvider
 import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.core.modelreadiness.LocalRecognizerWarmWindow
+import dev.chirpboard.app.RecognizerIdleReleasePolicy
 import dev.chirpboard.app.download.ModelDownloader
 import javax.inject.Singleton
 
@@ -21,6 +23,12 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object KeyboardModule {
+    @Provides
+    @Singleton
+    fun provideLocalRecognizerWarmWindow(
+        policy: RecognizerIdleReleasePolicy,
+    ): LocalRecognizerWarmWindow = policy
+
     @Provides
     @Singleton
     fun provideTranscriberProvider(

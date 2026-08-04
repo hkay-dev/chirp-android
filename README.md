@@ -64,6 +64,7 @@ The primary reliability rule is that captured speech must never disappear. The c
 - Foreground recording services for long-running capture.
 - Recovery paths for interrupted recordings.
 - On-device model download and readiness checks.
+- Release Baseline Profile coverage for app startup, IME startup, and keyboard settings.
 - Background transcription work through WorkManager.
 - Word-level timing support when the recognizer provides it.
 - Recording playback through a shared Media3 playback service.
@@ -92,6 +93,12 @@ Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 - Optional multi-provider processing (Gemini, OpenAI, Anthropic, Groq, Cerebras) for summaries, cleanup, chat, and structured outcomes.
 
 Local transcription is the heart of the project. AI processing sits on top.
+
+The local Parakeet recognizer stays resident while Chirp Voice is visible and for five minutes
+after the IME hides or the recognizer was last used. It can be released sooner under real memory
+pressure or severe thermal throttling, never during active capture or transcription. Model warmup
+does not open the microphone. Profiling and regeneration steps live in
+[the performance guide](docs/performance.md).
 
 ## Notes
 
