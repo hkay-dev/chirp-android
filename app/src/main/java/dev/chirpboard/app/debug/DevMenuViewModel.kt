@@ -310,7 +310,7 @@ class DevMenuViewModel @Inject constructor(
         "פגישת צוות — סיכום שבועי 📌",                            // Hebrew (RTL)
         "会議のメモ 📝 プロジェクト計画について話し合う",            // Japanese + emoji
         "Combining maŕk̃s and źálgo tĕxt",
-        "Zero​width‌spaces‍hidden﻿inside",
+        "Zero​width‌spaces‍hidden\uFEFFinside",
         "Line one\nLine two\nLine three\twith a tab",
         "**bold** _italic_ `code` ~~strike~~ # H1 > quote",
         "<script>alert('xss')</script> & <b>html</b> &amp; entities",
