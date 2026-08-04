@@ -8,6 +8,13 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import dev.chirpboard.app.core.transcription.LocalSpeechBackend
+import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
+import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
+import dev.chirpboard.app.core.transcription.LocalSpeechModelDeletionGuard
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
+import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,17 +44,23 @@ class SpeechModelManager
         private val readinessGate: SpeechModelReadinessGate,
         private val downloadGateway: SpeechModelDownloadGateway,
         private val scope: CoroutineScope,
+        private val selectionStore: LocalSpeechModelSelectionStore? = null,
+        private val modelActivator: LocalSpeechModelActivator? = null,
     ) {
         @Inject
         constructor(
             speechModelStore: SpeechModelStore,
             readinessGate: SpeechModelReadinessGate,
             downloadGateway: SpeechModelDownloadGateway,
+            selectionStore: LocalSpeechModelSelectionStore,
+            modelActivator: LocalSpeechModelActivator,
         ) : this(
             speechModelStore = speechModelStore,
             readinessGate = readinessGate,
             downloadGateway = downloadGateway,
             scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            selectionStore = selectionStore,
+            modelActivator = modelActivator,
         )
 
         companion object {
@@ -80,6 +93,27 @@ class SpeechModelManager
         private val _downloadProgress = MutableStateFlow(0f)
         val downloadProgress: StateFlow<Float> = _downloadProgress.asStateFlow()
 
+        val availableModels: List<LocalSpeechModelInfo> =
+            selectionStore?.availableModels
+                ?: listOf(
+                    LocalSpeechModelInfo(
+                        id = LocalSpeechModelId.PARAKEET_TDT_600M,
+                        displayName = MODEL_DISPLAY_NAME,
+                        shortDescription = "Offline transcription",
+                        backend = LocalSpeechBackend.SHERPA_ONNX,
+                        approximateSizeMb = MODEL_SIZE_MB,
+                        englishOnly = true,
+                        supportsStreamingPreview = true,
+                        supportsWordTimings = false,
+                    ),
+                )
+
+        private val _managedModel =
+            MutableStateFlow(selectionStore?.selectedModel?.value ?: LocalSpeechModelId.PARAKEET_TDT_600M)
+        val managedModel: StateFlow<LocalSpeechModelId> = _managedModel.asStateFlow()
+        val selectedModel: StateFlow<LocalSpeechModelId> =
+            selectionStore?.selectedModel ?: MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
+
         init {
             scope.launch {
                 var previous: SpeechModelDownloadWork = SpeechModelDownloadWork.Idle
@@ -98,7 +132,11 @@ class SpeechModelManager
                 _modelStatus.value = ModelStatus.Downloading(0f)
                 _downloadProgress.value = 0f
             }
-            downloadGateway.startDownload(preferInternalStorage)
+            if (selectionStore == null) {
+                downloadGateway.startDownload(preferInternalStorage)
+            } else {
+                downloadGateway.startDownload(_managedModel.value, preferInternalStorage)
+            }
         }
 
         /** Cancel scheduled/running download work; partial files are kept for a later resume. */
@@ -109,7 +147,7 @@ class SpeechModelManager
         fun refreshStatus() {
             scope.launch {
                 try {
-                    applyEvaluation(speechModelStore.evaluateReadiness())
+                    applyEvaluation(evaluateManagedModel())
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -122,17 +160,46 @@ class SpeechModelManager
             }
         }
 
-        suspend fun isModelDownloaded(): Boolean = speechModelStore.evaluateReadiness().isReady
+        suspend fun isModelDownloaded(): Boolean = evaluateManagedModel().isReady
 
-        suspend fun getDownloadedSize(): Long = speechModelStore.getDownloadedSize()
+        suspend fun getDownloadedSize(): Long =
+            if (selectionStore == null) speechModelStore.getDownloadedSize()
+            else speechModelStore.getDownloadedSize(_managedModel.value)
+
+        fun manageModel(modelId: LocalSpeechModelId) {
+            if (_modelStatus.value is ModelStatus.Downloading || _modelStatus.value is ModelStatus.WaitingForNetwork) return
+            _managedModel.value = modelId
+            refreshStatus()
+        }
+
+        fun modelInfo(modelId: LocalSpeechModelId = _managedModel.value): LocalSpeechModelInfo =
+            availableModels.first { it.id == modelId }
+
+        suspend fun activateManagedModel(): LocalSpeechModelActivationResult {
+            val result =
+                modelActivator?.activate(_managedModel.value)
+                    ?: LocalSpeechModelActivationResult.Failed("Model switching is unavailable")
+            if (result is LocalSpeechModelActivationResult.Activated) {
+                readinessGate.invalidate()
+                readinessGate.warmupIfNeeded()
+            }
+            return result
+        }
 
         suspend fun deleteModel(): Boolean =
             withContext(Dispatchers.IO) {
-                val success = speechModelStore.deleteModel()
+                val deletionGuard = modelActivator as? LocalSpeechModelDeletionGuard
+                if (deletionGuard != null && !deletionGuard.releaseForDeletion(_managedModel.value)) {
+                    _modelStatus.value = ModelStatus.Error("This model is transcribing right now. Try again shortly.")
+                    return@withContext false
+                }
+                val success =
+                    if (selectionStore == null) speechModelStore.deleteModel()
+                    else speechModelStore.deleteModel(_managedModel.value)
                 if (success) {
                     speechModelStore.invalidateVerificationCache()
                     readinessGate.invalidate()
-                    applyEvaluation(speechModelStore.evaluateReadiness())
+                    applyEvaluation(evaluateManagedModel())
                 }
                 success
             }
@@ -183,7 +250,7 @@ class SpeechModelManager
 
         private suspend fun refreshFromStore() {
             try {
-                applyEvaluation(speechModelStore.evaluateReadiness())
+                applyEvaluation(evaluateManagedModel())
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -195,6 +262,10 @@ class SpeechModelManager
         private fun applyEvaluation(evaluation: ModelReadinessEvaluation) {
             _modelStatus.value = statusFor(evaluation, downloadGateway.work.value)
         }
+
+        private suspend fun evaluateManagedModel(): ModelReadinessEvaluation =
+            if (selectionStore == null) speechModelStore.evaluateReadiness()
+            else speechModelStore.evaluateReadiness(_managedModel.value)
 
         /**
          * Derives the surfaced status from the on-disk evaluation and the live download

@@ -19,6 +19,8 @@ import dev.chirpboard.app.R
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -40,11 +42,13 @@ class ModelDownloadWorker
         private val modelDownloader: ModelDownloader,
         private val readinessGate: SpeechModelReadinessGate,
         private val transcriptionRecovery: TranscriptionRecovery,
+        private val selectionStore: LocalSpeechModelSelectionStore,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "ModelDownloadWorker"
 
             const val INPUT_PREFER_INTERNAL_STORAGE = "prefer_internal_storage"
+            const val INPUT_MODEL_ID = "model_id"
             const val PROGRESS_FRACTION = "progress_fraction"
             const val PROGRESS_FILE = "progress_file"
             const val OUTPUT_ERROR = "error"
@@ -87,10 +91,11 @@ class ModelDownloadWorker
             }
 
             val preferInternalStorage = inputData.getBoolean(INPUT_PREFER_INTERNAL_STORAGE, false)
+            val modelId = LocalSpeechModelId.fromPersistedValue(inputData.getString(INPUT_MODEL_ID))
             var lastNotifiedPercent = -1
             var result: Result = Result.failure(workDataOf(OUTPUT_ERROR to "Download did not produce a result"))
 
-            modelDownloader.downloadModelFlow(preferInternalStorage).collect { state ->
+            modelDownloader.downloadModelFlow(modelId, preferInternalStorage).collect { state ->
                 when (state) {
                     is ModelDownloader.DownloadState.Progress -> {
                         val fraction =
@@ -113,7 +118,7 @@ class ModelDownloadWorker
                     }
 
                     ModelDownloader.DownloadState.Complete -> {
-                        onDownloadComplete()
+                        onDownloadComplete(modelId)
                         result = Result.success()
                     }
 
@@ -137,20 +142,22 @@ class ModelDownloadWorker
             return result
         }
 
-        private suspend fun onDownloadComplete() {
+        private suspend fun onDownloadComplete(modelId: LocalSpeechModelId) {
             // Same post-download chain the settings ViewModel used to drive: invalidate the
             // cached gate first so the warmup actually re-verifies the now-present model
             // (otherwise a pre-download Unavailable sticks), then recover recordings parked
             // on the missing model. Runs here so it happens even when no UI is alive.
-            readinessGate.invalidate()
-            readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
-            try {
-                transcriptionRecovery.recoverRecordingsWaitingForModel()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Startup recovery re-detects these recordings; never fail a finished download.
-                Log.e(TAG, "Failed to recover recordings waiting for the model", e)
+            if (selectionStore.selectedModel.value == modelId) {
+                readinessGate.invalidate()
+                readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
+                try {
+                    transcriptionRecovery.recoverRecordingsWaitingForModel()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Startup recovery re-detects these recordings; never fail a finished download.
+                    Log.e(TAG, "Failed to recover recordings waiting for the model", e)
+                }
             }
             postResultNotification(
                 title = applicationContext.getString(R.string.model_download_complete_title),

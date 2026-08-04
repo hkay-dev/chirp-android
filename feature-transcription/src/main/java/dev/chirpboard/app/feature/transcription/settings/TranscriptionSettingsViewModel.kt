@@ -8,6 +8,9 @@ import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
 import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
+import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
+import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,11 +49,23 @@ class TranscriptionSettingsViewModel
             val showDeleteConfirmation: Boolean = false,
             val showStorageChoice: Boolean = false,
             val selectedEngine: TranscriptionEngine = TranscriptionEngine.LOCAL_PARAKEET,
+            val availableLocalModels: List<LocalSpeechModelInfo> = emptyList(),
+            val selectedLocalModel: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_TDT_600M,
+            val managedLocalModel: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_TDT_600M,
             val cloudConfigurationStatus: CloudTranscriptionConfigurationStatus =
                 CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING,
         )
 
-        private val _uiState = MutableStateFlow(UiState())
+        private val _uiState =
+            MutableStateFlow(
+                UiState(
+                    availableLocalModels = modelManager.availableModels,
+                    selectedLocalModel = modelManager.selectedModel.value,
+                    managedLocalModel = modelManager.managedModel.value,
+                    modelName = modelManager.modelInfo(modelManager.managedModel.value).displayName,
+                    modelSizeMb = modelManager.modelInfo(modelManager.managedModel.value).approximateSizeMb,
+                ),
+            )
         val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
         init {
@@ -128,6 +143,26 @@ class TranscriptionSettingsViewModel
                 }
             }
 
+            viewModelScope.launch {
+                modelManager.selectedModel.collect { selected ->
+                    _uiState.update { it.copy(selectedLocalModel = selected) }
+                }
+            }
+
+            viewModelScope.launch {
+                modelManager.managedModel.collect { managed ->
+                    val info = modelManager.modelInfo(managed)
+                    _uiState.update {
+                        it.copy(
+                            managedLocalModel = managed,
+                            modelName = info.displayName,
+                            modelSizeMb = info.approximateSizeMb,
+                            downloadedSizeMb = null,
+                        )
+                    }
+                }
+            }
+
             refreshCloudConfiguration()
 
             modelManager.refreshStatus()
@@ -136,6 +171,25 @@ class TranscriptionSettingsViewModel
         fun selectEngine(engine: TranscriptionEngine) {
             viewModelScope.launch {
                 transcriptionRoutingStore.setSelectedEngine(engine)
+            }
+        }
+
+        fun manageLocalModel(modelId: LocalSpeechModelId) {
+            modelManager.manageModel(modelId)
+        }
+
+        fun activateManagedModel() {
+            viewModelScope.launch {
+                when (val result = modelManager.activateManagedModel()) {
+                    LocalSpeechModelActivationResult.Activated ->
+                        _uiState.update { it.copy(errorMessage = null) }
+
+                    LocalSpeechModelActivationResult.ModelNotDownloaded ->
+                        _uiState.update { it.copy(errorMessage = "Download this model before selecting it") }
+
+                    is LocalSpeechModelActivationResult.Failed ->
+                        _uiState.update { it.copy(errorMessage = result.message) }
+                }
             }
         }
 

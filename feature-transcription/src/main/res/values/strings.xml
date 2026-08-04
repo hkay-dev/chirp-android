@@ -5,6 +5,8 @@
     <string name="transcription_downloading_file">Downloading %1$s</string>
     <string name="transcription_download_model">Download Model</string>
     <string name="transcription_delete_model">Delete Model</string>
+    <string name="transcription_use_model">Use Model</string>
+    <string name="transcription_model_active_format">Active • %1$s</string>
     <string name="transcription_delete_model_confirm">Delete Model?</string>
     <string name="transcription_delete_model_message">This will delete the %1$s model from your device. You will need to download it again to use transcription.</string>
     <string name="transcription_delete">Delete</string>
@@ -18,8 +20,8 @@
     <string name="transcription_engine_cloud_auth_needed">Set up Google sign-in to use private background transcription</string>
     <string name="transcription_engine_cloud_temporarily_unavailable">Google sign-in could not be checked. Try again when the connection is back.</string>
     <string name="transcription_engine_cloud_endpoint_needed">Deploy the private cloud service to use background transcription</string>
-    <string name="transcription_section_model">Model Details</string>
-    <string name="transcription_model_help">Parakeet is used for on-device transcription. It runs entirely on your phone.</string>
+    <string name="transcription_section_model">On-device model</string>
+    <string name="transcription_model_help">Both Parakeet models run entirely on your phone. Chirp loads a new model completely before switching and keeps the active model ready until Android reports memory pressure.</string>
     <string name="transcription_retry">Retry</string>
     <string name="transcription_cancel_download">Cancel Download</string>
     <string name="transcription_download_waiting">Waiting for connection…</string>

@@ -1,5 +1,6 @@
 package dev.chirpboard.app.core.modelreadiness
 
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -47,7 +48,14 @@ interface SpeechModelDownloadGateway {
      * @param preferInternalStorage download into app-private storage instead of the shared
      * Documents location, for users who decline the All-files-access permission (PLT-07).
      */
-    fun startDownload(preferInternalStorage: Boolean = false)
+    fun startDownload(
+        modelId: LocalSpeechModelId,
+        preferInternalStorage: Boolean = false,
+    )
+
+    fun startDownload(preferInternalStorage: Boolean = false) {
+        startDownload(LocalSpeechModelId.PARAKEET_TDT_600M, preferInternalStorage)
+    }
 
     /** Cancel scheduled/running download work. Partial files are kept for a later resume. */
     fun cancelDownload()

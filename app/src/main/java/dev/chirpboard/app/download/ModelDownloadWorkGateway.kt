@@ -13,6 +13,7 @@ import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,7 +48,10 @@ class ModelDownloadWorkGateway
                 .stateIn(scope, SharingStarted.Eagerly, SpeechModelDownloadWork.Idle)
         }
 
-        override fun startDownload(preferInternalStorage: Boolean) {
+        override fun startDownload(
+            modelId: LocalSpeechModelId,
+            preferInternalStorage: Boolean,
+        ) {
             val request =
                 OneTimeWorkRequestBuilder<ModelDownloadWorker>()
                     .setConstraints(
@@ -62,6 +66,7 @@ class ModelDownloadWorkGateway
                     ).setInputData(
                         workDataOf(
                             ModelDownloadWorker.INPUT_PREFER_INTERNAL_STORAGE to preferInternalStorage,
+                            ModelDownloadWorker.INPUT_MODEL_ID to modelId.persistedValue,
                         ),
                     ).build()
             // KEEP: never double-schedule while a download is pending/running; terminal work

@@ -8,6 +8,8 @@ import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
 import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
+import dev.chirpboard.app.core.transcription.LocalSpeechModelCatalog
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -35,6 +37,8 @@ class TranscriptionSettingsViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var mockModelManager: SpeechModelManager
     private lateinit var mockStatusFlow: MutableStateFlow<ModelStatus>
+    private lateinit var selectedModel: MutableStateFlow<LocalSpeechModelId>
+    private lateinit var managedModel: MutableStateFlow<LocalSpeechModelId>
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var viewModel: TranscriptionSettingsViewModel
     private lateinit var routingStore: TranscriptionRoutingStore
@@ -46,7 +50,15 @@ class TranscriptionSettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         mockModelManager = mockk(relaxed = true)
         mockStatusFlow = MutableStateFlow(ModelStatus.NotDownloaded)
+        selectedModel = MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
+        managedModel = MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
         every { mockModelManager.modelStatus } returns mockStatusFlow
+        every { mockModelManager.availableModels } returns LocalSpeechModelCatalog.models
+        every { mockModelManager.selectedModel } returns selectedModel
+        every { mockModelManager.managedModel } returns managedModel
+        every { mockModelManager.modelInfo(any()) } answers {
+            LocalSpeechModelCatalog.requireModel(firstArg())
+        }
         coEvery { mockModelManager.getDownloadedSize() } returns 0L
 
         savedStateHandle = SavedStateHandle()

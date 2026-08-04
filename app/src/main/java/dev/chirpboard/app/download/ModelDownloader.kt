@@ -9,6 +9,8 @@ import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
@@ -28,10 +30,11 @@ import java.util.concurrent.TimeUnit
 
 class ModelDownloader(
     private val context: Context,
-    private val modelFiles: List<ModelFile> = configuredModelFiles(),
-    private val modelDirProvider: (Context) -> File = { ensureConfiguredModelDir(it) },
-    private val legacyModelDirProvider: (Context) -> File = { ctx -> configuredInternalModelDir(ctx) },
-    private val baseUrl: String = configuredBaseUrl(),
+    private val modelSelectionStore: LocalSpeechModelSelectionStore? = null,
+    private val modelFiles: List<ModelFile>? = null,
+    private val modelDirProvider: ((Context) -> File)? = null,
+    private val legacyModelDirProvider: ((Context) -> File)? = null,
+    private val baseUrl: String? = null,
     private val availableBytesProvider: (File) -> Long = ::defaultAvailableBytes,
 ) : SpeechModelStore {
     companion object {
@@ -120,27 +123,23 @@ class ModelDownloader(
             return File(context.filesDir, "models/$MODEL_DIR")
         }
 
-        private fun configuredModelFiles(): List<ModelFile> =
-            if (BuildConfig.GGUF_TRIAL) GGUF_MODEL_FILES else MODEL_FILES
-
-        private fun configuredBaseUrl(): String =
-            if (BuildConfig.GGUF_TRIAL) GGUF_BASE_URL else BASE_URL
-
-        private fun configuredModelDirName(): String =
-            if (BuildConfig.GGUF_TRIAL) GGUF_MODEL_DIR else MODEL_DIR
-
-        private fun ensureConfiguredModelDir(context: Context): File {
+        private fun ensureModelDir(
+            context: Context,
+            directoryName: String,
+        ): File {
             val docsDir =
                 android.os.Environment.getExternalStoragePublicDirectory(
                     android.os.Environment.DIRECTORY_DOCUMENTS,
                 )
-            val persistentDir = File(docsDir, ".chirpboard/models/${configuredModelDirName()}")
+            val persistentDir = File(docsDir, ".chirpboard/models/$directoryName")
             if (persistentDir.exists() || persistentDir.mkdirs()) return persistentDir
-            return configuredInternalModelDir(context)
+            return internalModelDir(context, directoryName)
         }
 
-        private fun configuredInternalModelDir(context: Context): File =
-            File(context.filesDir, "models/${configuredModelDirName()}")
+        private fun internalModelDir(
+            context: Context,
+            directoryName: String,
+        ): File = File(context.filesDir, "models/$directoryName")
 
         internal fun hasCompleteModelDirectory(path: File): Boolean =
             REQUIRED_MODEL_FILE_NAMES.all { name -> File(path, name).exists() }
@@ -151,6 +150,50 @@ class ModelDownloader(
         val expectedSize: Long,
         val expectedSha256: String,
     )
+
+    private data class ModelSpec(
+        val directoryName: String,
+        val files: List<ModelFile>,
+        val baseUrl: String,
+    )
+
+    private fun selectedModelId(): LocalSpeechModelId =
+        modelSelectionStore?.selectedModel?.value ?: LocalSpeechModelId.PARAKEET_TDT_600M
+
+    private fun modelSpec(modelId: LocalSpeechModelId = selectedModelId()): ModelSpec =
+        when (modelId) {
+            LocalSpeechModelId.PARAKEET_TDT_600M ->
+                ModelSpec(
+                    directoryName = MODEL_DIR,
+                    files = MODEL_FILES,
+                    baseUrl = BASE_URL,
+                )
+
+            LocalSpeechModelId.PARAKEET_CTC_110M_Q8 ->
+                ModelSpec(
+                    directoryName = GGUF_MODEL_DIR,
+                    files = GGUF_MODEL_FILES,
+                    baseUrl = GGUF_BASE_URL,
+                )
+        }
+
+    private fun activeModelFiles(): List<ModelFile> = modelFiles ?: modelSpec().files
+
+    internal fun modelDirectory(
+        modelId: LocalSpeechModelId,
+        preferInternalStorage: Boolean = false,
+    ): File {
+        if (modelId == selectedModelId()) {
+            val override = if (preferInternalStorage) legacyModelDirProvider else modelDirProvider
+            if (override != null) return override(context)
+        }
+        val directoryName = modelSpec(modelId).directoryName
+        return if (preferInternalStorage) {
+            internalModelDir(context, directoryName)
+        } else {
+            ensureModelDir(context, directoryName)
+        }
+    }
 
     private data class VerificationCacheEntry(
         val size: Long,
@@ -214,24 +257,30 @@ class ModelDownloader(
 
     fun isModelDownloaded(): Boolean = evaluateModelReadiness().isReady
 
+    fun isModelDownloaded(modelId: LocalSpeechModelId): Boolean = evaluateModelReadiness(modelId).isReady
+
     internal fun resolvedGgufModelFile(): File? {
-        if (!BuildConfig.GGUF_TRIAL) return null
-        val persistent = File(modelDirProvider(context), GGUF_MODEL_FILE)
+        val persistent = File(modelDirectory(LocalSpeechModelId.PARAKEET_CTC_110M_Q8), GGUF_MODEL_FILE)
         if (persistent.exists()) return persistent
-        val internal = File(legacyModelDirProvider(context), GGUF_MODEL_FILE)
+        val internal =
+            File(
+                modelDirectory(LocalSpeechModelId.PARAKEET_CTC_110M_Q8, preferInternalStorage = true),
+                GGUF_MODEL_FILE,
+            )
         return internal.takeIf(File::exists)
     }
 
-    internal fun evaluateModelReadiness(): ModelReadinessEvaluation {
-        val modelPath = modelDirProvider(context)
-        val legacyPath = legacyModelDirProvider(context)
+    internal fun evaluateModelReadiness(modelId: LocalSpeechModelId = selectedModelId()): ModelReadinessEvaluation {
+        val files = modelFiles ?: modelSpec(modelId).files
+        val modelPath = modelDirectory(modelId)
+        val legacyPath = modelDirectory(modelId, preferInternalStorage = true)
 
-        val persistentResult = validateModelDirectory(modelPath, sourceLabel = "persistent")
+        val persistentResult = validateModelDirectory(modelPath, sourceLabel = "persistent", files = files)
         if (persistentResult.allValid) {
             return readyEvaluation(persistentResult.sources, sourceLabel = "persistent")
         }
 
-        val legacyResult = validateModelDirectory(legacyPath, sourceLabel = "legacy")
+        val legacyResult = validateModelDirectory(legacyPath, sourceLabel = "legacy", files = files)
         if (legacyResult.allValid) {
             return readyEvaluation(legacyResult.sources, sourceLabel = "legacy")
         }
@@ -282,13 +331,14 @@ class ModelDownloader(
     private fun validateModelDirectory(
         path: File,
         sourceLabel: String,
+        files: List<ModelFile> = activeModelFiles(),
     ): DirectoryValidationResult {
         val sources = linkedSetOf<ModelReadinessVerificationSource>()
         var hasInvalid = false
         var hasMissing = false
         var hasUnreadable = false
 
-        modelFiles.forEach { modelFile ->
+        files.forEach { modelFile ->
             val file = File(path, modelFile.name)
             val result = validateModelCandidate(file, modelFile)
 
@@ -326,6 +376,9 @@ class ModelDownloader(
 
     override suspend fun evaluateReadiness(): ModelReadinessEvaluation = evaluateModelReadiness()
 
+    override suspend fun evaluateReadiness(modelId: LocalSpeechModelId): ModelReadinessEvaluation =
+        evaluateModelReadiness(modelId)
+
     /**
      * Streams the model files into the target directory, resuming partial downloads via
      * HTTP Range requests (ERR-2). Partial `.download` temp files are deliberately KEPT on
@@ -339,14 +392,19 @@ class ModelDownloader(
      * @param preferInternalStorage download into app-private storage instead of the shared
      * Documents location, for users who decline the All-files-access permission (PLT-07).
      */
-    fun downloadModelFlow(preferInternalStorage: Boolean = false): Flow<DownloadState> =
+    fun downloadModelFlow(
+        modelId: LocalSpeechModelId = selectedModelId(),
+        preferInternalStorage: Boolean = false,
+    ): Flow<DownloadState> =
         flow {
-            val modelPath =
-                if (preferInternalStorage) legacyModelDirProvider(context) else modelDirProvider(context)
+            val spec = modelSpec(modelId)
+            val currentModelFiles = modelFiles ?: spec.files
+            val modelPath = modelDirectory(modelId, preferInternalStorage)
             modelPath.mkdirs()
+            val downloadBaseUrl = baseUrl ?: spec.baseUrl
 
             val unreadable =
-                modelFiles.filter { file ->
+                currentModelFiles.filter { file ->
                     validateModelCandidate(File(modelPath, file.name), file).status == FileValidationStatus.UNREADABLE
                 }
             if (unreadable.isNotEmpty()) {
@@ -363,10 +421,10 @@ class ModelDownloader(
             }
 
             var totalDownloaded = 0L
-            val totalSize = modelFiles.sumOf { it.expectedSize }
+            val totalSize = currentModelFiles.sumOf { it.expectedSize }
 
             val requiredDownloadBytes =
-                modelFiles.sumOf { file ->
+                currentModelFiles.sumOf { file ->
                     val existing = File(modelPath, file.name)
                     if (isValidDownloadedFile(existing, file)) 0L else file.expectedSize - resumableBytes(modelPath, file)
                 }
@@ -383,7 +441,7 @@ class ModelDownloader(
                 return@flow
             }
 
-            for (file in modelFiles) {
+            for (file in currentModelFiles) {
                 val destFile = File(modelPath, file.name)
                 if (isValidDownloadedFile(destFile, file)) {
                     totalDownloaded += file.expectedSize
@@ -395,7 +453,7 @@ class ModelDownloader(
                     destFile.delete()
                 }
 
-                if (!downloadSingleFile(file, modelPath, totalDownloaded, totalSize)) {
+                if (!downloadSingleFile(file, modelPath, downloadBaseUrl, totalDownloaded, totalSize)) {
                     return@flow
                 }
                 totalDownloaded += file.expectedSize
@@ -411,6 +469,7 @@ class ModelDownloader(
     private suspend fun FlowCollector<DownloadState>.downloadSingleFile(
         file: ModelFile,
         modelPath: File,
+        downloadBaseUrl: String,
         totalDownloadedBefore: Long,
         totalSize: Long,
     ): Boolean {
@@ -437,7 +496,7 @@ class ModelDownloader(
             discardPartialDownload(tempFile, etagFile)
         }
 
-        val url = "$baseUrl/${file.name}"
+        val url = "$downloadBaseUrl/${file.name}"
         val resumePlan = plan as? ResumePlan.Resume
         Log.i(TAG, "Downloading $url (resumeFrom=${resumePlan?.offset ?: 0L})")
 
@@ -542,13 +601,16 @@ class ModelDownloader(
     }
 
     override suspend fun deleteModel(): Boolean =
+        deleteModel(selectedModelId())
+
+    override suspend fun deleteModel(modelId: LocalSpeechModelId): Boolean =
         withContext(Dispatchers.IO) {
             var success = true
-            val modelPath = modelDirProvider(context)
+            val modelPath = modelDirectory(modelId)
             if (modelPath.exists()) {
                 success = modelPath.deleteRecursively() && success
             }
-            val legacyPath = legacyModelDirProvider(context)
+            val legacyPath = modelDirectory(modelId, preferInternalStorage = true)
             if (legacyPath.exists()) {
                 success = legacyPath.deleteRecursively() && success
             }
@@ -557,10 +619,14 @@ class ModelDownloader(
         }
 
     override suspend fun getDownloadedSize(): Long =
+        getDownloadedSize(selectedModelId())
+
+    override suspend fun getDownloadedSize(modelId: LocalSpeechModelId): Long =
         withContext(Dispatchers.IO) {
-            val modelPath = modelDirProvider(context)
-            val legacyPath = legacyModelDirProvider(context)
-            modelFiles.sumOf { file ->
+            val modelPath = modelDirectory(modelId)
+            val legacyPath = modelDirectory(modelId, preferInternalStorage = true)
+            val files = modelFiles ?: modelSpec(modelId).files
+            files.sumOf { file ->
                 val persistent = File(modelPath, file.name)
                 val legacy = File(legacyPath, file.name)
                 when {

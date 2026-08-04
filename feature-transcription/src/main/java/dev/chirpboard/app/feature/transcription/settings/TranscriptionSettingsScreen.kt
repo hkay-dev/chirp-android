@@ -58,6 +58,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.storage.AllFilesAccessRequester
 import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
+import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
 import dev.chirpboard.app.core.ui.components.AnimatedAlertDialog
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
@@ -148,6 +150,18 @@ fun TranscriptionSettingsScreen(
             }
 
             item {
+                LocalModelChoiceCard(
+                    models = uiState.availableLocalModels,
+                    managedModel = uiState.managedLocalModel,
+                    activeModel = uiState.selectedLocalModel,
+                    enabled = !uiState.isLoading,
+                    onModelSelected = viewModel::manageLocalModel,
+                )
+            }
+
+            item { Spacer(Modifier.height(ChirpSpacing.Small)) }
+
+            item {
                 ModelManagementCard(
                     modelName = uiState.modelName,
                     modelSizeMb = uiState.downloadedSizeMb ?: uiState.modelSizeMb,
@@ -159,6 +173,8 @@ fun TranscriptionSettingsScreen(
                     onDownload = { requestModelDownload(viewModel, uiState) },
                     onCancelDownload = viewModel::cancelDownload,
                     onDelete = viewModel::showDeleteConfirmation,
+                    isActive = uiState.managedLocalModel == uiState.selectedLocalModel,
+                    onActivate = viewModel::activateManagedModel,
                 )
             }
 
@@ -221,6 +237,38 @@ fun TranscriptionSettingsScreen(
             onUseAppStorage = { viewModel.downloadModel(preferInternalStorage = true) },
             onDismiss = viewModel::dismissStorageChoice,
         )
+    }
+}
+
+@Composable
+private fun LocalModelChoiceCard(
+    models: List<LocalSpeechModelInfo>,
+    managedModel: LocalSpeechModelId,
+    activeModel: LocalSpeechModelId,
+    enabled: Boolean,
+    onModelSelected: (LocalSpeechModelId) -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = ChirpSpacing.ScreenHorizontal),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = ChirpSpacing.Small)) {
+            models.forEach { model ->
+                EngineChoiceRow(
+                    title = model.displayName,
+                    subtitle =
+                        if (model.id == activeModel) {
+                            stringResource(R.string.transcription_model_active_format, model.shortDescription)
+                        } else {
+                            model.shortDescription
+                        },
+                    selected = managedModel == model.id,
+                    enabled = enabled,
+                    onClick = { onModelSelected(model.id) },
+                )
+            }
+        }
     }
 }
 
@@ -308,6 +356,8 @@ private fun ModelManagementCard(
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
     onDelete: () -> Unit,
+    isActive: Boolean,
+    onActivate: () -> Unit,
 ) {
     val statusTint =
         animateColorAsState(
@@ -501,6 +551,11 @@ private fun ModelManagementCard(
                         }
                     }
                 } else {
+                    if (!isActive) {
+                        Button(onClick = onActivate) {
+                            Text(stringResource(R.string.transcription_use_model))
+                        }
+                    }
                     OutlinedButton(
                         onClick = onDelete,
                         colors = ButtonDefaults.outlinedButtonColors(

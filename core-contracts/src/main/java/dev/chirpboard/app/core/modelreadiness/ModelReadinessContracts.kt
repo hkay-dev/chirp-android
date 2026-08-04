@@ -1,6 +1,7 @@
 package dev.chirpboard.app.core.modelreadiness
 
 import kotlinx.coroutines.flow.StateFlow
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 
 enum class ModelReadinessVerificationSource {
     PROCESS_CACHE,
@@ -69,9 +70,15 @@ data class ModelReadinessEvaluation(
 interface SpeechModelStore {
     suspend fun evaluateReadiness(): ModelReadinessEvaluation
 
+    suspend fun evaluateReadiness(modelId: LocalSpeechModelId): ModelReadinessEvaluation = evaluateReadiness()
+
     suspend fun deleteModel(): Boolean
 
+    suspend fun deleteModel(modelId: LocalSpeechModelId): Boolean = deleteModel()
+
     suspend fun getDownloadedSize(): Long
+
+    suspend fun getDownloadedSize(modelId: LocalSpeechModelId): Long = getDownloadedSize()
 
     fun invalidateVerificationCache()
 

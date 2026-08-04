@@ -9,9 +9,11 @@ import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import dev.chirpboard.app.download.ModelDownloadWorkGateway
 import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.download.ModelReadinessGate
+import dev.chirpboard.app.model.LocalSpeechModelPreferences
 import javax.inject.Singleton
 
 @Module
@@ -21,7 +23,14 @@ object ModelReadinessModule {
     @Singleton
     fun provideModelDownloader(
         @ApplicationContext context: Context,
-    ): ModelDownloader = ModelDownloader(context)
+        modelSelectionStore: LocalSpeechModelSelectionStore,
+    ): ModelDownloader = ModelDownloader(context, modelSelectionStore = modelSelectionStore)
+
+    @Provides
+    @Singleton
+    fun provideLocalSpeechModelSelectionStore(
+        preferences: LocalSpeechModelPreferences,
+    ): LocalSpeechModelSelectionStore = preferences
 
     @Provides
     @Singleton
