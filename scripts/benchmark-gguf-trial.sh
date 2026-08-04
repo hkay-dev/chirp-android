@@ -9,10 +9,8 @@ clip="$artifact_root/vergecast-5min-16k-mono.wav"
 full="$artifact_root/vergecast-full-16k-mono.wav"
 
 require_device() {
-    local count
-    count="$(adb devices | awk 'NR > 1 && $2 == "device" { count++ } END { print count + 0 }')"
-    if [[ "$count" -ne 1 ]]; then
-        echo "Expected exactly one authorized ADB device, found $count." >&2
+    if [[ "$(adb get-state 2>/dev/null || true)" != "device" ]]; then
+        echo "Expected one authorized ADB device." >&2
         exit 1
     fi
 }
@@ -25,6 +23,7 @@ prepare() {
     [[ -f "$full" ]] || { echo "Missing full benchmark audio at $full" >&2; exit 1; }
 
     adb install -r "$apk"
+    adb shell appops set dev.chirpboard.app.gguftrial MANAGE_EXTERNAL_STORAGE allow
     adb shell mkdir -p /sdcard/Documents/.chirpboard/models/parakeet-tdt-ctc-110m-q8
     adb push "$model" /sdcard/Documents/.chirpboard/models/parakeet-tdt-ctc-110m-q8/
     adb push "$clip" /sdcard/Download/chirp-vergecast-5min.wav
