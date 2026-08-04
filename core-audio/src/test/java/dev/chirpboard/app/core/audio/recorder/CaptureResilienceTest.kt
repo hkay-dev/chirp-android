@@ -41,13 +41,4 @@ class CaptureResilienceTest {
         assertNull(monitor.issueAt(nowMs = 5))
     }
 
-    @Test
-    fun `watchdog distinguishes severe timestamp drift`() {
-        val monitor = VoiceRecorder.CaptureHealthMonitor(severeTimestampDriftFrames = 8_000)
-
-        monitor.onTimestampGap(7_999)
-        assertNull(monitor.issueAt(nowMs = 1))
-        monitor.onTimestampGap(8_000)
-        assertEquals(VoiceRecorder.CaptureHealthIssue.TimestampDrift, monitor.issueAt(nowMs = 2))
-    }
 }

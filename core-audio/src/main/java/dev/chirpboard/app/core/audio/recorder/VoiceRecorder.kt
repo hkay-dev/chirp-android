@@ -110,7 +110,6 @@ class VoiceRecorder(
         private const val WATCHDOG_POLL_MS = 250L
         private const val READ_STALL_TIMEOUT_MS = 1_500L
         private const val ZERO_READ_LIMIT = 8
-        private const val SEVERE_TIMESTAMP_DRIFT_FRAMES = SAMPLE_RATE / 2L
 
         /** Keeps enough headroom for ten minutes of float PCM plus filesystem overhead. */
         const val MIN_CAPTURE_FREE_BYTES = 48L * 1024L * 1024L
@@ -161,13 +160,11 @@ class VoiceRecorder(
     internal enum class CaptureHealthIssue {
         StalledRead,
         RepeatedZeroReads,
-        TimestampDrift,
     }
 
     internal class CaptureHealthMonitor(
         private val stallTimeoutMs: Long = READ_STALL_TIMEOUT_MS,
         private val zeroReadLimit: Int = ZERO_READ_LIMIT,
-        private val severeTimestampDriftFrames: Long = SEVERE_TIMESTAMP_DRIFT_FRAMES,
     ) {
         private var readStartedAtMs: Long? = null
         private var consecutiveZeroReads = 0
@@ -183,11 +180,6 @@ class VoiceRecorder(
             readStartedAtMs = null
             consecutiveZeroReads = if (result == 0) consecutiveZeroReads + 1 else 0
             if (consecutiveZeroReads >= zeroReadLimit) pendingIssue = CaptureHealthIssue.RepeatedZeroReads
-        }
-
-        @Synchronized
-        fun onTimestampGap(missingFrames: Long) {
-            if (missingFrames >= severeTimestampDriftFrames) pendingIssue = CaptureHealthIssue.TimestampDrift
         }
 
         @Synchronized
@@ -797,7 +789,6 @@ class VoiceRecorder(
                                     capturedFrames = capturedFramesForTimestamp,
                                 )
                                 ?.let { gap ->
-                                    monitor.onTimestampGap(gap.missingFrames)
                                     Log.w(
                                         TAG,
                                         "Audio timestamp discontinuity: ${gap.missingFrames} frames " +
@@ -970,9 +961,7 @@ class VoiceRecorder(
         issue: CaptureHealthIssue,
         monitor: CaptureHealthMonitor,
     ): AudioRecord? {
-        if (watchdogRestartCount.get() >= MAX_WATCHDOG_RECOVERIES) {
-            return keepCaptureForAdvisoryDrift(issue, record, monitor)
-        }
+        if (watchdogRestartCount.get() >= MAX_WATCHDOG_RECOVERIES) return null
         val replacement = recoverAudioRecord(generation, record, "health watchdog detected ${issue.name}")
         if (replacement != null) {
             watchdogRestartCount.incrementAndGet()
@@ -992,21 +981,8 @@ class VoiceRecorder(
             monitor.markRestart()
             return concurrentReplacement
         }
-        return keepCaptureForAdvisoryDrift(issue, record, monitor)
+        return null
     }
-
-    private fun keepCaptureForAdvisoryDrift(
-        issue: CaptureHealthIssue,
-        record: AudioRecord,
-        monitor: CaptureHealthMonitor,
-    ): AudioRecord? =
-        if (issue == CaptureHealthIssue.TimestampDrift) {
-            Log.w(TAG, "Timestamp drift persisted; keeping the delivering recorder active")
-            monitor.markRestart()
-            record
-        } else {
-            null
-        }
 
     /**
      * Waits briefly for the first native microphone block. Capture is already live during this
@@ -1227,7 +1203,6 @@ class VoiceRecorder(
                 endSessionLocked()
             }
         if (wasRecording) {
-            firstSamplesReady.complete(false)
             onRecordingError?.invoke(error)
         }
     }

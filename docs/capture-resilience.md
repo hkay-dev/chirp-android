@@ -36,12 +36,12 @@ capture loop. It requests an in-place recorder restart for any of these signals.
 
 - A blocking read that has not returned for 1.5 seconds
 - Eight consecutive zero-length reads
-- Hardware timestamp drift of at least 500 milliseconds
 
 At most two watchdog restarts occur in one logical capture. A stalled or empty source that cannot be
-recovered ends with an explicit microphone error and keeps its durable prefix. Timestamp drift stays
-advisory once restart is unavailable because a device may report unreliable timestamps while still
-delivering complete samples. Existing one-shot `ERROR_DEAD_OBJECT` recovery remains separate.
+recovered ends with an explicit microphone error and keeps its durable prefix. Hardware timestamp
+gaps stay diagnostic only. Restarting a recorder that is still delivering samples would discard any
+frames buffered by Android and cannot recover an earlier gap. Existing one-shot `ERROR_DEAD_OBJECT`
+recovery remains separate.
 
 Every successful restart is included in `CaptureIntegrityReport`. Watchdog restarts are also counted
 separately so device testing can distinguish platform death from health-triggered recovery.
