@@ -234,16 +234,15 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 - **GIVEN** a third-party keyboard is bound to a focused editor
 - **WHEN** it launches Chirp's recognition activity
 - **THEN** Chirp requests unchanged soft-input visibility
-- **AND** its non-editing window stays outside the IME target relationship
+- **AND** its non-editing window uses a floating translucent voice-input task
 - **AND** the caller's keyboard can keep its existing editor connection for result delivery.
 
 #### Scenario: Successful speech result is ready
 
 - **WHEN** transcription produces a non-empty result
 - **THEN** Chirp returns `RESULT_OK` with `RecognizerIntent.EXTRA_RESULTS`
-- **AND** temporarily yields key-window focus to the caller's editor
-- **AND** finishes on the next draw boundary without waiting for a decorative exit animation
-- **AND** uses a bounded fallback if the platform omits the expected focus-loss callback.
+- **AND** finishes immediately without waiting for a decorative exit animation
+- **AND** does not mutate window focusability during result delivery.
 
 #### Scenario: Host editor still drops focus
 

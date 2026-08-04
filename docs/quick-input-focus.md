@@ -7,11 +7,13 @@ text through the activity-result contract and commits it into its own current ed
 ## What Chirp can preserve
 
 - The recognition window requests `stateUnchanged`, never `stateAlwaysHidden`.
-- The non-editing sheet uses `FLAG_ALT_FOCUSABLE_IM`, which keeps it outside the IME target
-  relationship and lets the caller's keyboard stay bound behind the sheet.
-- Successful recognition skips the 250 ms sheet-exit animation, yields key-window focus to the
-  caller, and finishes on the following draw boundary. A 100 ms fallback prevents a missing OEM
-  focus callback from trapping a completed result.
+- The sheet uses a floating translucent activity theme and a dedicated voice-input task affinity,
+  matching the public manifest shape of Android's built-in Google voice-input activity.
+- The sheet does not use `FLAG_ALT_FOCUSABLE_IM` or terminal `FLAG_NOT_FOCUSABLE` changes. Those
+  flags did not change X's redraw behavior and added an IME-control transition that Android could
+  time out.
+- Successful recognition skips the 250 ms sheet-exit delay and finishes as soon as the result
+  bundle is ready.
 - The window keeps the screen on for the whole visible capture.
 - Results contain one `EXTRA_RESULTS` hypothesis and one matching confidence value.
 
@@ -23,10 +25,8 @@ app's view. Trying to bypass that boundary with an accessibility service, clipbo
 draw-over-apps window would add permission, privacy, and duplicate-insertion risks while breaking
 the standard speech-recognition result contract.
 
-The practical fix is to keep the caller's IME visible and bound so its existing editor connection
-survives the foreground-window handoff. Chirp also gives key-window focus back before delivering a
-successful result. This matters for Compose editors such as X's composer, which can accept a commit
-into backing state without redrawing it if the commit races window-focus restoration. A host may
+The practical fix is to keep the caller's IME visible and bound, isolate the temporary recognition
+surface from Chirp's main task, and return through Android's normal activity-result path. A host may
 still change its own visible status while paused; that host-controlled lifecycle behavior is not
 evidence that Chirp's offline recognizer is using the network.
 

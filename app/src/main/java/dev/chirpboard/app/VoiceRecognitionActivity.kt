@@ -244,17 +244,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private var captureStallWatchdog: Job? = null
 
     /**
-     * A successful result must not reach the caller while this translucent activity still owns
-     * key-window focus. Some Compose editors accept the IME commit into their backing state at
-     * that point but do not redraw it until a later focus cycle. The result handoff temporarily
-     * makes this window non-focusable, waits for WindowManager to return focus to the editor, and
-     * only then finishes the activity. The short fallback prevents an OEM focus callback bug from
-     * trapping a completed result behind the sheet.
-     */
-    private var resultFinishAwaitingFocusLoss = false
-    private var resultFinishFallback: Runnable? = null
-
-    /**
      * IME-6: a caller that sets [RecognizerIntent.EXTRA_SECURE] (keyguard/secure contexts)
      * signals the session must not be stored or sent to cloud post-processing; the whole
      * session runs without persistence and without the LLM path.
@@ -282,10 +271,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
         params.flags =
             params.flags or
                 android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND or
-                // This activity never edits text itself. Keeping it outside the IME
-                // target relationship prevents Android from tearing down the caller's
-                // keyboard window and its editor connection while the speech sheet is up.
-                android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM or
                 android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         // The old stateAlwaysHidden manifest setting explicitly hid the caller's keyboard
         // as this window took focus. Twitter-like editors then received the activity result
@@ -448,17 +433,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         bluetoothPermissionLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
                     },
                 )
-            }
-        }
-    }
-
-    override fun onWindowFocusChanged(hasFocus: Boolean) {
-        super.onWindowFocusChanged(hasFocus)
-        if (!hasFocus && resultFinishAwaitingFocusLoss) {
-            // Give WindowManager one draw boundary to publish the new focus and IME-control
-            // targets before the caller handles our activity result.
-            window.decorView.postOnAnimation {
-                finishAfterEditorFocusHandoff("window focus returned")
             }
         }
     }
@@ -717,7 +691,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                                         floatArrayOf(1f),
                                     )
                                 },
-                            preserveEditorHandoff = true,
+                            finishImmediately = true,
                         )
                     }
 
@@ -935,61 +909,25 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun dismissWithResult(
         resultCode: Int,
         data: Intent? = null,
-        preserveEditorHandoff: Boolean = false,
+        finishImmediately: Boolean = false,
     ) {
         setResult(resultCode, data)
         _shouldDismiss.value = true
-        if (preserveEditorHandoff) {
-            beginEditorFocusHandoff()
+        if (finishImmediately) {
+            // A successful voice result is latency-sensitive. The floating recognition task
+            // keeps the host editor's IME state intact, so no extra focus choreography belongs
+            // here; finish through the standard activity-result path as soon as text is ready.
+            Log.d(TAG, "Finishing immediately with recognition result")
+            finish()
         } else {
             Log.d(TAG, "Triggering dismiss animation")
         }
-    }
-
-    private fun beginEditorFocusHandoff() {
-        if (resultFinishAwaitingFocusLoss || isFinishing) {
-            return
-        }
-        resultFinishAwaitingFocusLoss = true
-        Log.d(TAG, "Yielding window focus before returning recognition result")
-
-        // FLAG_ALT_FOCUSABLE_IM already keeps this non-editing sheet outside the IME target
-        // relationship. Adding FLAG_NOT_FOCUSABLE for the terminal handoff lets the editor
-        // behind it become the key window before SwiftKey receives and commits EXTRA_RESULTS.
-        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
-
-        val fallback =
-            Runnable {
-                finishAfterEditorFocusHandoff("focus handoff timeout")
-            }
-        resultFinishFallback = fallback
-        window.decorView.postDelayed(fallback, EDITOR_FOCUS_HANDOFF_TIMEOUT_MS)
-
-        // A translucent activity can already lack focus by the time its result is ready. In
-        // that case no new onWindowFocusChanged callback is guaranteed, so finish next frame.
-        if (!window.decorView.hasWindowFocus()) {
-            window.decorView.postOnAnimation {
-                finishAfterEditorFocusHandoff("window already unfocused")
-            }
-        }
-    }
-
-    private fun finishAfterEditorFocusHandoff(reason: String) {
-        if (!resultFinishAwaitingFocusLoss) {
-            return
-        }
-        resultFinishAwaitingFocusLoss = false
-        resultFinishFallback?.let(window.decorView::removeCallbacks)
-        resultFinishFallback = null
-        Log.d(TAG, "Finishing recognition result after editor handoff: $reason")
-        finish()
     }
 
     companion object {
         private const val TAG = "VoiceRecognitionActivity"
         private const val ACTIVITY_AUDIO_PATH_LABEL = "voice_recognition_activity_temp_recording"
         private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
-        private const val EDITOR_FOCUS_HANDOFF_TIMEOUT_MS = 100L
 
         /** Material modal-scrim dim level for the host app behind the sheet (DLG-5/INS-2). */
         private const val DIALOG_DIM_AMOUNT = 0.32f

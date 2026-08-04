@@ -13,8 +13,8 @@ This contract is a release gate. Performance work must not weaken content preser
 - A proven native memory ceiling may select chunk recovery before decoding; it must never risk
   process death or lost audio for an unbounded whole-file call.
 - Backend, post-processing, activity, IME, and process failures must leave recoverable audio behind.
-- Quick-input activity windows must preserve the caller's IME visibility, yield key-window focus
-  to the editor, and return successful text promptly through the standard recognition result contract.
+- Quick-input activity windows must preserve the caller's IME visibility, stay isolated from
+  Chirp's main task, and return successful text promptly through the standard result contract.
 - Local capture checkpoints ownership after its first durable block and recovers the later complete
   file tail. Cloud capture journals ownership before opening the microphone.
 
