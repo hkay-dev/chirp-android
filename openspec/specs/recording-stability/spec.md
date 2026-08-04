@@ -320,6 +320,66 @@ Recovery cleanup SHALL delete stale nested capture artifacts only when no reposi
 - **WHEN** a capture segment path is referenced by a safelisted journal
 - **THEN** orphan cleanup retains the capture directory and segment files.
 
+### Requirement: Recording Metadata Is Power-Loss Durable
+
+The service SHALL sync each session-journal payload before atomically replacing its visible entry, and SHALL sync the directory rename when the filesystem supports it.
+
+#### Scenario: Device loses power during journal replacement
+
+- **WHEN** power is lost during an `ACTIVE`, `STOPPING`, or segment-boundary journal update
+- **THEN** startup sees either the complete old entry or the complete new entry
+- **AND** it never accepts a partially written replacement as authoritative.
+
+### Requirement: Live Capture Has Bounded Volatile Exposure
+
+The service SHALL checkpoint live PCM to stable storage throughout a recording, independently of normal segment finalization.
+
+#### Scenario: Process or device fails during a long segment
+
+- **WHEN** capture has run beyond one durability-checkpoint interval
+- **THEN** previously checkpointed PCM remains recoverable from the active WAV segment
+- **AND** a transient checkpoint failure does not stop capture or permanently disable later checkpoints.
+
+### Requirement: Export Durability Precedes Source Deletion
+
+The service SHALL sync a validated final export before deleting its capture segments.
+
+#### Scenario: Export sync fails
+
+- **WHEN** concatenation and validation succeed but the export cannot be synced
+- **THEN** materialization reports failure
+- **AND** every source segment remains available for retry or recovery.
+
+### Requirement: Service Teardown Preserves Starting Audio
+
+Service destruction SHALL transfer ownership of an in-flight start to emergency finalization before startup cleanup may delete its artifacts.
+
+#### Scenario: Service is destroyed as microphone capture starts
+
+- **WHEN** the start coroutine is cancelled after creating a journal or opening capture
+- **THEN** its cancellation handler keeps the journal, database row, and audio artifacts
+- **AND** emergency finalization waits for that coroutine to leave setup before stopping with save.
+
+### Requirement: Live Capture Progress Is Supervised
+
+The service SHALL supervise the capture engine's monotonic PCM byte count and stop with save when it remains unchanged beyond the stall timeout.
+
+#### Scenario: Audio HAL read wedges during a long recording
+
+- **WHEN** capture bytes do not advance for 15 seconds while the session is recording
+- **THEN** the service enters its bounded stop-with-save path
+- **AND** preserves every segment captured before the stall.
+
+### Requirement: Microphone Start Avoids Maintenance Work
+
+Recovery reconciliation and janitorial work SHALL NOT run on the service's microphone-acquisition path.
+
+#### Scenario: Old sessions require recovery work
+
+- **WHEN** a user starts a new app recording
+- **THEN** the service creates the new journal and opens the microphone without waiting for old-session reconciliation
+- **AND** startup recovery remains responsible for the old sessions.
+
 ## Audit backlog (2026-05-25)
 
 Known gaps until archived changes land. Index: `openspec/changes/AUDIT_INDEX.md`.

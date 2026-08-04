@@ -59,8 +59,18 @@ Android speech-recognition entry points (`ChirpRecognitionService`, `VoiceRecogn
 
 1. UI calls `RecordingManager.startRecording()` or widget/keyboard equivalent.
 2. `RecordingStateManager.tryStartRecording()` acquires the lock.
-3. Service path: reconcile stale journals → create in-progress row → `sessionJournal.createSession(ACTIVE)`.
+3. Service path: create in-progress row → durably write `sessionJournal.createSession(ACTIVE)` → open the microphone. Recovery and janitorial work stay off this latency-critical path.
 4. Record screen auto-starts only when **actionable** recoverable sessions are empty (pending minus user-deferred).
+
+### No-loss durability rules
+
+- The active WAV is the recording source of truth. Every 30 seconds its PCM is synced to stable storage and its journal heartbeat is atomically replaced.
+- One transient file, journal, or storage-stat failure is logged and retried; it cannot silently kill the remaining long-session monitor loop.
+- Five-minute gapless segment rotation limits the size of any single active artifact. Pause and stop drain buffered HAL audio before finalizing the current segment.
+- A monotonic PCM counter is checked every second. Fifteen seconds without progress triggers the bounded stop-with-save path.
+- Service destruction during `Starting` waits for start cancellation to settle, then emergency-finalizes any audio that was already opened.
+- Capture segments remain in place until the final export is playable and synced. Failed export sync leaves the session recoverable.
+- The recognizer's residency is independent of app recording capture; recording start does not unload it.
 
 ## Stop
 
@@ -131,6 +141,9 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 - `RecordingStateManagerTest` — stopping timeout scaling and handler await ordering
 - `RecordingServiceStopOutcomesTest` — NoAudioFile row delete and stop-generation guard
 - `VoiceRecognitionCaptureGateTest` — external speech-recognition shared capture lock
+- `RecordingCaptureProgressWatchdogTest` — stalled capture detection and single-fire stop routing
+- `RecordingSessionHeartbeatTest` — transient durability failure retries
+- `RecordingSegmentFinalizeTest` — export sync precedes source-segment deletion
 
 ## Resolved (recording-lifecycle-gap-closure)
 

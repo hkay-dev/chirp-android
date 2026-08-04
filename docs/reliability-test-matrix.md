@@ -15,6 +15,10 @@ This matrix maps critical reliability risk classes to automated coverage and exe
 | Model artifact integrity | Corrupt or interrupted model downloads accepted as ready | `ModelDownloaderIntegrityTest` | `:app:testDebugUnitTest` |
 | Reliability event observability | Missing stage failure visibility or unredacted diagnostics | `ReliabilityEventLoggerTest` | `:core-contracts:testDebugUnitTest` |
 | Session journal durability | Interrupted recordings deleted as orphans; stale journals reconciled; abandoned entries pruned; recover idempotent | `RecordingSessionJournalTest`, `RecordingSessionReconcilerTest`, `RecordingSessionRecoveryTest`, `RecordingSessionRecoveryLiveSessionTest`, `RecordingSessionRecoveryKeepSessionTest`, `RecordingSessionJournalCancelOrderingTest`, `OrphanedAudioCleanerTest` | `:feature-recording:testDebugUnitTest` |
+| Live recording durability | Power loss drops recent PCM; transient sync failure kills future heartbeats | `WavFileWriterTest`, `RecordingSessionHeartbeatTest` | `:core-audio:testDebugUnitTest`, `:feature-recording:testDebugUnitTest` |
+| Capture progress supervision | Wedged Audio HAL leaves a timer running while no audio is written | `RecordingCaptureProgressWatchdogTest`, `CaptureEngineErrorRoutingTest`, `GaplessWavSegmentCaptureTest` | `:feature-recording:testDebugUnitTest` |
+| Export source preservation | Final segments are deleted before export bytes and directory entry are durable | `RecordingSegmentFinalizeTest` export-sync failure | `:feature-recording:testDebugUnitTest` |
+| Starting teardown recovery | Service destruction races startup cleanup and deletes newly captured audio | `RecordingServiceLifecycleCleanupTest` | `:feature-recording:testDebugUnitTest` |
 | Orphan cleaner format parity | Unreferenced mp3/wav/m4a orphans and stale nested capture dirs deleted; referenced and protected paths retained | `OrphanedAudioCleanerTest` mp3 and `.capture` cases | `:feature-recording:testDebugUnitTest` |
 | Recovery deferral persistence | Dismissed recovery prompts do not reappear after process death | `RecordingRecoveryDeferStoreTest`, `RecordingRecoveryStore` integration | `:feature-recording:testDebugUnitTest` |
 | Origin-aware stop routing | Widget stop reaches keyboard quick-capture without desyncing global state | `KeyboardRecordingStopBridgeTest`, `KeyboardPendingStopStoreTest` | `:core-contracts:testDebugUnitTest` |
@@ -49,6 +53,9 @@ Use this checklist on a physical device (e.g. S25 Ultra) before trusting hour-lo
 10. *(Gap closure)* Cancel recording then immediately start new one — no recovery prompt for canceled session.
 11. *(Gap closure)* Tag picker visible during first second of record screen auto-start; profile default tags already applied.
 12. *(Gap closure)* WAV recording transcribes on device — verify direct PCM decode path on 2+ OEMs (Samsung + Pixel or equivalent).
+13. Start recording and immediately force-stop during `Starting`; relaunch and recover any captured prefix.
+14. Record through two segment rotations, turn the screen off, and verify the live file size keeps advancing every check.
+15. Inject or simulate a blocked audio route; confirm the session auto-stops with a recoverable draft within the stall timeout.
 
 ## Gap closure automated coverage
 
