@@ -9,46 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [4.0.0] - 2026-08-05
 
-Chirp 4.0 is built around one rule: once the microphone hears something, the app should not lose it.
+Chirp 4.0 is mostly about one thing: you should never have to wonder whether it caught what you said.
 
-### Compact Parakeet TDT/CTC by default
+### The smaller Parakeet TDT/CTC model is now the default
 
-- New installs now select the 135 MB Parakeet TDT/CTC 110M Q8 GGUF model instead of the
-  659 MB Parakeet 0.6B model. It loads faster, takes much less storage, and was the best
-  balance of speed and accuracy in device testing.
-- The Q6_K and Q4_K_M 110M models remain available for people who want smaller downloads.
-  The larger Sherpa-ONNX 0.6B model remains available for streaming preview.
-- The model family and filename include CTC, though the verified Q8 conversion decodes through
-  its TDT head. The app calls it “Parakeet 110M Q8” rather than pretending it is pure CTC.
-- An existing model choice is preserved. The new default applies when no choice has been saved.
+- New installs now use the 135 MB Parakeet 110M Q8 model instead of the old 659 MB model.
+  It starts faster, takes up a lot less space, and still does a great job with everyday dictation.
+- You can still pick the even smaller Q6_K and Q4_K_M versions. The big 0.6B model is still
+  there too if you want its live transcription preview.
+- A quick naming note: this comes from the Parakeet TDT/CTC family, though this particular GGUF
+  conversion uses the TDT part of the model. Chirp just calls it “Parakeet 110M Q8.”
+- Already picked a model you like? Chirp leaves it alone. This only changes the starting choice
+  for new installs.
 
-### Recording that protects the audio
+### Much harder to lose a recording
 
-- Recording starts immediately. Model loading happens beside capture and can no longer cut off
-  the beginning of a dictation.
-- Quick input and app recordings write to recoverable files during capture. The first audio block
-  is checkpointed, and interrupted work can be recovered after an activity, service, or process
-  goes away.
-- Transcription, database saving, and the finished notification keep running if you switch apps.
-- Continuous transcription stays the normal path. Overlapping chunks are used only as recovery
-  when a whole recording cannot be decoded safely.
-- Long recordings keep durable audio, recovery journals, storage checks, and guarded stop paths.
+- Recording starts the moment you ask for it. Chirp does not wait around for the speech model to load,
+  so the beginning of what you say should not get clipped.
+- Audio is saved as you speak. If Android closes a screen, service, or even the whole app process,
+  Chirp has something real to recover instead of just hoping everything stayed in memory.
+- You can switch apps during transcription. Chirp keeps working, saves the result, and lets you know
+  when it is done.
+- Normal transcription still handles the recording as one continuous piece. Overlapping chunks are
+  there as a backup if the full recording cannot be handled safely.
+- Long recordings now have more checks around storage, stopping, recovery, and unfinished work.
 
-### Faster everyday use
+### Quicker in day-to-day use
 
-- The selected local recognizer stays loaded between dictations. It is released only for real
-  memory pressure, severe thermal pressure, an explicit model switch or deletion, or process death.
-- Home observes the recordings table once and does less list work on each database update.
-- The automatic microphone order is built-in, USB, wired, then Bluetooth.
-- Quick input keeps a short-lived notification with the original transcript and AI result so a
-  failed app handoff never leaves the text stranded.
+- Chirp keeps your speech model warmed up between dictations. It only lets go when Android really
+  needs the memory, the phone gets too hot, you change models, or the app process dies.
+- The recordings screen does less busywork when something changes.
+- The built-in mic comes first, followed by USB, wired, and finally Bluetooth.
+- Quick input keeps a short-lived notification with your original words and the AI-cleaned version.
+  If another app refuses to accept the text, you can still grab it from there.
 
-### Stable Android build
+### Ready for daily use
 
-- Targets Android 16 and the Galaxy S25 Ultra, with an arm64-only APK and 16 KB native-page alignment.
-- Uses API 36, Android Gradle Plugin 8.13.2, Gradle 8.14.5, and NDK r29.
-- The release APK is R8-minified, resource-shrunk, stripped of native debug symbols, and not debuggable.
-- Removed the old GGUF trial build, dead UI helpers, deprecated wrappers, and stale planning material.
+- Built around Android 16 and the Galaxy S25 Ultra.
+- The release APK is smaller, cleaned up, and has debugging turned off.
+- Old experiments, unused helpers, and stale planning files have been cleared out.
 
 ## [3.1] - 2026-06-12
 
