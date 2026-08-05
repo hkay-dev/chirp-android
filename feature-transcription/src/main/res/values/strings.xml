@@ -55,6 +55,17 @@
     <string name="transcription_ready_copied_raw">Transcript copied</string>
     <string name="transcription_ready_copied_ai">AI result copied</string>
     <string name="transcription_ready_copy_failed">That transcription is no longer available</string>
+    <string name="quick_input_result_channel_name">Quick input results</string>
+    <string name="quick_input_result_channel_description">Shows the latest quick input briefly so it can be copied if another app does not insert it</string>
+    <string name="quick_input_result_notification_title">Quick input ready</string>
+    <string name="quick_input_result_public_body">Your latest quick input is ready</string>
+    <string name="quick_input_result_raw_label">Original</string>
+    <string name="quick_input_result_ai_label">AI result</string>
+    <string name="quick_input_result_copy_raw">Copy original</string>
+    <string name="quick_input_result_copy_ai">Copy AI result</string>
+    <string name="quick_input_result_copied_raw">Original copied</string>
+    <string name="quick_input_result_copied_ai">AI result copied</string>
+    <string name="quick_input_result_copy_failed">That quick input is no longer available</string>
     <string name="transcription_cleanup_retry_notification_title">Transcript saved</string>
     <string name="transcription_cleanup_retry_notification_body">AI cleanup needs a retry. Tap to open it in Chirp.</string>
 

@@ -40,6 +40,7 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
+import dev.chirpboard.app.feature.transcription.QuickInputResultNotificationPublisher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -194,6 +195,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
     @Inject lateinit var inlineTranscription: InlineTranscriptionPort
 
     @Inject lateinit var capturePersistence: InlineCapturePersistence
+
+    @Inject lateinit var quickInputResultNotificationPublisher: QuickInputResultNotificationPublisher
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
@@ -649,11 +652,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 // Guard the pipeline's persistence so a cancellation racing the final
                 // persist cannot write a duplicate entry for the same capture. Secure
                 // sessions persist nothing at all (IME-6).
+                var completedRawText: String? = null
+                var completedProcessedText: String? = null
                 val persistence =
                     if (secure) {
                         SecureRecognitionCapturePersistence
                     } else {
-                        DictationCapturePersistenceGuard(capturePersistence)
+                        DictationCapturePersistenceGuard(capturePersistence) { rawText, processedText ->
+                            completedRawText = rawText
+                            completedProcessedText = processedText
+                        }
                     }
                 var resultText = ""
                 inlineTranscription.transcribe(
@@ -692,6 +700,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             data = buildRecognitionActivityResult(delivery.text),
                             finishImmediately = true,
                         )
+                        // The caller-selected Android result channel stays latency-critical and
+                        // authoritative. Only post the fallback after that delivery has finished.
+                        if (!secure) {
+                            quickInputResultNotificationPublisher.show(
+                                rawText = completedRawText ?: delivery.text,
+                                processedText = completedProcessedText,
+                            )
+                        }
                     }
 
                     is RecognitionDelivery.Failure -> {
@@ -1095,6 +1111,7 @@ internal fun ActiveInputDevice?.withDeviceLostNotice(lostDeviceName: String?): A
  */
 internal class DictationCapturePersistenceGuard(
     private val delegate: InlineCapturePersistence,
+    private val onCompleted: (rawText: String, processedText: String?) -> Unit = { _, _ -> },
 ) : InlineCapturePersistence {
     @Volatile
     private var rescuePersisted = false
@@ -1118,6 +1135,7 @@ internal class DictationCapturePersistenceGuard(
         }
         delegate.persist(samples, rawText, processedText, errorMessage, reason)
         recordCompletedPersist(reason)
+        reportCompletedResult(rawText, processedText, reason)
     }
 
     override suspend fun persistAudioSource(
@@ -1132,6 +1150,7 @@ internal class DictationCapturePersistenceGuard(
         }
         delegate.persistAudioSource(audioSource, rawText, processedText, errorMessage, reason)
         recordCompletedPersist(reason)
+        reportCompletedResult(rawText, processedText, reason)
     }
 
     override fun discardSamples() = delegate.discardSamples()
@@ -1146,6 +1165,16 @@ internal class DictationCapturePersistenceGuard(
             InlineCapturePersistReason.RESCUE -> rescuePersisted = true
             InlineCapturePersistReason.COMPLETED -> successPersisted = true
             InlineCapturePersistReason.USER_CANCELLED -> Unit
+        }
+    }
+
+    private fun reportCompletedResult(
+        rawText: String?,
+        processedText: String?,
+        reason: InlineCapturePersistReason,
+    ) {
+        if (reason == InlineCapturePersistReason.COMPLETED && !rawText.isNullOrBlank()) {
+            onCompleted(rawText, processedText)
         }
     }
 }

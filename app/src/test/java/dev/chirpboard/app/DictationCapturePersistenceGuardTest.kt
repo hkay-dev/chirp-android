@@ -67,6 +67,48 @@ class DictationCapturePersistenceGuardTest {
         }
 
     @Test
+    fun `completed persist reports raw and AI text after delegate succeeds`() =
+        runTest {
+            val delegate = RecordingCapturePersistence()
+            var reported: Pair<String, String?>? = null
+            val guard =
+                DictationCapturePersistenceGuard(delegate) { rawText, processedText ->
+                    reported = rawText to processedText
+                }
+
+            guard.persistAudioSource(source, "raw", "processed", null, InlineCapturePersistReason.COMPLETED)
+
+            assertEquals("raw" to "processed", reported)
+        }
+
+    @Test
+    fun `rescue and user cancel persists never report a completed result`() =
+        runTest {
+            var reportCalls = 0
+            val rescueGuard = DictationCapturePersistenceGuard(RecordingCapturePersistence()) { _, _ -> reportCalls++ }
+            val cancelGuard = DictationCapturePersistenceGuard(RecordingCapturePersistence()) { _, _ -> reportCalls++ }
+
+            rescueGuard.persistAudioSource(source, "raw", null, "failed", InlineCapturePersistReason.RESCUE)
+            cancelGuard.persistAudioSource(source, "raw", null, "cancelled", InlineCapturePersistReason.USER_CANCELLED)
+
+            assertEquals(0, reportCalls)
+        }
+
+    @Test
+    fun `failed completed persist does not report a result`() =
+        runTest {
+            val delegate = RecordingCapturePersistence(failNextPersist = true)
+            var reportCalls = 0
+            val guard = DictationCapturePersistenceGuard(delegate) { _, _ -> reportCalls++ }
+
+            runCatching {
+                guard.persistAudioSource(source, "raw", "processed", null, InlineCapturePersistReason.COMPLETED)
+            }
+
+            assertEquals(0, reportCalls)
+        }
+
+    @Test
     fun `non-persist calls pass straight through to the delegate`() =
         runTest {
             val delegate = RecordingCapturePersistence()

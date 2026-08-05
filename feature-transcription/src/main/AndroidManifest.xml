@@ -7,6 +7,10 @@
             android:name=".TranscriptionCopyActionReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".QuickInputResultCopyReceiver"
+            android:exported="false" />
+
         <!-- WorkManager foreground worker (TranscriptionWorker setForeground) -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
