@@ -62,18 +62,16 @@
             android:targetActivity=".MainActivity"
             android:exported="true" />
 
-        <!-- Voice Recognition Activity for RECOGNIZE_SPEECH intents. Its dedicated task affinity
-             and floating translucent theme match Android's reference voice-input activity shape:
-             never attach this temporary result surface to Chirp's main task or turn it into a
-             full-screen application window over the caller's editor.
+        <!-- Voice Recognition Activity for RECOGNIZE_SPEECH intents.
              configChanges keeps rotation/theme changes from recreating the activity
-             mid-recognition; smallestScreenSize and density cover foldable posture changes,
-             which deliver those alongside screenSize/screenLayout. -->
+             mid-recognition; smallestScreenSize and density cover foldable posture
+             changes, which deliver those alongside screenSize/screenLayout. Standard
+             launch mode (no taskAffinity override) keeps this result activity in the
+             caller's task and preserves the established bottom-sheet appearance. -->
         <activity
             android:name=".VoiceRecognitionActivity"
             android:exported="true"
-            android:theme="@style/Theme.Chirp.VoiceInput"
-            android:taskAffinity="${applicationId}.voiceinput"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|keyboardHidden|uiMode"
             android:windowSoftInputMode="stateUnchanged|adjustNothing">

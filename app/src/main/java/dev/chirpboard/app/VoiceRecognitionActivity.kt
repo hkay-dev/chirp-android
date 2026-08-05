@@ -253,7 +253,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "VoiceRecognitionActivity created")
+        val requestHasPendingResult =
+            intent?.hasExtra(RecognizerIntent.EXTRA_RESULTS_PENDINGINTENT) == true
+        Log.i(
+            TAG,
+            "Recognition request opened " +
+                "(caller=${callingPackage ?: referrer?.host ?: "unknown"}, " +
+                "pendingResult=$requestHasPendingResult, flags=0x${intent?.flags?.toString(16) ?: "0"})",
+        )
 
         androidx.core.view.WindowCompat
             .setDecorFitsSystemWindows(window, false)
@@ -271,6 +278,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
         params.flags =
             params.flags or
                 android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND or
+                // The activity never edits text. Keeping it outside the IME target relationship
+                // lets the caller's keyboard stay bound to the editor behind the speech sheet.
+                android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM or
                 android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         // The old stateAlwaysHidden manifest setting explicitly hid the caller's keyboard
         // as this window took focus. Twitter-like editors then received the activity result
@@ -679,18 +689,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         Log.d(TAG, "Returning result to caller (${delivery.text.length} chars)")
                         dismissWithResult(
                             resultCode = Activity.RESULT_OK,
-                            data =
-                                Intent().apply {
-                                    putStringArrayListExtra(
-                                        RecognizerIntent.EXTRA_RESULTS,
-                                        arrayListOf(delivery.text),
-                                    )
-                                    // IME-15: single offline hypothesis, full confidence.
-                                    putExtra(
-                                        RecognizerIntent.EXTRA_CONFIDENCE_SCORES,
-                                        floatArrayOf(1f),
-                                    )
-                                },
+                            data = buildRecognitionActivityResult(delivery.text),
                             finishImmediately = true,
                         )
                     }
@@ -911,12 +910,19 @@ class VoiceRecognitionActivity : ComponentActivity() {
         data: Intent? = null,
         finishImmediately: Boolean = false,
     ) {
-        setResult(resultCode, data)
+        val resultChannel =
+            deliverRecognitionActivityResult(
+                context = this,
+                request = intent,
+                resultCode = resultCode,
+                data = data,
+                setActivityResult = ::setResult,
+            )
+        Log.i(TAG, "Recognition result delivered through $resultChannel (code=$resultCode)")
         _shouldDismiss.value = true
         if (finishImmediately) {
-            // A successful voice result is latency-sensitive. The floating recognition task
-            // keeps the host editor's IME state intact, so no extra focus choreography belongs
-            // here; finish through the standard activity-result path as soon as text is ready.
+            // A successful voice result is latency-sensitive. Its caller-selected result channel
+            // is complete, so no decorative delay or extra focus choreography belongs here.
             Log.d(TAG, "Finishing immediately with recognition result")
             finish()
         } else {
