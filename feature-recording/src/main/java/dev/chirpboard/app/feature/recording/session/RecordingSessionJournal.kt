@@ -118,8 +118,7 @@ class RecordingSessionJournal
         /** Serializes journal read-modify-write cycles so concurrent mutators cannot lose updates. */
         private val journalLock = Any()
 
-        private val sessionsDir: File
-            get() = File(context.filesDir, "recordings/.sessions").apply { mkdirs() }
+        private val sessionsDir = File(context.filesDir, "recordings/.sessions").apply { mkdirs() }
 
         fun createSession(
             sessionId: UUID,
