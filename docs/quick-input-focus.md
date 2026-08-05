@@ -69,31 +69,36 @@ inline Compose editor lifecycle and SwiftKey's deferred voice-result bridge. Chi
 or commit through another app's private `InputConnection` under the standard recognition-activity
 contract.
 
-## Structural options if the caller uses only activity results
+## Opt-in X reply compatibility mode
 
-1. Keep the implicit recognition activity for SwiftKey compatibility. This remains required because
-   SwiftKey launches `ACTION_RECOGNIZE_SPEECH` rather than an auxiliary voice IME.
-2. Add a separate auxiliary IME service with subtype mode `voice` for keyboards that support it.
-   That service can finish any old composition and commit final text directly. It would improve
-   HeliBoard, FlorisBoard, AnySoftKeyboard, and similar integrations, but it would not replace the
-   SwiftKey path.
-3. Keep `ChirpRecognitionService` for apps using `SpeechRecognizer`. It does not solve a caller that
-   explicitly launches the activity.
-4. Do not silently add accessibility injection, clipboard paste, or a draw-over-apps window. Those
-   routes add sensitive permissions, duplicate-insertion races, and no reliable ownership of the
-   target field unless the user explicitly enables a guarded compatibility mode.
+Chirp now offers a separately enabled accessibility service for this one proven failure. It keeps
+the activity result authoritative and never creates a second text-delivery path. Its only job is to
+recreate the input session that SwiftKey is waiting for.
 
-For the proven X and SwiftKey failure, the standard contract is exhausted. Any automatic workaround
-must cross that boundary explicitly. The least risky choices are:
+The service follows this contract.
 
-1. Keep activity-result delivery authoritative and provide a durable result notification or copy
-   action. This never loses text, but the user still completes the handoff.
-2. Offer an opt-in accessibility compatibility service that remembers the last editable target and
-   restores or sets its text after the host resumes. This can automate X, but it is a sensitive
-   permission and must prevent duplicate insertion by replacing, not supplementing, SwiftKey's
-   result path for that session.
-3. Use Chirp as the active IME, where it owns the `InputConnection` and can commit directly. This is
-   the cleanest technical path, but it changes the user's keyboard workflow.
+1. Android leaves it disabled until the user enables **Chirp X Reply Compatibility** in system
+   accessibility settings. Chirp's Keyboard Settings page links there and reports the live state.
+2. The service receives events only from `com.twitter.android` and remembers metadata only for the
+   resource ID ending in `:id/post-detail-reply-text-field`.
+3. The recognition activity snapshots that fresh target only when its caller is stable or beta
+   SwiftKey.
+4. A recovery is armed only after an immediate `RESULT_OK` activity result, including fallback
+   from a cancelled result token. A live result `PendingIntent`, an error, a cancellation, or an
+   animated dismissal cannot arm it.
+5. The service waits up to five seconds for the same X window and the same visible editable node.
+   It performs at most one clear-focus, input-focus, and click cycle, re-resolving the node between
+   focus changes because Android accessibility nodes can become stale.
+6. A real user tap ends pending recovery. A new quick-input session supersedes any older request.
+7. The service never reads node text, calls `ACTION_SET_TEXT`, uses the clipboard, dispatches a
+   gesture, filters keys, or logs transcript content.
+
+If any guard fails, the service does nothing. SwiftKey keeps its one pending voice result, so the
+existing manual tap and Chirp's durable result fallback remain available.
+
+Other structural options remain possible. A voice IME subtype could directly serve keyboards that
+support one, and using Chirp as the active IME continues to give Chirp direct `InputConnection`
+ownership. Neither changes SwiftKey's current `ACTION_RECOGNIZE_SPEECH` path.
 
 ## Live diagnostic procedure
 
@@ -104,6 +109,10 @@ must cross that boundary explicitly. The least risky choices are:
    field is unfocused and empty, and `InputMethodManager` has no served connection.
 5. Repeat twice in the same composer. The second result catches stale `InputConnection` reuse that a
    one-shot test misses.
+6. Enable the compatibility service and repeat. Confirm the field refocuses, SwiftKey stays visible,
+   and the transcript appears once without a tap.
+7. Repeat a cancellation, transcription error, non-X quick input, X tweet composer, and manual-tap
+   race. Confirm the service performs no automated focus cycle in each excluded case.
 
 ## Permanent behavior
 
@@ -112,4 +121,5 @@ must cross that boundary explicitly. The least risky choices are:
 - Preserve the established Chirp bottom-sheet appearance.
 - Deliver through the caller-selected Android result channel exactly once.
 - Finish successful recognition immediately.
+- Keep X focus recovery separately opt-in, metadata-only, target-specific, and bounded.
 - Keep the existing capture-persistence and transcription-rescue paths unchanged.

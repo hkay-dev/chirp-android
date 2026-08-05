@@ -269,6 +269,47 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 - **AND** MUST NOT hide the caller IME to manufacture an input-view restart
 - **AND** any cross-app automatic insertion mode MUST be separately opt-in and prevent duplicate delivery.
 
+### Requirement: Opt-In X Reply Focus Recovery
+
+Chirp MAY offer a separately enabled accessibility compatibility service for the proven X inline-reply and SwiftKey deferred-result failure. The service SHALL restore only input focus and SHALL NOT become a second transcript-delivery path.
+
+#### Scenario: User enables X reply compatibility
+
+- **WHEN** the user opens Keyboard Settings and selects X Reply Compatibility
+- **THEN** Chirp opens system accessibility settings
+- **AND** reports whether the system has enabled Chirp X Reply Compatibility when the user returns
+- **AND** the service remains disabled until the user explicitly enables it there.
+
+#### Scenario: Eligible SwiftKey result returns to X inline reply
+
+- **GIVEN** the compatibility service captured a fresh, visible, editable X node whose resource ID ends in `:id/post-detail-reply-text-field`
+- **AND** SwiftKey or SwiftKey Beta launched the recognition activity from that editor
+- **WHEN** Chirp returns an immediate `RESULT_OK` through an activity-result channel
+- **THEN** the service waits no more than five seconds for the same X window and target node
+- **AND** performs at most one clear-focus, input-focus, and click cycle
+- **AND** the normal recognition activity result remains the only transcript-delivery path.
+
+#### Scenario: Recovery guard does not match
+
+- **WHEN** the caller is not SwiftKey
+- **OR** the target package, resource ID, editable state, visibility, age, or window ID does not match
+- **OR** delivery uses a live result `PendingIntent`
+- **OR** recognition is cancelled, fails, or does not finish immediately
+- **THEN** the service performs no focus action
+- **AND** the normal result and durable fallback behavior stay unchanged.
+
+#### Scenario: User taps the reply field during pending recovery
+
+- **WHEN** the target receives a real click before the automated cycle starts
+- **THEN** the pending automated recovery ends
+- **AND** Chirp does not fight the user's new input session.
+
+#### Scenario: Compatibility service handles editor metadata
+
+- **WHEN** the compatibility service observes or restores the target
+- **THEN** its event configuration is package-limited to `com.twitter.android`
+- **AND** it never reads node text, sets text, uses the clipboard, dispatches gestures, filters keys, or logs transcript content.
+
 ## Audit backlog (2026-05-25)
 
 | Priority | Gap | Change |
