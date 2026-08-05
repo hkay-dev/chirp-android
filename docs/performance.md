@@ -48,8 +48,17 @@ The process-wide recognizer follows these rules.
 4. Confirmed low-memory signals and severe-or-higher thermal status may release an unused model.
 5. The next startup, IME bind, or transcription request loads a model again if pressure freed it.
 
-Warmup loads and verifies model resources only. Audio capture still begins solely from an explicit
-recording action, so residency never opens or reserves the microphone.
+Startup recognizer prewarm constructs the native recognizer and keeps it resident. Readiness
+verification is separate and only checks model artifacts. Audio capture still begins solely from
+an explicit recording action, so neither operation opens or reserves the microphone.
+
+## Android toolchain
+
+The S25 Ultra is the reference device. The app compiles and targets stable API 36, uses Android
+Gradle Plugin 8.13.2 with Gradle 8.14.5, and builds the arm64 GGUF library with NDK r29. The GGUF
+leaf module uses native API 35 because that is the newest platform exposed by NDK r29; the app and
+every Android-facing module still require API 36. The shipped arm64 native library must keep 16 KB
+LOAD-segment alignment for current Samsung and Android devices.
 
 ## Keyboard capture hot path
 
@@ -98,7 +107,7 @@ seconds and grew beyond 2.1 GB native RSS, so higher parallelism was rejected. T
 advertises `streaming=false`; its continuous path is offline whole-utterance decode rather than a
 cache-aware native stream.
 
-`scripts/benchmark-gguf-trial.sh all` installs an instrumentation harness, pushes the same float32
+`scripts/benchmark-gguf.sh all` installs an instrumentation harness, pushes the same float32
 PCM file and verified Q8, Q6_K, and Q4_K_M models, and runs each model in forward and reverse
 order. Every invocation measures a cold model load, one cache-cold decode, and three warm decodes.
 Each native run uses the production 90-second maximum and records a timeout rather than hanging.

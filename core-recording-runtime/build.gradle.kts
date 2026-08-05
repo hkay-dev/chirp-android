@@ -26,14 +26,14 @@ android {
 dependencies {
     api(project(":core-contracts"))
 
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    ksp("com.google.dagger:hilt-android-compiler:2.51.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.android.compiler)
+    implementation(libs.kotlinx.coroutines.android)
 
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit4)
     testImplementation(project(":test-support"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
 }

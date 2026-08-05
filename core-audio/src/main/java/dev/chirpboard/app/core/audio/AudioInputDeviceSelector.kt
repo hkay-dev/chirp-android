@@ -438,26 +438,6 @@ class AudioInputDeviceSelector
             }
         }
 
-        /**
-         * Unconditional clear, kept only until every surface passes its session token.
-         * Releases EVERY outstanding communication-device hold so a legacy caller can
-         * never strand SCO routing (MIC-006).
-         */
-        @Deprecated(
-            message =
-                "An unconditional clear can clobber a newer session's published state; " +
-                    "pass the AudioCaptureSession token instead.",
-            replaceWith = ReplaceWith("clearActiveDevice(sessionToken)"),
-        )
-        fun clearActiveDevice() {
-            val heldCount =
-                synchronized(stateLock) {
-                    clearActiveDeviceLocked()
-                    communicationDeviceTokens.size.also { communicationDeviceTokens.clear() }
-                }
-            repeat(heldCount) { communicationDeviceSession.release() }
-        }
-
         private fun clearActiveDeviceLocked() {
             activeDeviceId = null
             _activeDevice.value = null

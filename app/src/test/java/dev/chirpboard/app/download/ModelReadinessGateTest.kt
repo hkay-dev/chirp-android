@@ -43,7 +43,7 @@ class ModelReadinessGateTest {
     }
 
     @Test
-    fun `warmupIfNeeded calls ensureReady when state is Unknown`() =
+    fun `verifyIfNeeded calls ensureReady when state is Unknown`() =
         testScope.runTest {
             coEvery { speechModelStore.evaluateReadiness() } returns
                 ModelReadinessEvaluation(
@@ -51,7 +51,7 @@ class ModelReadinessGateTest {
                     verificationSource = ModelReadinessVerificationSource.PROCESS_CACHE,
                 )
 
-            gate.warmupIfNeeded(VerificationTrigger.APP_STARTUP)
+            gate.verifyIfNeeded(VerificationTrigger.APP_STARTUP)
             testDispatcher.scheduler.advanceUntilIdle()
 
             val state = gate.state.value
@@ -62,15 +62,15 @@ class ModelReadinessGateTest {
         }
 
     @Test
-    fun `warmupIfNeeded does nothing if state is already Checking or Ready`() =
+    fun `verifyIfNeeded does nothing if state is already Checking or Ready`() =
         testScope.runTest {
             coEvery { speechModelStore.evaluateReadiness() } returns ModelReadinessEvaluation(isReady = true)
 
-            gate.warmupIfNeeded()
+            gate.verifyIfNeeded()
             testDispatcher.scheduler.advanceUntilIdle()
 
             // Second call should do nothing
-            gate.warmupIfNeeded()
+            gate.verifyIfNeeded()
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify(exactly = 1) { speechModelStore.evaluateReadiness() }

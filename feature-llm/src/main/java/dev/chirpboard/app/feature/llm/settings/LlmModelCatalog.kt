@@ -68,7 +68,3 @@ fun resolveModelId(
         defaultModelFor(provider)
     }
 }
-
-/** @deprecated Use [resolveModelId] with [LlmProvider.GEMINI]. */
-fun resolveGeminiModelName(storedModelName: String?): String =
-    resolveModelId(LlmProvider.GEMINI, storedModelName)

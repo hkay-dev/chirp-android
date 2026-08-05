@@ -95,8 +95,6 @@
     <string name="rec_recordings_title_expanded">Your Recordings</string>
     <string name="rec_record_fab_checking">Checking…</string>
     <string name="rec_record_fab_default">Record</string>
-    <string name="rec_empty_state_record_checking">Checking model…</string>
-    <string name="rec_empty_state_record_default">Record Now</string>
     <string name="rec_recover_stuck_processing">Recover Stuck Processing</string>
     <string name="rec_stuck_recovery_message">Stuck in %1$s. Long-press for recovery.</string>
     <string name="rec_empty_state_title">Nothing recorded yet</string>
@@ -129,9 +127,6 @@
     <string name="rec_auto_stop_capture_error">A microphone error occurred</string>
     <!-- In-app snackbar twin of the auto-stop notification; %1$s is one of the rec_auto_stop_* reasons. -->
     <string name="rec_auto_stop_snackbar">Recording stopped and saved — %1$s</string>
-    <string name="rec_finalize_notification_channel">Recording finalize</string>
-    <string name="rec_finalize_notification_title">Stitching recording</string>
-    <string name="rec_finalize_notification_body">Saving audio and preparing transcription.</string>
     <string name="rec_active_profile_label">Recording with profile</string>
     <string name="rec_color">Color</string>
     <string name="rec_no_tags_yet">No tags yet</string>

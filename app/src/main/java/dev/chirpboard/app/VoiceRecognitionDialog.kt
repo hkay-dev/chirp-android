@@ -173,7 +173,7 @@ internal fun VoiceRecognitionDialog(
 
     // Auto-start is preserved (per DECISIONS: this is a one-shot quick capture and the user's
     // intent to dictate is already explicit). Capture starts with the first composition. The
-    // brief visual ready beat and recognizer warmup run alongside it, never ahead of the mic.
+    // brief visual ready beat and recognizer initialization run alongside it, never ahead of the mic.
     var preRollComplete by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         onStart()

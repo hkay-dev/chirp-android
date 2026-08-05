@@ -63,7 +63,7 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
         }
 
         LaunchedEffect(recordEntryViewModel) {
-            recordEntryViewModel.warmupOnHomeVisible()
+            recordEntryViewModel.verifyModelOnHomeVisible()
         }
 
         LaunchedEffect(recordEntryViewModel) {

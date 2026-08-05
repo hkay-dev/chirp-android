@@ -11,7 +11,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.Lazy
 import dagger.hilt.android.HiltAndroidApp
-import dev.chirpboard.app.download.SpeechModelWarmupCoordinator
+import dev.chirpboard.app.download.SpeechModelReadinessCoordinator
 import dev.chirpboard.app.core.audio.recorder.CaptureEmergencyReserve
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
@@ -64,7 +64,7 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var apiKeyMigration: Lazy<ApiKeyMigration>
 
     @Inject
-    lateinit var speechModelWarmupCoordinator: Lazy<SpeechModelWarmupCoordinator>
+    lateinit var speechModelReadinessCoordinator: Lazy<SpeechModelReadinessCoordinator>
 
     @Inject
     lateinit var transcriberProvider: Lazy<TranscriberProvider>
@@ -212,10 +212,10 @@ class ChirpApplication : Application(), Configuration.Provider {
             launch {
                 try {
                     if (GgufNativeSessionReservation.isReserved()) return@launch
-                    speechModelWarmupCoordinator.get().warmupOnAppStartupIfCandidate()
+                    speechModelReadinessCoordinator.get().verifyOnAppStartupIfCandidate()
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e(TAG, "Failed to evaluate speech model warmup candidates on startup", e)
+                    Log.e(TAG, "Failed to evaluate speech model readiness candidates on startup", e)
                 }
             }
 

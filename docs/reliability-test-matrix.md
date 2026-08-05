@@ -105,4 +105,3 @@ Use `scripts/run-reliability-matrix.sh` to execute the gate locally.
 ## Known gaps
 
 - Process-death instrumentation during active capture remains optional/local due to emulator flakiness; unit tests cover journal safelist and recovery orchestration, while androidTest compile gates only verify instrumented test sources still build.
-- **Audit backlog (P0–P4):** see § Audit backlog above and `openspec/changes/AUDIT_INDEX.md`. Do not close audit items without archiving the corresponding change.

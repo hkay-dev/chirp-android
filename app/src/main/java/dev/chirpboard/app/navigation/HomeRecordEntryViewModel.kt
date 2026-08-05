@@ -30,8 +30,8 @@ class HomeRecordEntryViewModel
         private val _events = Channel<HomeRecordEntryEvent>(Channel.BUFFERED)
         val events: Flow<HomeRecordEntryEvent> = _events.receiveAsFlow()
 
-        fun warmupOnHomeVisible() {
-            modelReadinessGate.warmupIfNeeded(VerificationTrigger.HOME_VISIBLE)
+        fun verifyModelOnHomeVisible() {
+            modelReadinessGate.verifyIfNeeded(VerificationTrigger.HOME_VISIBLE)
         }
 
         fun onRecordTapped(profileId: UUID? = null) {

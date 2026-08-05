@@ -284,7 +284,7 @@ class TranscriptionQueueManager
 
             queueLog.success("enqueue_scheduled")
             if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
-                readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+                readinessGate.verifyIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
             }
             return workId
         }
@@ -451,7 +451,7 @@ class TranscriptionQueueManager
 
             queueLog.success("retranscribe_scheduled")
             if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
-                readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+                readinessGate.verifyIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
             }
             return ManualRecoveryResult.ENQUEUED
         }
@@ -656,7 +656,7 @@ class TranscriptionQueueManager
             }
             val pending = recordingRepository.getPendingRecordings()
             if (pending.anyLocalTranscription()) {
-                readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+                readinessGate.verifyIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
             }
             if (transcriberProvider.isModelDownloaded()) {
                 recoverRecordingsWaitingForModel()
@@ -730,7 +730,7 @@ class TranscriptionQueueManager
                 TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId) ==
                 TranscriptionEngine.LOCAL_PARAKEET
             ) {
-                readinessGate.warmupIfNeeded(VerificationTrigger.RECOVERY)
+                readinessGate.verifyIfNeeded(VerificationTrigger.RECOVERY)
             }
 
             return ManualRecoveryResult.ENQUEUED

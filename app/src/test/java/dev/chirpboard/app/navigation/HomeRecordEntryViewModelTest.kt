@@ -64,9 +64,9 @@ class HomeRecordEntryViewModelTest {
     }
 
     @Test
-    fun `warmupOnHomeVisible calls gate warmup`() {
-        viewModel.warmupOnHomeVisible()
-        verify { modelReadinessGate.warmupIfNeeded(VerificationTrigger.HOME_VISIBLE) }
+    fun `verifyModelOnHomeVisible asks the gate to verify`() {
+        viewModel.verifyModelOnHomeVisible()
+        verify { modelReadinessGate.verifyIfNeeded(VerificationTrigger.HOME_VISIBLE) }
     }
 
     @Test

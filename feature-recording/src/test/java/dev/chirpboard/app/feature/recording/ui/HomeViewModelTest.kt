@@ -157,6 +157,11 @@ class HomeViewModelTest {
         }
 
     @Test
+    fun `home observes the recordings table once`() {
+        verify(exactly = 1) { recordingRepository.getAllRecordings() }
+    }
+
+    @Test
     fun `deriveHomeQuickStarts ranks pinned first and caps to four`() {
         val profileA = Profile(id = UUID.randomUUID(), name = "Alpha", sortOrder = 2, isQuickStartPinned = true)
         val profileB = Profile(id = UUID.randomUUID(), name = "Beta", sortOrder = 1, isQuickStartPinned = true)
@@ -813,7 +818,7 @@ class HomeViewModelTest {
         }
 
     @Test
-    fun `shouldShowRecordingOnHomeList includes live capture row`() {
+    fun `live capture marker follows the active recording state`() {
         val recordingId = UUID.randomUUID()
         val recording =
             Recording(
@@ -824,15 +829,6 @@ class HomeViewModelTest {
                 status = RecordingStatus.RECORDING,
             )
 
-        assertTrue(
-            shouldShowRecordingOnHomeList(
-                recording,
-                RecordingState.Recording(
-                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
-                    recordingId = recordingId,
-                ),
-            ),
-        )
         assertTrue(
             isLiveCaptureHomeListItem(
                 recording,
@@ -860,15 +856,7 @@ class HomeViewModelTest {
                 ),
             ),
         )
-        assertTrue(
-            shouldShowRecordingOnHomeList(
-                recording,
-                RecordingState.Stopping(
-                    origin = dev.chirpboard.app.core.recording.RecordingOrigin.APP,
-                    recordingId = recordingId,
-                ),
-            ),
-        )
+        assertTrue(isHomeListProcessingItem(recording))
     }
 
     @Test

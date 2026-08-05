@@ -19,10 +19,10 @@ import org.junit.Before
 import org.junit.Test
 import java.util.UUID
 
-class SpeechModelWarmupCoordinatorTest {
+class SpeechModelReadinessCoordinatorTest {
     private lateinit var recordingRepository: RecordingRepository
     private lateinit var readinessGate: SpeechModelReadinessGate
-    private lateinit var coordinator: SpeechModelWarmupCoordinator
+    private lateinit var coordinator: SpeechModelReadinessCoordinator
     private lateinit var transcriptionRoutingStore: TranscriptionRoutingStore
 
     @Before
@@ -31,32 +31,32 @@ class SpeechModelWarmupCoordinatorTest {
         readinessGate = mockk(relaxed = true)
         transcriptionRoutingStore = mockk()
         coEvery { transcriptionRoutingStore.getSelectedEngine() } returns TranscriptionEngine.LOCAL_PARAKEET
-        coordinator = SpeechModelWarmupCoordinator(recordingRepository, readinessGate, transcriptionRoutingStore)
+        coordinator = SpeechModelReadinessCoordinator(recordingRepository, readinessGate, transcriptionRoutingStore)
     }
 
     @Test
-    fun `idle startup skips speech model warmup`() = runTest {
+    fun `idle startup skips speech model verification`() = runTest {
         coEvery { recordingRepository.getPendingRecordings() } returns emptyList()
         every { recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED) } returns
             flowOf(RepositoryFlowState(emptyList()))
 
-        coordinator.warmupOnAppStartupIfCandidate()
+        coordinator.verifyOnAppStartupIfCandidate()
 
-        verify(exactly = 0) { readinessGate.warmupIfNeeded(any()) }
+        verify(exactly = 0) { readinessGate.verifyIfNeeded(any()) }
     }
 
     @Test
-    fun `queued transcription startup warms for queued candidate`() = runTest {
+    fun `queued transcription startup verifies the queued candidate`() = runTest {
         coEvery { recordingRepository.getPendingRecordings() } returns
             listOf(recording(status = RecordingStatus.PENDING_TRANSCRIPTION))
 
-        coordinator.warmupOnAppStartupIfCandidate()
+        coordinator.verifyOnAppStartupIfCandidate()
 
-        verify { readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION) }
+        verify { readinessGate.verifyIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION) }
     }
 
     @Test
-    fun `recovery startup warms for model recovery candidate`() = runTest {
+    fun `recovery startup verifies the recovery candidate`() = runTest {
         coEvery { recordingRepository.getPendingRecordings() } returns emptyList()
         every { recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED) } returns
             flowOf(
@@ -70,13 +70,13 @@ class SpeechModelWarmupCoordinatorTest {
                 ),
             )
 
-        coordinator.warmupOnAppStartupIfCandidate()
+        coordinator.verifyOnAppStartupIfCandidate()
 
-        verify { readinessGate.warmupIfNeeded(VerificationTrigger.RECOVERY) }
+        verify { readinessGate.verifyIfNeeded(VerificationTrigger.RECOVERY) }
     }
 
     @Test
-    fun `cloud-only startup skips speech model warmup`() = runTest {
+    fun `cloud-only startup skips speech model verification`() = runTest {
         coEvery { recordingRepository.getPendingRecordings() } returns
             listOf(
                 recording(
@@ -87,9 +87,9 @@ class SpeechModelWarmupCoordinatorTest {
         every { recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED) } returns
             flowOf(RepositoryFlowState(emptyList()))
 
-        coordinator.warmupOnAppStartupIfCandidate()
+        coordinator.verifyOnAppStartupIfCandidate()
 
-        verify(exactly = 0) { readinessGate.warmupIfNeeded(any()) }
+        verify(exactly = 0) { readinessGate.verifyIfNeeded(any()) }
     }
 
     private fun recording(

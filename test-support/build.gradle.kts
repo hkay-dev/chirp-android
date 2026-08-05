@@ -22,7 +22,7 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("junit:junit:4.13.2")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.junit4)
     implementation(libs.mockk)
 }

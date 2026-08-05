@@ -25,6 +25,8 @@ This contract is a release gate. Performance work must not weaken content preser
 - Capture, queued transcription, and native decode leases block pressure release.
 - A replacement model must load successfully before its selection is committed.
 - A failed model switch keeps the prior model selected and usable.
+- Readiness verification checks model artifacts only. It must never be described or used as native
+  recognizer warmup.
 
 ## Backend isolation
 

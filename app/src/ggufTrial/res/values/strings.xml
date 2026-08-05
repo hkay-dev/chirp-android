@@ -1,7 +1,0 @@
-<resources>
-    <string name="app_name">Chirp GGUF Trial</string>
-    <string name="keyboard_name">Chirp GGUF Trial</string>
-    <string name="about_open_source_title">Experimental Parakeet 110M backend</string>
-    <string name="about_open_source_subtitle">transcribe.cpp is MIT; the model is CC BY 4.0</string>
-    <string name="about_open_source_url" translatable="false">https://huggingface.co/handy-computer/parakeet-tdt_ctc-110m-gguf</string>
-</resources>

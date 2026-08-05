@@ -172,9 +172,9 @@
     <string name="audio_settings_input_device_policy">Microphone selection</string>
     <!-- PROP-4: short generic supporting line shown for every policy. -->
     <string name="audio_settings_input_device_policy_help">Choose which microphone Chirp records from.</string>
-    <!-- PROP-4: the USB &gt; Bluetooth &gt; wired &gt; built-in priority is only relevant under
+    <!-- PROP-4: the built-in &gt; USB &gt; wired &gt; Bluetooth priority is only relevant under
          the Automatic policy, so it surfaces only then. -->
-    <string name="audio_settings_input_device_priority_help">Automatic picks the best available mic: USB first, then Bluetooth, then wired headset, then built-in.</string>
+    <string name="audio_settings_input_device_priority_help">Automatic uses the built-in mic first, then USB, then wired, and Bluetooth only as a last resort.</string>
     <string name="audio_settings_input_policy_automatic">Automatic</string>
     <string name="audio_settings_input_policy_builtin">Built-in only</string>
     <string name="audio_settings_input_policy_manual">Choose device</string>
@@ -184,8 +184,6 @@
     <string name="dev_clear_timeline">Clear Timeline</string>
     <string name="dev_delete_all">Delete All Recordings</string>
     <string name="about_title">About</string>
-    <string name="about_version">Version %1$s</string>
-    <string name="about_build">Build %1$d</string>
     <!-- PROP-8: single combined version line, e.g. "Version 1.2.3 (456)". -->
     <string name="about_version_build">Version %1$s (%2$d)</string>
     <string name="about_description_title">Offline voice-to-text keyboard with AI-powered processing</string>

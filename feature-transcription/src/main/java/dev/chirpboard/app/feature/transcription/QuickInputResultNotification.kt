@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,11 +11,13 @@ import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.PersistableBundle
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.preferences.DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
@@ -76,6 +79,12 @@ class QuickInputResultNotificationPublisher
         ): Boolean {
             val content = quickInputNotificationContent(rawText, processedText) ?: return false
             val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return false
+            if (
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                return false
+            }
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
             val timeoutMs =
                 try {

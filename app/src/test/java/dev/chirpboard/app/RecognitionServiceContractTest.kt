@@ -2,67 +2,17 @@ package dev.chirpboard.app
 
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import dev.chirpboard.app.core.audio.recorder.RecordingError
-import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * Pins the SpeechRecognizer/RecognizerIntent contract mappings of the system recognition
- * surfaces (IME-7/IME-15/IME-19/LIF-09, TST-005): outcome-to-error codes, language
- * support, activity result codes, and the RMS dB conversion.
+ * surfaces (IME-7/IME-15/IME-19/LIF-09, TST-005): language support, activity result
+ * codes, and the RMS dB conversion.
  */
 class RecognitionServiceContractTest {
-    // --- IME-7: TranscriptionOutcome -> SpeechRecognizer error code ---
-
-    @Test
-    fun `success maps to no error`() {
-        assertNull(recognitionErrorCodeFor(TranscriptionOutcome.Success(text = "hello", wordTimings = null)))
-    }
-
-    @Test
-    fun `silence maps to the benign no-match error not an audio failure`() {
-        assertEquals(
-            SpeechRecognizer.ERROR_NO_MATCH,
-            recognitionErrorCodeFor(TranscriptionOutcome.NoSpeech),
-        )
-    }
-
-    @Test
-    fun `model unavailable maps to a server error`() {
-        assertEquals(
-            SpeechRecognizer.ERROR_SERVER,
-            recognitionErrorCodeFor(TranscriptionOutcome.ModelUnavailable("not initialized")),
-        )
-    }
-
-    @Test
-    fun `engine failure maps to a server error not an audio failure`() {
-        assertEquals(
-            SpeechRecognizer.ERROR_SERVER,
-            recognitionErrorCodeFor(TranscriptionOutcome.EngineError(reason = "decode failed", retryable = false)),
-        )
-    }
-
-    // --- IME-2/IME-7: RecordingError -> SpeechRecognizer error code ---
-
-    @Test
-    fun `permission denial maps to insufficient permissions`() {
-        assertEquals(
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
-            recognitionErrorCodeFor(RecordingError.PermissionDenied),
-        )
-    }
-
-    @Test
-    fun `capture failures map to the audio error`() {
-        assertEquals(SpeechRecognizer.ERROR_AUDIO, recognitionErrorCodeFor(RecordingError.DeadObject))
-        assertEquals(SpeechRecognizer.ERROR_AUDIO, recognitionErrorCodeFor(RecordingError.StorageUnavailable))
-    }
-
     // --- IME-15/PIPE-08: language support ---
 
     @Test

@@ -144,12 +144,12 @@ class ModelDownloadWorker
 
         private suspend fun onDownloadComplete(modelId: LocalSpeechModelId) {
             // Same post-download chain the settings ViewModel used to drive: invalidate the
-            // cached gate first so the warmup actually re-verifies the now-present model
+            // cached gate first so verification actually checks the now-present model
             // (otherwise a pre-download Unavailable sticks), then recover recordings parked
             // on the missing model. Runs here so it happens even when no UI is alive.
             if (selectionStore.selectedModel.value == modelId) {
                 readinessGate.invalidate()
-                readinessGate.warmupIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
+                readinessGate.verifyIfNeeded(VerificationTrigger.MODEL_DOWNLOAD)
                 try {
                     transcriptionRecovery.recoverRecordingsWaitingForModel()
                 } catch (e: CancellationException) {

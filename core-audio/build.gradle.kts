@@ -27,17 +27,17 @@ android {
 dependencies {
     api(project(":core-contracts"))
 
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.3.7")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-    implementation("com.github.banketree:AndroidLame-kotlin:v0.0.4")
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.collections.immutable)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.android.lame)
 
-    implementation("com.google.dagger:hilt-android:2.51.1")
-    ksp("com.google.dagger:hilt-android-compiler:2.51.1")
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.android.compiler)
 
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation(libs.junit4)
+    testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
-    testImplementation("app.cash.turbine:turbine:1.0.0")
+    testImplementation(libs.turbine)
 }

@@ -59,10 +59,8 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
                     defaultValue = false
                 },
             ),
-    ) { backStackEntry ->
-        val autoDownload = backStackEntry.arguments?.getBoolean("autoDownload") ?: false
+    ) {
         TranscriptionSettingsScreen(
-            autoStartDownload = autoDownload,
             onNavigateBack = { navController.popBackStack() },
         )
     }

@@ -12,9 +12,12 @@ val kleidiAiEnabled =
 android {
     namespace = "dev.chirpboard.app.gguf"
     compileSdk = 36
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        minSdk = 36
+        // NDK r29 exposes native platform APIs through 35. The app still requires and targets
+        // API 36; compiling this leaf library at 35 removes AGP's silent platform downgrade.
+        minSdk = 35
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -57,5 +60,5 @@ android {
 }
 
 dependencies {
-    testImplementation("junit:junit:4.13.2")
+    testImplementation(libs.junit4)
 }

@@ -1138,14 +1138,6 @@ internal fun recordFabLabel(isChecking: Boolean): String =
         stringResource(R.string.rec_record_fab_default)
     }
 
-@Composable
-internal fun emptyStateRecordButtonLabel(isChecking: Boolean): String =
-    if (isChecking) {
-        stringResource(R.string.rec_empty_state_record_checking)
-    } else {
-        stringResource(R.string.rec_empty_state_record_default)
-    }
-
 object HomeScreenRecordEntryTestTags {
     const val RecordFab = "home_record_fab"
     const val QuickStartSurface = "home_quick_start_surface"

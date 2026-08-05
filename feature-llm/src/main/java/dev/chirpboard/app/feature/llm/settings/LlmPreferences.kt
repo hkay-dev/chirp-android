@@ -197,11 +197,6 @@ class LlmPreferences
                 .apply()
         }
 
-        /** @deprecated Prefer [setModelFor]. */
-        fun setModelName(modelName: String) {
-            setModelFor(getActiveProvider(), modelName)
-        }
-
         val autoTitle: Flow<Boolean> =
             context.dataStore.data.map { preferences ->
                 preferences[Keys.AUTO_TITLE] ?: false

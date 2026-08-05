@@ -3,8 +3,7 @@ package dev.chirpboard.app
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import dev.chirpboard.app.core.audio.recorder.RecordingError
-import dev.chirpboard.app.core.transcription.TranscriptionOutcome
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import java.util.Locale
 import kotlin.math.log10
 import kotlin.math.max
@@ -33,30 +32,6 @@ internal fun isRecognitionLanguageSupported(languageTag: String?): Boolean {
     // rejecting callers that send malformed-but-well-meaning extras.
     return language.isEmpty() || language.equals("en", ignoreCase = true)
 }
-
-/**
- * Maps a failed [TranscriptionOutcome] to the SpeechRecognizer error the platform
- * contract expects (IME-7): silence is a benign no-match, engine/model failures are
- * server-side errors — never ERROR_AUDIO, which clients render as "audio system broken".
- * Returns null for [TranscriptionOutcome.Success]; the caller delivers results instead.
- */
-internal fun recognitionErrorCodeFor(outcome: TranscriptionOutcome): Int? =
-    when (outcome) {
-        is TranscriptionOutcome.Success -> null
-        TranscriptionOutcome.NoSpeech -> SpeechRecognizer.ERROR_NO_MATCH
-        is TranscriptionOutcome.ModelUnavailable -> SpeechRecognizer.ERROR_SERVER
-        is TranscriptionOutcome.EngineError -> SpeechRecognizer.ERROR_SERVER
-    }
-
-/**
- * Maps a mid-capture [RecordingError] to a SpeechRecognizer error code. Genuine capture
- * failures are the one case that legitimately reports ERROR_AUDIO (IME-2/IME-7).
- */
-internal fun recognitionErrorCodeFor(error: RecordingError): Int =
-    when (error) {
-        RecordingError.PermissionDenied -> SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS
-        else -> SpeechRecognizer.ERROR_AUDIO
-    }
 
 /**
  * Maps a SpeechRecognizer.ERROR_* code to the RecognizerIntent activity result code the
@@ -97,39 +72,20 @@ internal sealed interface ServiceRecognitionDelivery {
     ) : ServiceRecognitionDelivery
 }
 
-/**
- * Pure decision for [ChirpRecognitionService]'s transcribe-and-deliver step (IME-7/TST-005):
- * an empty capture is benign silence (ERROR_NO_MATCH, not a broken audio system), a
- * recognizer that is not ready is a server-side failure, and failed outcomes map through
- * [recognitionErrorCodeFor]. [transcribe] is only invoked once both preconditions hold,
- * mirroring the service's sequencing.
- */
-internal suspend fun resolveServiceRecognitionDelivery(
-    samplesEmpty: Boolean,
+/** Pure mapping from the shared process-owned transcription runner to the service callback. */
+internal fun resolveServiceRecognitionDelivery(
+    committedText: String,
+    terminalPhase: InlineTranscriptionPhase,
     recognizerReady: Boolean,
-    transcribe: suspend () -> TranscriptionOutcome,
 ): ServiceRecognitionDelivery {
-    if (samplesEmpty) {
-        return ServiceRecognitionDelivery.Error(SpeechRecognizer.ERROR_NO_MATCH, "no audio samples")
+    if (committedText.isNotBlank()) {
+        return ServiceRecognitionDelivery.Results(committedText)
     }
-    if (!recognizerReady) {
-        return ServiceRecognitionDelivery.Error(SpeechRecognizer.ERROR_SERVER, "recognizer not ready")
+    if (terminalPhase is InlineTranscriptionPhase.Error) {
+        val reason = if (recognizerReady) "offline transcription failed" else "recognizer not ready"
+        return ServiceRecognitionDelivery.Error(SpeechRecognizer.ERROR_SERVER, reason)
     }
-    return when (val outcome = transcribe()) {
-        is TranscriptionOutcome.Success -> ServiceRecognitionDelivery.Results(outcome.text)
-        else -> {
-            val reason =
-                when (outcome) {
-                    is TranscriptionOutcome.ModelUnavailable -> outcome.reason
-                    is TranscriptionOutcome.EngineError -> outcome.reason
-                    else -> "no speech detected"
-                }
-            ServiceRecognitionDelivery.Error(
-                errorCode = recognitionErrorCodeFor(outcome) ?: SpeechRecognizer.ERROR_SERVER,
-                logReason = "${outcome::class.simpleName}: $reason",
-            )
-        }
-    }
+    return ServiceRecognitionDelivery.Error(SpeechRecognizer.ERROR_NO_MATCH, "no speech detected")
 }
 
 /**

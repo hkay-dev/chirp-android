@@ -186,7 +186,7 @@ class SpeechModelManager
                     ?: LocalSpeechModelActivationResult.Failed("Model switching is unavailable")
             if (result is LocalSpeechModelActivationResult.Activated) {
                 readinessGate.invalidate()
-                readinessGate.warmupIfNeeded()
+                readinessGate.verifyIfNeeded()
             }
             return result
         }
@@ -246,7 +246,7 @@ class SpeechModelManager
 
                 SpeechModelDownloadWork.Succeeded -> {
                     _downloadProgress.value = 0f
-                    // The worker already invalidated + warmed the readiness gate; verifying
+                    // The worker already invalidated + verified the readiness gate; checking
                     // through the store here is idempotent and also covers the stale
                     // SUCCEEDED emission WorkManager replays after a process restart.
                     refreshFromStore()

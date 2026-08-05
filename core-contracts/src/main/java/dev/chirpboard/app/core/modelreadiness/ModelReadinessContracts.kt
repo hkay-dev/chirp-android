@@ -91,7 +91,7 @@ interface SpeechModelStore {
 interface SpeechModelReadinessGate {
     val state: StateFlow<ModelReadinessState>
 
-    fun warmupIfNeeded(trigger: VerificationTrigger = VerificationTrigger.APP_STARTUP)
+    fun verifyIfNeeded(trigger: VerificationTrigger = VerificationTrigger.APP_STARTUP)
 
     fun invalidate()
 

@@ -106,42 +106,6 @@ class AudioInputDeviceLossTest {
         assertEquals(0, lostCount)
     }
 
-    // Pins the deprecated unconditional clear until every surface passes its token.
-    @Suppress("DEPRECATION")
-    @Test
-    fun deviceLossWithNoActiveCapture_doesNotNotify() {
-        val selector = selector()
-        val device = inputDevice(id = 42)
-        routeCaptureTo(selector, device)
-        var lostCount = 0
-        selector.setOnActiveDeviceLostListener { lostCount++ }
-        selector.clearActiveDevice()
-
-        callbackSlot.captured.onAudioDevicesRemoved(arrayOf(device))
-
-        assertEquals(0, lostCount)
-    }
-
-    // Pins the deprecated unconditional clear until every surface passes its token.
-    @Suppress("DEPRECATION")
-    @Test
-    fun listenerSurvivesClearActiveDevice_andFiresForTheNextCapture() {
-        // W2 regression pin: clearActiveDevice between captures used to null the listener,
-        // leaving the service's later sessions without any device-lost handling.
-        val selector = selector()
-        var lostCount = 0
-        selector.setOnActiveDeviceLostListener { lostCount++ }
-
-        routeCaptureTo(selector, inputDevice(id = 1))
-        selector.clearActiveDevice()
-        val nextCaptureDevice = inputDevice(id = 2)
-        routeCaptureTo(selector, nextCaptureDevice)
-
-        callbackSlot.captured.onAudioDevicesRemoved(arrayOf(nextCaptureDevice))
-
-        assertEquals(1, lostCount)
-    }
-
     @Test
     fun manualPolicyWithMissingRestoredDevice_fallsBackToBestRankedDevice() =
         runBlocking {

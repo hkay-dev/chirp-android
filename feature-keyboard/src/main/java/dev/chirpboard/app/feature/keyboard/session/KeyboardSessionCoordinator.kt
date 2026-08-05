@@ -304,7 +304,7 @@ class KeyboardSessionCoordinator(
                 } else {
                     recomputeModelBanner()
                     if (modelWarmupRequested) {
-                        modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+                        modelReadinessGate.verifyIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
                     }
                     if (modelInitializationRequested) {
                         initializeLocalModel()
@@ -509,7 +509,7 @@ class KeyboardSessionCoordinator(
         recomputeModelBanner()
         modelWarmupRequested = true
         if (selectedEngine.value == TranscriptionEngine.LOCAL_PARAKEET) {
-            modelReadinessGate.warmupIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
+            modelReadinessGate.verifyIfNeeded(VerificationTrigger.KEYBOARD_DICTATION)
         }
     }
 

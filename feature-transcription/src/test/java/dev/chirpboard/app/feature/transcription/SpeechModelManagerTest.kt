@@ -62,7 +62,7 @@ class SpeechModelManagerTest {
         assertTrue(result)
         verify { speechModelStore.invalidateVerificationCache() }
         verify { readinessGate.invalidate() }
-        verify(exactly = 0) { readinessGate.warmupIfNeeded(any()) }
+        verify(exactly = 0) { readinessGate.verifyIfNeeded(any()) }
     }
 
     @Test

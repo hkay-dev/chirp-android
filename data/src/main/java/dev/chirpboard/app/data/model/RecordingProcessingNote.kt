@@ -72,7 +72,7 @@ fun classifyRecordingProcessingNote(errorMessage: String?): RecordingProcessingN
 /**
  * True when a FAILED recording is waiting for the speech model to become available
  * (download/initialize) rather than having failed for an unrelated reason. Used by the
- * startup warmup coordinator and the queue manager's model-recovery pass.
+ * startup readiness coordinator and the queue manager's model-recovery pass.
  */
 fun isWaitingForSpeechModel(errorMessage: String?): Boolean =
     classifyRecordingProcessingNote(errorMessage) == RecordingProcessingNoteKind.WAITING_FOR_MODEL

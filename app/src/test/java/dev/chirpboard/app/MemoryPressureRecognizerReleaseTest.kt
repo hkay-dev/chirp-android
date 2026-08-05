@@ -7,7 +7,7 @@ import org.junit.Test
 
 /**
  * LOAD-1 / KBD-1 / PRF-1 / REL-09: the shared ~660MB recognizer is kept warm while the keyboard is
- * enabled and is freed ONLY under genuine OS memory pressure (or the separate idle timeout). This
+ * enabled and is freed ONLY under genuine OS memory pressure or severe thermal pressure. This
  * pins the trim-level mapping:
  *  - the legacy genuine-pressure levels (undelivered since API 34, kept best-effort) release
  *    immediately;

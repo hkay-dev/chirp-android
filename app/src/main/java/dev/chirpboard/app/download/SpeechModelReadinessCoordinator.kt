@@ -12,39 +12,40 @@ import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Verifies model files needed by queued recovery work. It never constructs the native recognizer. */
 @Singleton
-class SpeechModelWarmupCoordinator
+class SpeechModelReadinessCoordinator
     @Inject
     constructor(
         private val recordingRepository: RecordingRepository,
         private val readinessGate: SpeechModelReadinessGate,
         private val transcriptionRoutingStore: TranscriptionRoutingStore,
     ) {
-        suspend fun warmupOnAppStartupIfCandidate() {
+        suspend fun verifyOnAppStartupIfCandidate() {
             when (detectStartupCandidate()) {
-                SpeechModelWarmupCandidate.QueuedTranscription ->
-                    readinessGate.warmupIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
+                SpeechModelReadinessCandidate.QueuedTranscription ->
+                    readinessGate.verifyIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
 
-                SpeechModelWarmupCandidate.Recovery ->
-                    readinessGate.warmupIfNeeded(VerificationTrigger.RECOVERY)
+                SpeechModelReadinessCandidate.Recovery ->
+                    readinessGate.verifyIfNeeded(VerificationTrigger.RECOVERY)
 
                 null -> Unit
             }
         }
 
-        internal suspend fun detectStartupCandidate(): SpeechModelWarmupCandidate? {
+        internal suspend fun detectStartupCandidate(): SpeechModelReadinessCandidate? {
             val pending = recordingRepository.getPendingRecordings()
             for (recording in pending) {
                 if (recording.status == RecordingStatus.PENDING_TRANSCRIPTION &&
                     resolveEngine(recording) == TranscriptionEngine.LOCAL_PARAKEET
                 ) {
-                    return SpeechModelWarmupCandidate.QueuedTranscription
+                    return SpeechModelReadinessCandidate.QueuedTranscription
                 }
             }
 
             val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
             return if (failed.any(Recording::isWaitingForSpeechModelRecovery)) {
-                SpeechModelWarmupCandidate.Recovery
+                SpeechModelReadinessCandidate.Recovery
             } else {
                 null
             }
@@ -63,7 +64,7 @@ class SpeechModelWarmupCoordinator
         }
     }
 
-enum class SpeechModelWarmupCandidate {
+enum class SpeechModelReadinessCandidate {
     QueuedTranscription,
     Recovery,
 }

@@ -1479,7 +1479,7 @@ class KeyboardSessionCoordinatorTest {
 
         override val state get() = stateFlow
 
-        override fun warmupIfNeeded(trigger: VerificationTrigger) {
+        override fun verifyIfNeeded(trigger: VerificationTrigger) {
             warmupCount++
         }
 

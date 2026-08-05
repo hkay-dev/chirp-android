@@ -1,13 +1,10 @@
 package dev.chirpboard.app.core.ui.components
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -51,27 +48,6 @@ val progressExitTransition = ChirpMotion.studioHideTransition
 private val studioLayoutMotionSpring = ChirpMotion.layoutMotionSpring
 
 @Composable
-fun TranscriptionProgressPanel(
-    copy: TranscriptionProgressCopy,
-    kind: TranscriptionProgressKind? = null,
-    modifier: Modifier = Modifier,
-) {
-    Box(
-        modifier =
-            modifier
-                .fillMaxSize()
-                .padding(horizontal = 32.dp, vertical = 24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        MorphingTranscriptionProgress(
-            compact = false,
-            copy = copy,
-            kind = kind,
-        )
-    }
-}
-
-@Composable
 fun TranscriptionProgressBanner(
     copy: TranscriptionProgressCopy,
     kind: TranscriptionProgressKind? = null,
@@ -83,44 +59,6 @@ fun TranscriptionProgressBanner(
         kind = kind,
         modifier = modifier.fillMaxWidth(),
     )
-}
-
-@Composable
-fun AnimatedTranscriptionProgress(
-    visible: Boolean,
-    compact: Boolean,
-    copy: TranscriptionProgressCopy?,
-    modifier: Modifier = Modifier,
-    fullscreen: Boolean = false,
-) {
-    AnimatedVisibility(
-        visible = visible && copy != null,
-        modifier = modifier,
-        enter = progressEnterTransition,
-        exit = progressExitTransition,
-    ) {
-        val progressCopy = copy ?: return@AnimatedVisibility
-        Box(
-            modifier =
-                Modifier
-                    .then(
-                        if (fullscreen) {
-                            Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 32.dp, vertical = 24.dp)
-                        } else {
-                            Modifier.fillMaxWidth()
-                        },
-                    ),
-            contentAlignment = if (compact) Alignment.TopStart else Alignment.Center,
-        ) {
-            MorphingTranscriptionProgress(
-                compact = compact,
-                copy = progressCopy,
-                kind = null,
-            )
-        }
-    }
 }
 
 @Composable

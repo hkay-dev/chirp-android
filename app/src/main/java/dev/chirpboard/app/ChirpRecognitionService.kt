@@ -16,36 +16,39 @@ import dev.chirpboard.app.core.audio.AudioFocusManager
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.recorder.RecordingError
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder.CaptureStorageMode
+import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.transcription.InlineAudioSource
+import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
+import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.TranscriberProvider
-import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
-import dev.chirpboard.app.recognition.persistRecognitionHistoryAtomically
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class ChirpRecognitionService : RecognitionService() {
     companion object {
         private const val TAG = "ChirpRecognition"
-
-        /**
-         * Upper bound the first recognition request waits for an in-flight model load
-         * before surfacing ERROR_SERVER. Generous enough to cover the int8 encoder load
-         * yet bounded so a stuck initialization cannot hang the client indefinitely.
-         */
-        private const val MODEL_READY_DEADLINE_MS = 10_000L
+        private const val NO_STOP_GENERATION = -1
     }
 
-    private val recorder by lazy { VoiceRecorder(this, scope, inputDeviceSelector) }
+    private val recorder by lazy {
+        VoiceRecorder(
+            context = this,
+            coroutineScope = scope,
+            inputDeviceSelector = inputDeviceSelector,
+            captureStorageMode = CaptureStorageMode.FileBacked,
+        )
+    }
     private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
     private val sessionCoordinator by lazy {
         VoiceRecognitionSessionCoordinator(scope, captureGate, recorderControl)
@@ -63,7 +66,10 @@ class ChirpRecognitionService : RecognitionService() {
     lateinit var transcriberProvider: TranscriberProvider
 
     @Inject
-    lateinit var recordingRepository: RecordingRepository
+    lateinit var capturePersistence: InlineCapturePersistence
+
+    @Inject
+    lateinit var transcriptionRunner: VoiceRecognitionTranscriptionRunner
 
     @Inject
     lateinit var inputDeviceSelector: AudioInputDeviceSelector
@@ -75,6 +81,7 @@ class ChirpRecognitionService : RecognitionService() {
     lateinit var recordingStateManager: RecordingStateManager
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val rescueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Whether the most recently issued session carried [RecognizerIntent.EXTRA_SECURE].
@@ -91,6 +98,11 @@ class ChirpRecognitionService : RecognitionService() {
      * [currentSessionSecure].
      */
     private var captureStallWatchdog: Job? = null
+    private var captureCheckpointJob: Job? = null
+    private val captureStopGeneration = AtomicInteger(NO_STOP_GENERATION)
+    private var captureTeardownDiscardsAudio = false
+    private var serviceDestroyed = false
+    private var activeTranscription: ActiveTranscription? = null
 
     private val recorderControl =
         object : VoiceRecognitionSessionCoordinator.RecorderControl {
@@ -104,7 +116,14 @@ class ChirpRecognitionService : RecognitionService() {
             override suspend fun start(): Boolean = recorder.start()
 
             override fun stop(): InlineAudioSource {
-                val audioSource = InlineAudioSource.InMemory(recorder.stop())
+                val audioSource =
+                    recorder.stopToFileBacked()?.let { capture ->
+                        InlineAudioSource.PcmFloatFile(
+                            path = capture.file.absolutePath,
+                            sampleCount = capture.sampleCount.toLong(),
+                            sampleRate = capture.sampleRate,
+                        )
+                    } ?: InlineAudioSource.InMemory(FloatArray(0))
                 audioFocus.abandonFocus()
                 return audioSource
             }
@@ -138,41 +157,15 @@ class ChirpRecognitionService : RecognitionService() {
         super.onCreate()
         Log.d(TAG, "Service created")
 
-        // Initialize transcriber
         scope.launch {
-            Log.d(TAG, "Initializing transcriber...")
-            transcriberProvider.initialize()
-            Log.d(TAG, "Transcriber ready: ${transcriberProvider.isReady()}")
-        }
-    }
-
-    /**
-     * Suspends until the recognizer reports ready or the deadline elapses. Re-invokes
-     * [TranscriberProvider.initialize], which the underlying RecognizerManager serializes
-     * behind a mutex — a concurrent call joins the in-flight load rather than starting a
-     * second one. Returns true only if the model is ready within [MODEL_READY_DEADLINE_MS].
-     */
-    private suspend fun awaitModelReady(): Boolean =
-        withTimeoutOrNull(MODEL_READY_DEADLINE_MS) {
-            transcriberProvider.initialize() && transcriberProvider.isReady()
-        } ?: false
-
-    private fun saveTranscription(rawText: String) {
-        scope.launch(Dispatchers.IO) {
-            val persistenceResult =
-                persistRecognitionHistoryAtomically(
-                    rawText = rawText,
-                    fallbackTitle = getString(R.string.recognition_history_fallback_title),
-                ) { recording, transcript ->
-                    recordingRepository.createRecordingWithTranscript(recording, transcript)
-                }
-
-            if (persistenceResult.isSuccess) {
-                val recordingId = persistenceResult.getOrNull()
-                Log.d(TAG, "Saved transcription atomically: recording=$recordingId")
-            } else {
-                val error = persistenceResult.exceptionOrNull()
-                Log.e(TAG, "Failed to save transcription atomically", error)
+            try {
+                Log.d(TAG, "Initializing transcriber...")
+                transcriberProvider.initialize()
+                Log.d(TAG, "Transcriber ready: ${transcriberProvider.isReady()}")
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not initialize the transcriber", error)
             }
         }
     }
@@ -204,27 +197,10 @@ class ChirpRecognitionService : RecognitionService() {
         // into the recognition history.
         val secureSession = intent.getBooleanExtra(RecognizerIntent.EXTRA_SECURE, false)
         currentSessionSecure = secureSession
+        captureTeardownDiscardsAudio = false
 
         val generation = sessionCoordinator.issueGeneration()
         scope.launch {
-            // The recognizer is loaded eagerly in onCreate, but a client that binds the
-            // service and immediately starts listening can race that multi-second load.
-            // Await the in-flight initialization (which RecognizerManager serializes) with
-            // a deadline instead of failing the first request outright; only error when the
-            // model genuinely failed or did not become ready within the deadline.
-            if (!transcriberProvider.isReady() && !awaitModelReady()) {
-                Log.w(TAG, "Recognizer not ready within deadline (model still loading)")
-                // The client can cancel while we await the multi-second model load; consume
-                // the mark so the cancel is its own terminal event and a stale ERROR_SERVER is
-                // not delivered afterwards (and no later branch re-reads the mark).
-                if (sessionCoordinator.consumeCancelRequest(generation)) {
-                    Log.w(TAG, "Dropping not-ready error for cancelled session (generation=$generation)")
-                } else {
-                    runCatching { listener.error(SpeechRecognizer.ERROR_SERVER) }
-                }
-                return@launch
-            }
-
             // The per-session endpointer honors the caller's silence extras, with its
             // speech threshold compensated for the session's microphone gain (MIC-018):
             // the amplitude stream is post-gain, so steady amplified ambient noise would
@@ -235,7 +211,9 @@ class ChirpRecognitionService : RecognitionService() {
             val result =
                 sessionCoordinator.start(
                     generation = generation,
-                    onReadyForSpeech = { runCatching { listener.readyForSpeech(Bundle()) } },
+                    // Readiness means the first microphone block reached durable storage, not
+                    // merely that AudioRecord.startRecording returned.
+                    onReadyForSpeech = {},
                     // IME-20: beginningOfSpeech reflects *detected* speech, driven by the
                     // endpointer below — not the recorder merely starting.
                     onBeginningOfSpeech = {},
@@ -244,12 +222,24 @@ class ChirpRecognitionService : RecognitionService() {
                     },
                 )
             when (result) {
-                VoiceRecognitionSessionCoordinator.StartResult.Started ->
+                VoiceRecognitionSessionCoordinator.StartResult.Started -> {
+                    if (!recorder.awaitFirstSamples()) {
+                        if (sessionCoordinator.consumeCancelRequest(generation)) {
+                            Log.w(TAG, "First-sample wait ended for cancelled session (generation=$generation)")
+                            return@launch
+                        }
+                        sessionCoordinator.cancel(generation)
+                        runCatching { listener.error(SpeechRecognizer.ERROR_AUDIO) }
+                        return@launch
+                    }
+                    checkpointFirstRecognitionAudio()
+                    runCatching { listener.readyForSpeech(Bundle()) }
                     armSessionTermination(generation, listener, secureSession, endpointer)
+                }
 
                 VoiceRecognitionSessionCoordinator.StartResult.Cancelled ->
-                    // The client cancelled while a slow model load delayed this start; the
-                    // recorder/gate were never touched. The cancel was terminal, so no callback.
+                    // The client cancelled while this start was queued. The cancel was terminal,
+                    // so no callback is owed and the microphone was never opened.
                     Log.w(TAG, "Start aborted: client cancelled before it ran (generation=$generation)")
 
                 VoiceRecognitionSessionCoordinator.StartResult.Superseded -> {
@@ -298,15 +288,23 @@ class ChirpRecognitionService : RecognitionService() {
     ) {
         recorder.onLimitReached = {
             Log.w(TAG, "Recording limit reached; delivering captured audio (generation=$generation)")
-            scope.launch { stopAndDeliver(generation, listener, secureSession) }
+            requestStopAndDeliver(generation, listener, secureSession)
         }
         recorder.onRecordingError = { error ->
-            scope.launch { abortFailedSession(generation, listener, error) }
+            if (error != RecordingError.TooShort) {
+                Log.e(TAG, "Recorder failed mid-session (generation=$generation): ${error.userMessage}")
+                requestStopAndDeliver(
+                    generation = generation,
+                    listener = listener,
+                    secureSession = secureSession,
+                    captureFailureMessage = error.userMessage,
+                )
+            }
         }
         audioFocus.onFocusLost = { kind ->
             if (kind == AudioFocusManager.FocusLossKind.PERMANENT) {
                 Log.w(TAG, "Permanent audio focus loss; stopping session (generation=$generation)")
-                scope.launch { stopAndDeliver(generation, listener, secureSession) }
+                requestStopAndDeliver(generation, listener, secureSession)
             }
         }
         // MIC-018: a capture whose reads stall delivers no amplitude frames, so the
@@ -341,7 +339,7 @@ class ChirpRecognitionService : RecognitionService() {
 
             SpeechEndpointer.Event.END_OF_SPEECH -> {
                 Log.d(TAG, "Trailing silence detected; ending session (generation=$generation)")
-                scope.launch { stopAndDeliver(generation, listener, secureSession) }
+                requestStopAndDeliver(generation, listener, secureSession)
             }
 
             SpeechEndpointer.Event.NO_SPEECH_TIMEOUT ->
@@ -356,7 +354,26 @@ class ChirpRecognitionService : RecognitionService() {
 
         val generation = sessionCoordinator.currentGeneration()
         val secureSession = currentSessionSecure
-        scope.launch { stopAndDeliver(generation, listener, secureSession) }
+        requestStopAndDeliver(generation, listener, secureSession)
+    }
+
+    private fun requestStopAndDeliver(
+        generation: Int,
+        listener: Callback,
+        secureSession: Boolean,
+        captureFailureMessage: String? = null,
+    ) {
+        if (!captureStopGeneration.compareAndSet(NO_STOP_GENERATION, generation)) {
+            return
+        }
+        rescueScope.launch(Dispatchers.Main.immediate) {
+            stopAndDeliver(
+                generation = generation,
+                listener = listener,
+                secureSession = secureSession,
+                captureFailureMessage = captureFailureMessage,
+            )
+        }
     }
 
     /**
@@ -368,8 +385,21 @@ class ChirpRecognitionService : RecognitionService() {
         generation: Int,
         listener: Callback,
         secureSession: Boolean,
+        captureFailureMessage: String? = null,
     ) {
-        val result = sessionCoordinator.stop(generation) { runCatching { listener.endOfSpeech() } }
+        val result =
+            try {
+                cancelCaptureStallWatchdog()
+                captureCheckpointJob?.join()
+                captureCheckpointJob = null
+                sessionCoordinator.stop(generation) { runCatching { listener.endOfSpeech() } }
+            } finally {
+                captureStopGeneration.compareAndSet(generation, NO_STOP_GENERATION)
+            }
+        if (serviceDestroyed) {
+            recorder.close()
+            audioFocus.abandonFocus()
+        }
         when (result) {
             VoiceRecognitionSessionCoordinator.StopResult.Stale ->
                 Log.w(TAG, "Ignoring stop for inactive session (generation=$generation)")
@@ -380,11 +410,13 @@ class ChirpRecognitionService : RecognitionService() {
             }
 
             is VoiceRecognitionSessionCoordinator.StopResult.Captured -> {
-                // The session reached its terminal; its stall watchdog stands down (a
-                // stale firing would be generation-gated anyway).
-                cancelCaptureStallWatchdog()
-                val samples = (result.audioSource as InlineAudioSource.InMemory).samples
-                transcribeAndDeliver(samples, listener, secureSession)
+                transcribeAndDeliver(
+                    generation = generation,
+                    audioSource = result.audioSource,
+                    listener = listener,
+                    secureSession = secureSession,
+                    captureFailureMessage = captureFailureMessage,
+                )
             }
         }
     }
@@ -399,28 +431,15 @@ class ChirpRecognitionService : RecognitionService() {
         captureStallWatchdog = null
     }
 
-    /**
-     * Terminal path for a mid-capture recorder failure (IME-2): tear the session down and
-     * report the mapped error. A session already past its active window is left alone —
-     * its own stop path owns the terminal callback (e.g. TooShort surfacing from stop()).
-     */
-    private suspend fun abortFailedSession(
-        generation: Int,
-        listener: Callback,
-        error: RecordingError,
-    ) {
-        if (sessionCoordinator.cancel(generation)) {
-            cancelCaptureStallWatchdog()
-            Log.e(TAG, "Recorder failed mid-session (generation=$generation): ${error.userMessage}")
-            runCatching { listener.error(recognitionErrorCodeFor(error)) }
-        }
-    }
-
     /** Terminal path when no speech was ever detected within the timeout (IME-2). */
     private suspend fun abortSilentSession(
         generation: Int,
         listener: Callback,
     ) {
+        if (generation != sessionCoordinator.currentGeneration()) {
+            return
+        }
+        captureTeardownDiscardsAudio = true
         if (sessionCoordinator.cancel(generation)) {
             Log.w(TAG, "No speech detected within timeout (generation=$generation)")
             runCatching { listener.error(SpeechRecognizer.ERROR_SPEECH_TIMEOUT) }
@@ -428,22 +447,48 @@ class ChirpRecognitionService : RecognitionService() {
     }
 
     private suspend fun transcribeAndDeliver(
-        samples: FloatArray,
+        generation: Int,
+        audioSource: InlineAudioSource,
         listener: Callback,
         secureSession: Boolean,
+        captureFailureMessage: String?,
     ) {
         try {
-            // Empty capture -> benign NO_MATCH, not-ready -> SERVER, failed outcomes map per
-            // the platform contract (IME-7). The decision is the extracted, unit-tested
-            // resolveServiceRecognitionDelivery (TST-005).
+            if (audioSource.sampleCount() == 0L) {
+                SecureRecognitionCapturePersistence.discardAudioSource(audioSource)
+                runCatching { listener.error(SpeechRecognizer.ERROR_NO_MATCH) }
+                return
+            }
+
+            val session =
+                transcriptionRunner.start(
+                    VoiceRecognitionTranscriptionRunner.Request(
+                        audioSource = audioSource,
+                        llmEnabled = false,
+                        processingModeId = ProcessingMode.Proofread.id,
+                        secure = secureSession,
+                        captureFailureMessage = captureFailureMessage,
+                    ),
+                )
+            val ownedSession = ActiveTranscription(generation, session)
+            activeTranscription = ownedSession
+            val outcome =
+                try {
+                    session.result.await()
+                } finally {
+                    if (activeTranscription === ownedSession) {
+                        activeTranscription = null
+                    }
+                }
             val delivery =
                 resolveServiceRecognitionDelivery(
-                    samplesEmpty = samples.isEmpty(),
+                    committedText = outcome.committedText,
+                    terminalPhase = outcome.terminalPhase,
                     recognizerReady = transcriberProvider.isReady(),
-                ) { transcriberProvider.transcribe(samples) }
+                )
             if (delivery is ServiceRecognitionDelivery.Error) {
                 Log.w(TAG, "Recognition not delivered (${delivery.logReason})")
-                listener.error(delivery.errorCode)
+                runCatching { listener.error(delivery.errorCode) }
                 return
             }
             val text = (delivery as ServiceRecognitionDelivery.Results).text
@@ -451,14 +496,6 @@ class ChirpRecognitionService : RecognitionService() {
             // Never log transcript content: this is an IME-adjacent surface and the text
             // can include anything the user dictates into other apps. Log only its length.
             Log.d(TAG, "Transcribed ${text.length} chars")
-
-            // Save to history using data module — unless the caller marked the session
-            // secure (IME-6), in which case nothing may be persisted.
-            if (secureSession) {
-                Log.d(TAG, "Secure session: skipping recognition history persistence")
-            } else {
-                saveTranscription(text)
-            }
 
             // Send results
             val results =
@@ -484,11 +521,16 @@ class ChirpRecognitionService : RecognitionService() {
 
     override fun onCancel(listener: Callback) {
         Log.d(TAG, "onCancel")
+        captureTeardownDiscardsAudio = true
         val generation = sessionCoordinator.currentGeneration()
         // Record the cancel synchronously, before any queued start coroutine for this
         // generation resolves as Superseded: a session its own client cancelled must
         // not receive a stale terminal BUSY afterwards.
         sessionCoordinator.markCancelRequested(generation)
+        activeTranscription
+            ?.takeIf { it.generation == generation }
+            ?.also { it.session.cancel(userInitiated = true) }
+        activeTranscription = null
         // The client abandoned the session; its stall watchdog must not outlive it.
         cancelCaptureStallWatchdog()
         scope.launch {
@@ -551,19 +593,63 @@ class ChirpRecognitionService : RecognitionService() {
 
     override fun onDestroy() {
         Log.d(TAG, "Service destroyed")
-        // MIC-015/PERF-5: the coordinator shutdown cancels the recorder (AudioRecord
-        // stop/release binder calls plus a temp-file delete) and close() releases its
-        // buffers — blocking work that must not stall the main thread during destroy.
-        // It hops to a short-lived IO scope that outlives [scope]; the session
-        // bookkeeping the shutdown clears is never consulted again after destroy.
-        // scope.cancel() stays ordered after the hop is launched, so in-flight session
-        // jobs tear down exactly as before.
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            sessionCoordinator.shutdown()
-            recorder.close()
-            audioFocus.abandonFocus()
-        }
+        serviceDestroyed = true
+        val gateHeld = captureGate.isHeld()
+        val rescue = gateHeld && !currentSessionSecure && !captureTeardownDiscardsAudio
+        rescueScope.launchRecognitionDestroyTeardown(
+            stopOwnerActive = captureStopGeneration.get() != NO_STOP_GENERATION,
+            gateHeld = gateHeld,
+            rescue = rescue,
+            stopRecorder = recorderControl::stop,
+            releaseGate = captureGate::releaseCompleted,
+            rescueSamples = ::rescueInterruptedCapture,
+            closeRecorder = recorder::close,
+            abandonFocus = audioFocus::abandonFocus,
+        )
         scope.cancel()
         super.onDestroy()
     }
+
+    /** Journals ownership after the first complete PCM block, off the microphone path. */
+    private fun checkpointFirstRecognitionAudio() {
+        val snapshot = recorder.activeFileBackedSnapshot() ?: return
+        captureCheckpointJob =
+            rescueScope.launch {
+                try {
+                    if (!checkpointRecognitionAudio(snapshot, capturePersistence)) {
+                        Log.w(TAG, "Could not checkpoint the first recognition-service audio block")
+                    }
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "Could not checkpoint the first recognition-service audio block", error)
+                }
+            }
+    }
+
+    private fun rescueInterruptedCapture(audioSource: InlineAudioSource) {
+        if (audioSource.sampleCount() == 0L) {
+            return
+        }
+        rescueScope.launch {
+            try {
+                capturePersistence.persistAudioSource(
+                    audioSource = audioSource,
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = "Voice recognition service interrupted",
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to rescue interrupted recognition-service audio", error)
+            }
+        }
+    }
+
+    private data class ActiveTranscription(
+        val generation: Int,
+        val session: VoiceRecognitionTranscriptionRunner.Session,
+    )
 }

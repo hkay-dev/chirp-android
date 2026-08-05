@@ -60,6 +60,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -230,10 +232,15 @@ class HomeViewModel
                 .unwrapRepositoryFlow { _errorMessage.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        private val allRecordingsRaw: StateFlow<List<Recording>> =
+        private val allRecordingsState =
             recordingRepository
                 .getAllRecordings()
-                .unwrapRepositoryFlow { _errorMessage.value = it }
+                .onEach { state -> state.errorMessage?.let { _errorMessage.value = it } }
+                .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
+
+        private val allRecordingsRaw: StateFlow<List<Recording>> =
+            allRecordingsState
+                .map { it.value }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         /**
@@ -246,18 +253,12 @@ class HomeViewModel
          * distinguish the two cases, so a dedicated first-emission signal is required.
          */
         val contentLoaded: StateFlow<Boolean> =
-            recordingRepository
-                .getAllRecordings()
-                .unwrapRepositoryFlow { _errorMessage.value = it }
+            allRecordingsState
                 .map { true }
                 .distinctUntilChanged()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-        private val allRecordingsList: StateFlow<List<Recording>> =
-            combine(allRecordingsRaw, recordingManager.state) { recordings, recordingState ->
-                recordings.filter { shouldShowRecordingOnHomeList(it, recordingState) }
-            }.flowOn(defaultDispatcher)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        private val allRecordingsList: StateFlow<List<Recording>> = allRecordingsRaw
 
         private val filteredRecordings: StateFlow<List<Recording>> =
             _searchQuery
@@ -277,12 +278,10 @@ class HomeViewModel
                                 .searchRecordings(query)
                                 .unwrapRepositoryFlow { _errorMessage.value = it },
                             allRecordingsRaw,
-                            recordingManager.state,
-                        ) { searchResults, allRecordings, recordingState ->
+                        ) { searchResults, allRecordings ->
                             val finalizingMatches =
                                 allRecordings.filter { recording ->
                                     recording.status == RecordingStatus.RECORDING &&
-                                        shouldShowRecordingOnHomeList(recording, recordingState) &&
                                         recording.title.contains(query, ignoreCase = true)
                                 }
                             (searchResults + finalizingMatches)
@@ -376,7 +375,7 @@ class HomeViewModel
                     enriched
                 } else {
                     enriched.filter { item ->
-                        isHomeListProcessingItem(item.recording, recordingState)
+                        isHomeListProcessingItem(item.recording)
                     }
                 }
             }.flowOn(defaultDispatcher)
@@ -402,14 +401,14 @@ class HomeViewModel
 
         /** Quick stats for the home header; full-table counts, capped-list processing count. */
         val stats: StateFlow<HomeStats> =
-            combine(libraryStats, allRecordingsList, recordingManager.state) { library, recordings, recordingState ->
+            combine(libraryStats, allRecordingsList) { library, recordings ->
                 HomeStats(
                     totalRecordings = library.totalCount,
                     totalDurationMs = library.totalDurationMs,
                     completedCount = library.completedCount,
                     processingCount =
                         recordings.count {
-                            isHomeListProcessingItem(it, recordingState)
+                            isHomeListProcessingItem(it)
                         },
                 )
             }.flowOn(defaultDispatcher)
@@ -904,12 +903,6 @@ internal fun isProcessingOrStuckStatus(status: RecordingStatus): Boolean =
             RecordingStatus.PENDING_ENHANCEMENT,
         )
 
-/** All recordings remain visible on Home, including live capture and finalize/stitch rows. */
-internal fun shouldShowRecordingOnHomeList(
-    recording: Recording,
-    @Suppress("UNUSED_PARAMETER") recordingState: RecordingState,
-): Boolean = true
-
 /**
  * True when the row represents the active in-app capture session (not background finalize).
  */
@@ -936,13 +929,9 @@ internal fun isLiveCaptureHomeListItem(
 
 internal fun isHomeListProcessingItem(
     recording: Recording,
-    recordingState: RecordingState,
 ): Boolean =
     isProcessingOrStuckStatus(recording.status) ||
-        (
-            recording.status == RecordingStatus.RECORDING &&
-                shouldShowRecordingOnHomeList(recording, recordingState)
-        )
+        recording.status == RecordingStatus.RECORDING
 
 internal fun buildRecordingDisplayItems(
     recordings: List<Recording>,

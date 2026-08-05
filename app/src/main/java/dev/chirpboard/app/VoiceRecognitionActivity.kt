@@ -333,8 +333,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
             }
         }
 
-        // Ensure transcriber is initialized; surface a model-not-ready state instead of
-        // failing silently when initialization does not complete.
+        // Initialize the transcriber beside capture, never ahead of it. The model state only
+        // explains progress or failure; microphone startup does not wait for this coroutine.
         lifecycleScope.launch {
             Log.d(TAG, "Initializing transcriber...")
             val initialized =
@@ -518,9 +518,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 }
 
                 VoiceRecognitionSessionCoordinator.StartResult.Cancelled -> {
-                    // This activity gates start on model Ready synchronously and never marks a
-                    // cancel, so this is not expected here; reset the dialog to Idle defensively
-                    // rather than leaving it stuck on Starting.
+                    // Activity cancellation tears down its lifecycle or active coordinator and
+                    // does not mark pending generations, so this is defensive bookkeeping.
                     Log.w(TAG, "Start cancelled before running")
                     _recordingState.value = RecordingState.Idle
                 }

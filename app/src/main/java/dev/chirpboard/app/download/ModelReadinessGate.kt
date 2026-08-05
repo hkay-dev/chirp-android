@@ -41,7 +41,7 @@ class ModelReadinessGate(
     private val _state = MutableStateFlow<ModelReadinessState>(ModelReadinessState.Unknown)
     override val state: StateFlow<ModelReadinessState> = _state.asStateFlow()
 
-    override fun warmupIfNeeded(trigger: VerificationTrigger) {
+    override fun verifyIfNeeded(trigger: VerificationTrigger) {
         if (_state.value !is ModelReadinessState.Unknown) {
             return
         }

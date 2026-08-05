@@ -1,19 +1,8 @@
 # Recording Lifecycle Specification
 
-Operational summary for recording, recovery, and stop handoff. **Canonical requirements** live in OpenSpec:
-
-- Baseline: `openspec/specs/recording/spec.md`, `recording-stability/spec.md`, `widget/spec.md`, `keyboard-recording/spec.md`, `tags/spec.md`
-- Applied: `openspec/changes/archive/2026-05-25-recording-lifecycle-gap-closure/`
-- Applied: `openspec/changes/archive/2026-05-25-stop-persistence-integrity/`
-- Applied: `openspec/changes/archive/2026-05-25-recovery-data-integrity/`
-- Applied: `openspec/changes/archive/2026-05-25-recording-edge-case-races/`
-- Applied: `openspec/changes/archive/2026-05-25-transcription-pipeline-hardening/`
-- Applied: `openspec/changes/archive/2026-05-25-nav-search-playback-polish/`
-- Applied: `openspec/changes/archive/2026-05-25-decouple-capture-finalize-queue/`
-- Applied: `openspec/changes/live-capture-home-presence/`
-- **Active audit fixes:** `openspec/changes/AUDIT_INDEX.md` (remaining proposed changes)
-
-When editing behavior, update the OpenSpec change or baseline first, then mirror here.
+Canonical operational summary for recording, recovery, and stop handoff. Pair it with
+`docs/lossless-dictation-mandate.md`, `docs/chirp-4-beta-contract.md`, and
+`docs/reliability-test-matrix.md`. Runtime code and tests outrank these docs when they disagree.
 
 ## State machine
 
@@ -215,8 +204,6 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Home list item → Studio without `launchSingleTop` | `NavController.navigateToStudio` with `launchSingleTop` + `restoreState` from Home, search, import, share, mini player |
 | Search may show `RECORDING` rows list hides | `RecordingDao.searchRecordings` excludes `RECORDING`; `HomeViewModel` defense filter |
 | Mini player keeps playing when opening different Studio | `ProcessingStudioViewModel.loadRecording` calls `pauseIfDifferentRecording` |
-| Checklist: keyboard mode row expand vs crossfade | `openspec/UI_POLISH_QA_CHECKLIST.md` M1 |
-| Checklist: player pushes content not tab row | `openspec/UI_POLISH_QA_CHECKLIST.md` M2 |
 
 ## Resolved (docs-test-hygiene)
 
@@ -227,27 +214,3 @@ See `docs/reliability-test-matrix.md` for automated commands. Key suites:
 | Gapless capture untested | `GaplessSegmentCaptureFactoryTest`, `GaplessWavSegmentCaptureTest` |
 | Migration tests omit structured_outcome DAO open | `MigrationTest.createDb` opens `structuredOutcomeSnapshotDao()` |
 | `AudioSettingsStore` outputFormat not written on legacy migration | Backfill on read when key missing; `AudioSettingsStoreTest` legacy scenario |
-
-## Audit backlog (2026-05-25)
-
-Findings from multi-agent audit. **Canonical fix specs:** `openspec/changes/AUDIT_INDEX.md` and per-change folders below. Do not implement fixes without an OpenSpec change.
-
-### P0 — Data loss / corruption / trap
-
-_(none — see Resolved processing-studio-resilience)_
-
-### P1 — High-risk lifecycle / hidden state
-
-_(none — see Resolved recording-edge-case-races)_
-
-### P2 — UX / cleanup gaps
-
-_(none — see Resolved transcription-pipeline-hardening)_
-
-### P3 — Edge cases / polish risks
-
-_(none — see Resolved docs-test-hygiene)_
-
-### P4 — Low / test / device / checklist
-
-_(none — see Resolved docs-test-hygiene)_

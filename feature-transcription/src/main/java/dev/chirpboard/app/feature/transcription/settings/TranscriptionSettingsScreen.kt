@@ -94,7 +94,6 @@ private fun requestModelDownload(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptionSettingsScreen(
-    @Suppress("UNUSED_PARAMETER") autoStartDownload: Boolean = false,
     viewModel: TranscriptionSettingsViewModel = hiltViewModel(),
     onNavigateBack: () -> Unit,
 ) {
