@@ -234,21 +234,31 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 - **GIVEN** a third-party keyboard is bound to a focused editor
 - **WHEN** it launches Chirp's recognition activity
 - **THEN** Chirp requests unchanged soft-input visibility
-- **AND** its non-editing window uses a floating translucent voice-input task
+- **AND** its non-editing window stays outside the caller IME's target relationship
 - **AND** the caller's keyboard can keep its existing editor connection for result delivery.
 
 #### Scenario: Successful speech result is ready
 
 - **WHEN** transcription produces a non-empty result
-- **THEN** Chirp returns `RESULT_OK` with `RecognizerIntent.EXTRA_RESULTS`
+- **THEN** Chirp returns `RESULT_OK` with `RecognizerIntent.EXTRA_RESULTS` through the activity result
+- **OR** sends that payload through `EXTRA_RESULTS_PENDINGINTENT` when the caller supplied one
+- **AND** merges `EXTRA_RESULTS_PENDINGINTENT_BUNDLE` only into the pending result
 - **AND** finishes immediately without waiting for a decorative exit animation
 - **AND** does not mutate window focusability during result delivery.
+
+#### Scenario: Caller result token has been cancelled
+
+- **GIVEN** the caller supplied `EXTRA_RESULTS_PENDINGINTENT`
+- **AND** that token is cancelled before transcription completes
+- **WHEN** Chirp attempts to deliver the final result
+- **THEN** Chirp falls back to the activity result
+- **AND** never silently discards the transcript.
 
 #### Scenario: Host editor still drops focus
 
 - **WHEN** a host app deliberately clears its editor because another activity was launched
 - **THEN** Chirp MUST NOT attempt cross-app focus manipulation or accessibility injection
-- **AND** the standard recognition result remains the only authoritative delivery channel.
+- **AND** the caller-selected Android recognition result remains authoritative.
 
 ## Audit backlog (2026-05-25)
 
