@@ -20,10 +20,13 @@ the final insertion after Chirp returns the recognized text.
 | Keeping the activity outside the IME target is enough | Added `FLAG_ALT_FOCUSABLE_IM` | X still needed a focus cycle |
 | X needs the host window focused before result delivery | Made the sheet non-focusable and waited for WindowManager focus loss | No X behavior change; removed |
 | A dedicated task and Google-shaped floating theme preserve the host editor | Added a voice-input task affinity and reference-style floating translucent theme | No X behavior change and the sheet looked worse; removed |
-| The transcript is absent or arrives late | The text becomes visible after blur and refocus | Content reached the editor path; visible invalidation or composing state is stale |
+| The transcript is absent or arrives late | The text becomes visible after tapping the reply field | SwiftKey held the result until X created a new input session |
+| Chirp's window or result payload causes the failure | Temporarily removed Chirp as the `RECOGNIZE_SPEECH` handler and repeated the test with Google's stock transcription activity | The same X inline-reply failure occurred |
+| Hiding and showing SwiftKey can force a safe commit | Hid the IME at Chirp's terminal boundary | X returned with the keyboard hidden, the field unfocused, and no active `InputConnection`; removed |
 
-These results make another window-flag permutation a poor next move. The remaining high-value work
-is result-contract completeness and direct observation of the caller's chosen result channel.
+These results rule out Chirp's transcription, result payload, task shape, and window theme as the
+cause of the X inline-reply failure. Another recognition-activity flag permutation cannot repair an
+editor connection owned by another process.
 
 ## Contract gap found in Chirp
 
@@ -44,21 +47,27 @@ Chirp now follows the same split.
 - The activity logs the caller package, request flags, whether a result token was supplied, and the
   selected delivery channel. It never logs transcript content.
 
-## Most likely remaining failure chain
+## Proven X and SwiftKey failure chain
 
-The evidence supports this chain, though the live request log is needed to distinguish its two
-middle branches.
+Device traces and the installed SwiftKey implementation establish this sequence.
 
-1. SwiftKey launches Chirp's activity, which necessarily pauses X's foreground activity.
-2. Chirp returns the transcript through either the activity result or result token.
-3. SwiftKey updates X through its `InputConnection` after X resumes.
-4. SwiftKey may use Android composing text for that update. X may accept the editor-state change
-   yet fail to redraw it until the editor restarts or focus changes.
+1. SwiftKey launches the selected `ACTION_RECOGNIZE_SPEECH` activity.
+2. The recognizer returns a valid `RESULT_OK` payload. SwiftKey stores its first result in a
+   one-item pending voice-result slot and finishes its helper activity.
+3. SwiftKey does not commit inside the activity-result callback. Its
+   `VoiceIntentApiTrigger #onStartInputView` path performs the later `InputConnection.commitText`.
+4. X's inline **Post your reply** field returns unfocused. Android reports X as the focused window,
+   but `InputMethodManager` has no served input connection and its `EditorInfo` has `inputType=0`.
+5. SwiftKey therefore has no valid editor session in which to run its pending commit. The reply
+   field remains semantically empty, not merely visually stale.
+6. Tapping the reply field creates a new active input session. SwiftKey logs
+   `VoiceIntentApiTrigger #onStartInputView`, commits the saved result, and the field immediately
+   contains the transcript.
 
-FUTO Keyboard independently removed composing-text use from normal typing and voice input because
-many apps and web editors mishandle compositions. That is strong evidence for the last branch, not
-proof of SwiftKey's private implementation. Chirp cannot control whether SwiftKey uses
-`setComposingText`, `commitText`, or a private edit command after receiving an activity result.
+The controlled Google run produced the same sequence. The bug is the interaction between X's
+inline Compose editor lifecycle and SwiftKey's deferred voice-result bridge. Chirp cannot restart
+or commit through another app's private `InputConnection` under the standard recognition-activity
+contract.
 
 ## Structural options if the caller uses only activity results
 
@@ -70,17 +79,29 @@ proof of SwiftKey's private implementation. Chirp cannot control whether SwiftKe
    SwiftKey path.
 3. Keep `ChirpRecognitionService` for apps using `SpeechRecognizer`. It does not solve a caller that
    explicitly launches the activity.
-4. Do not add accessibility injection, clipboard paste, or a draw-over-apps window. Those routes add
-   sensitive permissions, duplicate-insertion races, and no reliable ownership of the target field.
+4. Do not silently add accessibility injection, clipboard paste, or a draw-over-apps window. Those
+   routes add sensitive permissions, duplicate-insertion races, and no reliable ownership of the
+   target field unless the user explicitly enables a guarded compatibility mode.
+
+For the proven X and SwiftKey failure, the standard contract is exhausted. Any automatic workaround
+must cross that boundary explicitly. The least risky choices are:
+
+1. Keep activity-result delivery authoritative and provide a durable result notification or copy
+   action. This never loses text, but the user still completes the handoff.
+2. Offer an opt-in accessibility compatibility service that remembers the last editable target and
+   restores or sets its text after the host resumes. This can automate X, but it is a sensitive
+   permission and must prevent duplicate insertion by replacing, not supplementing, SwiftKey's
+   result path for that session.
+3. Use Chirp as the active IME, where it owns the `InputConnection` and can commit directly. This is
+   the cleanest technical path, but it changes the user's keyboard workflow.
 
 ## Live diagnostic procedure
 
 1. Clear logcat and start one quick-input dictation from X.
 2. Read `VoiceRecognitionActivity` logs for `pendingResult` and the final channel.
 3. Capture `dumpsys input_method` and `dumpsys window` immediately after the sheet closes.
-4. Take a UI hierarchy dump before touching the editor. If the hierarchy contains the transcript
-   while the pixels do not, X has a redraw bug. If neither contains it until focus changes, the
-   insertion is still held in the IME or composing session.
+4. Take a UI hierarchy dump before touching the editor. For the proven X inline-reply case, the
+   field is unfocused and empty, and `InputMethodManager` has no served connection.
 5. Repeat twice in the same composer. The second result catches stale `InputConnection` reuse that a
    one-shot test misses.
 

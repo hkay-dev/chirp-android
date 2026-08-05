@@ -257,8 +257,17 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 #### Scenario: Host editor still drops focus
 
 - **WHEN** a host app deliberately clears its editor because another activity was launched
-- **THEN** Chirp MUST NOT attempt cross-app focus manipulation or accessibility injection
+- **THEN** Chirp's default result path MUST NOT attempt cross-app focus manipulation or accessibility injection
 - **AND** the caller-selected Android recognition result remains authoritative.
+
+#### Scenario: Caller defers insertion until a new input view
+
+- **GIVEN** SwiftKey stores a successful activity result for its next `onStartInputView`
+- **AND** the host returns without an active `InputConnection`
+- **WHEN** Chirp completes the standard recognition activity contract
+- **THEN** Chirp MUST preserve the transcript through its existing durable fallback surfaces
+- **AND** MUST NOT hide the caller IME to manufacture an input-view restart
+- **AND** any cross-app automatic insertion mode MUST be separately opt-in and prevent duplicate delivery.
 
 ## Audit backlog (2026-05-25)
 
