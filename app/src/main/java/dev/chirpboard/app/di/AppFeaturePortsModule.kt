@@ -49,10 +49,8 @@ import dev.chirpboard.app.feature.transcription.inline.captureRecordingQualityPr
 import dev.chirpboard.app.feature.transcription.inline.saveCaptureRecording
 import dev.chirpboard.app.feature.transcription.inline.COMMIT_REFUSED_MESSAGE
 import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDelivery
-import dev.chirpboard.app.feature.transcription.QuickInputPasteHandler
 import dev.chirpboard.app.feature.transcription.inline.shouldPersistCaptures
 import dev.chirpboard.app.feature.transcription.audio.discardTemporaryFile
-import dev.chirpboard.app.quickinput.QuickInputAccessibilityCoordinator
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -90,12 +88,6 @@ abstract class AppFeaturePortsModule {
     abstract fun bindInlineCapturePersistence(
         impl: AppKeyboardInlineCapturePersistence,
     ): InlineCapturePersistence
-
-    @Binds
-    @Singleton
-    abstract fun bindQuickInputPasteHandler(
-        impl: QuickInputAccessibilityCoordinator,
-    ): QuickInputPasteHandler
 
     @Binds
     @Singleton

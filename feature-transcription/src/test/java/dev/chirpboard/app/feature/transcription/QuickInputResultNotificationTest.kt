@@ -2,7 +2,6 @@ package dev.chirpboard.app.feature.transcription
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QuickInputResultNotificationTest {
@@ -56,32 +55,5 @@ class QuickInputResultNotificationTest {
     @Test
     fun `latest result notification expires after thirty seconds`() {
         assertEquals(30_000L, QUICK_INPUT_RESULT_TIMEOUT_MS)
-    }
-
-    @Test
-    fun `notification paste without a captured session targets the active editor`() {
-        var activeEditorText: String? = null
-        val handler =
-            object : QuickInputPasteHandler {
-                override fun requestPaste(
-                    sessionId: Long,
-                    useProcessedText: Boolean,
-                ): Boolean = false
-
-                override fun requestPasteIntoActiveEditor(text: String): Boolean {
-                    activeEditorText = text
-                    return true
-                }
-            }
-
-        assertTrue(
-            requestQuickInputPaste(
-                pasteHandler = handler,
-                sessionId = null,
-                useProcessedText = true,
-                text = "Polished words.",
-            ),
-        )
-        assertEquals("Polished words.", activeEditorText)
     }
 }

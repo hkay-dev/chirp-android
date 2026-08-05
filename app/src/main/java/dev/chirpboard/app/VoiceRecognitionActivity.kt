@@ -41,8 +41,6 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.transcription.QuickInputResultNotificationPublisher
-import dev.chirpboard.app.quickinput.QuickInputAccessibilityCoordinator
-import dev.chirpboard.app.quickinput.QuickInputAccessibilitySession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -200,8 +198,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var quickInputResultNotificationPublisher: QuickInputResultNotificationPublisher
 
-    @Inject lateinit var quickInputAccessibility: QuickInputAccessibilityCoordinator
-
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
@@ -258,24 +254,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private val secureSession: Boolean
         get() = intent?.getBooleanExtra(RecognizerIntent.EXTRA_SECURE, false) == true
 
-    private var quickInputAccessibilitySession: QuickInputAccessibilitySession? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val callerPackage = callingPackage ?: referrer?.host
-        if (!secureSession) {
-            quickInputAccessibilitySession = quickInputAccessibility.beginSession(callerPackage)
-        }
-        Log.i(
-            TAG,
-            "Quick-input accessibility session captured=${quickInputAccessibilitySession != null}",
-        )
         val requestHasPendingResult =
             intent?.hasExtra(RecognizerIntent.EXTRA_RESULTS_PENDINGINTENT) == true
         Log.i(
             TAG,
             "Recognition request opened " +
-                "(caller=${callerPackage ?: "unknown"}, " +
+                "(caller=${callingPackage ?: referrer?.host ?: "unknown"}, " +
                 "pendingResult=$requestHasPendingResult, flags=0x${intent?.flags?.toString(16) ?: "0"})",
         )
 
@@ -709,32 +695,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         // Never log transcript content: this dialog handles dictation for
                         // arbitrary apps. Log only its length (SLOP-7).
                         Log.d(TAG, "Returning result to caller (${delivery.text.length} chars)")
-                        val rawText = completedRawText ?: delivery.text
-                        val accessibilityRequest =
-                            if (secure) {
-                                null
-                            } else {
-                                quickInputAccessibility.arm(
-                                    session = quickInputAccessibilitySession,
-                                    deliveredText = delivery.text,
-                                    rawText = rawText,
-                                    processedText = completedProcessedText,
-                                )
-                            }
-                        quickInputAccessibility.cancel(quickInputAccessibilitySession)
-                        quickInputAccessibilitySession = null
                         dismissWithResult(
                             resultCode = Activity.RESULT_OK,
                             data = buildRecognitionActivityResult(delivery.text),
                             finishImmediately = true,
                         )
-                        // An enabled compatibility service verifies the host editor first. All
-                        // other sessions keep the always-available short-lived copy fallback.
-                        if (!secure && accessibilityRequest == null) {
+                        // The caller-selected Android result channel stays latency-critical and
+                        // authoritative. Only post the fallback after that delivery has finished.
+                        if (!secure) {
                             quickInputResultNotificationPublisher.show(
-                                rawText = rawText,
+                                rawText = completedRawText ?: delivery.text,
                                 processedText = completedProcessedText,
-                                pasteIntoActiveEditor = quickInputAccessibility.canPasteIntoActiveEditor(),
                             )
                         }
                     }
@@ -879,8 +850,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        quickInputAccessibility.cancel(quickInputAccessibilitySession)
-        quickInputAccessibilitySession = null
         // The rescue classification reads main-confined state (_recordingState, the
         // intent-backed secureSession, the discard mark), so decide it synchronously
         // before anything is dispatched. The recorder teardown itself — AudioRecord
