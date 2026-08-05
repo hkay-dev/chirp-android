@@ -14,7 +14,8 @@ import org.junit.Test
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
-import kotlin.concurrent.thread
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class RecordingSessionJournalTest {
     @get:Rule
@@ -217,24 +218,32 @@ class RecordingSessionJournalTest {
         )
 
         val threadCount = 16
-        val startGate = CountDownLatch(1)
-        val threads =
+        val segmentPaths =
             (0 until threadCount).map { index ->
-                thread {
-                    startGate.await()
-                    journal.commitPausedSegment(
-                        sessionId = sessionId,
-                        completedSegmentPath =
-                            File(context.filesDir, "recordings/.capture/$sessionId/seg-$index.m4a").absolutePath,
-                        fileBytes = index.toLong(),
-                    )
-                }
+                File(context.filesDir, "recordings/.capture/$sessionId/seg-$index.m4a").absolutePath
             }
-        startGate.countDown()
-        threads.forEach { it.join() }
+        val startGate = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(threadCount)
+        try {
+            val updates =
+                segmentPaths.mapIndexed { index, segmentPath ->
+                    executor.submit {
+                        startGate.await()
+                        journal.commitPausedSegment(
+                            sessionId = sessionId,
+                            completedSegmentPath = segmentPath,
+                            fileBytes = index.toLong(),
+                        )
+                    }
+                }
+            startGate.countDown()
+            updates.forEach { it.get(30, TimeUnit.SECONDS) }
+        } finally {
+            executor.shutdownNow()
+        }
 
         // Without serialized read-modify-write cycles, concurrent appends lose segments.
-        assertEquals(threadCount, journal.findBySessionId(sessionId)?.segmentPaths?.size)
+        assertEquals(segmentPaths.toSet(), journal.findBySessionId(sessionId)?.segmentPaths?.toSet())
     }
 
     @Test
