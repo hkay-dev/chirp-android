@@ -22,6 +22,17 @@
          The enabled status itself is shown with the shared CONNECTED StatusBadge. -->
     <string name="keyboard_settings_system_description_enabled">Chirp is enabled. Switch to it from any text field with Select Keyboard.</string>
     <string name="keyboard_settings_system_open_failed">Could not open system keyboard settings.</string>
+    <string name="keyboard_settings_compatibility_title">Reliable Quick Input</string>
+    <string name="keyboard_settings_reliable_paste_title">Tap-to-paste fallback</string>
+    <string name="keyboard_settings_reliable_paste_description">Enable Chirp’s accessibility service to detect a dropped SwiftKey result and paste it when you tap the fallback notification.</string>
+    <string name="keyboard_settings_reliable_paste_description_enabled">Enabled for Gemini, X, and Telegram. Chirp only changes a normal text field after you tap Paste.</string>
+    <string name="keyboard_settings_accessibility_open_failed">Could not open accessibility settings.</string>
+    <string name="quick_input_accessibility_service_label">Chirp reliable quick input</string>
+    <string name="quick_input_accessibility_service_description">Checks whether SwiftKey quick input reached focused text fields in Gemini, X, and Telegram. If it did not, Chirp can paste the result only when you tap its notification. Password fields are ignored.</string>
+    <string name="quick_input_accessibility_pasted">Quick input pasted</string>
+    <string name="quick_input_accessibility_clip_label">Quick input</string>
+    <string name="quick_input_accessibility_copied_instead">The field changed, so Chirp copied the result instead</string>
+    <string name="quick_input_accessibility_paste_failed">Couldn’t paste or copy that quick input</string>
     <string name="keyboard_settings_processing_mode_title">Default Mode</string>
     <string name="keyboard_settings_processing_mode_description">How your voice should be formatted.</string>
     <string name="keyboard_settings_processing_mode_disabled">Enable AI Processing to use this setting</string>

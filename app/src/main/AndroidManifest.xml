@@ -112,6 +112,23 @@
                 android:resource="@xml/recognition_service" />
         </service>
 
+        <!-- Opt-in fallback for host editors that lose SwiftKey's deferred voice result. The
+             normal recognition result stays authoritative. This service only watches the listed
+             apps, ignores password fields, and changes text only after the user taps Paste. -->
+        <service
+            android:name=".quickinput.QuickInputAccessibilityService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/quick_input_accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/quick_input_accessibility_service" />
+        </service>
+
         <!-- RecordingService is declared by feature-recording's own manifest (single owner);
              a duplicate node here would have to stay attribute-identical forever to keep the
              manifest merger happy, so it was removed. -->
