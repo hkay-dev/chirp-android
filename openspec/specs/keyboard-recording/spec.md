@@ -257,18 +257,21 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 #### Scenario: Host editor still drops focus
 
 - **WHEN** a host app deliberately clears its editor because another activity was launched
-- **THEN** Chirp's default result path MUST NOT attempt cross-app focus manipulation or accessibility injection
+- **THEN** Chirp's default result path MUST NOT attempt automatic cross-app focus manipulation or accessibility injection
 - **AND** the caller-selected Android recognition result remains authoritative.
 
 ### Requirement: Successful Quick Input Keeps a Short-Lived Copy Fallback
 
-Every successful, non-secure quick-input result SHALL remain available briefly through an
-app-private notification after the caller-selected Android result channel has completed.
+Every successful, non-secure quick-input result SHALL remain available briefly when normal insertion
+cannot be verified or when the optional reliable-paste service is unavailable.
 
 #### Scenario: Non-secure quick input succeeds
 
 - **WHEN** transcription produces a non-empty result outside a secure recognition session
 - **THEN** Chirp SHALL deliver the caller-selected Android result before posting a notification
+- **AND** an enabled reliable-paste service SHALL suppress the notification when it verifies the result in the captured editor
+- **AND** SHALL post a tap-to-paste notification when the result is still missing after the bounded verification window
+- **AND** a session without that service SHALL post the copy fallback directly
 - **AND** the notification SHALL show the original transcript and any distinct AI result
 - **AND** it SHALL provide a copy action for each shown result
 - **AND** it SHALL replace the previous quick-input result notification
@@ -293,9 +296,31 @@ app-private notification after the caller-selected Android result channel has co
 - **AND** the host returns without an active `InputConnection`
 - **WHEN** Chirp completes the standard recognition activity contract
 - **THEN** Chirp MUST preserve the transcript through its existing durable fallback surfaces
-- **AND** Chirp MUST provide the 30-second copy notification for a successful non-secure result
+- **AND** Chirp MUST provide the 30-second paste-or-copy fallback notification for a successful non-secure result
 - **AND** MUST NOT hide the caller IME to manufacture an input-view restart
-- **AND** MUST NOT use cross-app accessibility injection or focus recovery.
+- **AND** MUST NOT use automatic cross-app accessibility injection or focus recovery.
+
+### Requirement: Reliable Paste Is Explicit and Fail-Closed
+
+The optional accessibility service SHALL keep standard Android result delivery authoritative and
+SHALL change a host editor only in response to the user's tap on a failed-handoff notification.
+
+#### Scenario: User taps a failed-handoff notification
+
+- **GIVEN** the service captured a recent non-password editor in Gemini, X, or Telegram
+- **AND** the standard result is still absent after the verification window
+- **WHEN** the user taps the notification body
+- **THEN** Chirp SHALL recheck the captured package, window, editor identity, and source text
+- **AND** MAY focus that editor once to let SwiftKey consume its pending result
+- **AND** SHALL use `ACTION_SET_TEXT` only if the field remains unchanged
+- **AND** SHALL verify the final editor text before reporting success.
+
+#### Scenario: Captured editor is no longer safe to change
+
+- **WHEN** the editor is missing, changed, expired, sensitive, or refuses the text action
+- **THEN** Chirp SHALL NOT overwrite it
+- **AND** SHALL copy the selected result to the clipboard
+- **AND** SHALL tell the user that it copied instead.
 
 ## Audit backlog (2026-05-25)
 

@@ -23,7 +23,7 @@ the final insertion after Chirp returns the recognized text.
 | The transcript is absent or arrives late | The text becomes visible after tapping the reply field | SwiftKey held the result until X created a new input session |
 | Chirp's window or result payload causes the failure | Temporarily removed Chirp as the `RECOGNIZE_SPEECH` handler and repeated the test with Google's stock transcription activity | The same X inline-reply failure occurred |
 | Hiding and showing SwiftKey can force a safe commit | Hid the IME at Chirp's terminal boundary | X returned with the keyboard hidden, the field unfocused, and no active `InputConnection`; removed |
-| Accessibility can restore X's reply editor safely | Added a narrow opt-in focus-recovery service | X still did not insert consistently, Gemini regressed, and the recognition window changed for the worse; removed and disabled on the test device |
+| Automatic accessibility focus recovery can repair the handoff | Added a narrow service that cycled focus after recognition | X still did not insert consistently, Gemini regressed, and the recognition window changed for the worse; removed and disabled on the test device |
 
 These results rule out Chirp's transcription, result payload, task shape, and window theme as the
 cause of the X inline-reply failure. Another recognition-activity flag permutation cannot repair an
@@ -80,17 +80,20 @@ contract.
    SwiftKey path.
 3. Keep `ChirpRecognitionService` for apps using `SpeechRecognizer`. It does not solve a caller that
    explicitly launches the activity.
-4. Do not add accessibility injection, clipboard paste, or a draw-over-apps window. The controlled
-   accessibility trial made result insertion less reliable outside X as well, so Chirp must not
-   manipulate another app's focus or editor state.
+4. Do not bring back automatic focus cycling or make accessibility the main result path. The
+   controlled trial made normal insertion less reliable outside X as well.
 
 For the proven X and SwiftKey failure, the standard contract is exhausted. Any automatic workaround
 must cross that boundary explicitly. The least risky choices are:
 
-1. Keep activity-result delivery authoritative and show the latest non-secure result in a 30-second
-   notification with copy actions for the original and any distinct AI result. This preserves a
-   quick manual escape hatch without touching the host editor.
-2. Use Chirp as the active IME, where it owns the `InputConnection` and can commit directly. This is
+1. Keep activity-result delivery authoritative. With the optional reliable-paste service disabled,
+   show the latest non-secure result in a 30-second notification with copy actions.
+2. With the optional service enabled, verify the standard result in the original editor. Show a
+   tap-to-paste notification only when the text is still missing. A notification tap may focus the
+   captured field once so SwiftKey can consume its pending result, then use `ACTION_SET_TEXT` only
+   if the field is still unchanged. A changed, missing, sensitive, or expired target falls back to
+   clipboard copy.
+3. Use Chirp as the active IME, where it owns the `InputConnection` and can commit directly. This is
    the cleanest technical path, but it changes the user's keyboard workflow.
 
 ## Live diagnostic procedure
@@ -110,9 +113,20 @@ must cross that boundary explicitly. The least risky choices are:
 - Preserve the established Chirp bottom-sheet appearance.
 - Deliver through the caller-selected Android result channel exactly once.
 - Finish successful recognition immediately.
-- Post the latest non-secure result only after the caller-selected result channel has completed.
+- Keep the standard Android result path authoritative in every app.
+- Never change another app's text automatically.
+- When reliable paste is enabled, keep only an in-memory snapshot of the captured editor, its text,
+  and its selection for the 30-second fallback window.
+- Limit reliable paste to Gemini, X, and Telegram, and ignore password fields.
+- Verify the returned text for 1.5 seconds. Suppress the notification when it arrived normally.
+- Show `Tap to paste quick input` only when verification fails. The notification body pastes the
+  same result sent through the Android result channel.
+- Recheck the package, window, editor identity, and unchanged source text before a direct paste.
+- Copy instead if the target is missing, changed, expired, or refuses `ACTION_SET_TEXT`.
+- With reliable paste disabled or unavailable, post the normal copy notification only after the
+  caller-selected result channel has completed.
 - Replace the previous quick-input notification and expire the new one after 30 seconds.
-- Offer `Copy original` and, when it differs, `Copy AI result`; never put secure-session text in a
-  notification.
-- Never use accessibility or cross-app focus manipulation for quick-input delivery.
+- Offer `Copy original` and, when it differs, `Copy AI result` on both notification variants.
+- Never put secure-session text in accessibility memory, a notification, or the clipboard fallback.
+- Never clear focus, click the field, perform gestures, or change text from an automatic callback.
 - Keep the existing capture-persistence and transcription-rescue paths unchanged.
