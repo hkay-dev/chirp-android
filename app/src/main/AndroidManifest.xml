@@ -112,6 +112,24 @@
                 android:resource="@xml/recognition_service" />
         </service>
 
+        <!-- Opt-in compatibility bridge for X's inline reply editor and SwiftKey's deferred
+             voice-result commit. The service is package-filtered to X, cannot perform gestures,
+             and never reads or inserts transcript text. BIND_ACCESSIBILITY_SERVICE keeps the
+             exported binding endpoint system-only. -->
+        <service
+            android:name=".quickinput.QuickInputFocusRecoveryAccessibilityService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/quick_input_focus_recovery_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/quick_input_focus_recovery_service" />
+        </service>
+
         <!-- RecordingService is declared by feature-recording's own manifest (single owner);
              a duplicate node here would have to stay attribute-identical forever to keep the
              manifest merger happy, so it was removed. -->

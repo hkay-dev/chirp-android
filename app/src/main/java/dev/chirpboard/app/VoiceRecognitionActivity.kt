@@ -40,6 +40,8 @@ import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
+import dev.chirpboard.app.quickinput.QuickInputFocusRecoveryCoordinator
+import dev.chirpboard.app.quickinput.QuickInputFocusRecoverySession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -206,11 +208,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
     @Inject lateinit var keyboardPreferences: KeyboardPreferences
 
     @Inject lateinit var dynamicColorPreference: DynamicColorPreference
+
+    @Inject lateinit var quickInputFocusRecovery: QuickInputFocusRecoveryCoordinator
     private val _recordingState = MutableStateFlow<RecordingState>(RecordingState.Idle)
     private val _shouldDismiss = MutableStateFlow(false)
     private val _partialTranscript = MutableStateFlow("")
     private val _modelState = MutableStateFlow(VoiceRecognitionModelState.Initializing)
     private val _uiError = MutableStateFlow<VoiceRecognitionUiError?>(null)
+    private var focusRecoverySession: QuickInputFocusRecoverySession? = null
 
     /**
      * Name of the active capture device that disconnected mid-session (MIC-014), surfaced
@@ -253,12 +258,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val callerPackage = callingPackage ?: referrer?.host
+        focusRecoverySession = quickInputFocusRecovery.beginSession(callerPackage)
         val requestHasPendingResult =
             intent?.hasExtra(RecognizerIntent.EXTRA_RESULTS_PENDINGINTENT) == true
         Log.i(
             TAG,
             "Recognition request opened " +
-                "(caller=${callingPackage ?: referrer?.host ?: "unknown"}, " +
+                "(caller=${callerPackage ?: "unknown"}, " +
                 "pendingResult=$requestHasPendingResult, flags=0x${intent?.flags?.toString(16) ?: "0"})",
         )
 
@@ -834,6 +841,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        focusRecoverySession?.let(quickInputFocusRecovery::cancel)
+        focusRecoverySession = null
         // The rescue classification reads main-confined state (_recordingState, the
         // intent-backed secureSession, the discard mark), so decide it synchronously
         // before anything is dispatched. The recorder teardown itself — AudioRecord
@@ -919,6 +928,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 setActivityResult = ::setResult,
             )
         Log.i(TAG, "Recognition result delivered through $resultChannel (code=$resultCode)")
+        val recoveryArmed =
+            quickInputFocusRecovery.arm(
+                session = focusRecoverySession,
+                resultChannel = resultChannel,
+                resultCode = resultCode,
+                finishImmediately = finishImmediately,
+            )
+        if (!recoveryArmed) {
+            quickInputFocusRecovery.cancel(focusRecoverySession)
+        }
+        focusRecoverySession = null
         _shouldDismiss.value = true
         if (finishImmediately) {
             // A successful voice result is latency-sensitive. Its caller-selected result channel
