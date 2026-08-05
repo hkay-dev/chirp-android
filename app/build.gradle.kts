@@ -11,6 +11,7 @@ val releaseStoreFile = providers.environmentVariable("CHIRP_RELEASE_STORE_FILE")
 val releaseStorePassword = providers.environmentVariable("CHIRP_RELEASE_STORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("CHIRP_RELEASE_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("CHIRP_RELEASE_KEY_PASSWORD").orNull
+val localDebugStoreFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
 val releaseSigningConfigured =
     listOf(
         releaseStoreFile,
@@ -52,18 +53,20 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            if (releaseSigningConfigured) {
-                storeFile = file(checkNotNull(releaseStoreFile))
-                storePassword = checkNotNull(releaseStorePassword)
-                keyAlias = checkNotNull(releaseKeyAlias)
-                keyPassword = checkNotNull(releaseKeyPassword)
-            } else {
-                // Keep local release builds compatible with the existing sideloaded app.
-                storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+        if (releaseSigningConfigured || localDebugStoreFile.isFile) {
+            create("release") {
+                if (releaseSigningConfigured) {
+                    storeFile = file(checkNotNull(releaseStoreFile))
+                    storePassword = checkNotNull(releaseStorePassword)
+                    keyAlias = checkNotNull(releaseKeyAlias)
+                    keyPassword = checkNotNull(releaseKeyPassword)
+                } else {
+                    // Keep local release builds compatible with the existing sideloaded app.
+                    storeFile = localDebugStoreFile
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
             }
         }
     }
@@ -81,7 +84,7 @@ android {
             isDebuggable = false
             isJniDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
 
         create("beta") {
