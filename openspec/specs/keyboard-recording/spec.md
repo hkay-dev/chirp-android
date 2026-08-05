@@ -260,14 +260,42 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 - **THEN** Chirp's default result path MUST NOT attempt cross-app focus manipulation or accessibility injection
 - **AND** the caller-selected Android recognition result remains authoritative.
 
+### Requirement: Successful Quick Input Keeps a Short-Lived Copy Fallback
+
+Every successful, non-secure quick-input result SHALL remain available briefly through an
+app-private notification after the caller-selected Android result channel has completed.
+
+#### Scenario: Non-secure quick input succeeds
+
+- **WHEN** transcription produces a non-empty result outside a secure recognition session
+- **THEN** Chirp SHALL deliver the caller-selected Android result before posting a notification
+- **AND** the notification SHALL show the original transcript and any distinct AI result
+- **AND** it SHALL provide a copy action for each shown result
+- **AND** it SHALL replace the previous quick-input result notification
+- **AND** Android SHALL remove it after 30 seconds.
+
+#### Scenario: Notification delivery is unavailable
+
+- **GIVEN** notification permission or the quick-input result channel is disabled
+- **WHEN** a successful quick-input result is ready
+- **THEN** Chirp SHALL still complete the caller-selected Android result channel
+- **AND** notification failure SHALL NOT change recognition success.
+
+#### Scenario: Secure quick input succeeds
+
+- **GIVEN** the recognition request uses `RecognizerIntent.EXTRA_SECURE`
+- **WHEN** transcription produces a non-empty result
+- **THEN** Chirp SHALL NOT put the transcript in a notification or clipboard action.
+
 #### Scenario: Caller defers insertion until a new input view
 
 - **GIVEN** SwiftKey stores a successful activity result for its next `onStartInputView`
 - **AND** the host returns without an active `InputConnection`
 - **WHEN** Chirp completes the standard recognition activity contract
 - **THEN** Chirp MUST preserve the transcript through its existing durable fallback surfaces
+- **AND** Chirp MUST provide the 30-second copy notification for a successful non-secure result
 - **AND** MUST NOT hide the caller IME to manufacture an input-view restart
-- **AND** any cross-app automatic insertion mode MUST be separately opt-in and prevent duplicate delivery.
+- **AND** MUST NOT use cross-app accessibility injection or focus recovery.
 
 ## Audit backlog (2026-05-25)
 
