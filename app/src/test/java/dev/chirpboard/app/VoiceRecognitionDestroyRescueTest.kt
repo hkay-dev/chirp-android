@@ -158,4 +158,27 @@ class VoiceRecognitionDestroyRescueTest {
             advanceUntilIdle()
             assertEquals(listOf("close", "focus"), order)
         }
+
+    @Test
+    fun `process-owned stop prevents a competing destroy teardown`() =
+        runTest {
+            val order = mutableListOf<String>()
+            launchRecognitionDestroyTeardown(
+                stopOwnerActive = true,
+                gateHeld = true,
+                rescue = false,
+                stopRecorder = {
+                    order += "stop"
+                    InlineAudioSource.InMemory(floatArrayOf(0.1f))
+                },
+                releaseGate = { order += "release" },
+                rescueSamples = { order += "rescue" },
+                closeRecorder = { order += "close" },
+                abandonFocus = { order += "focus" },
+            )
+
+            advanceUntilIdle()
+
+            assertTrue(order.isEmpty())
+        }
 }

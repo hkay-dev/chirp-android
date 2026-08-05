@@ -67,7 +67,10 @@ class VoiceRecognitionTranscriptionRunner
                 if (request.secure) {
                     SecureRecognitionCapturePersistence
                 } else {
-                    DictationCapturePersistenceGuard(capturePersistence) { rawText, processedText ->
+                    DictationCapturePersistenceGuard(
+                        delegate = capturePersistence,
+                        completionErrorMessage = request.captureFailureMessage,
+                    ) { rawText, processedText ->
                         completedRawText = rawText
                         completedProcessedText = processedText
                     }
@@ -99,6 +102,9 @@ class VoiceRecognitionTranscriptionRunner
                 commitText = { text -> committedText = text.trim() },
                 onRecordingError = { message -> Log.e(TAG, message) },
             )
+            if (persistence is DictationCapturePersistenceGuard) {
+                persistence.persistDeferredRescueIfNeeded()
+            }
 
             return Outcome(
                 committedText = committedText,
@@ -113,6 +119,7 @@ class VoiceRecognitionTranscriptionRunner
             val llmEnabled: Boolean,
             val processingModeId: String,
             val secure: Boolean,
+            val captureFailureMessage: String? = null,
         )
 
         data class Outcome(

@@ -108,12 +108,18 @@ must cross that boundary explicitly. The least risky choices are:
 - Request unchanged soft-input visibility.
 - Keep the screen awake for the entire quick-input window.
 - Preserve the established Chirp bottom-sheet appearance.
+- Start the microphone on the dialog's first composition. Recognizer loading and the short visual
+  ready beat run alongside capture, so neither can clip the opening words.
 - Deliver through the caller-selected Android result channel exactly once.
 - Finish successful recognition immediately.
 - Record quick-input capture into a file-backed temporary source, then hand transcription to a
   process-scoped owner so leaving the activity cannot cancel persistence or notification delivery.
-- Checkpoint stopped audio before decode. A dead process leaves recoverable audio instead of an
-  unowned in-memory buffer.
+- Checkpoint the first complete PCM block off the microphone path, then checkpoint the stopped file
+  before decode. A dead process leaves recoverable audio instead of an unowned cache file.
+- Keep recorder finalization under the same activity-independent stop owner. Activity teardown must
+  not race it with a second stop that could take and discard the capture file.
+- Preserve trusted partial audio from recorder failures as a rescue entry. Transcribe it when the
+  surviving audio is usable; keep the audio even when it produces no text.
 - Keep the existing Save Keyboard Recordings choice for successful history entries. Rescue paths
   still save failures regardless of that preference.
 - Complete the caller result as soon as transcription and persistence settle. Notification posting

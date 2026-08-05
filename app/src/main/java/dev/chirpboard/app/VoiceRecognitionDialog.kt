@@ -172,16 +172,13 @@ internal fun VoiceRecognitionDialog(
     // leaf composables that actually render them (CMP-11), matching RecordScreen/KeyboardUI.
 
     // Auto-start is preserved (per DECISIONS: this is a one-shot quick capture and the user's
-    // intent to dictate is already explicit). DLG-4/DLG-8/LOAD-5: rather than jumping straight
-    // from a grey "loading" frame to red recording, hold a brief calm "ready" beat after the
-    // model is ready so the first on-screen frame is on-brand, then begin capture.
+    // intent to dictate is already explicit). Capture starts with the first composition. The
+    // brief visual ready beat and recognizer warmup run alongside it, never ahead of the mic.
     var preRollComplete by remember { mutableStateOf(false) }
-    LaunchedEffect(modelState) {
-        if (modelState == VoiceRecognitionModelState.Ready && !preRollComplete) {
-            delay(READY_PRE_ROLL_MS)
-            preRollComplete = true
-            onStart()
-        }
+    LaunchedEffect(Unit) {
+        onStart()
+        delay(READY_VISUAL_BEAT_MS)
+        preRollComplete = true
     }
 
     LaunchedEffect(shouldDismiss) {
@@ -769,8 +766,8 @@ private fun VoiceRecognitionMicControl(
 private const val VOICE_RECOGNITION_EXIT_MS = 250L
 private const val TRANSCRIPT_CROSSFADE_MS = 200
 
-/** Calm "ready to listen" beat before auto-start so the first frame is on-brand (DLG-4/LOAD-5). */
-private const val READY_PRE_ROLL_MS = 300L
+/** Calm visual "ready to listen" beat while capture starts (DLG-4/LOAD-5). */
+private const val READY_VISUAL_BEAT_MS = 300L
 
 private val MicSize = 64.dp
 
@@ -817,13 +814,13 @@ internal fun transcriptAreaKind(
         // (ERR-9/ERR-23/ERR-27). Errors only arise on paths that produced no text.
         hasError -> TranscriptAreaKind.Error
         hasText -> TranscriptAreaKind.Transcript
+        // The visual beat never delays capture or recognizer loading.
+        !preRollComplete -> TranscriptAreaKind.Ready
         modelState == VoiceRecognitionModelState.Initializing -> TranscriptAreaKind.ModelLoading
         modelState == VoiceRecognitionModelState.Unavailable -> TranscriptAreaKind.ModelUnavailable
         // A11Y-8: the post-stop phase shows a textual status, not a blank area with bare dots.
         isProcessing -> TranscriptAreaKind.Processing
         isRecording -> TranscriptAreaKind.Timer
-        // Model is Ready but capture has not begun yet: the calm pre-roll beat (DLG-4).
-        !preRollComplete -> TranscriptAreaKind.Ready
         else -> TranscriptAreaKind.Empty
     }
 

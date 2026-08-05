@@ -237,6 +237,12 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 - **AND** its non-editing window stays outside the caller IME's target relationship
 - **AND** the caller's keyboard can keep its existing editor connection for result delivery.
 
+#### Scenario: Recognizer is still loading
+
+- **WHEN** quick input opens while the local recognizer is loading
+- **THEN** microphone capture starts immediately
+- **AND** transcription waits for recognizer readiness after capture stops.
+
 #### Scenario: Successful speech result is ready
 
 - **WHEN** transcription produces a non-empty result
@@ -281,12 +287,22 @@ app-private, copy-only notification. Notification work SHALL NOT own the Android
 
 - **GIVEN** recording has stopped and a non-secure quick-input transcription is running
 - **WHEN** the recognition activity stops or is destroyed because the user changes apps
-- **THEN** the process-scoped transcription SHALL continue
+- **THEN** recorder finalization and the process-scoped transcription SHALL continue
+- **AND** activity teardown SHALL NOT start a competing recorder stop
 - **AND** its file-backed audio SHALL stay checkpointed until the terminal save or discard decision
 - **AND** successful history storage SHALL continue to follow Save Keyboard Recordings
 - **AND** rescue failures SHALL continue to save regardless of that preference
 - **AND** a successful result SHALL still post the copy notification
 - **AND** an explicit cancel action SHALL remain able to cancel that session.
+
+#### Scenario: Capture fails after audio was recorded
+
+- **GIVEN** quick input has written at least one complete PCM block
+- **WHEN** the recorder fails before the user stops
+- **THEN** Chirp SHALL finalize the trusted file prefix instead of cancelling and deleting it
+- **AND** usable audio SHALL still be transcribed and shown in the copy notification
+- **AND** the capture SHALL be stored as a rescue entry regardless of Save Keyboard Recordings
+- **AND** audio that produces no transcript SHALL still remain recoverable.
 
 #### Scenario: Notification delivery is unavailable
 

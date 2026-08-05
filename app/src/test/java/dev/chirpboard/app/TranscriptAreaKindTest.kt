@@ -73,7 +73,7 @@ class TranscriptAreaKindTest {
                 hasText = false,
                 hasError = false,
                 modelState = VoiceRecognitionModelState.Initializing,
-                preRollComplete = false,
+                preRollComplete = true,
                 isRecording = false,
                 isProcessing = false,
             ),
@@ -88,7 +88,7 @@ class TranscriptAreaKindTest {
                 hasText = false,
                 hasError = false,
                 modelState = VoiceRecognitionModelState.Unavailable,
-                preRollComplete = false,
+                preRollComplete = true,
                 isRecording = true,
                 isProcessing = false,
             ),
@@ -128,17 +128,17 @@ class TranscriptAreaKindTest {
     }
 
     @Test
-    fun `ready model before capture shows the calm pre-roll beat`() {
-        // Model is Ready but the pre-roll beat has not elapsed and capture has not begun: the calm
-        // "Ready to listen" frame is shown instead of jumping straight to the timer (DLG-4/LOAD-5).
+    fun `calm visual beat runs while capture and model warmup are already active`() {
+        // The visual beat is presentation only. It wins briefly even though the microphone has
+        // started and the recognizer is still loading.
         assertEquals(
             TranscriptAreaKind.Ready,
             transcriptAreaKind(
                 hasText = false,
                 hasError = false,
-                modelState = VoiceRecognitionModelState.Ready,
+                modelState = VoiceRecognitionModelState.Initializing,
                 preRollComplete = false,
-                isRecording = false,
+                isRecording = true,
                 isProcessing = false,
             ),
         )

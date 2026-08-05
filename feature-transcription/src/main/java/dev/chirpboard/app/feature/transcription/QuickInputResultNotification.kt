@@ -160,7 +160,6 @@ class QuickInputResultNotificationPublisher
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setPublicVersion(buildPublicVersion())
                 .setLocalOnly(true)
-                .setOnlyAlertOnce(true)
                 .setOngoing(true)
                 .setAutoCancel(false)
                 .addAction(
@@ -197,7 +196,7 @@ class QuickInputResultNotificationPublisher
                 Intent(context, QuickInputResultCopyReceiver::class.java)
                     .setAction(action)
                     .putExtra(QuickInputResultCopyReceiver.EXTRA_TEXT, text),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_CANCEL_CURRENT,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
         private fun buildPublicVersion(): Notification =
@@ -229,7 +228,13 @@ class QuickInputResultCopyReceiver : BroadcastReceiver() {
             PersistableBundle().apply {
                 putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
             }
-        clipboard.setPrimaryClip(clip)
+        try {
+            clipboard.setPrimaryClip(clip)
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "Could not copy quick-input result", error)
+            Toast.makeText(context, R.string.quick_input_result_copy_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
         Toast.makeText(
             context,
             if (copyAi) R.string.quick_input_result_copied_ai else R.string.quick_input_result_copied_raw,

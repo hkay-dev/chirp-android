@@ -109,6 +109,70 @@ class DictationCapturePersistenceGuardTest {
         }
 
     @Test
+    fun `recorder failure completion is kept as a rescue and still reports its transcript`() =
+        runTest {
+            val delegate = RecordingCapturePersistence()
+            var reported: Pair<String, String?>? = null
+            val guard =
+                DictationCapturePersistenceGuard(
+                    delegate = delegate,
+                    completionErrorMessage = "Microphone disconnected",
+                ) { rawText, processedText ->
+                    reported = rawText to processedText
+                }
+
+            guard.persistAudioSource(source, "raw", "processed", null, InlineCapturePersistReason.COMPLETED)
+
+            val persist = delegate.persistCalls.single()
+            assertEquals(InlineCapturePersistReason.RESCUE, persist.reason)
+            assertEquals("Microphone disconnected", persist.errorMessage)
+            assertEquals("raw" to "processed", reported)
+        }
+
+    @Test
+    fun `recorder failure no-speech discard is deferred into a rescue persist`() =
+        runTest {
+            val delegate = RecordingCapturePersistence()
+            val guard =
+                DictationCapturePersistenceGuard(
+                    delegate = delegate,
+                    completionErrorMessage = "Microphone disconnected",
+                )
+
+            guard.discardAudioSource(source)
+            assertEquals(emptyList<InlineAudioSource>(), delegate.discardedSources)
+
+            guard.persistDeferredRescueIfNeeded()
+
+            val persist = delegate.persistCalls.single()
+            assertEquals(InlineCapturePersistReason.RESCUE, persist.reason)
+            assertEquals("Microphone disconnected", persist.errorMessage)
+        }
+
+    @Test
+    fun `deferred recorder-failure rescue does not duplicate an earlier rescue`() =
+        runTest {
+            val delegate = RecordingCapturePersistence()
+            val guard =
+                DictationCapturePersistenceGuard(
+                    delegate = delegate,
+                    completionErrorMessage = "Microphone disconnected",
+                )
+
+            guard.discardAudioSource(source)
+            guard.persistAudioSource(
+                source,
+                rawText = null,
+                processedText = null,
+                errorMessage = "Decode failed",
+                reason = InlineCapturePersistReason.RESCUE,
+            )
+            guard.persistDeferredRescueIfNeeded()
+
+            assertEquals(1, delegate.persistCalls.size)
+        }
+
+    @Test
     fun `non-persist calls pass straight through to the delegate`() =
         runTest {
             val delegate = RecordingCapturePersistence()

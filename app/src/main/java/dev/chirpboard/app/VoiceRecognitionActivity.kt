@@ -196,10 +196,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
             }
         }
 
-    /**
-     * Survives activity teardown so audio rescued in [onDestroy] is persisted even while
-     * [lifecycleScope] is being cancelled. Persistence work is short and non-cancellable.
-     */
+    /** Survives activity teardown long enough to finalize or rescue the live capture. */
     private val rescueScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
@@ -255,7 +252,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
      * session bookkeeping around it.
      */
     private var captureStallWatchdog: Job? = null
+    private var captureCheckpointJob: Job? = null
+    private var stopJob: Job? = null
     private var activeTranscriptionSession: VoiceRecognitionTranscriptionRunner.Session? = null
+    private var activityDestroyed = false
 
     /**
      * IME-6: a caller that sets [RecognizerIntent.EXTRA_SECURE] (keyguard/secure contexts)
@@ -466,10 +466,6 @@ class VoiceRecognitionActivity : ComponentActivity() {
             Log.w(TAG, "Already recording, ignoring start request")
             return
         }
-        if (_modelState.value != VoiceRecognitionModelState.Ready) {
-            Log.w(TAG, "Transcription model not ready, ignoring start request")
-            return
-        }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             Log.e(TAG, "Recording permission missing")
             // ERR-9: explain in-dialog with an affordance to open the app instead of
@@ -497,14 +493,23 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 sessionCoordinator.start(
                     generation = generation,
                     onReadyForSpeech = {},
-                    onBeginningOfSpeech = {
-                        _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
-                    },
+                    onBeginningOfSpeech = {},
                     onRms = { amplitude -> onSessionAmplitude(generation, endpointer, amplitude) },
                 )
             when (result) {
-                VoiceRecognitionSessionCoordinator.StartResult.Started ->
+                VoiceRecognitionSessionCoordinator.StartResult.Started -> {
+                    if (!recorder.awaitFirstSamples()) {
+                        if (_recordingState.value is RecordingState.Stopping) return@launch
+                        sessionCoordinator.cancel(generation)
+                        _recordingState.value = RecordingState.Idle
+                        showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
+                        return@launch
+                    }
+                    if (_recordingState.value !is RecordingState.Starting) return@launch
+                    _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
+                    checkpointFirstRecognitionAudio()
                     armCaptureStallWatchdog(generation, endpointer)
+                }
 
                 VoiceRecognitionSessionCoordinator.StartResult.Superseded -> {
                     // A newer start replaced this one before it ran; the newer session owns
@@ -620,8 +625,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun stopRecording(
         llmEnabled: Boolean,
         processingMode: ProcessingMode,
+        captureFailureMessage: String? = null,
     ) {
-        if (_recordingState.value !is RecordingState.Recording) {
+        if (!canFinalizeRecognitionCapture(_recordingState.value, captureFailureMessage != null)) {
             Log.w(TAG, "Not actively recording, ignoring stop request")
             return
         }
@@ -629,10 +635,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
         cancelCaptureStallWatchdog()
         val generation = sessionCoordinator.currentGeneration()
         val secure = secureSession
-        lifecycleScope.launch {
+        // This owner deliberately outlives the activity. A caller can leave during recorder
+        // finalization, model decode, or AI polish without cancelling the captured speech.
+        stopJob = rescueScope.launch(Dispatchers.Main.immediate) {
             try {
                 Log.d(TAG, "Stop button pressed (LLM: $llmEnabled, Mode: ${processingMode.id})")
                 _recordingState.value = RecordingState.Stopping(RecordingOrigin.KEYBOARD)
+                captureCheckpointJob?.join()
+                captureCheckpointJob = null
 
                 // The coordinator serializes the stop against any in-flight start, stops the
                 // recorder, and releases the capture gate; we own only what happens to the
@@ -643,13 +653,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         VoiceRecognitionSessionCoordinator.StopResult.Stale -> {
                             Log.w(TAG, "Stop ignored for inactive session")
                             _recordingState.value = RecordingState.Idle
-                            returnError(SpeechRecognizer.ERROR_CLIENT)
+                            if (!activityDestroyed) returnError(SpeechRecognizer.ERROR_CLIENT)
                             return@launch
                         }
                         is VoiceRecognitionSessionCoordinator.StopResult.Failed -> {
                             Log.e(TAG, "Failed to stop recording", stop.cause)
                             _recordingState.value = RecordingState.Idle
-                            showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
+                            if (!activityDestroyed) showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
                             return@launch
                         }
                     }
@@ -657,7 +667,25 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 Log.d(TAG, "Got $capturedSampleCount audio samples")
 
                 if (capturedSampleCount == 0L) {
+                    _recordingState.value = RecordingState.Idle
+                    if (activityDestroyed) return@launch
                     showErrorThenReturn(VoiceRecognitionUiError.NoSpeech)
+                    return@launch
+                }
+
+                if (captureTeardownDiscardsAudio || (secure && activityDestroyed)) {
+                    if (secure) {
+                        SecureRecognitionCapturePersistence.discardAudioSource(audioSource)
+                    } else {
+                        capturePersistence.persistAudioSource(
+                            audioSource = audioSource,
+                            rawText = null,
+                            processedText = null,
+                            errorMessage = "Dictation cancelled",
+                            reason = InlineCapturePersistReason.USER_CANCELLED,
+                        )
+                    }
+                    _recordingState.value = RecordingState.Idle
                     return@launch
                 }
 
@@ -668,15 +696,20 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             llmEnabled = llmEnabled,
                             processingModeId = processingMode.id,
                             secure = secure,
+                            captureFailureMessage = captureFailureMessage,
                         ),
                     )
                 activeTranscriptionSession = session
+                // The singleton runner owns persistence and notification from this point. Do not
+                // keep the destroyed activity reachable just to wait for its result.
+                if (activityDestroyed) return@launch
                 val outcome = session.result.await()
                 if (activeTranscriptionSession === session) {
                     activeTranscriptionSession = null
                 }
                 _recordingState.value = RecordingState.Idle
                 _partialTranscript.value = outcome.committedText
+                if (activityDestroyed) return@launch
 
                 when (val delivery = resolveRecognitionDelivery(outcome.committedText, outcome.terminalPhase)) {
                     is RecognitionDelivery.Success -> {
@@ -715,6 +748,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 activeTranscriptionSession = null
                 _recordingState.value = RecordingState.Idle
                 Log.e(TAG, "Error during recognition", e)
+                if (activityDestroyed) return@launch
                 showErrorThenReturn(
                     VoiceRecognitionUiError.TranscriptionFailed(
                         speechErrorCode = SpeechRecognizer.ERROR_CLIENT,
@@ -723,6 +757,23 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /** Journals ownership after the first complete PCM block, off the microphone path. */
+    private fun checkpointFirstRecognitionAudio() {
+        val snapshot = recorder.activeFileBackedSnapshot() ?: return
+        captureCheckpointJob =
+            rescueScope.launch {
+                try {
+                    if (!checkpointRecognitionAudio(snapshot, capturePersistence)) {
+                        Log.w(TAG, "Could not checkpoint the first quick-input audio block")
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not checkpoint the first quick-input audio block", e)
+                }
+            }
     }
 
     /**
@@ -753,9 +804,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
             }
             Log.e(TAG, "Recorder failed mid-session: ${error.userMessage}")
             cancelCaptureStallWatchdog()
-            sessionCoordinator.cancel(sessionCoordinator.currentGeneration())
-            _recordingState.value = RecordingState.Idle
-            showErrorThenReturn(VoiceRecognitionUiError.CaptureFailed)
+            val llmEnabled = !secureSession && keyboardPreferences.llmEnabled.first()
+            val mode = modePort.currentMode.first()
+            stopRecording(
+                llmEnabled = llmEnabled,
+                processingMode = mode,
+                captureFailureMessage = error.userMessage,
+            )
         }
     }
 
@@ -829,11 +884,15 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        activityDestroyed = true
         // Normal quick input is process-owned once capture stops, so switching apps cannot
         // cancel transcription. Secure requests remain activity-owned and leave no residue.
         if (secureSession) {
             activeTranscriptionSession?.cancel(userInitiated = false)
             activeTranscriptionSession = null
+        } else if (activeTranscriptionSession != null) {
+            // Waiting serves only the activity result. The singleton runner keeps working.
+            stopJob?.cancel()
         }
         // The rescue classification reads main-confined state (_recordingState, the
         // intent-backed secureSession, the discard mark), so decide it synchronously
@@ -849,6 +908,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     teardownDiscardsAudio = captureTeardownDiscardsAudio,
                 )
         rescueScope.launchRecognitionDestroyTeardown(
+            stopOwnerActive = stopJob?.isActive == true,
             gateHeld = gateHeld,
             rescue = rescue,
             stopRecorder = recorderControl::stop,
@@ -982,6 +1042,27 @@ internal fun InlineAudioSource.sampleCount(): Long =
         is InlineAudioSource.PcmFloatFile -> sampleCount
     }
 
+internal fun canFinalizeRecognitionCapture(
+    state: RecordingState,
+    recorderFailed: Boolean,
+): Boolean =
+    state is RecordingState.Recording || (recorderFailed && state is RecordingState.Starting)
+
+internal suspend fun checkpointRecognitionAudio(
+    capture: VoiceRecorder.CapturedPcmFloatFile,
+    persistence: InlineCapturePersistence,
+): Boolean =
+    persistence.checkpointAudioSource(
+        audioSource =
+            InlineAudioSource.PcmFloatFile(
+                path = capture.file.absolutePath,
+                sampleCount = capture.sampleCount.toLong(),
+                sampleRate = capture.sampleRate,
+            ),
+        trustedSampleCount = capture.sampleCount.toLong(),
+        partialTranscript = null,
+    )
+
 /** Outcome the activity returns to the calling app after the inline pipeline finishes. */
 internal sealed interface RecognitionDelivery {
     data class Success(val text: String) : RecognitionDelivery
@@ -1013,8 +1094,7 @@ internal fun resolveRecognitionDelivery(
  * Whether a capture still held at activity destroy must be rescue-persisted.
  *
  * Rescue exists for *system* interruptions of a live capture (never-drop-speech):
- *  - once the samples are handed to the inline pipeline (Stopping) the pipeline owns
- *    persistence — rescuing here too would duplicate the capture;
+ *  - a process-owned stop job covers Stopping from recorder finalization through notification;
  *  - secure sessions persist nothing, ever (IME-6);
  *  - a teardown the user (cancel) or the dialog itself (no-speech timeout, which by
  *    construction means zero detected speech) already classified as a discard must not
@@ -1032,8 +1112,8 @@ internal fun shouldRescueOnDestroy(
 
 /**
  * MIC-015/PERF-5: destroy-path capture teardown, dispatched off the main thread.
- * The recorder stop performs AudioRecord stop/release binder calls plus a samples copy
- * that reaches tens of MB after a long capture — none of it may run on the main thread
+ * The recorder stop performs AudioRecord stop/release binder calls and file finalization.
+ * None of that may run on the main thread
  * while the activity is being destroyed. The rescue classification reads main-confined
  * state, so the caller decides [gateHeld]/[rescue] synchronously BEFORE launching; the
  * stop, gate release, optional rescue persist, recorder close and focus abandon then run
@@ -1041,6 +1121,7 @@ internal fun shouldRescueOnDestroy(
  * so the async dispatch and its ordering stay unit-testable.
  */
 internal fun CoroutineScope.launchRecognitionDestroyTeardown(
+    stopOwnerActive: Boolean = false,
     gateHeld: Boolean,
     rescue: Boolean,
     stopRecorder: () -> InlineAudioSource,
@@ -1050,6 +1131,9 @@ internal fun CoroutineScope.launchRecognitionDestroyTeardown(
     abandonFocus: () -> Unit,
 ): Job =
     launch {
+        // The process-owned stop path already owns recorder finalization and capture handoff.
+        // A second stop here could take and discard its file during the same IO window.
+        if (stopOwnerActive) return@launch
         if (gateHeld) {
             val audioSource = stopRecorder()
             releaseGate()
@@ -1109,6 +1193,7 @@ internal fun ActiveInputDevice?.withDeviceLostNotice(lostDeviceName: String?): A
  */
 internal class DictationCapturePersistenceGuard(
     private val delegate: InlineCapturePersistence,
+    private val completionErrorMessage: String? = null,
     private val onCompleted: (rawText: String, processedText: String?) -> Unit = { _, _ -> },
 ) : InlineCapturePersistence {
     @Volatile
@@ -1116,6 +1201,8 @@ internal class DictationCapturePersistenceGuard(
 
     @Volatile
     private var successPersisted = false
+
+    private var deferredRescueSource: InlineAudioSource? = null
 
     override fun prepareAudioSource(audioSource: InlineAudioSource) = delegate.prepareAudioSource(audioSource)
 
@@ -1148,8 +1235,9 @@ internal class DictationCapturePersistenceGuard(
         if (isRedundant(reason)) {
             return
         }
-        delegate.persist(samples, rawText, processedText, errorMessage, reason)
-        recordCompletedPersist(reason)
+        val effectiveReason = effectiveReason(reason)
+        delegate.persist(samples, rawText, processedText, effectiveError(errorMessage, reason), effectiveReason)
+        recordCompletedPersist(effectiveReason)
         reportCompletedResult(rawText, processedText, reason)
     }
 
@@ -1163,14 +1251,54 @@ internal class DictationCapturePersistenceGuard(
         if (isRedundant(reason)) {
             return
         }
-        delegate.persistAudioSource(audioSource, rawText, processedText, errorMessage, reason)
-        recordCompletedPersist(reason)
+        val effectiveReason = effectiveReason(reason)
+        delegate.persistAudioSource(
+            audioSource,
+            rawText,
+            processedText,
+            effectiveError(errorMessage, reason),
+            effectiveReason,
+        )
+        recordCompletedPersist(effectiveReason)
         reportCompletedResult(rawText, processedText, reason)
     }
 
     override fun discardSamples() = delegate.discardSamples()
 
-    override fun discardAudioSource(audioSource: InlineAudioSource) = delegate.discardAudioSource(audioSource)
+    override fun discardAudioSource(audioSource: InlineAudioSource) {
+        if (completionErrorMessage == null) {
+            delegate.discardAudioSource(audioSource)
+        } else {
+            deferredRescueSource = audioSource
+        }
+    }
+
+    suspend fun persistDeferredRescueIfNeeded() {
+        val audioSource = deferredRescueSource ?: return
+        deferredRescueSource = null
+        if (rescuePersisted) return
+        delegate.persistAudioSource(
+            audioSource = audioSource,
+            rawText = null,
+            processedText = null,
+            errorMessage = completionErrorMessage,
+            reason = InlineCapturePersistReason.RESCUE,
+        )
+        rescuePersisted = true
+    }
+
+    private fun effectiveReason(reason: InlineCapturePersistReason): InlineCapturePersistReason =
+        if (reason == InlineCapturePersistReason.COMPLETED && completionErrorMessage != null) {
+            InlineCapturePersistReason.RESCUE
+        } else {
+            reason
+        }
+
+    private fun effectiveError(
+        errorMessage: String?,
+        reason: InlineCapturePersistReason,
+    ): String? =
+        if (reason == InlineCapturePersistReason.COMPLETED) completionErrorMessage else errorMessage
 
     private fun isRedundant(reason: InlineCapturePersistReason): Boolean =
         rescuePersisted || (successPersisted && reason == InlineCapturePersistReason.USER_CANCELLED)
