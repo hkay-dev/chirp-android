@@ -83,8 +83,8 @@ interface SpeechModelStore {
     fun invalidateVerificationCache()
 
     companion object {
-        const val DISPLAY_NAME = "Parakeet TDT 0.6B"
-        const val APPROXIMATE_SIZE_MB = 659
+        const val DISPLAY_NAME = "Parakeet 110M Q8"
+        const val APPROXIMATE_SIZE_MB = 135
     }
 }
 

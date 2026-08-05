@@ -15,8 +15,8 @@ android {
         applicationId = "dev.chirpboard.app"
         minSdk = 36
         targetSdk = 36
-        versionCode = 41
-        versionName = "4.0-beta.1"
+        versionCode = 42
+        versionName = "4.0.0"
         testInstrumentationRunner = "dev.chirpboard.app.ChirpTestRunner"
 
         val cloudBaseUrl = providers.gradleProperty("CHIRP_CLOUD_BASE_URL").orElse("").get()
@@ -68,6 +68,8 @@ android {
             // OpenAI/Anthropic/Gemini chat, custom presets, key backup restore.
             isMinifyEnabled = true
             isShrinkResources = true
+            isDebuggable = false
+            isJniDebuggable = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }

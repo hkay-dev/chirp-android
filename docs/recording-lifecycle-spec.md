@@ -1,7 +1,7 @@
 # Recording Lifecycle Specification
 
 Canonical operational summary for recording, recovery, and stop handoff. Pair it with
-`docs/lossless-dictation-mandate.md`, `docs/chirp-4-beta-contract.md`, and
+`docs/lossless-dictation-mandate.md`, `docs/chirp-4-stable-contract.md`, and
 `docs/reliability-test-matrix.md`. Runtime code and tests outrank these docs when they disagree.
 
 ## State machine

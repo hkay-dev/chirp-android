@@ -54,7 +54,7 @@ interface SpeechModelDownloadGateway {
     )
 
     fun startDownload(preferInternalStorage: Boolean = false) {
-        startDownload(LocalSpeechModelId.PARAKEET_TDT_600M, preferInternalStorage)
+        startDownload(LocalSpeechModelId.DEFAULT, preferInternalStorage)
     }
 
     /** Cancel scheduled/running download work. Partial files are kept for a later resume. */

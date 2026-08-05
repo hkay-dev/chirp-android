@@ -53,8 +53,8 @@ class TranscriptionSettingsViewModel
             val showStorageChoice: Boolean = false,
             val selectedEngine: TranscriptionEngine = TranscriptionEngine.LOCAL_PARAKEET,
             val availableLocalModels: List<LocalSpeechModelInfo> = emptyList(),
-            val selectedLocalModel: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_TDT_600M,
-            val managedLocalModel: LocalSpeechModelId = LocalSpeechModelId.PARAKEET_TDT_600M,
+            val selectedLocalModel: LocalSpeechModelId = LocalSpeechModelId.DEFAULT,
+            val managedLocalModel: LocalSpeechModelId = LocalSpeechModelId.DEFAULT,
             val selectedComputeBackend: LocalSpeechComputeBackend = LocalSpeechComputeBackend.CPU,
             val computeBackendNotice: String? = null,
             val cloudConfigurationStatus: CloudTranscriptionConfigurationStatus =

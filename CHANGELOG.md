@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-05
+
+Chirp 4.0 is built around one rule: once the microphone hears something, the app should not lose it.
+
+### Compact Parakeet TDT/CTC by default
+
+- New installs now select the 135 MB Parakeet TDT/CTC 110M Q8 GGUF model instead of the
+  659 MB Parakeet 0.6B model. It loads faster, takes much less storage, and was the best
+  balance of speed and accuracy in device testing.
+- The Q6_K and Q4_K_M 110M models remain available for people who want smaller downloads.
+  The larger Sherpa-ONNX 0.6B model remains available for streaming preview.
+- The model family and filename include CTC, though the verified Q8 conversion decodes through
+  its TDT head. The app calls it “Parakeet 110M Q8” rather than pretending it is pure CTC.
+- An existing model choice is preserved. The new default applies when no choice has been saved.
+
+### Recording that protects the audio
+
+- Recording starts immediately. Model loading happens beside capture and can no longer cut off
+  the beginning of a dictation.
+- Quick input and app recordings write to recoverable files during capture. The first audio block
+  is checkpointed, and interrupted work can be recovered after an activity, service, or process
+  goes away.
+- Transcription, database saving, and the finished notification keep running if you switch apps.
+- Continuous transcription stays the normal path. Overlapping chunks are used only as recovery
+  when a whole recording cannot be decoded safely.
+- Long recordings keep durable audio, recovery journals, storage checks, and guarded stop paths.
+
+### Faster everyday use
+
+- The selected local recognizer stays loaded between dictations. It is released only for real
+  memory pressure, severe thermal pressure, an explicit model switch or deletion, or process death.
+- Home observes the recordings table once and does less list work on each database update.
+- The automatic microphone order is built-in, USB, wired, then Bluetooth.
+- Quick input keeps a short-lived notification with the original transcript and AI result so a
+  failed app handoff never leaves the text stranded.
+
+### Stable Android build
+
+- Targets Android 16 and the Galaxy S25 Ultra, with an arm64-only APK and 16 KB native-page alignment.
+- Uses API 36, Android Gradle Plugin 8.13.2, Gradle 8.14.5, and NDK r29.
+- The release APK is R8-minified, resource-shrunk, stripped of native debug symbols, and not debuggable.
+- Removed the old GGUF trial build, dead UI helpers, deprecated wrappers, and stale planning material.
+
 ## [3.1] - 2026-06-12
 
 Overnight audit release (versionCode 31): finished half-wired features, hardened the

@@ -10,7 +10,7 @@ Chirp is a personal learning project, built in the open while I get better at An
 
 <p>
   <img alt="Android Kotlin" src="https://img.shields.io/badge/Android-Kotlin-3E7B6D?style=for-the-badge&logo=android&logoColor=white&labelColor=244D45" />
-  <img alt="Parakeet TDT" src="https://img.shields.io/badge/STT-Parakeet%20TDT-6EA8FE?style=for-the-badge&labelColor=17324D" />
+  <img alt="Parakeet 110M" src="https://img.shields.io/badge/STT-Parakeet%20110M-6EA8FE?style=for-the-badge&labelColor=17324D" />
   <img alt="Offline first" src="https://img.shields.io/badge/Transcription-Offline%20First-7A5C8E?style=for-the-badge&labelColor=38284A" />
   <img alt="Optional AI" src="https://img.shields.io/badge/AI-Optional%20API%20Processing-B76E45?style=for-the-badge&labelColor=5A3525" />
 </p>
@@ -84,7 +84,8 @@ It can also work as a triggered speech recognition service from compatible keybo
 
 Chirp is a Kotlin Android app with Jetpack Compose and a modular feature layout:
 
-- Sherpa-ONNX with a local Parakeet TDT 0.6B v2 (int8) speech model for on-device transcription.
+- transcribe.cpp GGUF with the compact Parakeet TDT/CTC 110M Q8 model as the default, plus the
+  larger Sherpa-ONNX Parakeet TDT 0.6B model as an option.
 - Jetpack Compose and Material 3 for the UI.
 - Room for local storage.
 - Hilt for dependency injection.
@@ -107,9 +108,9 @@ This is not a polished product from a team. It is a working personal app and a l
 - Builds target **arm64-v8a only** (`ndk.abiFilters` in `app/build.gradle.kts`) because the app
   is sideloaded onto a single physical device. Remove that filter (or add `x86_64`) before
   building for an emulator or any other device.
-- Release builds are R8-minified and signed with the local debug keystore on purpose, so a
-  release APK updates the installed build in place. Switching to a real release key would require
-  uninstalling first, which wipes app data (the comment in `app/build.gradle.kts` has details).
+- Release builds are non-debuggable, R8-minified, and signed with the local debug keystore on
+  purpose so an existing same-package install can update in place. The signing key does not make
+  the APK debuggable. Switching keys would require uninstalling first, which wipes app data.
 - All of my hands-on device testing is on a Samsung Galaxy S25 Ultra.
 - I'm still learning Android development as I go.
 - This project is 100% co-developed with various LLMs as I learn architecture, UI, Kotlin, testing, debugging, and cleanup.

@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.StateFlow
 
 enum class LocalSpeechModelId(val persistedValue: String) {
     PARAKEET_TDT_600M("parakeet_tdt_600m"),
-    // Keep this persisted value for alpha installs that already selected the 110M Q8 model.
+    // Keep this persisted value for pre-stable installs that already selected the 110M Q8 model.
     // The converted artifact uses the TDT head; the source checkpoint's CTC head is not present.
     PARAKEET_CTC_110M_Q8("parakeet_ctc_110m_q8"),
     PARAKEET_TDT_110M_Q6_K("parakeet_tdt_110m_q6_k"),
@@ -12,8 +12,10 @@ enum class LocalSpeechModelId(val persistedValue: String) {
     ;
 
     companion object {
+        val DEFAULT: LocalSpeechModelId = PARAKEET_CTC_110M_Q8
+
         fun fromPersistedValue(value: String?): LocalSpeechModelId =
-            entries.firstOrNull { it.persistedValue == value } ?: PARAKEET_CTC_110M_Q8
+            entries.firstOrNull { it.persistedValue == value } ?: DEFAULT
     }
 }
 

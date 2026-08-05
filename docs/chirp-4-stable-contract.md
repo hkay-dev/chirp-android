@@ -1,4 +1,4 @@
-# Chirp 4.0 beta local transcription contract
+# Chirp 4.0 stable local transcription contract
 
 This contract is a release gate. Performance work must not weaken content preservation.
 
@@ -17,6 +17,15 @@ This contract is a release gate. Performance work must not weaken content preser
   text promptly through the caller-selected activity-result or result-`PendingIntent` contract.
 - Local capture checkpoints ownership after its first durable block and recovers the later complete
   file tail. Cloud capture journals ownership before opening the microphone.
+
+## Default model
+
+- A new install defaults to `PARAKEET_CTC_110M_Q8`, the compact 135 MB GGUF model.
+- An existing explicit model selection is never overwritten during upgrade.
+- The stable UI calls the model “Parakeet 110M Q8.” The persisted ID stays unchanged for upgrade
+  compatibility, though the verified converted artifact uses its TDT head rather than a CTC head.
+- CPU is the stable compute default. Vulkan stays capability-gated until a shipped native build
+  passes the same reliability and device gates.
 
 ## Model residency
 
@@ -42,11 +51,13 @@ This contract is a release gate. Performance work must not weaken content preser
 - Keep short-dictation latency separate from long-file throughput.
 - Do not accept a speed win that causes missing, duplicated, reordered, or silently replaced words.
 
-## Beta release gates
+## Stable release gates
 
-- A beta build updates the existing 4.0 alpha package in place and keeps its app data and IME identity.
+- The release variant uses the main package ID and explicitly disables Java and JNI debugging.
 - The selected recognizer begins warming shortly after process startup, independently of recovery
-  and janitorial work, with bounded retries for transient warmup failure.
+  and janitorial work, with bounded retries for transient load failure.
 - Content-free diagnostics remain bounded and must not queue one disk rewrite per recovery chunk.
-- The reliability matrix, minified beta build, installed-package upgrade, and launch smoke test must pass.
+- The reliability matrix, full unit suite, lint, static checks, and minified release build must pass.
+- The signed APK must report `debuggable=false`, contain no packaged native debug sections, and
+  pass 16 KB zip and ELF alignment checks.
 - Experimental backends stay capability-gated until the shipped native binary and device benchmark prove them.

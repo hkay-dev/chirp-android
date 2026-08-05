@@ -1,6 +1,6 @@
 Historical codebase audit reports, planning notes, and superseded specs. Current guidance lives in
 `docs/recording-lifecycle-spec.md`, `docs/lossless-dictation-mandate.md`,
-`docs/chirp-4-beta-contract.md`, and `docs/reliability-test-matrix.md`.
+`docs/chirp-4-stable-contract.md`, and `docs/reliability-test-matrix.md`.
 
 **Path remapping:** Archived reports may cite deleted `core/` paths. See [`PATH_REMAPPING.md`](PATH_REMAPPING.md) for the current module layout.
 

@@ -179,7 +179,7 @@ class ModelDownloader(
     )
 
     private fun selectedModelId(): LocalSpeechModelId =
-        modelSelectionStore?.selectedModel?.value ?: LocalSpeechModelId.PARAKEET_TDT_600M
+        modelSelectionStore?.selectedModel?.value ?: LocalSpeechModelId.DEFAULT
 
     private fun modelSpec(modelId: LocalSpeechModelId = selectedModelId()): ModelSpec =
         when (modelId) {

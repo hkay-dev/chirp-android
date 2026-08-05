@@ -32,7 +32,7 @@ import javax.inject.Singleton
 
 /**
  * Settings-facing adapter over the shared [SpeechModelStore]. (Formerly WhisperModelManager;
- * the app ships the Parakeet TDT model, never Whisper.)
+ * the app ships Parakeet models, never Whisper.)
  *
  * The model download itself is app-scoped WorkManager unique work behind
  * [SpeechModelDownloadGateway] (ERR-1): this manager only mirrors that work into
@@ -100,22 +100,22 @@ class SpeechModelManager
             selectionStore?.availableModels
                 ?: listOf(
                     LocalSpeechModelInfo(
-                        id = LocalSpeechModelId.PARAKEET_TDT_600M,
+                        id = LocalSpeechModelId.DEFAULT,
                         displayName = MODEL_DISPLAY_NAME,
-                        shortDescription = "Offline transcription",
-                        backend = LocalSpeechBackend.SHERPA_ONNX,
+                        shortDescription = "Reliable compact offline transcription",
+                        backend = LocalSpeechBackend.TRANSCRIBE_GGUF,
                         approximateSizeMb = MODEL_SIZE_MB,
                         englishOnly = true,
-                        supportsStreamingPreview = true,
+                        supportsStreamingPreview = false,
                         supportsWordTimings = false,
                     ),
                 )
 
         private val _managedModel =
-            MutableStateFlow(selectionStore?.selectedModel?.value ?: LocalSpeechModelId.PARAKEET_TDT_600M)
+            MutableStateFlow(selectionStore?.selectedModel?.value ?: LocalSpeechModelId.DEFAULT)
         val managedModel: StateFlow<LocalSpeechModelId> = _managedModel.asStateFlow()
         val selectedModel: StateFlow<LocalSpeechModelId> =
-            selectionStore?.selectedModel ?: MutableStateFlow(LocalSpeechModelId.PARAKEET_TDT_600M)
+            selectionStore?.selectedModel ?: MutableStateFlow(LocalSpeechModelId.DEFAULT)
         val selectedComputeBackend: StateFlow<LocalSpeechComputeBackend> =
             selectionStore?.selectedComputeBackend ?: MutableStateFlow(LocalSpeechComputeBackend.CPU)
 
