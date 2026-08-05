@@ -51,6 +51,8 @@ I may not have the time, hardware, or skill to build all of that. I'm still curi
 
 ## License
 
-Chirp's code is [Apache 2.0](LICENSE). Credits include models.dev, AndroidLame-kotlin and LAME, sherpa-onnx and ONNX Runtime, NVIDIA's Parakeet model, and csukuangfj's conversion.
+Chirp's code is [Apache 2.0](LICENSE). Credits include transcribe.cpp, ggml, KleidiAI,
+sherpa-onnx, ONNX Runtime, NVIDIA's Parakeet models, handy-computer's GGUF conversions,
+csukuangfj's ONNX conversion, models.dev, AndroidLame-kotlin, and LAME.
 
 The full licenses and credits are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and bundled with the APK.

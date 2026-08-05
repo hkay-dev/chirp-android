@@ -49,6 +49,20 @@ by TAndroidLame's license.
 
 ## On-device speech runtime
 
+### transcribe.cpp, ggml, miniz, and KleidiAI
+
+The default Parakeet 110M backend includes
+[transcribe.cpp](https://github.com/handy-computer/transcribe.cpp) at commit
+`553f1099a2b3a5bc4421894be171f09960fc0f3a`, together with its bundled ggml and miniz code.
+Arm builds also include [KleidiAI](https://github.com/ARM-software/kleidiai) v1.24.0.
+
+- transcribe.cpp is MIT licensed. Full text:
+  [licenses/TRANSCRIBE.CPP-MIT.txt](licenses/TRANSCRIBE.CPP-MIT.txt)
+- ggml is MIT licensed. Full text: [licenses/GGML-MIT.txt](licenses/GGML-MIT.txt)
+- miniz is MIT licensed. Full text: [licenses/MINIZ-MIT.txt](licenses/MINIZ-MIT.txt)
+- KleidiAI is Apache 2.0 licensed. The Apache 2.0 text is included in
+  [licenses/SHERPA-ONNX-APACHE-2.0.txt](licenses/SHERPA-ONNX-APACHE-2.0.txt)
+
 ### sherpa-onnx
 
 Chirp includes sherpa-onnx 1.12.19 for on-device speech recognition.
@@ -69,14 +83,20 @@ The sherpa-onnx Android archive includes ONNX Runtime.
 
 ## Speech model
 
-Chirp downloads
+Chirp defaults to the Q8_0 GGUF conversion from
+[handy-computer/parakeet-tdt_ctc-110m-gguf](https://huggingface.co/handy-computer/parakeet-tdt_ctc-110m-gguf).
+The Q6_K and Q4_K_M conversions are optional. They come from
+[NVIDIA Parakeet TDT-CTC 110M](https://huggingface.co/nvidia/parakeet-tdt_ctc-110m), which is
+licensed under Creative Commons Attribution 4.0 International.
+
+The optional larger model is
 [sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8](https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8),
 an ONNX INT8 conversion by [csukuangfj](https://huggingface.co/csukuangfj) of
 [NVIDIA Parakeet TDT 0.6B V2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2).
 
 - Original model creator: NVIDIA
-- Converter and publisher: csukuangfj
-- Changes: converted to sherpa-onnx ONNX format and quantized to INT8
+- Converters and publishers: handy-computer for GGUF and csukuangfj for ONNX INT8
+- Changes: converted to GGUF quantizations or sherpa-onnx ONNX INT8
 - License: Creative Commons Attribution 4.0 International
 - Full text: [licenses/CC-BY-4.0.txt](licenses/CC-BY-4.0.txt)
 
