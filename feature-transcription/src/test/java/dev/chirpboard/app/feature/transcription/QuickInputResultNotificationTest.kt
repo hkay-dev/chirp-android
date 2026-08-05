@@ -53,6 +53,20 @@ class QuickInputResultNotificationTest {
     }
 
     @Test
+    fun `notification tap prefers the AI result and falls back to original`() {
+        assertEquals(
+            "Polished words.",
+            quickInputNotificationPreferredText(
+                QuickInputNotificationContent("original words", "Polished words."),
+            ),
+        )
+        assertEquals(
+            "original words",
+            quickInputNotificationPreferredText(QuickInputNotificationContent("original words", null)),
+        )
+    }
+
+    @Test
     fun `latest result notification expires after thirty seconds`() {
         assertEquals(30_000L, QUICK_INPUT_RESULT_TIMEOUT_MS)
     }

@@ -39,6 +39,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.R
+import dev.chirpboard.app.core.preferences.QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsBadge
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
@@ -49,6 +50,15 @@ import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import kotlinx.coroutines.launch
 
 private val KeyboardProcessingModeIds = listOf(null, "proofread", "formal", "casual", "email", "code", "smart")
+
+@Composable
+private fun quickInputNotificationTimeoutLabel(timeoutMs: Long): String =
+    when (timeoutMs) {
+        30_000L -> stringResource(R.string.keyboard_settings_notification_duration_30_seconds)
+        60_000L -> stringResource(R.string.keyboard_settings_notification_duration_1_minute)
+        300_000L -> stringResource(R.string.keyboard_settings_notification_duration_5_minutes)
+        else -> stringResource(R.string.keyboard_settings_notification_duration_30_seconds)
+    }
 
 @Composable
 private fun keyboardProcessingModeLabel(modeId: String?): String =
@@ -108,6 +118,19 @@ fun KeyboardSettingsScreen(
                     subtitle = stringResource(R.string.keyboard_settings_save_recordings_description),
                     checked = uiState.saveKeyboardRecordings,
                     onCheckedChange = { viewModel.toggleSaveRecordings() },
+                )
+            }
+
+            item {
+                SettingsDropdownListItem(
+                    title = stringResource(R.string.keyboard_settings_notification_duration_title),
+                    supportingText = stringResource(R.string.keyboard_settings_notification_duration_description),
+                    options = QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS,
+                    selectedOption = uiState.quickInputNotificationTimeoutMs,
+                    optionLabel = { quickInputNotificationTimeoutLabel(it) },
+                    onOptionSelected = viewModel::setQuickInputNotificationTimeoutMs,
+                    trailingIconContentDescription =
+                        stringResource(R.string.keyboard_settings_notification_duration_select),
                 )
             }
 

@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import android.util.Log
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import io.mockk.every
@@ -147,7 +148,7 @@ class RecognitionCaptureStallWatchdogTest {
 
         override suspend fun start(): Boolean = true
 
-        override fun stop(): FloatArray = FloatArray(0)
+        override fun stop(): InlineAudioSource = InlineAudioSource.InMemory(FloatArray(0))
 
         override fun cancel() {
             cancelCalled = true

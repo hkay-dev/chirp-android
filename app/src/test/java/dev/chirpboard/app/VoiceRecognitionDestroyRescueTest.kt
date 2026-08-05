@@ -2,6 +2,7 @@ package dev.chirpboard.app
 
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -87,13 +88,13 @@ class VoiceRecognitionDestroyRescueTest {
     fun `async destroy teardown still rescues with the synchronously captured classification`() =
         runTest {
             val order = mutableListOf<String>()
-            var rescued: FloatArray? = null
+            var rescued: InlineAudioSource? = null
             launchRecognitionDestroyTeardown(
                 gateHeld = true,
                 rescue = true,
                 stopRecorder = {
                     order += "stop"
-                    floatArrayOf(0.1f, 0.2f)
+                    InlineAudioSource.InMemory(floatArrayOf(0.1f, 0.2f))
                 },
                 releaseGate = { order += "release" },
                 rescueSamples = { samples ->
@@ -110,7 +111,10 @@ class VoiceRecognitionDestroyRescueTest {
 
             advanceUntilIdle()
             assertEquals(listOf("stop", "release", "rescue", "close", "focus"), order)
-            assertEquals(listOf(0.1f, 0.2f), rescued?.toList())
+            assertEquals(
+                listOf(0.1f, 0.2f),
+                (rescued as? InlineAudioSource.InMemory)?.samples?.toList(),
+            )
         }
 
     @Test
@@ -122,7 +126,7 @@ class VoiceRecognitionDestroyRescueTest {
                 rescue = false,
                 stopRecorder = {
                     order += "stop"
-                    floatArrayOf(0.1f)
+                    InlineAudioSource.InMemory(floatArrayOf(0.1f))
                 },
                 releaseGate = { order += "release" },
                 rescueSamples = { order += "rescue" },
@@ -144,7 +148,7 @@ class VoiceRecognitionDestroyRescueTest {
                 rescue = false,
                 stopRecorder = {
                     order += "stop"
-                    FloatArray(0)
+                    InlineAudioSource.InMemory(FloatArray(0))
                 },
                 releaseGate = { order += "release" },
                 rescueSamples = { order += "rescue" },

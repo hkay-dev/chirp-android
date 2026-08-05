@@ -18,6 +18,7 @@ import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
@@ -102,10 +103,10 @@ class ChirpRecognitionService : RecognitionService() {
 
             override suspend fun start(): Boolean = recorder.start()
 
-            override fun stop(): FloatArray {
-                val samples = recorder.stop()
+            override fun stop(): InlineAudioSource {
+                val audioSource = InlineAudioSource.InMemory(recorder.stop())
                 audioFocus.abandonFocus()
-                return samples
+                return audioSource
             }
 
             override fun cancel() {
@@ -382,7 +383,8 @@ class ChirpRecognitionService : RecognitionService() {
                 // The session reached its terminal; its stall watchdog stands down (a
                 // stale firing would be generation-gated anyway).
                 cancelCaptureStallWatchdog()
-                transcribeAndDeliver(result.samples, listener, secureSession)
+                val samples = (result.audioSource as InlineAudioSource.InMemory).samples
+                transcribeAndDeliver(samples, listener, secureSession)
             }
         }
     }

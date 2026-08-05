@@ -16,12 +16,17 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.core.preferences.DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS
+import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 
-internal const val QUICK_INPUT_RESULT_TIMEOUT_MS = 30_000L
+internal const val QUICK_INPUT_RESULT_TIMEOUT_MS = DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS
 internal const val QUICK_INPUT_RESULT_NOTIFICATION_ID = 0x43485250
 private const val QUICK_INPUT_RESULT_CHANNEL_ID = "quick_input_results_v1"
+private const val COPY_PREFERRED_REQUEST_CODE = 4_100
 private const val COPY_RAW_REQUEST_CODE = 4_101
 private const val COPY_AI_REQUEST_CODE = 4_102
 private const val TAG = "QuickInputResultNotif"
@@ -50,24 +55,37 @@ internal fun quickInputNotificationExpandedText(
         "$aiLabel\n$processed\n\n$rawLabel\n${content.rawText}"
     } ?: content.rawText
 
+internal fun quickInputNotificationPreferredText(content: QuickInputNotificationContent): String =
+    content.processedText ?: content.rawText
+
 /**
  * Keeps the latest successful quick-input result reachable when a caller fails to insert it.
- * A fixed notification id replaces older results, and Android removes the notification after
- * [QUICK_INPUT_RESULT_TIMEOUT_MS]. No focus or editor state in the caller is touched.
+ * A fixed notification id replaces older results. Tapping copies the preferred text and leaves
+ * the card in place until its configured timeout. No caller focus or editor state is touched.
  */
 @Singleton
 class QuickInputResultNotificationPublisher
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
+        private val keyboardPreferences: KeyboardPreferences,
     ) {
-        fun show(
+        suspend fun show(
             rawText: String,
             processedText: String?,
         ): Boolean {
             val content = quickInputNotificationContent(rawText, processedText) ?: return false
             val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return false
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+            val timeoutMs =
+                try {
+                    keyboardPreferences.quickInputNotificationTimeoutMs.first()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w(TAG, "Could not read quick-input notification timeout; using default", error)
+                    QUICK_INPUT_RESULT_TIMEOUT_MS
+                }
 
             return try {
                 ensureChannel(notificationManager)
@@ -80,10 +98,12 @@ class QuickInputResultNotificationPublisher
 
                 NotificationManagerCompat.from(context).notify(
                     QUICK_INPUT_RESULT_NOTIFICATION_ID,
-                    buildNotification(content),
+                    buildNotification(content, timeoutMs),
                 )
                 true
-            } catch (error: RuntimeException) {
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 // Result delivery must never depend on notification availability.
                 Log.e(TAG, "Could not post latest quick-input notification", error)
                 false
@@ -106,7 +126,10 @@ class QuickInputResultNotificationPublisher
             )
         }
 
-        private fun buildNotification(content: QuickInputNotificationContent): Notification {
+        private fun buildNotification(
+            content: QuickInputNotificationContent,
+            timeoutMs: Long,
+        ): Notification {
             val expandedText =
                 quickInputNotificationExpandedText(
                     content = content,
@@ -117,16 +140,29 @@ class QuickInputResultNotificationPublisher
                 .Builder(context, QUICK_INPUT_RESULT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notif_transcription)
                 .setContentTitle(context.getString(R.string.quick_input_result_notification_title))
-                .setContentText(content.processedText ?: content.rawText)
+                .setContentText(quickInputNotificationPreferredText(content))
                 .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
+                .setContentIntent(
+                    copyPendingIntent(
+                        action =
+                            if (content.processedText != null) {
+                                QuickInputResultCopyReceiver.ACTION_COPY_AI
+                            } else {
+                                QuickInputResultCopyReceiver.ACTION_COPY_RAW
+                        },
+                        requestCode = COPY_PREFERRED_REQUEST_CODE,
+                        text = quickInputNotificationPreferredText(content),
+                    ),
+                )
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setTimeoutAfter(QUICK_INPUT_RESULT_TIMEOUT_MS)
+                .setTimeoutAfter(timeoutMs)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setPublicVersion(buildPublicVersion())
                 .setLocalOnly(true)
                 .setOnlyAlertOnce(true)
-                .setAutoCancel(true)
+                .setOngoing(true)
+                .setAutoCancel(false)
                 .addAction(
                     0,
                     context.getString(R.string.quick_input_result_copy_raw),
@@ -194,7 +230,6 @@ class QuickInputResultCopyReceiver : BroadcastReceiver() {
                 putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
             }
         clipboard.setPrimaryClip(clip)
-        NotificationManagerCompat.from(context).cancel(QUICK_INPUT_RESULT_NOTIFICATION_ID)
         Toast.makeText(
             context,
             if (copyAi) R.string.quick_input_result_copied_ai else R.string.quick_input_result_copied_raw,

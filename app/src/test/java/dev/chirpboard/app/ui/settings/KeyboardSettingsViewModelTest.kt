@@ -31,6 +31,7 @@ class KeyboardSettingsViewModelTest {
         every { keyboardPreferences.llmEnabled } returns MutableStateFlow(false)
         every { keyboardPreferences.defaultProcessingMode } returns MutableStateFlow("custom_mode")
         every { keyboardPreferences.microphoneGain } returns MutableStateFlow(2.0f)
+        every { keyboardPreferences.quickInputNotificationTimeoutMs } returns MutableStateFlow(60_000L)
     }
 
     @After
@@ -48,6 +49,7 @@ class KeyboardSettingsViewModelTest {
             assertEquals(false, state.llmEnabled)
             assertEquals("custom_mode", state.defaultProcessingMode)
             assertEquals(2.0f, state.microphoneGain)
+            assertEquals(60_000L, state.quickInputNotificationTimeoutMs)
         }
 
     @Test
@@ -81,5 +83,16 @@ class KeyboardSettingsViewModelTest {
             viewModel.setProcessingMode("new_mode")
 
             coVerify { keyboardPreferences.setDefaultProcessingMode("new_mode") }
+        }
+
+    @Test
+    fun `set quick input notification timeout updates preferences`() =
+        runTest {
+            coEvery { keyboardPreferences.setQuickInputNotificationTimeoutMs(any()) } returns Unit
+            val viewModel = KeyboardSettingsViewModel(keyboardPreferences)
+
+            viewModel.setQuickInputNotificationTimeoutMs(300_000L)
+
+            coVerify { keyboardPreferences.setQuickInputNotificationTimeoutMs(300_000L) }
         }
 }

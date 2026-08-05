@@ -3,6 +3,7 @@ package dev.chirpboard.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.chirpboard.app.core.preferences.DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,7 +22,8 @@ class KeyboardSettingsViewModel @Inject constructor(
         val saveKeyboardRecordings: Boolean = false,
         val llmEnabled: Boolean = true,
         val defaultProcessingMode: String? = null,
-        val microphoneGain: Float = 1.0f
+        val microphoneGain: Float = 1.0f,
+        val quickInputNotificationTimeoutMs: Long = DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -33,13 +35,15 @@ class KeyboardSettingsViewModel @Inject constructor(
                 keyboardPreferences.saveKeyboardRecordings,
                 keyboardPreferences.llmEnabled,
                 keyboardPreferences.defaultProcessingMode,
-                keyboardPreferences.microphoneGain
-            ) { saveRecordings, llmEnabled, processingMode, micGain ->
+                keyboardPreferences.microphoneGain,
+                keyboardPreferences.quickInputNotificationTimeoutMs,
+            ) { saveRecordings, llmEnabled, processingMode, micGain, notificationTimeoutMs ->
                 UiState(
                     saveKeyboardRecordings = saveRecordings,
                     llmEnabled = llmEnabled,
                     defaultProcessingMode = processingMode,
-                    microphoneGain = micGain
+                    microphoneGain = micGain,
+                    quickInputNotificationTimeoutMs = notificationTimeoutMs,
                 )
             }.collect { state ->
                 _uiState.value = state
@@ -62,6 +66,12 @@ class KeyboardSettingsViewModel @Inject constructor(
     fun setProcessingMode(mode: String?) {
         viewModelScope.launch {
             keyboardPreferences.setDefaultProcessingMode(mode)
+        }
+    }
+
+    fun setQuickInputNotificationTimeoutMs(timeoutMs: Long) {
+        viewModelScope.launch {
+            keyboardPreferences.setQuickInputNotificationTimeoutMs(timeoutMs)
         }
     }
 

@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
@@ -13,6 +14,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+
+const val DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS = 30_000L
+val QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS = listOf(30_000L, 60_000L, 300_000L)
 
 /**
  * Keyboard-specific preferences.
@@ -27,6 +31,7 @@ class KeyboardPreferences @Inject constructor(
         val saveKeyboardRecordings = booleanPreferencesKey("save_keyboard_recordings")
         val defaultProcessingMode = stringPreferencesKey("default_processing_mode")
         val llmEnabled = booleanPreferencesKey("llm_enabled")
+        val quickInputNotificationTimeoutMs = longPreferencesKey("quick_input_notification_timeout_ms")
     }
 
     /**
@@ -52,6 +57,13 @@ class KeyboardPreferences @Inject constructor(
      */
     val llmEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[Keys.llmEnabled] ?: true
+    }
+
+    /** How long a completed quick-input result stays available for one-tap copying. */
+    val quickInputNotificationTimeoutMs: Flow<Long> = dataStore.data.map { preferences ->
+        preferences[Keys.quickInputNotificationTimeoutMs]
+            ?.takeIf { it in QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS }
+            ?: DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS
     }
 
     /**
@@ -88,6 +100,13 @@ class KeyboardPreferences @Inject constructor(
     suspend fun setLlmEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[Keys.llmEnabled] = enabled
+        }
+    }
+
+    suspend fun setQuickInputNotificationTimeoutMs(timeoutMs: Long) {
+        require(timeoutMs in QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS)
+        dataStore.edit { preferences ->
+            preferences[Keys.quickInputNotificationTimeoutMs] = timeoutMs
         }
     }
 

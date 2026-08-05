@@ -24,6 +24,7 @@ import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.audio.recorder.RecordingError
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
+import dev.chirpboard.app.core.audio.recorder.VoiceRecorder.CaptureStorageMode
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
@@ -35,12 +36,9 @@ import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
-import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
-import dev.chirpboard.app.core.transcription.InlineTranscriptionRequest
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
-import dev.chirpboard.app.feature.transcription.QuickInputResultNotificationPublisher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -115,7 +113,14 @@ internal sealed interface VoiceRecognitionUiError {
  */
 @AndroidEntryPoint
 class VoiceRecognitionActivity : ComponentActivity() {
-    private val recorder by lazy { VoiceRecorder(this, lifecycleScope, inputDeviceSelector) }
+    private val recorder by lazy {
+        VoiceRecorder(
+            context = this,
+            coroutineScope = lifecycleScope,
+            inputDeviceSelector = inputDeviceSelector,
+            captureStorageMode = CaptureStorageMode.FileBacked,
+        )
+    }
     private val captureGate by lazy { VoiceRecognitionCaptureGate(recordingStateManager) }
 
     /**
@@ -151,10 +156,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
             override suspend fun start(): Boolean = recorder.start()
 
-            override fun stop(): FloatArray {
-                val samples = recorder.stop()
+            override fun stop(): InlineAudioSource {
+                val audioSource =
+                    recorder.stopToFileBacked()?.let { capture ->
+                        InlineAudioSource.PcmFloatFile(
+                            path = capture.file.absolutePath,
+                            sampleCount = capture.sampleCount.toLong(),
+                            sampleRate = capture.sampleRate,
+                        )
+                    } ?: InlineAudioSource.InMemory(FloatArray(0))
                 audioFocus.abandonFocus()
-                return samples
+                return audioSource
             }
 
             override fun cancel() {
@@ -192,11 +204,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var transcriberProvider: TranscriberProvider
 
-    @Inject lateinit var inlineTranscription: InlineTranscriptionPort
-
     @Inject lateinit var capturePersistence: InlineCapturePersistence
 
-    @Inject lateinit var quickInputResultNotificationPublisher: QuickInputResultNotificationPublisher
+    @Inject lateinit var transcriptionRunner: VoiceRecognitionTranscriptionRunner
 
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
 
@@ -245,6 +255,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
      * session bookkeeping around it.
      */
     private var captureStallWatchdog: Job? = null
+    private var activeTranscriptionSession: VoiceRecognitionTranscriptionRunner.Session? = null
 
     /**
      * IME-6: a caller that sets [RecognizerIntent.EXTRA_SECURE] (keyguard/secure contexts)
@@ -626,9 +637,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 // The coordinator serializes the stop against any in-flight start, stops the
                 // recorder, and releases the capture gate; we own only what happens to the
                 // captured samples afterwards.
-                val samples =
+                val audioSource =
                     when (val stop = sessionCoordinator.stop(generation) {}) {
-                        is VoiceRecognitionSessionCoordinator.StopResult.Captured -> stop.samples
+                        is VoiceRecognitionSessionCoordinator.StopResult.Captured -> stop.audioSource
                         VoiceRecognitionSessionCoordinator.StopResult.Stale -> {
                             Log.w(TAG, "Stop ignored for inactive session")
                             _recordingState.value = RecordingState.Idle
@@ -642,54 +653,34 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             return@launch
                         }
                     }
-                Log.d(TAG, "Got ${samples.size} audio samples")
+                val capturedSampleCount = audioSource.sampleCount()
+                Log.d(TAG, "Got $capturedSampleCount audio samples")
 
-                if (samples.isEmpty()) {
+                if (capturedSampleCount == 0L) {
                     showErrorThenReturn(VoiceRecognitionUiError.NoSpeech)
                     return@launch
                 }
 
-                // Guard the pipeline's persistence so a cancellation racing the final
-                // persist cannot write a duplicate entry for the same capture. Secure
-                // sessions persist nothing at all (IME-6).
-                var completedRawText: String? = null
-                var completedProcessedText: String? = null
-                val persistence =
-                    if (secure) {
-                        SecureRecognitionCapturePersistence
-                    } else {
-                        DictationCapturePersistenceGuard(capturePersistence) { rawText, processedText ->
-                            completedRawText = rawText
-                            completedProcessedText = processedText
-                        }
-                    }
-                var resultText = ""
-                inlineTranscription.transcribe(
-                    request =
-                        InlineTranscriptionRequest.inMemory(
-                            samples = samples,
-                            llmEnabled = llmEnabled && !secure,
+                val session =
+                    transcriptionRunner.start(
+                        VoiceRecognitionTranscriptionRunner.Request(
+                            audioSource = audioSource,
+                            llmEnabled = llmEnabled,
                             processingModeId = processingMode.id,
-                            correlationPrefix = "voice",
+                            secure = secure,
                         ),
-                    persistence = persistence,
-                    commitText = { text ->
-                        // IME-10: the pipeline's keyboard-oriented trailing space must not
-                        // leak into the EXTRA_RESULTS payload.
-                        resultText = text.trim()
-                        _partialTranscript.value = text.trim()
-                    },
-                    onRecordingCompleted = {
-                        _recordingState.value = RecordingState.Idle
-                    },
-                    onRecordingError = { message ->
-                        Log.e(TAG, message)
-                    },
-                )
+                    )
+                activeTranscriptionSession = session
+                val outcome = session.result.await()
+                if (activeTranscriptionSession === session) {
+                    activeTranscriptionSession = null
+                }
+                _recordingState.value = RecordingState.Idle
+                _partialTranscript.value = outcome.committedText
 
-                when (val delivery = resolveRecognitionDelivery(resultText, inlineTranscription.phase.value)) {
+                when (val delivery = resolveRecognitionDelivery(outcome.committedText, outcome.terminalPhase)) {
                     is RecognitionDelivery.Success -> {
-                        if (inlineTranscription.phase.value is InlineTranscriptionPhase.LlmError) {
+                        if (outcome.terminalPhase is InlineTranscriptionPhase.LlmError) {
                             Log.w(TAG, "LLM polish failed; returning raw transcript to caller")
                         }
                         // Never log transcript content: this dialog handles dictation for
@@ -700,26 +691,15 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             data = buildRecognitionActivityResult(delivery.text),
                             finishImmediately = true,
                         )
-                        // The caller-selected Android result channel stays latency-critical and
-                        // authoritative. Only post the fallback after that delivery has finished.
-                        if (!secure) {
-                            quickInputResultNotificationPublisher.show(
-                                rawText = completedRawText ?: delivery.text,
-                                processedText = completedProcessedText,
-                            )
-                        }
                     }
 
                     is RecognitionDelivery.Failure -> {
                         // ERR-27: the user already spoke — explain the failure (and that the
                         // audio was rescued) instead of silently closing the sheet.
-                        val failurePhase = inlineTranscription.phase.value
                         val error =
-                            if (failurePhase is InlineTranscriptionPhase.Error) {
+                            if (outcome.terminalPhase is InlineTranscriptionPhase.Error) {
                                 VoiceRecognitionUiError.TranscriptionFailed(
                                     speechErrorCode = delivery.errorCode,
-                                    // The inline pipeline rescues the capture on transcription
-                                    // failure; secure sessions persist nothing by design.
                                     audioRescued = !secure,
                                 )
                             } else {
@@ -732,6 +712,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 // The coordinator already released the capture gate when it stopped the
                 // recorder above; failures here are in the inline transcription pipeline.
+                activeTranscriptionSession = null
+                _recordingState.value = RecordingState.Idle
                 Log.e(TAG, "Error during recognition", e)
                 showErrorThenReturn(
                     VoiceRecognitionUiError.TranscriptionFailed(
@@ -804,11 +786,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
             return
         }
         if (_recordingState.value is RecordingState.Stopping) {
-            // The inline pipeline is mid-transcription; finishing this activity cancels
-            // it via lifecycleScope. Mark the cancellation as user-initiated so the
-            // pipeline discards per the save preference instead of force-rescuing. An
-            // unmarked cancellation (system kill, task swipe) still rescues the capture.
-            inlineTranscription.markUserCancelled()
+            activeTranscriptionSession?.cancel(userInitiated = true)
+            activeTranscriptionSession = null
         }
         // The user chose to discard this capture: a destroy racing the async cancel below
         // (its recorder teardown hops to the IO dispatcher, so the gate can still be held
@@ -850,11 +829,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // Normal quick input is process-owned once capture stops, so switching apps cannot
+        // cancel transcription. Secure requests remain activity-owned and leave no residue.
+        if (secureSession) {
+            activeTranscriptionSession?.cancel(userInitiated = false)
+            activeTranscriptionSession = null
+        }
         // The rescue classification reads main-confined state (_recordingState, the
         // intent-backed secureSession, the discard mark), so decide it synchronously
-        // before anything is dispatched. The recorder teardown itself — AudioRecord
-        // stop/release binder calls plus a multi-MB samples.copyOf after a long capture —
-        // hops to [rescueScope] (MIC-015): it must not stall the main thread during
+        // before anything is dispatched. AudioRecord teardown and file finalization hop
+        // to [rescueScope] (MIC-015): they must not stall the main thread during
         // destroy, and rescueScope survives the activity's own scope cancellation.
         val gateHeld = captureGate.isHeld()
         val rescue =
@@ -867,7 +851,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         rescueScope.launchRecognitionDestroyTeardown(
             gateHeld = gateHeld,
             rescue = rescue,
-            stopRecorder = recorder::stop,
+            stopRecorder = recorderControl::stop,
             releaseGate = captureGate::releaseCompleted,
             rescueSamples = ::rescueInterruptedCapture,
             closeRecorder = recorder::close,
@@ -881,15 +865,15 @@ class VoiceRecognitionActivity : ComponentActivity() {
      * (e.g. the system killed the task mid-recording). Persist whatever audio was
      * captured so the recording can be recovered from history instead of being lost.
      */
-    private fun rescueInterruptedCapture(samples: FloatArray) {
-        if (samples.isEmpty()) {
+    private fun rescueInterruptedCapture(audioSource: InlineAudioSource) {
+        if (audioSource.sampleCount() == 0L) {
             return
         }
-        Log.w(TAG, "Rescuing ${samples.size} samples from interrupted recognition")
+        Log.w(TAG, "Rescuing ${audioSource.sampleCount()} samples from interrupted recognition")
         rescueScope.launch {
             try {
-                capturePersistence.persist(
-                    samples = samples,
+                capturePersistence.persistAudioSource(
+                    audioSource = audioSource,
                     rawText = null,
                     processedText = null,
                     errorMessage = "Voice recognition interrupted",
@@ -979,12 +963,24 @@ internal object SecureRecognitionCapturePersistence : InlineCapturePersistence {
         processedText: String?,
         errorMessage: String?,
         reason: InlineCapturePersistReason,
-    ) = Unit
+    ) {
+        audioSource?.let(::discardAudioSource)
+    }
 
     override fun discardSamples() = Unit
 
-    override fun discardAudioSource(audioSource: InlineAudioSource) = Unit
+    override fun discardAudioSource(audioSource: InlineAudioSource) {
+        if (audioSource is InlineAudioSource.PcmFloatFile) {
+            runCatching { java.io.File(audioSource.path).delete() }
+        }
+    }
 }
+
+internal fun InlineAudioSource.sampleCount(): Long =
+    when (this) {
+        is InlineAudioSource.InMemory -> samples.size.toLong()
+        is InlineAudioSource.PcmFloatFile -> sampleCount
+    }
 
 /** Outcome the activity returns to the calling app after the inline pipeline finishes. */
 internal sealed interface RecognitionDelivery {
@@ -1047,18 +1043,20 @@ internal fun shouldRescueOnDestroy(
 internal fun CoroutineScope.launchRecognitionDestroyTeardown(
     gateHeld: Boolean,
     rescue: Boolean,
-    stopRecorder: () -> FloatArray,
+    stopRecorder: () -> InlineAudioSource,
     releaseGate: () -> Unit,
-    rescueSamples: (FloatArray) -> Unit,
+    rescueSamples: (InlineAudioSource) -> Unit,
     closeRecorder: () -> Unit,
     abandonFocus: () -> Unit,
 ): Job =
     launch {
         if (gateHeld) {
-            val samples = stopRecorder()
+            val audioSource = stopRecorder()
             releaseGate()
             if (rescue) {
-                rescueSamples(samples)
+                rescueSamples(audioSource)
+            } else {
+                SecureRecognitionCapturePersistence.discardAudioSource(audioSource)
             }
         }
         closeRecorder()
@@ -1122,6 +1120,23 @@ internal class DictationCapturePersistenceGuard(
     override fun prepareAudioSource(audioSource: InlineAudioSource) = delegate.prepareAudioSource(audioSource)
 
     override fun releasePendingAudioSource() = delegate.releasePendingAudioSource()
+
+    override suspend fun checkpointAudioSource(
+        audioSource: InlineAudioSource,
+        trustedSampleCount: Long,
+        partialTranscript: String?,
+        estimatedGapMs: Long?,
+    ): Boolean =
+        delegate.checkpointAudioSource(
+            audioSource = audioSource,
+            trustedSampleCount = trustedSampleCount,
+            partialTranscript = partialTranscript,
+            estimatedGapMs = estimatedGapMs,
+        )
+
+    override suspend fun clearCheckpoint(audioSource: InlineAudioSource) {
+        delegate.clearCheckpoint(audioSource)
+    }
 
     override suspend fun persist(
         samples: FloatArray?,

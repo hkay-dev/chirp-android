@@ -87,9 +87,9 @@ contract.
 For the proven X and SwiftKey failure, the standard contract is exhausted. Any automatic workaround
 must cross that boundary explicitly. The least risky choices are:
 
-1. Keep activity-result delivery authoritative and show the latest non-secure result in a 30-second
-   notification with copy actions for the original and any distinct AI result. This preserves a
-   quick manual escape hatch without touching the host editor.
+1. Keep activity-result delivery authoritative and show the latest non-secure result in a sticky
+   copy notification. Tapping the card copies the AI result when available, otherwise the original.
+   The card remains available for the configured 30-second, 1-minute, or 5-minute lifetime.
 2. Use Chirp as the active IME, where it owns the `InputConnection` and can commit directly. This is
    the cleanest technical path, but it changes the user's keyboard workflow.
 
@@ -110,9 +110,18 @@ must cross that boundary explicitly. The least risky choices are:
 - Preserve the established Chirp bottom-sheet appearance.
 - Deliver through the caller-selected Android result channel exactly once.
 - Finish successful recognition immediately.
-- Post the latest non-secure result only after the caller-selected result channel has completed.
-- Replace the previous quick-input notification and expire the new one after 30 seconds.
-- Offer `Copy original` and, when it differs, `Copy AI result`; never put secure-session text in a
-  notification.
+- Record quick-input capture into a file-backed temporary source, then hand transcription to a
+  process-scoped owner so leaving the activity cannot cancel persistence or notification delivery.
+- Checkpoint stopped audio before decode. A dead process leaves recoverable audio instead of an
+  unowned in-memory buffer.
+- Keep the existing Save Keyboard Recordings choice for successful history entries. Rescue paths
+  still save failures regardless of that preference.
+- Complete the caller result as soon as transcription and persistence settle. Notification posting
+  runs from the process owner and does not own or change the caller result.
+- Replace the previous quick-input notification. Default to 30 seconds with 1-minute and 5-minute
+  options in Keyboard Settings.
+- Tapping the notification copies the preferred result without dismissing it. Offer `Copy original`
+  and, when it differs, `Copy AI result`; never put secure-session text in a notification.
 - Never use accessibility or cross-app focus manipulation for quick-input delivery.
-- Keep the existing capture-persistence and transcription-rescue paths unchanged.
+- Keep explicit cancellation user-owned. App switching and ordinary activity teardown leave a
+  non-secure transcription running; secure teardown cancels and deletes its temporary audio.

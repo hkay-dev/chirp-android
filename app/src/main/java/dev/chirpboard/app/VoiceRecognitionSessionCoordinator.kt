@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,9 +32,9 @@ internal class VoiceRecognitionSessionCoordinator(
     /**
      * Dispatcher for the blocking recorder teardown ([RecorderControl.stop]/[RecorderControl.cancel]).
      * The service drives this coordinator from a `Dispatchers.Main` scope, but
-     * `recorder.stop()` does an AudioRecord stop/release (binder transactions) plus a multi-MB
-     * `samples.copyOf` for long dictations, and `recorder.cancel()` does stop/release + a file
-     * delete — none of which belong on the IME/service main thread (PERF-5). The teardown is
+     * `recorder.stop()` and `recorder.cancel()` do AudioRecord stop/release binder transactions
+     * and may finalize or delete captured audio. None of that belongs on the IME/service main
+     * thread (PERF-5). The teardown is
      * hopped here while the lifecycle mutex stays held, so serialization, generation, and gate
      * semantics are unchanged; only the thread the syscalls run on moves. Defaults to
      * [Dispatchers.IO]; tests inject the test scheduler's dispatcher.
@@ -47,7 +48,7 @@ internal class VoiceRecognitionSessionCoordinator(
 
         suspend fun start(): Boolean
 
-        fun stop(): FloatArray
+        fun stop(): InlineAudioSource
 
         /** Stop immediately and discard any captured audio. Must leave the recorder stopped. */
         fun cancel()
@@ -79,7 +80,7 @@ internal class VoiceRecognitionSessionCoordinator(
         /** The stop did not match the active session; its terminal callback was already delivered. */
         data object Stale : StopResult
 
-        class Captured(val samples: FloatArray) : StopResult
+        class Captured(val audioSource: InlineAudioSource) : StopResult
 
         data class Failed(val cause: Throwable?) : StopResult
     }
@@ -241,13 +242,13 @@ internal class VoiceRecognitionSessionCoordinator(
 
         return try {
             cancelSessionJobs()
-            // AudioRecord teardown + the samples.copyOf for long dictations hops off the
-            // service main thread; the mutex stays held across the suspend, so this stop is
+            // AudioRecord teardown and captured-audio finalization hop off the service main
+            // thread; the mutex stays held across the suspend, so this stop is
             // still fully serialized against any concurrent start/cancel.
-            val samples = stopRecorderOffMain()
+            val audioSource = stopRecorderOffMain()
             captureGate.releaseCompleted()
             onEndOfSpeech()
-            StopResult.Captured(samples)
+            StopResult.Captured(audioSource)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -274,7 +275,7 @@ internal class VoiceRecognitionSessionCoordinator(
      * microphone / unflushed file — the recorder must always end up stopped once we have committed
      * to stopping it.
      */
-    private suspend fun stopRecorderOffMain(): FloatArray =
+    private suspend fun stopRecorderOffMain(): InlineAudioSource =
         withContext(ioDispatcher + NonCancellable) {
             recorder.stop()
         }

@@ -263,16 +263,30 @@ The quick-input `RECOGNIZE_SPEECH` activity SHALL avoid hiding or rebinding the 
 ### Requirement: Successful Quick Input Keeps a Short-Lived Copy Fallback
 
 Every successful, non-secure quick-input result SHALL remain available briefly through an
-app-private notification after the caller-selected Android result channel has completed.
+app-private, copy-only notification. Notification work SHALL NOT own the Android result channel.
 
 #### Scenario: Non-secure quick input succeeds
 
 - **WHEN** transcription produces a non-empty result outside a secure recognition session
-- **THEN** Chirp SHALL deliver the caller-selected Android result before posting a notification
+- **THEN** Chirp SHALL complete transcription persistence independently of the recognition activity
 - **AND** the notification SHALL show the original transcript and any distinct AI result
+- **AND** tapping the notification SHALL copy the AI result when distinct, otherwise the original
 - **AND** it SHALL provide a copy action for each shown result
+- **AND** copying SHALL NOT dismiss the notification
 - **AND** it SHALL replace the previous quick-input result notification
-- **AND** Android SHALL remove it after 30 seconds.
+- **AND** Android SHALL remove it after the configured 30-second, 1-minute, or 5-minute lifetime
+- **AND** the default lifetime SHALL be 30 seconds.
+
+#### Scenario: The user changes apps during transcription
+
+- **GIVEN** recording has stopped and a non-secure quick-input transcription is running
+- **WHEN** the recognition activity stops or is destroyed because the user changes apps
+- **THEN** the process-scoped transcription SHALL continue
+- **AND** its file-backed audio SHALL stay checkpointed until the terminal save or discard decision
+- **AND** successful history storage SHALL continue to follow Save Keyboard Recordings
+- **AND** rescue failures SHALL continue to save regardless of that preference
+- **AND** a successful result SHALL still post the copy notification
+- **AND** an explicit cancel action SHALL remain able to cancel that session.
 
 #### Scenario: Notification delivery is unavailable
 
@@ -293,7 +307,7 @@ app-private notification after the caller-selected Android result channel has co
 - **AND** the host returns without an active `InputConnection`
 - **WHEN** Chirp completes the standard recognition activity contract
 - **THEN** Chirp MUST preserve the transcript through its existing durable fallback surfaces
-- **AND** Chirp MUST provide the 30-second copy notification for a successful non-secure result
+- **AND** Chirp MUST provide the configured copy notification for a successful non-secure result
 - **AND** MUST NOT hide the caller IME to manufacture an input-view restart
 - **AND** MUST NOT use cross-app accessibility injection or focus recovery.
 

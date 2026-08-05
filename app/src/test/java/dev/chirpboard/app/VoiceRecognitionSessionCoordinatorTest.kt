@@ -3,6 +3,7 @@ package dev.chirpboard.app
 import android.util.Log
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import dev.chirpboard.app.core.transcription.InlineAudioSource
 import io.mockk.every
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
@@ -78,7 +79,12 @@ class VoiceRecognitionSessionCoordinatorTest {
             assertEquals(VoiceRecognitionSessionCoordinator.StartResult.Started, startResult.await())
             val stop = stopResult.await()
             assertTrue(stop is VoiceRecognitionSessionCoordinator.StopResult.Captured)
-            assertEquals(2, (stop as VoiceRecognitionSessionCoordinator.StopResult.Captured).samples.size)
+            assertEquals(
+                2L,
+                (stop as VoiceRecognitionSessionCoordinator.StopResult.Captured)
+                    .audioSource
+                    .sampleCount(),
+            )
             assertTrue(recorder.stopCalled)
             assertFalse(gate.isHeld())
             assertEquals(RecordingState.Idle, manager.state.value)
@@ -344,9 +350,9 @@ class VoiceRecognitionSessionCoordinatorTest {
             return startSucceeds
         }
 
-        override fun stop(): FloatArray {
+        override fun stop(): InlineAudioSource {
             stopCalled = true
-            return floatArrayOf(0.1f, 0.2f)
+            return InlineAudioSource.InMemory(floatArrayOf(0.1f, 0.2f))
         }
 
         override fun cancel() {
