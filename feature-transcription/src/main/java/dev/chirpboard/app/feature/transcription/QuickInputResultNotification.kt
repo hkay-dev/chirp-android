@@ -33,7 +33,18 @@ interface QuickInputPasteHandler {
         sessionId: Long,
         useProcessedText: Boolean,
     ): Boolean
+
+    fun requestPasteIntoActiveEditor(text: String): Boolean
 }
+
+internal fun requestQuickInputPaste(
+    pasteHandler: QuickInputPasteHandler,
+    sessionId: Long?,
+    useProcessedText: Boolean,
+    text: String,
+): Boolean =
+    sessionId?.let { id -> pasteHandler.requestPaste(id, useProcessedText) }
+        ?: pasteHandler.requestPasteIntoActiveEditor(text)
 
 internal data class QuickInputNotificationContent(
     val rawText: String,
@@ -74,6 +85,7 @@ class QuickInputResultNotificationPublisher
             rawText: String,
             processedText: String?,
             pasteSessionId: Long? = null,
+            pasteIntoActiveEditor: Boolean = false,
         ): Boolean {
             val content = quickInputNotificationContent(rawText, processedText) ?: return false
             val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return false
@@ -90,7 +102,7 @@ class QuickInputResultNotificationPublisher
 
                 NotificationManagerCompat.from(context).notify(
                     QUICK_INPUT_RESULT_NOTIFICATION_ID,
-                    buildNotification(content, pasteSessionId),
+                    buildNotification(content, pasteSessionId, pasteIntoActiveEditor),
                 )
                 true
             } catch (error: RuntimeException) {
@@ -123,7 +135,9 @@ class QuickInputResultNotificationPublisher
         private fun buildNotification(
             content: QuickInputNotificationContent,
             pasteSessionId: Long?,
+            pasteIntoActiveEditor: Boolean,
         ): Notification {
+            val tapPastes = pasteSessionId != null || pasteIntoActiveEditor
             val expandedText =
                 quickInputNotificationExpandedText(
                     content = content,
@@ -135,10 +149,10 @@ class QuickInputResultNotificationPublisher
                 .setSmallIcon(R.drawable.ic_notif_transcription)
                 .setContentTitle(
                     context.getString(
-                        if (pasteSessionId == null) {
-                            R.string.quick_input_result_notification_title
-                        } else {
+                        if (tapPastes) {
                             R.string.quick_input_result_paste_notification_title
+                        } else {
+                            R.string.quick_input_result_notification_title
                         },
                     ),
                 )
@@ -157,7 +171,7 @@ class QuickInputResultNotificationPublisher
                         content = content,
                         pasteSessionId = pasteSessionId,
                         useProcessedText = content.processedText != null,
-                        paste = pasteSessionId != null,
+                        paste = tapPastes,
                     ),
                 )
                 .addAction(
@@ -242,11 +256,11 @@ class QuickInputResultCopyReceiver : BroadcastReceiver() {
         if (!isPaste && intent.action != ACTION_COPY_RAW && intent.action != ACTION_COPY_AI) return
         val text = intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotBlank() } ?: return
         if (isPaste) {
-            val sessionId = intent.getLongExtra(EXTRA_PASTE_SESSION_ID, MISSING_SESSION_ID)
-            if (
-                sessionId != MISSING_SESSION_ID &&
-                pasteHandler.requestPaste(sessionId, useProcessedText)
-            ) {
+            val sessionId =
+                intent
+                    .getLongExtra(EXTRA_PASTE_SESSION_ID, MISSING_SESSION_ID)
+                    .takeIf { it != MISSING_SESSION_ID }
+            if (requestQuickInputPaste(pasteHandler, sessionId, useProcessedText, text)) {
                 return
             }
         }

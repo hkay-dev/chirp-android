@@ -31,7 +31,7 @@
     <string name="quick_input_accessibility_service_description">Checks whether SwiftKey quick input reached focused text fields in Gemini, X, and Telegram. If it did not, Chirp can paste the result only when you tap its notification. Password fields are ignored.</string>
     <string name="quick_input_accessibility_pasted">Quick input pasted</string>
     <string name="quick_input_accessibility_clip_label">Quick input</string>
-    <string name="quick_input_accessibility_copied_instead">The field changed, so Chirp copied the result instead</string>
+    <string name="quick_input_accessibility_copied_instead">Couldn’t paste here, so Chirp copied the result instead</string>
     <string name="quick_input_accessibility_paste_failed">Couldn’t paste or copy that quick input</string>
     <string name="keyboard_settings_processing_mode_title">Default Mode</string>
     <string name="keyboard_settings_processing_mode_description">How your voice should be formatted.</string>

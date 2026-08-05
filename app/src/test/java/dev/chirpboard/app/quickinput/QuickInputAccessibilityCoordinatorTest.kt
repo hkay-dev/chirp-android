@@ -145,6 +145,64 @@ class QuickInputAccessibilityCoordinatorTest {
         assertFalse(quickInputInsertionConfirmed(target, "world", "Hello"))
     }
 
+    @Test
+    fun `compose editor with set text support is safe even when not marked editable`() {
+        assertTrue(
+            isSafeQuickInputCandidate(
+                candidateTraits(editable = false, supportsSetText = true),
+            ),
+        )
+    }
+
+    @Test
+    fun `hidden password and read only nodes are never safe paste targets`() {
+        assertFalse(isSafeQuickInputCandidate(candidateTraits(visible = false)))
+        assertFalse(isSafeQuickInputCandidate(candidateTraits(password = true)))
+        assertFalse(
+            isSafeQuickInputCandidate(
+                candidateTraits(editable = false, supportsSetText = false),
+            ),
+        )
+    }
+
+    @Test
+    fun `candidate selection favors the focused set text editor`() {
+        val candidates =
+            listOf(
+                candidateTraits(focused = false),
+                candidateTraits(focused = true, editable = false, supportsSetText = true),
+            )
+
+        assertEquals(1, selectQuickInputCandidateIndex(candidates))
+    }
+
+    @Test
+    fun `candidate selection rejects ambiguous unfocused editors`() {
+        val candidates =
+            listOf(
+                candidateTraits(focused = false),
+                candidateTraits(focused = false),
+            )
+
+        assertNull(selectQuickInputCandidateIndex(candidates))
+    }
+
+    @Test
+    fun `active editor paste is offered only while the accessibility service is attached`() {
+        val pasted = mutableListOf<String>()
+        val coordinator = QuickInputAccessibilityCoordinator()
+        assertFalse(coordinator.requestPasteIntoActiveEditor("words"))
+
+        coordinator.attachListener(
+            listener = { },
+            activeEditorPaste = pasted::add,
+        )
+
+        assertTrue(coordinator.canPasteIntoActiveEditor())
+        assertTrue(coordinator.requestPasteIntoActiveEditor(" words "))
+        assertEquals(listOf("words"), pasted)
+    }
+
     private fun coordinatorWithListener(
         attempts: MutableList<QuickInputAccessibilityAttempt> = mutableListOf(),
     ): QuickInputAccessibilityCoordinator =
@@ -171,6 +229,23 @@ class QuickInputAccessibilityCoordinatorTest {
             selectionEnd = selectionEnd,
             supportsSetText = supportsSetText,
             capturedAtUptimeMillis = now,
+        )
+
+    private fun candidateTraits(
+        packageMonitored: Boolean = true,
+        visible: Boolean = true,
+        password: Boolean = false,
+        editable: Boolean = true,
+        focused: Boolean = true,
+        supportsSetText: Boolean = true,
+    ): QuickInputNodeCandidateTraits =
+        QuickInputNodeCandidateTraits(
+            packageMonitored = packageMonitored,
+            visible = visible,
+            password = password,
+            editable = editable,
+            focused = focused,
+            supportsSetText = supportsSetText,
         )
 
     private companion object {

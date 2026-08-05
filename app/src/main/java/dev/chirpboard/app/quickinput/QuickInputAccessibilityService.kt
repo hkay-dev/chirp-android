@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Rect
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -34,16 +35,25 @@ class QuickInputAccessibilityService : AccessibilityService() {
     private var setTextAttempted = false
     private var focusAttempted = false
     private var expectedInsertion: QuickInputInsertion? = null
+    private var activeEditorPasteText: String? = null
+    private var activeEditorPasteDeadlineUptimeMillis = 0L
+    private var activeEditorPasteTarget: QuickInputAccessibilityTarget? = null
+    private var lastContentTreeScanUptimeMillis = 0L
 
     private val attemptListener =
         QuickInputAccessibilityCoordinator.Listener { attempt ->
             mainHandler.post { startAttempt(attempt) }
         }
     private val attemptPoll = Runnable { pollAttempt() }
+    private val activeEditorPastePoll = Runnable { pollActiveEditorPaste() }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        coordinator.attachListener(attemptListener, ::captureCurrentTarget)
+        coordinator.attachListener(
+            listener = attemptListener,
+            refreshTarget = ::captureCurrentTarget,
+            activeEditorPaste = { text -> mainHandler.post { startActiveEditorPaste(text) } },
+        )
         captureCurrentTarget()
         Log.i(TAG, "Reliable quick-input accessibility enabled")
     }
@@ -53,9 +63,22 @@ class QuickInputAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED,
             AccessibilityEvent.TYPE_VIEW_FOCUSED,
+            AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED,
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED,
-            -> event.source?.let(::captureTarget)
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
+            -> {
+                val scanDescendants =
+                    event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+                        reserveContentTreeScan()
+                val captured =
+                    event.source?.let { source ->
+                        captureFromSource(source, scanDescendants)
+                    } == true
+                if (!captured && event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                    captureCurrentTarget()
+                }
+            }
 
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOWS_CHANGED,
@@ -65,71 +88,287 @@ class QuickInputAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         preservePendingFallback()
+        preserveActiveEditorPaste()
         resetAttempt()
+        resetActiveEditorPaste()
     }
 
     override fun onDestroy() {
         preservePendingFallback()
+        preserveActiveEditorPaste()
         coordinator.detachListener(attemptListener)
         resetAttempt()
+        resetActiveEditorPaste()
         super.onDestroy()
     }
 
     private fun captureCurrentTarget() {
         val activeRoot = runCatching { rootInActiveWindow }.getOrNull()
-        val activeNode = runCatching { activeRoot?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
-        if (activeNode != null && captureTarget(activeNode)) return
+        if (activeRoot != null && captureBestTarget(activeRoot)) return
 
         val interactiveWindows = runCatching { windows }.getOrDefault(emptyList())
-        for (window in interactiveWindows.sortedByDescending { window -> window.isActive }) {
-            val node =
-                runCatching {
-                    window.root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-                }.getOrNull() ?: continue
-            if (captureTarget(node)) return
+        for (window in interactiveWindows.sortedWith(compareByDescending { it.isActive })) {
+            val root = runCatching { window.root }.getOrNull() ?: continue
+            if (captureBestTarget(root)) return
         }
     }
 
-    private fun captureTarget(node: AccessibilityNodeInfo): Boolean {
-        val packageName = node.packageName?.toString() ?: return false
-        if (
-            packageName !in QuickInputAccessibilityCoordinator.MONITORED_PACKAGES ||
-            !node.isEditable ||
-            !node.isVisibleToUser ||
-            node.isPassword
-        ) {
-            return false
+    private fun reserveContentTreeScan(): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastContentTreeScanUptimeMillis < CONTENT_TREE_SCAN_INTERVAL_MS) return false
+        lastContentTreeScanUptimeMillis = now
+        return true
+    }
+
+    private fun captureFromSource(
+        source: AccessibilityNodeInfo,
+        scanDescendants: Boolean = true,
+    ): Boolean {
+        var current: AccessibilityNodeInfo? = source
+        repeat(MAX_PARENT_SCAN) {
+            val node = current ?: return@repeat
+            if (captureTarget(node)) return true
+            current = runCatching { node.parent }.getOrNull()
         }
+        return scanDescendants && captureBestTarget(source)
+    }
+
+    private fun captureBestTarget(root: AccessibilityNodeInfo): Boolean {
+        val focused = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
+        if (focused != null && captureFromFocusedNode(focused)) return true
+
+        val candidates = findSafeCandidates(root)
+        val selectedIndex =
+            selectQuickInputCandidateIndex(
+                candidates.map { candidate -> candidate.quickInputTraits() },
+            ) ?: return false
+        return captureTarget(candidates[selectedIndex])
+    }
+
+    private fun captureFromFocusedNode(focused: AccessibilityNodeInfo): Boolean {
+        if (captureTarget(focused)) return true
+        var current = runCatching { focused.parent }.getOrNull()
+        repeat(MAX_PARENT_SCAN) {
+            val node = current ?: return@repeat
+            if (captureTarget(node)) return true
+            current = runCatching { node.parent }.getOrNull()
+        }
+        return captureBestDescendant(focused)
+    }
+
+    private fun captureBestDescendant(root: AccessibilityNodeInfo): Boolean {
+        val candidates = findSafeCandidates(root, MAX_SOURCE_NODE_SCAN)
+        val selectedIndex =
+            selectQuickInputCandidateIndex(
+                candidates.map { candidate -> candidate.quickInputTraits() },
+            ) ?: return false
+        return captureTarget(candidates[selectedIndex])
+    }
+
+    private fun findSafeCandidates(
+        root: AccessibilityNodeInfo,
+        maxNodes: Int = MAX_NODE_SCAN,
+    ): List<AccessibilityNodeInfo> {
+        val pending = ArrayDeque<AccessibilityNodeInfo>()
+        val candidates = mutableListOf<AccessibilityNodeInfo>()
+        pending.add(root)
+        var visited = 0
+        while (pending.isNotEmpty() && visited++ < maxNodes) {
+            val node = pending.removeFirst()
+            if (isSafeQuickInputCandidate(node.quickInputTraits())) candidates += node
+            for (index in 0 until node.childCount) {
+                runCatching { node.getChild(index) }.getOrNull()?.let(pending::addLast)
+            }
+        }
+        return candidates
+    }
+
+    private fun captureTarget(node: AccessibilityNodeInfo): Boolean {
+        val target = snapshotTarget(node) ?: return false
+        val remembered = coordinator.rememberTarget(
+            target,
+        )
+        if (remembered) {
+            Log.d(
+                TAG,
+                "Editor target captured " +
+                    "(package=${target.packageName}, class=${target.className}, " +
+                    "window=${target.windowId}, setText=${target.supportsSetText}, " +
+                    "hasViewId=${target.viewIdResourceName.isNotEmpty()})",
+            )
+        }
+        return remembered
+    }
+
+    private fun snapshotTarget(node: AccessibilityNodeInfo): QuickInputAccessibilityTarget? {
+        val packageName = runCatching { node.packageName?.toString() }.getOrNull() ?: return null
+        val traits = node.quickInputTraits()
+        if (!isSafeQuickInputCandidate(traits)) return null
         val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        return coordinator.rememberTarget(
-            QuickInputAccessibilityTarget(
-                packageName = packageName,
-                windowId = node.windowId,
-                viewIdResourceName = node.viewIdResourceName.orEmpty(),
-                className = node.className?.toString().orEmpty(),
-                bounds =
-                    QuickInputNodeBounds(
-                        left = bounds.left,
-                        top = bounds.top,
-                        right = bounds.right,
-                        bottom = bounds.bottom,
-                    ),
-                originalText = node.text?.toString().orEmpty(),
-                selectionStart = node.textSelectionStart,
-                selectionEnd = node.textSelectionEnd,
-                supportsSetText =
-                    node.actionList.any { action -> action.id == AccessibilityNodeInfo.ACTION_SET_TEXT },
-                capturedAtUptimeMillis = SystemClock.uptimeMillis(),
-            ),
+        runCatching { node.getBoundsInScreen(bounds) }.getOrElse { return null }
+        return QuickInputAccessibilityTarget(
+            packageName = packageName,
+            windowId = node.windowId,
+            viewIdResourceName = node.viewIdResourceName.orEmpty(),
+            className = node.className?.toString().orEmpty(),
+            bounds =
+                QuickInputNodeBounds(
+                    left = bounds.left,
+                    top = bounds.top,
+                    right = bounds.right,
+                    bottom = bounds.bottom,
+                ),
+            originalText = runCatching { node.text?.toString().orEmpty() }.getOrDefault(""),
+            selectionStart = runCatching { node.textSelectionStart }.getOrDefault(-1),
+            selectionEnd = runCatching { node.textSelectionEnd }.getOrDefault(-1),
+            supportsSetText = traits.supportsSetText,
+            capturedAtUptimeMillis = SystemClock.uptimeMillis(),
+        )
+    }
+
+    private fun AccessibilityNodeInfo.quickInputTraits(): QuickInputNodeCandidateTraits {
+        val packageName = runCatching { packageName?.toString() }.getOrNull()
+        val supportsSetText =
+            runCatching {
+                actionList.any { action -> action.id == AccessibilityNodeInfo.ACTION_SET_TEXT }
+            }.getOrDefault(false)
+        return QuickInputNodeCandidateTraits(
+            packageMonitored = packageName in QuickInputAccessibilityCoordinator.MONITORED_PACKAGES,
+            visible = runCatching { isVisibleToUser }.getOrDefault(false),
+            password = runCatching { isPassword }.getOrDefault(true),
+            editable = runCatching { isEditable }.getOrDefault(false),
+            focused = runCatching { isFocused }.getOrDefault(false),
+            supportsSetText = supportsSetText,
         )
     }
 
     private fun startAttempt(attempt: QuickInputAccessibilityAttempt) {
         if (!coordinator.isArmed(attempt.request.sessionId)) return
+        resetActiveEditorPaste()
         resetAttempt()
         activeAttempt = attempt
-        mainHandler.post(attemptPoll)
+        if (attempt.userInitiated && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+            mainHandler.postDelayed(attemptPoll, NOTIFICATION_SHADE_SETTLE_MS)
+        } else {
+            mainHandler.post(attemptPoll)
+        }
+    }
+
+    private fun startActiveEditorPaste(text: String) {
+        val pasteText = text.trim()
+        if (pasteText.isEmpty()) return
+        resetAttempt()
+        resetActiveEditorPaste()
+        activeEditorPasteText = pasteText
+        activeEditorPasteDeadlineUptimeMillis =
+            SystemClock.uptimeMillis() + QuickInputAccessibilityCoordinator.USER_ATTEMPT_WINDOW_MS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+            mainHandler.postDelayed(activeEditorPastePoll, NOTIFICATION_SHADE_SETTLE_MS)
+        } else {
+            mainHandler.post(activeEditorPastePoll)
+        }
+    }
+
+    private fun pollActiveEditorPaste() {
+        val pasteText = activeEditorPasteText ?: return
+        if (SystemClock.uptimeMillis() > activeEditorPasteDeadlineUptimeMillis) {
+            finishActiveEditorPasteFailure(pasteText)
+            return
+        }
+
+        var target = activeEditorPasteTarget
+        var node =
+            if (target == null) {
+                findCurrentPasteTarget()?.also { candidate ->
+                    target = snapshotTarget(candidate)
+                    activeEditorPasteTarget = target
+                }
+            } else {
+                findTargetNode(target, pasteText)
+            }
+        val resolvedTarget = target
+        if (node == null || resolvedTarget == null || !resolvedTarget.supportsSetText) {
+            mainHandler.postDelayed(activeEditorPastePoll, POLL_INTERVAL_MS)
+            return
+        }
+
+        val currentText = runCatching { node.text?.toString().orEmpty() }.getOrDefault("")
+        if (quickInputInsertionConfirmed(resolvedTarget, pasteText, currentText)) {
+            finishActiveEditorPasteSuccess(node)
+            return
+        }
+        if (currentText != resolvedTarget.originalText) {
+            finishActiveEditorPasteFailure(pasteText)
+            return
+        }
+        if (!node.isFocused && !focusAttempted) {
+            focusAttempted = true
+            performNodeAction(node, AccessibilityNodeInfo.ACTION_FOCUS)
+            mainHandler.postDelayed(activeEditorPastePoll, FOCUS_SETTLE_MS)
+            return
+        }
+        if (!setTextAttempted) {
+            val insertion =
+                buildQuickInputInsertion(
+                    originalText = currentText,
+                    selectionStart = resolvedTarget.selectionStart,
+                    selectionEnd = resolvedTarget.selectionEnd,
+                    dictatedText = pasteText,
+                )
+            val arguments =
+                Bundle().apply {
+                    putCharSequence(
+                        AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        insertion.text,
+                    )
+                }
+            setTextAttempted = true
+            expectedInsertion = insertion
+            if (!performNodeAction(node, AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)) {
+                finishActiveEditorPasteFailure(pasteText)
+                return
+            }
+        }
+        mainHandler.postDelayed(activeEditorPastePoll, VERIFY_SETTLE_MS)
+    }
+
+    private fun findCurrentPasteTarget(): AccessibilityNodeInfo? {
+        val candidates =
+            currentRoots()
+                .flatMap { root -> findSafeCandidates(root) }
+                .filter { candidate -> candidate.quickInputTraits().supportsSetText }
+                .distinct()
+        val selectedIndex =
+            selectQuickInputCandidateIndex(
+                candidates.map { candidate -> candidate.quickInputTraits() },
+            ) ?: return null
+        return candidates[selectedIndex]
+    }
+
+    private fun finishActiveEditorPasteSuccess(node: AccessibilityNodeInfo) {
+        expectedInsertion?.let { insertion ->
+            performNodeAction(
+                node,
+                AccessibilityNodeInfo.ACTION_SET_SELECTION,
+                Bundle().apply {
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, insertion.cursor)
+                    putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, insertion.cursor)
+                },
+            )
+        }
+        notificationPublisher.cancel()
+        Toast.makeText(this, R.string.quick_input_accessibility_pasted, Toast.LENGTH_SHORT).show()
+        Log.i(TAG, "Notification tap pasted into the active editor")
+        resetActiveEditorPaste()
+    }
+
+    private fun finishActiveEditorPasteFailure(text: String) {
+        copyInstead(text)
+        notificationPublisher.cancel()
+        Log.w(TAG, "Notification tap could not find one safe active editor; copied instead")
+        resetActiveEditorPaste()
     }
 
     private fun pollAttempt() {
@@ -197,7 +436,25 @@ class QuickInputAccessibilityService : AccessibilityService() {
         target: QuickInputAccessibilityTarget,
         expectedText: String,
     ): AccessibilityNodeInfo? {
-        val root = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        return currentRoots().firstNotNullOfOrNull { root ->
+            findTargetNodeInRoot(root, target, expectedText)
+        }
+    }
+
+    private fun currentRoots(): List<AccessibilityNodeInfo> {
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        runCatching { rootInActiveWindow }.getOrNull()?.let(roots::add)
+        runCatching { windows }.getOrDefault(emptyList()).forEach { window ->
+            runCatching { window.root }.getOrNull()?.let(roots::add)
+        }
+        return roots.distinct()
+    }
+
+    private fun findTargetNodeInRoot(
+        root: AccessibilityNodeInfo,
+        target: QuickInputAccessibilityTarget,
+        expectedText: String,
+    ): AccessibilityNodeInfo? {
         if (root.packageName?.toString() != target.packageName || root.windowId != target.windowId) return null
         val focused = runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull()
         if (focused != null && target.hasSameIdentity(focused)) return focused
@@ -240,15 +497,12 @@ class QuickInputAccessibilityService : AccessibilityService() {
     }
 
     private fun QuickInputAccessibilityTarget.hasSameIdentity(node: AccessibilityNodeInfo): Boolean {
-        if (
-            node.packageName?.toString() != packageName ||
-            node.windowId != windowId ||
-            !node.isEditable ||
-            !node.isVisibleToUser ||
-            node.isPassword
-        ) {
+        val traits = node.quickInputTraits()
+        if (node.packageName?.toString() != packageName || node.windowId != windowId) {
             return false
         }
+        if (!isSafeQuickInputCandidate(traits)) return false
+        if (supportsSetText && !traits.supportsSetText) return false
         if (viewIdResourceName.isNotEmpty()) return node.viewIdResourceName == viewIdResourceName
         return className.isEmpty() || node.className?.toString() == className
     }
@@ -300,6 +554,7 @@ class QuickInputAccessibilityService : AccessibilityService() {
                         attempt.request.sessionId.takeIf {
                             attempt.request.target.supportsSetText
                         },
+                    pasteIntoActiveEditor = true,
                 )
                 if (!attempt.request.target.supportsSetText) {
                     coordinator.complete(attempt.request.sessionId)
@@ -327,7 +582,12 @@ class QuickInputAccessibilityService : AccessibilityService() {
             rawText = request.rawText,
             processedText = request.processedText,
             pasteSessionId = request.sessionId.takeIf { request.target.supportsSetText },
+            pasteIntoActiveEditor = true,
         )
+    }
+
+    private fun preserveActiveEditorPaste() {
+        activeEditorPasteText?.let(::copyInstead)
     }
 
     private fun performNodeAction(
@@ -344,11 +604,25 @@ class QuickInputAccessibilityService : AccessibilityService() {
         expectedInsertion = null
     }
 
+    private fun resetActiveEditorPaste() {
+        mainHandler.removeCallbacks(activeEditorPastePoll)
+        activeEditorPasteText = null
+        activeEditorPasteDeadlineUptimeMillis = 0L
+        activeEditorPasteTarget = null
+        setTextAttempted = false
+        focusAttempted = false
+        expectedInsertion = null
+    }
+
     private companion object {
         const val TAG = "QuickInputAccessibility"
         const val POLL_INTERVAL_MS = 50L
         const val FOCUS_SETTLE_MS = 250L
         const val VERIFY_SETTLE_MS = 75L
+        const val NOTIFICATION_SHADE_SETTLE_MS = 300L
         const val MAX_NODE_SCAN = 512
+        const val MAX_SOURCE_NODE_SCAN = 128
+        const val MAX_PARENT_SCAN = 8
+        const val CONTENT_TREE_SCAN_INTERVAL_MS = 250L
     }
 }

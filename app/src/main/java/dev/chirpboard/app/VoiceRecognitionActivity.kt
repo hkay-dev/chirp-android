@@ -266,6 +266,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
         if (!secureSession) {
             quickInputAccessibilitySession = quickInputAccessibility.beginSession(callerPackage)
         }
+        Log.i(
+            TAG,
+            "Quick-input accessibility session captured=${quickInputAccessibilitySession != null}",
+        )
         val requestHasPendingResult =
             intent?.hasExtra(RecognizerIntent.EXTRA_RESULTS_PENDINGINTENT) == true
         Log.i(
@@ -730,6 +734,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             quickInputResultNotificationPublisher.show(
                                 rawText = rawText,
                                 processedText = completedProcessedText,
+                                pasteIntoActiveEditor = quickInputAccessibility.canPasteIntoActiveEditor(),
                             )
                         }
                     }

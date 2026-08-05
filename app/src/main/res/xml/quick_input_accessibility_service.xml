@@ -2,7 +2,7 @@
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/quick_input_accessibility_service_description"
     android:packageNames="com.google.android.googlequicksearchbox,com.google.android.apps.bard,com.twitter.android,org.telegram.messenger"
-    android:accessibilityEventTypes="typeViewClicked|typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityEventTypes="typeViewClicked|typeViewFocused|typeViewAccessibilityFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="0"
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"

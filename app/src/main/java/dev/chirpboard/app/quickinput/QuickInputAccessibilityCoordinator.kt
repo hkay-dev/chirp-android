@@ -47,6 +47,35 @@ internal data class QuickInputAccessibilityAttempt(
     val attemptDeadlineUptimeMillis: Long,
 )
 
+internal data class QuickInputNodeCandidateTraits(
+    val packageMonitored: Boolean,
+    val visible: Boolean,
+    val password: Boolean,
+    val editable: Boolean,
+    val focused: Boolean,
+    val supportsSetText: Boolean,
+)
+
+internal fun isSafeQuickInputCandidate(traits: QuickInputNodeCandidateTraits): Boolean =
+    traits.packageMonitored &&
+        traits.visible &&
+        !traits.password &&
+        (traits.editable || traits.supportsSetText)
+
+/** Chooses only an unambiguous editor, favoring the focused node and ACTION_SET_TEXT support. */
+internal fun selectQuickInputCandidateIndex(candidates: List<QuickInputNodeCandidateTraits>): Int? {
+    fun uniqueMatch(predicate: (QuickInputNodeCandidateTraits) -> Boolean): Int? {
+        val indexes = candidates.indices.filter { index -> predicate(candidates[index]) }
+        return indexes.singleOrNull()
+    }
+
+    return uniqueMatch { candidate -> candidate.focused && candidate.supportsSetText }
+        ?: uniqueMatch { candidate -> candidate.focused }
+        ?: uniqueMatch { candidate -> candidate.editable && candidate.supportsSetText }
+        ?: uniqueMatch { candidate -> candidate.supportsSetText }
+        ?: candidates.indices.singleOrNull()
+}
+
 /**
  * Keeps Android's normal recognition result authoritative, verifies whether it reached the editor,
  * and allows one user-requested accessibility paste only after verification failed.
@@ -71,6 +100,7 @@ class QuickInputAccessibilityCoordinator
         private var armedRequest: QuickInputAccessibilityRequest? = null
         private var listener: Listener? = null
         private var refreshTarget: (() -> Unit)? = null
+        private var activeEditorPaste: ((String) -> Unit)? = null
 
         internal fun rememberTarget(target: QuickInputAccessibilityTarget): Boolean {
             if (
@@ -169,6 +199,19 @@ class QuickInputAccessibilityCoordinator
             nowUptimeMillis = SystemClock.uptimeMillis(),
         )
 
+    override fun requestPasteIntoActiveEditor(text: String): Boolean {
+        val pasteText = text.trim()
+        if (pasteText.isEmpty()) return false
+        val handler = synchronized(lock) { activeEditorPaste } ?: return false
+        handler(pasteText)
+        return true
+    }
+
+    internal fun canPasteIntoActiveEditor(): Boolean =
+        synchronized(lock) {
+            activeEditorPaste != null
+        }
+
     internal fun requestPasteAt(
         sessionId: Long,
         useProcessedText: Boolean,
@@ -232,10 +275,12 @@ class QuickInputAccessibilityCoordinator
     internal fun attachListener(
         listener: Listener,
         refreshTarget: () -> Unit = {},
+        activeEditorPaste: ((String) -> Unit)? = null,
     ) {
         synchronized(lock) {
             this.listener = listener
             this.refreshTarget = refreshTarget
+            this.activeEditorPaste = activeEditorPaste
         }
     }
 
@@ -244,6 +289,7 @@ class QuickInputAccessibilityCoordinator
             if (this.listener === listener) {
                 this.listener = null
                 refreshTarget = null
+                activeEditorPaste = null
             }
             currentSession = null
         }
