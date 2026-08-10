@@ -92,9 +92,30 @@ class ModelDownloadWorker
 
             val preferInternalStorage = inputData.getBoolean(INPUT_PREFER_INTERNAL_STORAGE, false)
             val modelId = LocalSpeechModelId.fromPersistedValue(inputData.getString(INPUT_MODEL_ID))
-            var lastNotifiedPercent = -1
             var result: Result = Result.failure(workDataOf(OUTPUT_ERROR to "Download did not produce a result"))
 
+            try {
+                collectDownload(modelId, preferInternalStorage) { result = it }
+            } finally {
+                // WorkManager only tears notification 2201 down when the foreground promotion
+                // above succeeded. When it was refused, updateProgressNotification has posted an
+                // ongoing notification nothing else ever removes — and even on the foreground
+                // path a Result.retry() leaves the last percent pinned through the whole backoff.
+                // Terminal results use their own notification id, so always drop this one.
+                applicationContext
+                    .getSystemService(NotificationManager::class.java)
+                    .cancel(MODEL_DOWNLOAD_NOTIFICATION_ID)
+            }
+
+            return result
+        }
+
+        private suspend fun collectDownload(
+            modelId: LocalSpeechModelId,
+            preferInternalStorage: Boolean,
+            onResult: (Result) -> Unit,
+        ) {
+            var lastNotifiedPercent = -1
             modelDownloader.downloadModelFlow(modelId, preferInternalStorage).collect { state ->
                 when (state) {
                     is ModelDownloader.DownloadState.Progress -> {
@@ -119,11 +140,11 @@ class ModelDownloadWorker
 
                     ModelDownloader.DownloadState.Complete -> {
                         onDownloadComplete(modelId)
-                        result = Result.success()
+                        onResult(Result.success())
                     }
 
                     is ModelDownloader.DownloadState.Error -> {
-                        result =
+                        onResult(
                             if (shouldRetry(state.retryable, runAttemptCount)) {
                                 Log.w(TAG, "Retryable download error (attempt ${runAttemptCount + 1}): ${state.message}")
                                 Result.retry()
@@ -134,12 +155,11 @@ class ModelDownloadWorker
                                     text = state.message,
                                 )
                                 Result.failure(workDataOf(OUTPUT_ERROR to state.message))
-                            }
+                            },
+                        )
                     }
                 }
             }
-
-            return result
         }
 
         private suspend fun onDownloadComplete(modelId: LocalSpeechModelId) {
