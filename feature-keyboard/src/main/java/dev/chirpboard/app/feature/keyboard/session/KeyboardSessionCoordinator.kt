@@ -933,9 +933,12 @@ class KeyboardSessionCoordinator(
     }
 
     /**
-     * Produces best-effort live text from overlapping windows of the file that remains the
-     * lossless source of truth. A slow or unavailable recognizer can only delay this preview. It
-     * cannot block AudioRecord or change the final full-file transcription.
+     * Produces best-effort live text by feeding newly captured samples of the file (which
+     * remains the lossless source of truth) into the isolated streaming recognizer. A slow or
+     * unready recognizer only means no preview; it cannot block AudioRecord or change the final
+     * full-file transcription. When the optional streaming model is unavailable there is no
+     * preview at all, rather than queueing work on Parakeet's authoritative final recognizer
+     * and risking delayed delivery after stop.
      */
     private fun startRollingTranscription(suppressHistory: Boolean) {
         rollingTranscriptionJob?.cancel()
@@ -943,136 +946,69 @@ class KeyboardSessionCoordinator(
         rollingTranscriptionJob =
             scope.launch(Dispatchers.Default) {
                 val streamingSession =
-                    if (streamingPreviewReady) {
-                        streamingTranscriberProvider?.openSession(VoiceRecorder.SAMPLE_RATE)
-                    } else {
-                        null
-                    }
-                if (streamingSession != null) {
-                    var consumedSamples = 0
-                    var previewReported = false
-                    var lastCheckpointSampleCount = 0
-                    val checkpointPersistence = persistence.takeUnless { suppressHistory }
-                    try {
-                        while (isRecording.value) {
-                            val snapshot = capture.activeFileBackedSnapshot()
-                            if (snapshot != null && snapshot.sampleCount > consumedSamples) {
-                                val samples =
-                                    withContext(teardownDispatcher) {
-                                        readIncrementalPcmSamples(
-                                            path = snapshot.file.absolutePath,
-                                            startSample = consumedSamples,
-                                            availableSamples = snapshot.sampleCount,
-                                        )
-                                    }
-                                if (samples.isNotEmpty()) {
-                                    consumedSamples += samples.size
-                                    streamingSession.accept(samples).takeIf { it.isNotBlank() }?.let { text ->
-                                        livePartialTranscript.value = text
-                                        if (!previewReported) {
-                                            previewReported = true
-                                            latencyTrace?.mark("streaming_first_text")
-                                        }
-                                        if (
-                                            checkpointPersistence != null &&
-                                            shouldCheckpointStreamingPreview(
-                                                lastCheckpointSampleCount = lastCheckpointSampleCount,
-                                                currentSampleCount = snapshot.sampleCount,
-                                                sampleRate = snapshot.sampleRate,
-                                            )
-                                        ) {
-                                            lastCheckpointSampleCount = snapshot.sampleCount
-                                            runCatching {
-                                                checkpointPersistence.checkpointAudioSource(
-                                                    audioSource =
-                                                        InlineAudioSource.PcmFloatFile(
-                                                            path = snapshot.file.absolutePath,
-                                                            sampleCount = snapshot.sampleCount.toLong(),
-                                                            sampleRate = snapshot.sampleRate,
-                                                        ),
-                                                    trustedSampleCount = snapshot.sampleCount.toLong(),
-                                                    partialTranscript = text,
-                                                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
-                                                )
-                                            }.onFailure { error ->
-                                                Log.w(tag, "Could not checkpoint streaming preview", error)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            delay(STREAMING_TRANSCRIPTION_POLL_MS)
+                    (
+                        if (streamingPreviewReady) {
+                            streamingTranscriberProvider?.openSession(VoiceRecorder.SAMPLE_RATE)
+                        } else {
+                            null
                         }
-                    } finally {
-                        runCatching { streamingSession.close() }
-                    }
-                    return@launch
-                }
-
-                // Production always supplies an isolated streaming provider. If its optional
-                // model is unavailable, omit preview rather than queueing work on Parakeet's
-                // authoritative final recognizer and risking delayed delivery after stop.
-                if (streamingTranscriberProvider != null) return@launch
-
-                // Optional first-pass model is unavailable, so retain the existing overlapping
-                // file-window preview. The complete PCM file remains authoritative either way.
-                delay(LIVE_TRANSCRIPTION_INITIAL_DELAY_MS)
+                    ) ?: return@launch
+                var consumedSamples = 0
+                var previewReported = false
+                var lastCheckpointSampleCount = 0
                 val checkpointPersistence = persistence.takeUnless { suppressHistory }
-                while (isRecording.value) {
-                    val snapshot = capture.activeFileBackedSnapshot()
-                    if (snapshot != null && snapshot.sampleCount >= snapshot.sampleRate * LIVE_TRANSCRIPTION_MIN_SECONDS) {
-                        val checkpointSource =
-                            InlineAudioSource.PcmFloatFile(
-                                path = snapshot.file.absolutePath,
-                                sampleCount = snapshot.sampleCount.toLong(),
-                                sampleRate = snapshot.sampleRate,
-                            )
-                        if (checkpointPersistence != null) {
-                            runCatching {
-                                checkpointPersistence.checkpointAudioSource(
-                                    audioSource = checkpointSource,
-                                    trustedSampleCount = snapshot.sampleCount.toLong(),
-                                    partialTranscript = livePartialTranscript.value,
-                                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
-                                )
-                            }.onFailure { error ->
-                                Log.w(tag, "Could not checkpoint live keyboard capture", error)
-                            }
-                        }
-                        if (transcriberProvider.isReady()) {
+                try {
+                    while (isRecording.value) {
+                        val snapshot = capture.activeFileBackedSnapshot()
+                        if (snapshot != null && snapshot.sampleCount > consumedSamples) {
                             val samples =
                                 withContext(teardownDispatcher) {
-                                    readRollingPcmWindow(
+                                    readIncrementalPcmSamples(
                                         path = snapshot.file.absolutePath,
+                                        startSample = consumedSamples,
                                         availableSamples = snapshot.sampleCount,
-                                        sampleRate = snapshot.sampleRate,
                                     )
                                 }
-                            if (samples.isNotEmpty() && isRecording.value) {
-                                when (val outcome = transcriberProvider.transcribe(samples, snapshot.sampleRate)) {
-                                    is TranscriptionOutcome.Success -> {
-                                        val merged = mergeRollingTranscript(livePartialTranscript.value, outcome.text)
-                                        livePartialTranscript.value = merged
-                                        if (checkpointPersistence != null) {
-                                            runCatching {
-                                                checkpointPersistence.checkpointAudioSource(
-                                                    audioSource = checkpointSource,
-                                                    trustedSampleCount = snapshot.sampleCount.toLong(),
-                                                    partialTranscript = merged,
-                                                    estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
-                                                )
-                                            }.onFailure { error ->
-                                                Log.w(tag, "Could not checkpoint rolling transcript", error)
-                                            }
+                            if (samples.isNotEmpty()) {
+                                consumedSamples += samples.size
+                                streamingSession.accept(samples).takeIf { it.isNotBlank() }?.let { text ->
+                                    livePartialTranscript.value = text
+                                    if (!previewReported) {
+                                        previewReported = true
+                                        latencyTrace?.mark("streaming_first_text")
+                                    }
+                                    if (
+                                        checkpointPersistence != null &&
+                                        shouldCheckpointStreamingPreview(
+                                            lastCheckpointSampleCount = lastCheckpointSampleCount,
+                                            currentSampleCount = snapshot.sampleCount,
+                                            sampleRate = snapshot.sampleRate,
+                                        )
+                                    ) {
+                                        lastCheckpointSampleCount = snapshot.sampleCount
+                                        runCatching {
+                                            checkpointPersistence.checkpointAudioSource(
+                                                audioSource =
+                                                    InlineAudioSource.PcmFloatFile(
+                                                        path = snapshot.file.absolutePath,
+                                                        sampleCount = snapshot.sampleCount.toLong(),
+                                                        sampleRate = snapshot.sampleRate,
+                                                    ),
+                                                trustedSampleCount = snapshot.sampleCount.toLong(),
+                                                partialTranscript = text,
+                                                estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                                            )
+                                        }.onFailure { error ->
+                                            Log.w(tag, "Could not checkpoint streaming preview", error)
                                         }
                                     }
-
-                                    else -> Unit
                                 }
                             }
                         }
+                        delay(STREAMING_TRANSCRIPTION_POLL_MS)
                     }
-                    delay(LIVE_TRANSCRIPTION_INTERVAL_MS)
+                } finally {
+                    runCatching { streamingSession.close() }
                 }
             }
     }
@@ -1580,9 +1516,6 @@ class KeyboardSessionCoordinator(
 
     companion object {
         private const val NANOS_PER_MILLISECOND = 1_000_000L
-        private const val LIVE_TRANSCRIPTION_INITIAL_DELAY_MS = 3_000L
-        private const val LIVE_TRANSCRIPTION_INTERVAL_MS = 6_000L
-        private const val LIVE_TRANSCRIPTION_MIN_SECONDS = 2
         private const val STREAMING_TRANSCRIPTION_POLL_MS = 320L
         internal const val STREAMING_CHECKPOINT_INTERVAL_SECONDS = 3
         internal const val STOP_TIMEOUT_IN_PROGRESS_MESSAGE =
@@ -1610,29 +1543,6 @@ class KeyboardSessionCoordinator(
         internal const val FIRST_AUDIO_FAILED_MESSAGE =
             "The microphone started, but no audio arrived"
     }
-}
-
-private const val LIVE_TRANSCRIPTION_WINDOW_SECONDS = 8
-private const val LIVE_TRANSCRIPTION_MAX_OVERLAP_WORDS = 16
-
-internal fun readRollingPcmWindow(
-    path: String,
-    availableSamples: Int,
-    sampleRate: Int,
-): FloatArray {
-    if (availableSamples <= 0 || sampleRate <= 0) return FloatArray(0)
-    return runCatching {
-        RandomAccessFile(path, "r").use { input ->
-            val completeSamples = minOf(availableSamples.toLong(), input.length() / Float.SIZE_BYTES).toInt()
-            val windowSamples = sampleRate * LIVE_TRANSCRIPTION_WINDOW_SECONDS
-            val startSample = (completeSamples - windowSamples).coerceAtLeast(0)
-            val count = completeSamples - startSample
-            input.seek(startSample.toLong() * Float.SIZE_BYTES)
-            FloatArray(count) {
-                Float.fromBits(Integer.reverseBytes(input.readInt()))
-            }
-        }
-    }.getOrDefault(FloatArray(0))
 }
 
 internal fun readIncrementalPcmSamples(
@@ -1663,28 +1573,6 @@ internal fun shouldCheckpointStreamingPreview(
     return currentSampleCount - lastCheckpointSampleCount >=
         sampleRate * KeyboardSessionCoordinator.STREAMING_CHECKPOINT_INTERVAL_SECONDS
 }
-
-internal fun mergeRollingTranscript(
-    previous: String?,
-    next: String,
-): String? {
-    val cleanNext = next.trim()
-    if (cleanNext.isEmpty()) return previous
-    val cleanPrevious = previous?.trim().orEmpty()
-    if (cleanPrevious.isEmpty()) return cleanNext
-    val previousWords = cleanPrevious.split(Regex("\\s+"))
-    val nextWords = cleanNext.split(Regex("\\s+"))
-    val maxOverlap = minOf(LIVE_TRANSCRIPTION_MAX_OVERLAP_WORDS, previousWords.size, nextWords.size)
-    val overlap =
-        (maxOverlap downTo 1).firstOrNull { size ->
-            previousWords.takeLast(size).map(::rollingComparableWord) ==
-                nextWords.take(size).map(::rollingComparableWord)
-        } ?: 0
-    return (previousWords + nextWords.drop(overlap)).joinToString(" ")
-}
-
-private fun rollingComparableWord(word: String): String =
-    word.lowercase().filter(Char::isLetterOrDigit)
 
 internal class DictationLatencyTrace(
     private val logTag: String,
