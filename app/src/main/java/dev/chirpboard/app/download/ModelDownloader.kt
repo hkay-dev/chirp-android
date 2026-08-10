@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.StatFs
 import android.util.Log
 import androidx.annotation.VisibleForTesting
-import dev.chirpboard.app.BuildConfig
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessEvaluation
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessUnavailableReason
 import dev.chirpboard.app.core.modelreadiness.ModelReadinessVerificationSource
@@ -58,6 +57,7 @@ class ModelDownloader(
         internal const val ETAG_FILE_SUFFIX = ".download.etag"
 
         private const val HTTP_PARTIAL_CONTENT = 206
+        private const val HTTP_REQUEST_TIMEOUT = 408
         private const val HTTP_TOO_MANY_REQUESTS = 429
         private const val HTTP_RANGE_NOT_SATISFIABLE = 416
         private const val HTTP_INTERNAL_SERVER_ERROR = 500
@@ -561,7 +561,10 @@ class ModelDownloader(
                     emit(
                         DownloadState.Error(
                             "The download server returned an error (${response.code}). Try again later.",
-                            retryable = response.code >= HTTP_INTERNAL_SERVER_ERROR || response.code == HTTP_TOO_MANY_REQUESTS,
+                            retryable =
+                                response.code >= HTTP_INTERNAL_SERVER_ERROR ||
+                                    response.code == HTTP_TOO_MANY_REQUESTS ||
+                                    response.code == HTTP_REQUEST_TIMEOUT,
                         ),
                     )
                     return false
