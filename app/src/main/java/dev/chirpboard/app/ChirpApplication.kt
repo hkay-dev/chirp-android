@@ -121,6 +121,9 @@ class ChirpApplication : Application(), Configuration.Provider {
         // A transient native allocation or storage failure gets two spaced retries so one cold-
         // start hiccup cannot leave every later dictation paying the load cost at mic-stop time.
         applicationScope.launch {
+            // Checked before the Lazy resolves so an instrumentation run that disables the
+            // prewarm does not still pay for provider construction.
+            if (System.getProperty(DISABLE_STARTUP_RECOGNIZER_PREWARM_PROPERTY) == "true") return@launch
             delay(RECOGNIZER_PREWARM_DELAY_MS)
             val provider = transcriberProvider.get()
             for (attempt in 0 until RECOGNIZER_PREWARM_ATTEMPTS) {
