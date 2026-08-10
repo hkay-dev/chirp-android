@@ -119,6 +119,20 @@ class RecordingWidgetProvider : AppWidgetProvider() {
             )
             views.setOnClickPendingIntent(R.id.widget_button, pendingIntent)
 
+            // Everywhere that is not the button opens the app, so the widget has a
+            // non-destructive tap target (it previously had none).
+            context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launch ->
+                views.setOnClickPendingIntent(
+                    R.id.widget_root,
+                    PendingIntent.getActivity(
+                        context,
+                        0,
+                        launch,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                )
+            }
+
             // Update the widget
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
