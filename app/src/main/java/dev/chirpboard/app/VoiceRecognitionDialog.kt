@@ -1001,7 +1001,11 @@ private fun VoiceRecognitionErrorStatus(
             VoiceRecognitionUiError.NoSpeechTimeout ->
                 stringResource(R.string.voice_recognition_no_speech_timeout)
         }
-    val gentle = uiError == VoiceRecognitionUiError.NoSpeechTimeout
+    // NoSpeech (nothing captured) and NoSpeechTimeout (initial silence) are the same
+    // situation to the user — they said nothing — so both get the calm retry treatment.
+    val gentle =
+        uiError == VoiceRecognitionUiError.NoSpeechTimeout ||
+            uiError == VoiceRecognitionUiError.NoSpeech
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = message,

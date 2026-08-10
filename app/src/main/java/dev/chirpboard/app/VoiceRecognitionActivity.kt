@@ -91,7 +91,10 @@ internal sealed interface VoiceRecognitionUiError {
         val audioRescued: Boolean,
     ) : VoiceRecognitionUiError
 
-    /** The capture contained no recognizable speech. */
+    /**
+     * The capture contained no recognizable speech. Persistent like [NoSpeechTimeout]:
+     * gentle retry state, error code returned only when the user dismisses.
+     */
     data object NoSpeech : VoiceRecognitionUiError {
         override val speechErrorCode: Int = SpeechRecognizer.ERROR_NO_MATCH
     }
@@ -612,9 +615,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
         }
     }
 
-    /** Retry from the no-speech state (W4 dialog UX): clear it and start a fresh session. */
+    /** Retry from either no-speech state (W4 dialog UX): clear it and start a fresh session. */
     private fun retryAfterNoSpeech() {
-        if (_shouldDismiss.value || _uiError.value != VoiceRecognitionUiError.NoSpeechTimeout) {
+        val error = _uiError.value
+        val retryable =
+            error == VoiceRecognitionUiError.NoSpeechTimeout ||
+                error == VoiceRecognitionUiError.NoSpeech
+        if (_shouldDismiss.value || !retryable) {
             return
         }
         _uiError.value = null
@@ -668,7 +675,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 if (capturedSampleCount == 0L) {
                     _recordingState.value = RecordingState.Idle
                     if (activityDestroyed) return@launch
-                    showErrorThenReturn(VoiceRecognitionUiError.NoSpeech)
+                    // Persistent gentle retry state, same as the silence timeout: nothing
+                    // was said, so offer another attempt instead of flashing an error and
+                    // closing (the error code is returned if the user dismisses).
+                    _uiError.value = VoiceRecognitionUiError.NoSpeech
                     return@launch
                 }
 
@@ -733,18 +743,20 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     }
 
                     is RecognitionDelivery.Failure -> {
-                        // ERR-27: the user already spoke — explain the failure (and that the
-                        // audio was rescued) instead of silently closing the sheet.
-                        val error =
-                            if (outcome.terminalPhase is InlineTranscriptionPhase.Error) {
+                        if (outcome.terminalPhase is InlineTranscriptionPhase.Error) {
+                            // ERR-27: the user already spoke — explain the failure (and that
+                            // the audio was rescued) instead of silently closing the sheet.
+                            showErrorThenReturn(
                                 VoiceRecognitionUiError.TranscriptionFailed(
                                     speechErrorCode = delivery.errorCode,
                                     audioRescued = !secure,
-                                )
-                            } else {
-                                VoiceRecognitionUiError.NoSpeech
-                            }
-                        showErrorThenReturn(error)
+                                ),
+                            )
+                        } else {
+                            // Transcription produced no words: persistent gentle retry state,
+                            // same treatment as the silence timeout.
+                            _uiError.value = VoiceRecognitionUiError.NoSpeech
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -823,8 +835,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
     /**
      * Shows a terminal error inside the dialog for a beat, then dismisses with the mapped
      * RecognizerIntent result code — failures must be explained, never a silent close
-     * (ERR-23/ERR-27). [VoiceRecognitionUiError.PermissionMissing] is persistent instead:
-     * it carries an affordance and returns its error only when the user dismisses.
+     * (ERR-23/ERR-27). [VoiceRecognitionUiError.PermissionMissing] and the no-speech
+     * states are persistent instead: they carry affordances and return their error only
+     * when the user dismisses.
      */
     private fun showErrorThenReturn(error: VoiceRecognitionUiError) {
         _uiError.value = error
