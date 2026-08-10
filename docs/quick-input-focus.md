@@ -110,7 +110,9 @@ must cross that boundary explicitly. The least risky choices are:
 - Preserve the established Chirp bottom-sheet appearance.
 - Start the microphone on the dialog's first composition. Recognizer loading and the short visual
   ready beat run alongside capture, so neither can clip the opening words.
-- Deliver through the caller-selected Android result channel exactly once.
+- Deliver through the caller-selected Android result channel exactly once. The delivered text
+  is the AI result when polish succeeds cleanly, otherwise the raw transcript; a polish failure
+  never discards the user's words.
 - Finish successful recognition immediately.
 - Record quick-input capture into a file-backed temporary source, then hand transcription to a
   process-scoped owner so leaving the activity cannot cancel persistence or notification delivery.

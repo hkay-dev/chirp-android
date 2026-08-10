@@ -710,7 +710,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 _partialTranscript.value = outcome.committedText
                 if (activityDestroyed) return@launch
 
-                when (val delivery = resolveRecognitionDelivery(outcome.committedText, outcome.terminalPhase)) {
+                when (
+                    val delivery =
+                        resolveRecognitionDelivery(
+                            committedText = outcome.committedText,
+                            processedText = outcome.processedText,
+                            terminalPhase = outcome.terminalPhase,
+                        )
+                ) {
                     is RecognitionDelivery.Success -> {
                         if (outcome.terminalPhase is InlineTranscriptionPhase.LlmError) {
                             Log.w(TAG, "LLM polish failed; returning raw transcript to caller")
@@ -1072,22 +1079,31 @@ internal sealed interface RecognitionDelivery {
 /**
  * Decides what to return to the host app once the inline transcription pipeline settles.
  *
- * The committed text is the source of truth: if the pipeline committed anything, deliver
- * it. A failed LLM polish leaves the phase at [InlineTranscriptionPhase.LlmError] but
- * still commits the raw transcript (exactly as the keyboard surface does), so a polish
- * failure must never discard the user's words. Only a genuine transcription failure
- * (phase [InlineTranscriptionPhase.Error] with nothing committed) or an empty result
- * surfaces an error to the caller.
+ * This surface delivers exactly once, after the whole pipeline (including AI polish) has
+ * finished, so unlike the keyboard there is no early raw commit to preserve: when polish
+ * succeeded cleanly (phase [InlineTranscriptionPhase.Idle]), the polished text is the
+ * result the caller waited for. A failed polish or a content-guard rejection leaves the
+ * phase at [InlineTranscriptionPhase.LlmError]; the raw transcript is delivered instead,
+ * so a polish failure must never discard the user's words. Only a genuine transcription
+ * failure (phase [InlineTranscriptionPhase.Error] with nothing committed) or an empty
+ * result surfaces an error to the caller.
  */
 internal fun resolveRecognitionDelivery(
     committedText: String,
+    processedText: String?,
     terminalPhase: InlineTranscriptionPhase,
-): RecognitionDelivery =
-    when {
+): RecognitionDelivery {
+    val polished =
+        processedText
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && terminalPhase == InlineTranscriptionPhase.Idle }
+    return when {
+        polished != null -> RecognitionDelivery.Success(polished)
         committedText.isNotBlank() -> RecognitionDelivery.Success(committedText)
         terminalPhase is InlineTranscriptionPhase.Error -> RecognitionDelivery.Failure(SpeechRecognizer.ERROR_CLIENT)
         else -> RecognitionDelivery.Failure(SpeechRecognizer.ERROR_NO_MATCH)
     }
+}
 
 /**
  * Whether a capture still held at activity destroy must be rescue-persisted.
