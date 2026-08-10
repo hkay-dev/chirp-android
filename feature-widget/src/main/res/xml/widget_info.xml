@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- resizeMode was "none", which blocked One UI's widget resize/stack affordances; the
-     centered LinearLayout scales fine, so allow both axes with the 2x2 size as the floor. -->
+     centered LinearLayout scales fine, so allow both axes with the 2x2 size as the floor.
+     updatePeriodMillis is 30 min (the platform minimum) instead of 0: live state pushes
+     stop when the process dies, and with no period the launcher never calls onUpdate
+     again, so a stale "Recording" frame (ticking chronometer, stop-labeled button)
+     survived until the next app launch. onUpdate re-renders the REAL state. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
     android:minHeight="110dp"
@@ -8,7 +12,7 @@
     android:minResizeHeight="110dp"
     android:targetCellWidth="2"
     android:targetCellHeight="2"
-    android:updatePeriodMillis="0"
+    android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_layout"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
