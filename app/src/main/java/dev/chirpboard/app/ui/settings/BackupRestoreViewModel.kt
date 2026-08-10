@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.R
+import dev.chirpboard.app.backup.BackupApiKeysExportException
 import dev.chirpboard.app.backup.BackupFormatException
 import dev.chirpboard.app.backup.BackupImportMode
 import dev.chirpboard.app.backup.BackupSection
@@ -95,6 +96,24 @@ class BackupRestoreViewModel
 
         private var pendingPassphrase: CharArray? = null
 
+        /**
+         * The exact sections (and passphrase) the user launched the SAF picker for. The picker
+         * result must export THIS, not whatever the UI state holds when the result arrives: after
+         * process death behind the picker the ViewModel is rebuilt with the default selection
+         * (which deliberately excludes API keys) and no passphrase, and exporting that silently
+         * would write a backup missing the very section the user opted into.
+         */
+        private class PendingExport(
+            val sections: Set<BackupSection>,
+            val passphrase: CharArray?,
+        ) {
+            fun clear() {
+                passphrase?.fill('\u0000')
+            }
+        }
+
+        private var pendingExport: PendingExport? = null
+
         init {
             refreshCounts(initializeSelection = true)
         }
@@ -145,6 +164,7 @@ class BackupRestoreViewModel
             if (BackupSection.API_KEYS in state.exportSelection) {
                 _uiState.update { it.copy(passphrasePrompt = PassphrasePromptMode.EXPORT, exportMessage = null) }
             } else {
+                pendingExport = PendingExport(sections = state.exportSelection, passphrase = null)
                 requestExportFile()
             }
         }
@@ -159,17 +179,30 @@ class BackupRestoreViewModel
 
         /** SAF result for the export destination; null means the picker was cancelled. */
         fun onExportFileChosen(uri: Uri?) {
+            val pending = pendingExport
+            pendingExport = null
             if (uri == null) {
-                clearPendingPassphrase()
+                pending?.clear()
                 return
             }
-            val selection = _uiState.value.exportSelection
-            val passphrase = pendingPassphrase
-            pendingPassphrase = null
+            if (pending == null) {
+                // The process died while the SAF picker was in the foreground, so the selection
+                // and passphrase the user launched the picker with are gone. Abort honestly
+                // instead of exporting the rebuilt default selection, and delete the empty file
+                // the picker already created.
+                viewModelScope.launch { backupManager.discardBackupFile(uri) }
+                _uiState.update {
+                    it.copy(
+                        exportMessage =
+                            StatusMessage.Error(appContext.getString(R.string.backup_export_interrupted)),
+                    )
+                }
+                return
+            }
             _uiState.update { it.copy(isExporting = true) }
             viewModelScope.launch {
-                val result = backupManager.exportToUri(uri, selection, passphrase)
-                passphrase?.fill('\u0000')
+                val result = backupManager.exportToUri(uri, pending.sections, pending.passphrase)
+                pending.clear()
                 _uiState.update { state ->
                     state.copy(
                         isExporting = false,
@@ -186,13 +219,20 @@ class BackupRestoreViewModel
                                 },
                                 onFailure = { error ->
                                     Log.w(TAG, "Backup export failed", error)
-                                    StatusMessage.Error(appContext.getString(R.string.backup_export_failed))
+                                    StatusMessage.Error(appContext.getString(exportErrorText(error)))
                                 },
                             ),
                     )
                 }
             }
         }
+
+        private fun exportErrorText(error: Throwable): Int =
+            if (error is BackupApiKeysExportException) {
+                R.string.backup_export_keys_failed
+            } else {
+                R.string.backup_export_failed
+            }
 
         fun dismissExportMessage() {
             _uiState.update { it.copy(exportMessage = null) }
@@ -204,11 +244,20 @@ class BackupRestoreViewModel
 
         fun submitPassphrase(passphrase: String) {
             val mode = _uiState.value.passphrasePrompt ?: return
-            pendingPassphrase = passphrase.toCharArray()
             _uiState.update { it.copy(passphrasePrompt = null) }
             when (mode) {
-                PassphrasePromptMode.EXPORT -> requestExportFile()
-                PassphrasePromptMode.IMPORT -> applyImport()
+                PassphrasePromptMode.EXPORT -> {
+                    pendingExport =
+                        PendingExport(
+                            sections = _uiState.value.exportSelection,
+                            passphrase = passphrase.toCharArray(),
+                        )
+                    requestExportFile()
+                }
+                PassphrasePromptMode.IMPORT -> {
+                    pendingPassphrase = passphrase.toCharArray()
+                    applyImport()
+                }
             }
         }
 
@@ -220,6 +269,8 @@ class BackupRestoreViewModel
         private fun clearPendingPassphrase() {
             pendingPassphrase?.fill('\u0000')
             pendingPassphrase = null
+            pendingExport?.clear()
+            pendingExport = null
         }
 
         // endregion

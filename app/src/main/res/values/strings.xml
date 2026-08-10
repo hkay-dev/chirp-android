@@ -113,6 +113,8 @@
         <item quantity="other">Backup saved with %d sections.</item>
     </plurals>
     <string name="backup_export_failed">Couldn\'t save the backup. Check storage space and try again.</string>
+    <string name="backup_export_keys_failed">Couldn\'t encrypt the API keys, so nothing was saved. Uncheck API Keys to export the rest.</string>
+    <string name="backup_export_interrupted">The export was interrupted before it started. Try again.</string>
     <string name="backup_choose_file">Choose Backup File</string>
     <string name="backup_import_help">Pick a .chirp-backup or JSON file to restore from.</string>
     <string name="backup_inspecting">Reading backup…</string>

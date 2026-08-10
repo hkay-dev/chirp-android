@@ -333,6 +333,23 @@ class ChirpBackupManagerTest {
         }
 
     @Test
+    fun `a keys snapshot failure aborts the export as a typed keys error`() =
+        runTest {
+            coEvery { apiKeyBackupManager.buildEncryptedSnapshot(any()) } returns
+                Result.failure(SecureStorageUnavailableException())
+
+            val error =
+                runCatching {
+                    manager().buildBackupJson(
+                        sections = setOf(BackupSection.SETTINGS, BackupSection.API_KEYS),
+                        passphrase = "a-passphrase".toCharArray(),
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(error is BackupApiKeysExportException)
+        }
+
+    @Test
     fun `missing passphrase rejects the keys section without touching the manager`() =
         runTest {
             val blob = Base64.getEncoder().encodeToString("encrypted".toByteArray())

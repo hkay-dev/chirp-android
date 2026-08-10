@@ -212,3 +212,12 @@ class BackupFormatException(
         TOO_LARGE,
     }
 }
+
+/**
+ * The API-keys section could not be built at export time (secure storage unavailable, or no
+ * keys left to snapshot). Nothing was written: the user checked that section explicitly, so
+ * silently exporting a backup without it would be worse than failing.
+ */
+class BackupApiKeysExportException(
+    cause: Throwable,
+) : Exception("Could not build the API-keys section", cause)

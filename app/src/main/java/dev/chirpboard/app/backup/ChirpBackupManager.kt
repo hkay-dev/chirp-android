@@ -87,9 +87,9 @@ class ChirpBackupManager
             KEYS_REJECTED,
 
             /**
-             * API-keys section: the device keystore layer is unusable, so no passphrase can
+             * API-keys section: the device's secure storage is unusable, so no passphrase can
              * ever succeed. Kept distinct from [KEYS_REJECTED] so the UI doesn't send the user
-             * into a retype-the-passphrase loop.
+             * into a retype-the-passphrase loop that cannot work.
              */
             KEYS_STORAGE_UNAVAILABLE,
 
@@ -132,13 +132,19 @@ class ChirpBackupManager
         /**
          * Builds and writes the envelope for [sections]. [passphrase] is required iff
          * [BackupSection.API_KEYS] is selected. Returns the number of sections written.
+         *
+         * Runs under [NonCancellable] for the same reason as [applyImport]: the caller's scope
+         * is a screen-bound viewModelScope, and a back-navigation right after tapping Export
+         * would otherwise abandon the SAF-created destination as a 0-byte file that later
+         * "fails to import" with no explanation. The work is short; finishing it always beats
+         * leaving a broken file. On failure the destination is deleted for the same reason.
          */
         suspend fun exportToUri(
             uri: Uri,
             sections: Set<BackupSection>,
             passphrase: CharArray?,
         ): Result<Int> =
-            withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO + NonCancellable) {
                 runCatching {
                     require(sections.isNotEmpty()) { "No sections selected" }
                     val json = buildBackupJson(sections, passphrase)
@@ -149,8 +155,23 @@ class ChirpBackupManager
                         output.write(json.toByteArray(StandardCharsets.UTF_8))
                     } ?: throw IOException("Could not open backup destination")
                     sections.size
+                }.onFailure { discardBackupFile(uri) }
+            }
+
+        /**
+         * Best-effort delete of a SAF-created export destination that will never receive
+         * content (export failed, or the flow was interrupted before it could run). Without
+         * this the user keeps a plausible-looking chirp-backup-<date>.json that is 0 bytes.
+         */
+        suspend fun discardBackupFile(uri: Uri) {
+            withContext(Dispatchers.IO + NonCancellable) {
+                runCatching {
+                    android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                }.onFailure { error ->
+                    Log.w(TAG, "Could not delete abandoned backup file", error)
                 }
             }
+        }
 
         internal suspend fun buildBackupJson(
             sections: Set<BackupSection>,
@@ -159,7 +180,10 @@ class ChirpBackupManager
             val apiKeysBase64 =
                 if (BackupSection.API_KEYS in sections) {
                     val chars = requireNotNull(passphrase) { "Passphrase required for the API keys section" }
-                    val backup = apiKeyBackupManager.buildEncryptedSnapshot(chars).getOrThrow()
+                    val backup =
+                        apiKeyBackupManager.buildEncryptedSnapshot(chars).getOrElse { error ->
+                            throw BackupApiKeysExportException(error)
+                        }
                     Base64.getEncoder().encodeToString(backup.bytes)
                 } else {
                     null
