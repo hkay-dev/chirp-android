@@ -11,6 +11,7 @@ import io.mockk.mockkConstructor
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -58,7 +59,7 @@ class LlmPreferencesSecureStoreTest {
     }
 
     @Test
-    fun `undecryptable keyset wipes the store recreates it and queues a one-shot notice`() {
+    fun `undecryptable keyset wipes the store recreates it and queues a one-shot notice`() = runTest {
         every {
             EncryptedSharedPreferences.create(any<Context>(), any(), any(), any(), any())
         } throws GeneralSecurityException("could not decrypt keyset") andThen securePrefs
@@ -77,7 +78,7 @@ class LlmPreferencesSecureStoreTest {
     }
 
     @Test
-    fun `secure store failing even after the reset degrades without crashing or false notices`() {
+    fun `secure store failing even after the reset degrades without crashing or false notices`() = runTest {
         every {
             EncryptedSharedPreferences.create(any<Context>(), any(), any(), any(), any())
         } throws GeneralSecurityException("keystore permanently broken")
@@ -94,7 +95,7 @@ class LlmPreferencesSecureStoreTest {
     }
 
     @Test
-    fun `healthy secure store is never wiped and queues no notice`() {
+    fun `healthy secure store is never wiped and queues no notice`() = runTest {
         every {
             EncryptedSharedPreferences.create(any<Context>(), any(), any(), any(), any())
         } returns securePrefs

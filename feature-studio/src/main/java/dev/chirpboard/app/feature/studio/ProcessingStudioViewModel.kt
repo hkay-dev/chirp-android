@@ -548,25 +548,29 @@ class ProcessingStudioViewModel
         }
 
         fun generateStructuredOutcomes() {
-            val state = _uiState.value
-            val validationMessage =
-                validateStructuredOutcomeGenerationRequest(
-                    recordingStatus = state.status,
-                    effectiveTranscriptText = state.effectiveTranscriptText,
-                    hasApiKey = llmPreferences.hasApiKey(),
-                    isGenerating = structuredOutcomeGenerationInFlight.value,
-                )
-            if (validationMessage != null) {
-                _message.value = validationMessage
-                return
-            }
-
-            val recordingId = currentRecordingId ?: return
-            val transcriptText = state.effectiveTranscriptText
-            val transcriptRevision = transcriptText.structuredOutcomeRevision()
-            structuredOutcomeGenerationInFlight.value = true
-
             viewModelScope.launch {
+                val state = _uiState.value
+                // hasApiKey() suspends (keystore-backed read on IO), so the in-flight flag
+                // must be read AFTER it resumes: two rapid taps both pass the suspension,
+                // and only the later read makes the second tap see the first one's claim.
+                val hasApiKey = llmPreferences.hasApiKey()
+                val validationMessage =
+                    validateStructuredOutcomeGenerationRequest(
+                        recordingStatus = state.status,
+                        effectiveTranscriptText = state.effectiveTranscriptText,
+                        hasApiKey = hasApiKey,
+                        isGenerating = structuredOutcomeGenerationInFlight.value,
+                    )
+                if (validationMessage != null) {
+                    _message.value = validationMessage
+                    return@launch
+                }
+
+                val recordingId = currentRecordingId ?: return@launch
+                val transcriptText = state.effectiveTranscriptText
+                val transcriptRevision = transcriptText.structuredOutcomeRevision()
+                structuredOutcomeGenerationInFlight.value = true
+
                 try {
                     val result = llmClient.generateStructuredOutcomeExtraction(transcriptText)
                     if (result.isSuccess) {
@@ -677,18 +681,21 @@ class ProcessingStudioViewModel
         }
 
         fun runTranscriptSelectionAction(action: TranscriptPassageAction) {
-            val state = _uiState.value
-            val validationMessage = state.validateTranscriptSelectionActionRequest(hasApiKey = llmPreferences.hasApiKey())
-            if (validationMessage != null) {
-                _message.value = validationMessage
-                return
-            }
-
-            val selection = state.selectedTranscriptPassage
-            val renderedTranscriptText = state.renderedTranscriptText
-            _uiState.value = state.startTranscriptSelectionAction(action)
-
             viewModelScope.launch {
+                // hasApiKey() suspends, so the state snapshot is taken after it resumes;
+                // startTranscriptSelectionAction below builds on the fresh value.
+                val hasApiKey = llmPreferences.hasApiKey()
+                val state = _uiState.value
+                val validationMessage = state.validateTranscriptSelectionActionRequest(hasApiKey = hasApiKey)
+                if (validationMessage != null) {
+                    _message.value = validationMessage
+                    return@launch
+                }
+
+                val selection = state.selectedTranscriptPassage
+                val renderedTranscriptText = state.renderedTranscriptText
+                _uiState.value = state.startTranscriptSelectionAction(action)
+
                 val result = llmClient.generateTranscriptPassageResponse(action = action, passage = selection)
                 val latestState = _uiState.value
                 if (!latestState.matchesTranscriptSelectionRequest(selection, renderedTranscriptText, action)) {

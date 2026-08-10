@@ -740,7 +740,7 @@ class ProcessingStudioViewModelTest {
         val llmPreferences =
             mockk<LlmPreferences>(relaxed = true) {
                 every { llmEnabled } returns MutableStateFlow(false)
-                every { hasApiKey() } returns hasApiKey
+                coEvery { hasApiKey() } returns hasApiKey
             }
         return ProcessingStudioViewModel(
             context = context,
@@ -900,10 +900,12 @@ class ProcessingStudioViewModelTest {
             stubSupportingFlows(recordingId)
             every { repository.getTranscriptFlow(recordingId) } returns
                 flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "alpha beta gamma")))
+            val response = CompletableDeferred<Result<String>>()
             val llmClient =
                 mockk<LlmClient>(relaxed = true) {
-                    coEvery { generateTranscriptPassageResponse(TranscriptPassageAction.SUMMARIZE, "alpha beta") } returns
-                        Result.success(" Brief summary ")
+                    coEvery { generateTranscriptPassageResponse(TranscriptPassageAction.SUMMARIZE, "alpha beta") } coAnswers {
+                        response.await()
+                    }
                 }
 
             val viewModel = createViewModel(recordingId = recordingId.toString(), llmClient = llmClient, hasApiKey = true)
@@ -912,7 +914,11 @@ class ProcessingStudioViewModelTest {
             viewModel.enterTranscriptSelectionMode()
             viewModel.onTranscriptSelectionChanged("alpha beta")
             viewModel.runTranscriptSelectionAction(TranscriptPassageAction.SUMMARIZE)
+            // The action now starts with a suspending key check, so run the launch up to
+            // the pending LLM call before observing the in-flight marker.
+            runCurrent()
             assertEquals(TranscriptPassageAction.SUMMARIZE, viewModel.uiState.value.transcriptSelectionActionInFlight)
+            response.complete(Result.success(" Brief summary "))
             advanceUntilIdle()
 
             assertEquals(

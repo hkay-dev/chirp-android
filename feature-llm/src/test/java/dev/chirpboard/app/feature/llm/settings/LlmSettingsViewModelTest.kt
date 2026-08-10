@@ -6,9 +6,9 @@ import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -52,13 +52,13 @@ class LlmSettingsViewModelTest {
         Dispatchers.setMain(testDispatcher)
         preferences = mockk(relaxUnitFun = true)
         coEvery { preferences.getLlmEnabled() } returns true
-        every { preferences.getActiveProvider() } returns LlmProvider.GEMINI
-        every { preferences.getModelFor(LlmProvider.GEMINI) } returns DEFAULT_GEMINI_MODEL
-        every { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns "initial-key"
-        every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
-        every { preferences.isSecureStorageAvailable() } returns true
-        every { preferences.consumeSecureStorageResetNotice() } returns false
-        every { preferences.countConfiguredApiKeys() } returns 1
+        coEvery { preferences.getActiveProvider() } returns LlmProvider.GEMINI
+        coEvery { preferences.getModelFor(LlmProvider.GEMINI) } returns DEFAULT_GEMINI_MODEL
+        coEvery { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns "initial-key"
+        coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
+        coEvery { preferences.isSecureStorageAvailable() } returns true
+        coEvery { preferences.consumeSecureStorageResetNotice() } returns false
+        coEvery { preferences.countConfiguredApiKeys() } returns 1
         coEvery { preferences.getAutoTitle() } returns false
         coEvery { preferences.getAutoSummary() } returns true
         backupManager = mockk(relaxed = true)
@@ -95,7 +95,7 @@ class LlmSettingsViewModelTest {
             assertEquals("new-key", state.apiKey)
             assertTrue(state.isKeyConfigured)
 
-            verify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
+            coVerify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
         }
 
     @Test
@@ -113,7 +113,7 @@ class LlmSettingsViewModelTest {
     fun `secure storage reset notice surfaces once and is dismissible`() =
         runTest {
             // SEC-2: self-heal wiped the store -> one-shot notice for the user.
-            every { preferences.consumeSecureStorageResetNotice() } returns true
+            coEvery { preferences.consumeSecureStorageResetNotice() } returns true
             viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, SavedStateHandle())
             testDispatcher.scheduler.advanceUntilIdle()
 
@@ -127,12 +127,12 @@ class LlmSettingsViewModelTest {
     fun `saveApiKey saves current key to preferences`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()
-            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true)
+            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true)
             viewModel.updateApiKey("saved-key")
             viewModel.saveApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "saved-key") }
+            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "saved-key") }
         }
 
     @Test
@@ -146,7 +146,7 @@ class LlmSettingsViewModelTest {
             val result = viewModel.uiState.value.connectionTestResult
             assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Error)
             assertEquals("Enter an API key first", (result as LlmSettingsViewModel.ConnectionTestResult.Error).message)
-            verify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
+            coVerify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
         }
 
     @Test
@@ -156,7 +156,7 @@ class LlmSettingsViewModelTest {
             viewModel.clearApiKey()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            verify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
+            coVerify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
             assertEquals("", viewModel.uiState.value.apiKey)
         }
 
@@ -176,14 +176,14 @@ class LlmSettingsViewModelTest {
     fun `testConnection success`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()
-            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
+            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
             coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.success("OK")
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "valid-key") }
+            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "valid-key") }
             val result = viewModel.uiState.value.connectionTestResult
             assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Success)
         }
@@ -219,34 +219,34 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             // The draft was written for the test, then rolled back to the stored key.
-            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "bad-key") }
-            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "initial-key") }
+            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "bad-key") }
+            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "initial-key") }
         }
 
     @Test
     fun `testConnection failure clears the key when none was stored before`() =
         runTest {
-            every { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns null
-            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns false
+            coEvery { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns null
+            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns false
             viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, SavedStateHandle())
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.updateApiKey("bad-key")
             // The draft write succeeds, so the post-write verification passes.
-            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
+            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
             coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
                 Result.failure(java.io.IOException("Unable to resolve host"))
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            verify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
+            coVerify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
         }
 
     @Test
     fun `dismissTestResult clears result`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()
-            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
+            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
             coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.success("OK")
             viewModel.testConnection()

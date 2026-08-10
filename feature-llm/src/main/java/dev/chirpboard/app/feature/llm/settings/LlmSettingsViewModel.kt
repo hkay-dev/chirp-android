@@ -121,8 +121,11 @@ class LlmSettingsViewModel
 
         fun setSelectedModel(modelId: String) {
             val provider = _uiState.value.activeProvider
-            preferences.setModelFor(provider, modelId)
-            _uiState.update { it.copy(selectedModelId = preferences.getModelFor(provider)) }
+            viewModelScope.launch {
+                preferences.setModelFor(provider, modelId)
+                val resolved = preferences.getModelFor(provider)
+                _uiState.update { it.copy(selectedModelId = resolved) }
+            }
         }
 
         fun updateApiKey(key: String) {

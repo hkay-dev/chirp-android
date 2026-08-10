@@ -13,11 +13,13 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,42 +35,48 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
         },
 )
 
+/**
+ * Every method is suspend on purpose: any call can be the one that first opens the
+ * EncryptedSharedPreferences store (Android Keystore master key + Tink init, commonly
+ * 100-500 ms), and the write paths use commit(). The implementation runs all of that on
+ * Dispatchers.IO so callers can invoke these from any dispatcher, including Main.
+ */
 interface LlmSettingsStore {
     suspend fun getLlmEnabled(): Boolean
 
     suspend fun setLlmEnabled(enabled: Boolean)
 
-    fun getActiveProvider(): LlmProvider
+    suspend fun getActiveProvider(): LlmProvider
 
-    fun setActiveProvider(provider: LlmProvider)
+    suspend fun setActiveProvider(provider: LlmProvider)
 
-    fun fetchApiKeyFor(provider: LlmProvider): String?
+    suspend fun fetchApiKeyFor(provider: LlmProvider): String?
 
-    fun getModelFor(provider: LlmProvider): String
+    suspend fun getModelFor(provider: LlmProvider): String
 
-    fun setModelFor(
+    suspend fun setModelFor(
         provider: LlmProvider,
         modelId: String,
     )
 
-    fun hasApiKeyFor(provider: LlmProvider): Boolean
+    suspend fun hasApiKeyFor(provider: LlmProvider): Boolean
 
-    fun countConfiguredApiKeys(): Int
+    suspend fun countConfiguredApiKeys(): Int
 
-    fun isSecureStorageAvailable(): Boolean
+    suspend fun isSecureStorageAvailable(): Boolean
 
     /**
      * One-shot SEC-2 notice: true when the secure store was wiped and recreated because its
      * keyset became undecryptable — the UI should ask the user to re-enter their API keys.
      */
-    fun consumeSecureStorageResetNotice(): Boolean
+    suspend fun consumeSecureStorageResetNotice(): Boolean
 
-    fun setApiKeyFor(
+    suspend fun setApiKeyFor(
         provider: LlmProvider,
         apiKey: String,
     )
 
-    fun clearApiKeyFor(provider: LlmProvider)
+    suspend fun clearApiKeyFor(provider: LlmProvider)
 
     suspend fun getAutoTitle(): Boolean
 
@@ -122,8 +130,8 @@ class LlmPreferences
          * type is constructed during Hilt member injection on the main thread at process start
          * (every cold keyboard show in the shared IME process), so doing it in the constructor
          * blocked the app's hottest path. Instead it runs once, lazily, on first access of any
-         * public read/write — by which point the caller is already off the critical onCreate
-         * path. The guard is idempotent and thread-safe.
+         * public read/write — which the suspend wrappers dispatch to IO. The guard is
+         * idempotent and thread-safe.
          */
         @Volatile
         private var initialized = false
@@ -151,7 +159,10 @@ class LlmPreferences
         /** API key for the currently selected provider. */
         val apiKey: Flow<String?> = _apiKey.asStateFlow()
 
-        override fun getActiveProvider(): LlmProvider {
+        override suspend fun getActiveProvider(): LlmProvider =
+            withContext(Dispatchers.IO) { getActiveProviderSync() }
+
+        private fun getActiveProviderSync(): LlmProvider {
             ensureInitialized()
             return readActiveProvider()
         }
@@ -159,16 +170,22 @@ class LlmPreferences
         /** Reads the stored active provider without triggering [ensureInitialized] (used during init). */
         private fun readActiveProvider(): LlmProvider = LlmProvider.fromId(appPrefs.getString(KEY_ACTIVE_PROVIDER, null))
 
-        override fun setActiveProvider(provider: LlmProvider) {
+        override suspend fun setActiveProvider(provider: LlmProvider) =
+            withContext(Dispatchers.IO) { setActiveProviderSync(provider) }
+
+        private fun setActiveProviderSync(provider: LlmProvider) {
             ensureInitialized()
             appPrefs.edit().putString(KEY_ACTIVE_PROVIDER, provider.id).apply()
             _activeProvider.value = provider
             refreshActiveApiKey()
         }
 
-        fun fetchApiKey(): String? = fetchApiKeyFor(getActiveProvider())
+        suspend fun fetchApiKey(): String? = withContext(Dispatchers.IO) { fetchApiKeyForSync(getActiveProviderSync()) }
 
-        override fun fetchApiKeyFor(provider: LlmProvider): String? {
+        override suspend fun fetchApiKeyFor(provider: LlmProvider): String? =
+            withContext(Dispatchers.IO) { fetchApiKeyForSync(provider) }
+
+        private fun fetchApiKeyForSync(provider: LlmProvider): String? {
             ensureInitialized()
             return fetchApiKeyForRaw(provider)
         }
@@ -176,9 +193,11 @@ class LlmPreferences
         /** Reads a stored API key without triggering [ensureInitialized] (used during init). */
         private fun fetchApiKeyForRaw(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
 
-        fun getModelName(): String = getModelFor(getActiveProvider())
+        suspend fun getModelName(): String = withContext(Dispatchers.IO) { getModelForSync(getActiveProviderSync()) }
 
-        override fun getModelFor(provider: LlmProvider): String {
+        override suspend fun getModelFor(provider: LlmProvider): String = withContext(Dispatchers.IO) { getModelForSync(provider) }
+
+        private fun getModelForSync(provider: LlmProvider): String {
             ensureInitialized()
             return resolveModelId(
                 provider = provider,
@@ -186,7 +205,12 @@ class LlmPreferences
             )
         }
 
-        override fun setModelFor(
+        override suspend fun setModelFor(
+            provider: LlmProvider,
+            modelId: String,
+        ) = withContext(Dispatchers.IO) { setModelForSync(provider, modelId) }
+
+        private fun setModelForSync(
             provider: LlmProvider,
             modelId: String,
         ) {
@@ -213,11 +237,14 @@ class LlmPreferences
             }
         }
 
-        fun setApiKey(key: String) {
-            setApiKeyFor(getActiveProvider(), key)
-        }
+        suspend fun setApiKey(key: String) = withContext(Dispatchers.IO) { setApiKeyForSync(getActiveProviderSync(), key) }
 
-        override fun setApiKeyFor(
+        override suspend fun setApiKeyFor(
+            provider: LlmProvider,
+            apiKey: String,
+        ) = withContext(Dispatchers.IO) { setApiKeyForSync(provider, apiKey) }
+
+        private fun setApiKeyForSync(
             provider: LlmProvider,
             key: String,
         ) {
@@ -231,7 +258,7 @@ class LlmPreferences
 
             val committed = prefs.edit().putString(apiKeyPrefKey(provider), normalized).commit()
             if (committed) {
-                if (provider == getActiveProvider()) {
+                if (provider == getActiveProviderSync()) {
                     _apiKey.value = normalized
                 }
             } else {
@@ -239,26 +266,30 @@ class LlmPreferences
             }
         }
 
-        fun clearApiKey() {
-            clearApiKeyFor(getActiveProvider())
-        }
+        suspend fun clearApiKey() = withContext(Dispatchers.IO) { clearApiKeyForSync(getActiveProviderSync()) }
 
-        override fun clearApiKeyFor(provider: LlmProvider) {
+        override suspend fun clearApiKeyFor(provider: LlmProvider) = withContext(Dispatchers.IO) { clearApiKeyForSync(provider) }
+
+        private fun clearApiKeyForSync(provider: LlmProvider) {
             ensureInitialized()
             val prefs = securePrefs ?: return
-            if (prefs.edit().remove(apiKeyPrefKey(provider)).commit() && provider == getActiveProvider()) {
+            if (prefs.edit().remove(apiKeyPrefKey(provider)).commit() && provider == getActiveProviderSync()) {
                 _apiKey.value = null
             }
         }
 
-        fun hasApiKey(): Boolean = hasApiKeyFor(getActiveProvider())
+        suspend fun hasApiKey(): Boolean = withContext(Dispatchers.IO) { hasApiKeyForSync(getActiveProviderSync()) }
 
-        override fun hasApiKeyFor(provider: LlmProvider): Boolean = !fetchApiKeyFor(provider).isNullOrBlank()
+        override suspend fun hasApiKeyFor(provider: LlmProvider): Boolean =
+            withContext(Dispatchers.IO) { hasApiKeyForSync(provider) }
 
-        override fun isSecureStorageAvailable(): Boolean {
-            ensureInitialized()
-            return securePrefs != null
-        }
+        private fun hasApiKeyForSync(provider: LlmProvider): Boolean = !fetchApiKeyForSync(provider).isNullOrBlank()
+
+        override suspend fun isSecureStorageAvailable(): Boolean =
+            withContext(Dispatchers.IO) {
+                ensureInitialized()
+                securePrefs != null
+            }
 
         override suspend fun setAutoTitle(enabled: Boolean) {
             context.dataStore.edit { preferences ->
@@ -278,48 +309,52 @@ class LlmPreferences
 
         override suspend fun getLlmEnabled(): Boolean = llmEnabled.first()
 
-        fun buildSettingsSnapshot(): LlmSettingsSnapshot {
-            val apiKeys =
-                LlmProvider.entries.mapNotNull { provider ->
-                    fetchApiKeyFor(provider)
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { provider.id to it }
-                }.toMap()
+        suspend fun buildSettingsSnapshot(): LlmSettingsSnapshot =
+            withContext(Dispatchers.IO) {
+                val apiKeys =
+                    LlmProvider.entries.mapNotNull { provider ->
+                        fetchApiKeyForSync(provider)
+                            ?.trim()
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { provider.id to it }
+                    }.toMap()
 
-            val models =
-                LlmProvider.entries.associate { provider ->
-                    provider.id to getModelFor(provider)
-                }
+                val models =
+                    LlmProvider.entries.associate { provider ->
+                        provider.id to getModelForSync(provider)
+                    }
 
-            return LlmSettingsSnapshot(
-                activeProvider = getActiveProvider().id,
-                models = models,
-                apiKeys = apiKeys,
-            )
-        }
-
-        suspend fun applySettingsSnapshot(snapshot: LlmSettingsSnapshot) {
-            val provider = LlmProvider.entries.firstOrNull { it.id == snapshot.activeProvider } ?: LlmProvider.GEMINI
-            setActiveProvider(provider)
-
-            snapshot.models.forEach { (providerId, modelId) ->
-                val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
-                setModelFor(snapshotProvider, modelId)
+                LlmSettingsSnapshot(
+                    activeProvider = getActiveProviderSync().id,
+                    models = models,
+                    apiKeys = apiKeys,
+                )
             }
 
-            snapshot.apiKeys.forEach { (providerId, apiKey) ->
-                val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
-                if (apiKey.isNotBlank()) {
-                    setApiKeyFor(snapshotProvider, apiKey)
+        suspend fun applySettingsSnapshot(snapshot: LlmSettingsSnapshot) =
+            withContext(Dispatchers.IO) {
+                val provider = LlmProvider.entries.firstOrNull { it.id == snapshot.activeProvider } ?: LlmProvider.GEMINI
+                setActiveProviderSync(provider)
+
+                snapshot.models.forEach { (providerId, modelId) ->
+                    val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
+                    setModelForSync(snapshotProvider, modelId)
                 }
+
+                snapshot.apiKeys.forEach { (providerId, apiKey) ->
+                    val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
+                    if (apiKey.isNotBlank()) {
+                        setApiKeyForSync(snapshotProvider, apiKey)
+                    }
+                }
+
+                refreshActiveApiKey()
             }
 
-            refreshActiveApiKey()
-        }
-
-        override fun countConfiguredApiKeys(): Int =
-            LlmProvider.entries.count { hasApiKeyFor(it) }
+        override suspend fun countConfiguredApiKeys(): Int =
+            withContext(Dispatchers.IO) {
+                LlmProvider.entries.count { hasApiKeyForSync(it) }
+            }
 
         private fun refreshActiveApiKey() {
             // Uses raw reads so it is safe to call from inside ensureInitialized() (where the
@@ -418,12 +453,13 @@ class LlmPreferences
          * One-shot: true when the secure store had to be wiped and recreated (SEC-2), so the
          * settings UI can tell the user to re-enter their API keys. Clears the flag on read.
          */
-        override fun consumeSecureStorageResetNotice(): Boolean {
-            ensureInitialized()
-            val pending = appPrefs.getBoolean(KEY_SECURE_STORE_RESET_PENDING, false)
-            if (pending) {
-                appPrefs.edit().remove(KEY_SECURE_STORE_RESET_PENDING).apply()
+        override suspend fun consumeSecureStorageResetNotice(): Boolean =
+            withContext(Dispatchers.IO) {
+                ensureInitialized()
+                val pending = appPrefs.getBoolean(KEY_SECURE_STORE_RESET_PENDING, false)
+                if (pending) {
+                    appPrefs.edit().remove(KEY_SECURE_STORE_RESET_PENDING).apply()
+                }
+                pending
             }
-            return pending
-        }
     }

@@ -34,7 +34,7 @@ class ApiKeyMigrationTest {
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
 
         every { preferences.isApiKeyMigrationDone() } returns false
-        every { preferences.setApiKeyMigrationDone() } just runs
+        coEvery { preferences.setApiKeyMigrationDone() } just runs
     }
 
     @After
@@ -45,8 +45,8 @@ class ApiKeyMigrationTest {
     @Test
     fun `migrate skips blank plaintext key`() =
         runTest {
-            every { llmPreferences.isSecureStorageAvailable() } returns true
-            every { llmPreferences.hasApiKey() } returns false
+            coEvery { llmPreferences.isSecureStorageAvailable() } returns true
+            coEvery { llmPreferences.hasApiKey() } returns false
             every { preferences.readLegacyGeminiApiKeyForMigration() } returns "   "
 
             assertEquals(ApiKeyMigration.MigrationResult.NO_CUSTOM_KEY, migration.migrate())
@@ -55,8 +55,8 @@ class ApiKeyMigrationTest {
     @Test
     fun `migrate moves custom plaintext key into secure storage`() =
         runTest {
-            every { llmPreferences.isSecureStorageAvailable() } returns true
-            every { llmPreferences.hasApiKey() } returns false
+            coEvery { llmPreferences.isSecureStorageAvailable() } returns true
+            coEvery { llmPreferences.hasApiKey() } returns false
             every { preferences.readLegacyGeminiApiKeyForMigration() } returns "user-custom-key"
             coEvery { llmPreferences.setApiKey("user-custom-key") } just runs
             every { preferences.clearGeminiApiKey() } just runs
@@ -70,8 +70,8 @@ class ApiKeyMigrationTest {
     @Test
     fun `migrate returns already migrated when secure storage has key`() =
         runTest {
-            every { llmPreferences.isSecureStorageAvailable() } returns true
-            every { llmPreferences.hasApiKey() } returns true
+            coEvery { llmPreferences.isSecureStorageAvailable() } returns true
+            coEvery { llmPreferences.hasApiKey() } returns true
 
             assertEquals(ApiKeyMigration.MigrationResult.ALREADY_MIGRATED, migration.migrate())
         }
@@ -85,7 +85,7 @@ class ApiKeyMigrationTest {
 
             assertEquals(ApiKeyMigration.MigrationResult.ALREADY_MIGRATED, migration.migrate())
 
-            verify(exactly = 0) { llmPreferences.isSecureStorageAvailable() }
+            coVerify(exactly = 0) { llmPreferences.isSecureStorageAvailable() }
         }
 }
 

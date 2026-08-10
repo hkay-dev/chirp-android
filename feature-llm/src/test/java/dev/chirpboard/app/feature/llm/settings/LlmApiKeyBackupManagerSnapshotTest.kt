@@ -32,8 +32,8 @@ class LlmApiKeyBackupManagerSnapshotTest {
     fun `build and restore round trip applies the same snapshot`() =
         runTest {
             val preferences = mockk<LlmPreferences>()
-            every { preferences.isSecureStorageAvailable() } returns true
-            every { preferences.buildSettingsSnapshot() } returns snapshot
+            coEvery { preferences.isSecureStorageAvailable() } returns true
+            coEvery { preferences.buildSettingsSnapshot() } returns snapshot
             val applied = slot<LlmSettingsSnapshot>()
             coEvery { preferences.applySettingsSnapshot(capture(applied)) } returns Unit
             val manager = managerWith(preferences)
@@ -53,8 +53,8 @@ class LlmApiKeyBackupManagerSnapshotTest {
     fun `restore with the wrong passphrase fails without applying anything`() =
         runTest {
             val preferences = mockk<LlmPreferences>()
-            every { preferences.isSecureStorageAvailable() } returns true
-            every { preferences.buildSettingsSnapshot() } returns snapshot
+            coEvery { preferences.isSecureStorageAvailable() } returns true
+            coEvery { preferences.buildSettingsSnapshot() } returns snapshot
             val manager = managerWith(preferences)
 
             val backup = manager.buildEncryptedSnapshot("correct-passphrase".toCharArray()).getOrThrow()
@@ -68,7 +68,7 @@ class LlmApiKeyBackupManagerSnapshotTest {
     fun `restore of garbage bytes fails without applying anything`() =
         runTest {
             val preferences = mockk<LlmPreferences>()
-            every { preferences.isSecureStorageAvailable() } returns true
+            coEvery { preferences.isSecureStorageAvailable() } returns true
             val manager = managerWith(preferences)
 
             val result = manager.restoreEncryptedSnapshot("not-chirpkey-data".toByteArray(), "whatever-pass".toCharArray())
@@ -81,8 +81,8 @@ class LlmApiKeyBackupManagerSnapshotTest {
     fun `build fails when no keys are saved`() =
         runTest {
             val preferences = mockk<LlmPreferences>()
-            every { preferences.isSecureStorageAvailable() } returns true
-            every { preferences.buildSettingsSnapshot() } returns snapshot.copy(apiKeys = emptyMap())
+            coEvery { preferences.isSecureStorageAvailable() } returns true
+            coEvery { preferences.buildSettingsSnapshot() } returns snapshot.copy(apiKeys = emptyMap())
             val manager = managerWith(preferences)
 
             val result = manager.buildEncryptedSnapshot("some-passphrase".toCharArray())
@@ -94,7 +94,7 @@ class LlmApiKeyBackupManagerSnapshotTest {
     fun `build fails when secure storage is unavailable`() =
         runTest {
             val preferences = mockk<LlmPreferences>()
-            every { preferences.isSecureStorageAvailable() } returns false
+            coEvery { preferences.isSecureStorageAvailable() } returns false
             val manager = managerWith(preferences)
 
             val result = manager.buildEncryptedSnapshot("some-passphrase".toCharArray())
