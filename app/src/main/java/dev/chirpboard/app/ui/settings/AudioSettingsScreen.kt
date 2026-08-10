@@ -18,7 +18,11 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import androidx.compose.ui.Modifier
@@ -82,8 +86,16 @@ fun AudioSettingsScreen(
                             ),
                     verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
                 ) {
+                    // Track the drag locally and persist once on release: writing to the
+                    // DataStore per drag tick fired ~40 serialized file writes for one
+                    // sweep across the range.
+                    var draftGain by remember { mutableStateOf<Float?>(null) }
+                    val shownGain = draftGain ?: microphoneGain
+                    LaunchedEffect(microphoneGain) {
+                        if (draftGain != null && microphoneGain == draftGain) draftGain = null
+                    }
                     val displayedGain by animateFloatAsState(
-                        targetValue = microphoneGain,
+                        targetValue = shownGain,
                         animationSpec = tween(200),
                         label = "gainDisplay",
                     )
@@ -92,8 +104,11 @@ fun AudioSettingsScreen(
                         style = MaterialTheme.typography.titleMedium,
                     )
                     Slider(
-                        value = microphoneGain,
-                        onValueChange = viewModel::setMicrophoneGain,
+                        value = shownGain,
+                        onValueChange = { draftGain = it },
+                        onValueChangeFinished = {
+                            draftGain?.let(viewModel::setMicrophoneGain)
+                        },
                         valueRange = 1.0f..5.0f,
                         steps = 39,
                     )
