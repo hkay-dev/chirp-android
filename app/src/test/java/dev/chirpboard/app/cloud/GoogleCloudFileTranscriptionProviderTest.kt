@@ -5,6 +5,7 @@ import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStat
 import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.mockk
 import java.io.File
@@ -179,6 +180,22 @@ class GoogleCloudFileTranscriptionProviderTest {
             ),
             outcome,
         )
+    }
+
+    @Test
+    fun `non-retryable failure clears the stored checkpoint`() = runTest {
+        coEvery { checkpointStore.get(RECORDING_ID) } returns
+            matchingCheckpoint(server.url("/saved-upload-session").toString())
+        server.enqueue(
+            jsonResponse("""{"error":{"code":"forbidden","message":"This account is not allowed."}}""", 403),
+        )
+
+        val outcome = provider.transcribeFile(request())
+
+        assertTrue(outcome is TranscriptionOutcome.EngineError && !outcome.retryable)
+        // The checkpoint holds a resumable-upload URL; it must not outlive a recording
+        // that will never be retried.
+        coVerify { checkpointStore.clear(RECORDING_ID) }
     }
 
     @Test

@@ -76,10 +76,15 @@ class GoogleCloudFileTranscriptionProvider
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: CloudRequestException) {
+                    // A recording that will never be retried has no upload to resume, so
+                    // its checkpoint (which holds a resumable-upload URL) must not
+                    // outlive it in the DataStore.
+                    if (!error.retryable) checkpointStore.clear(request.recordingId)
                     TranscriptionOutcome.EngineError(error.publicMessage, error.retryable)
                 } catch (_: IOException) {
                     TranscriptionOutcome.EngineError("Cloud transcription connection failed", retryable = true)
                 } catch (_: Exception) {
+                    checkpointStore.clear(request.recordingId)
                     TranscriptionOutcome.EngineError("Cloud transcription failed", retryable = false)
                 }
             }
