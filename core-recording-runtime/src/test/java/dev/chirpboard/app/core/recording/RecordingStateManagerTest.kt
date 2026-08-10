@@ -348,6 +348,30 @@ class RecordingStateManagerTest {
         }
 
     @Test
+    fun stoppingTimeout_throwingHandlerStillForcesErrorAndReleasesLock() =
+        runTest {
+            manager.timeoutScopeOverrideForTest = this
+            manager.stoppingTimeoutMsOverrideForTest = 10L
+            manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+            manager.transitionToStopping()
+
+            manager.setStoppingTimeoutHandler(RecordingOrigin.KEYBOARD) { _ ->
+                throw IllegalStateException("rescue failed")
+            }
+
+            manager.startStoppingTimeout(fileSizeBytes = 0L)
+            advanceTimeBy(11L)
+            runCurrent()
+
+            // The handler crash must not leave the machine wedged in Stopping with the
+            // lock held; the timeout still forces Error and releases the lock.
+            assertTrue(manager.state.value is RecordingState.Error)
+            manager.clearError()
+            val restart = manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+            assertTrue(restart is RecordingStartResult.Success)
+        }
+
+    @Test
     fun clearStoppingTimeoutHandler_removesOnlyTheRegisteredHandler() =
         runTest {
             // TST-012: virtual time replaces the former Thread.sleep(100) real-time wait.

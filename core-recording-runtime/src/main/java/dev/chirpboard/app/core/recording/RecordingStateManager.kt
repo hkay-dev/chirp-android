@@ -2,6 +2,7 @@ package dev.chirpboard.app.core.recording
 
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -69,7 +70,11 @@ class RecordingStateManager @Inject constructor() {
     
     /** Scope for internal operations like timeouts */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    @Volatile
     private var timeoutJob: Job? = null
+
+    @Volatile
     private var lastAmplitudeEmitMs = 0L
 
     /**
@@ -78,6 +83,7 @@ class RecordingStateManager @Inject constructor() {
      * so at most one handler is ever live; the origin tag preserves the invariant that a
      * handler only fires when the stopping state's origin matches the one it registered for.
      */
+    @Volatile
     private var stoppingTimeoutHandler: StoppingTimeoutHandlerRegistration? = null
 
     private class StoppingTimeoutHandlerRegistration(
@@ -346,7 +352,17 @@ class RecordingStateManager @Inject constructor() {
                 // Handler cleanup (journal abandon, row delete) must finish before Error + lock release.
                 val registration = stoppingTimeoutHandler
                 if (registration != null && registration.origin == stoppingState.origin) {
-                    registration.handler.invoke(stoppingState)
+                    try {
+                        registration.handler.invoke(stoppingState)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // A throwing rescue handler must not wedge the state machine: without
+                        // this catch the exception escapes the scope (no CoroutineExceptionHandler),
+                        // the state stays Stopping forever, the recording lock is never released,
+                        // and the uncaught exception kills the process hosting the IME.
+                        Log.e(TAG, "Stopping timeout handler failed; forcing Error state", e)
+                    }
                 }
                 var timedOut = false
                 _state.update { current ->
