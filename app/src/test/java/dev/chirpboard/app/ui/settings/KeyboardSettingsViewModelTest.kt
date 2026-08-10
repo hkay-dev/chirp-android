@@ -30,7 +30,6 @@ class KeyboardSettingsViewModelTest {
         every { keyboardPreferences.saveKeyboardRecordings } returns MutableStateFlow(true)
         every { keyboardPreferences.llmEnabled } returns MutableStateFlow(false)
         every { keyboardPreferences.defaultProcessingMode } returns MutableStateFlow("custom_mode")
-        every { keyboardPreferences.microphoneGain } returns MutableStateFlow(2.0f)
         every { keyboardPreferences.quickInputNotificationTimeoutMs } returns MutableStateFlow(60_000L)
     }
 
@@ -48,7 +47,6 @@ class KeyboardSettingsViewModelTest {
             assertEquals(true, state.saveKeyboardRecordings)
             assertEquals(false, state.llmEnabled)
             assertEquals("custom_mode", state.defaultProcessingMode)
-            assertEquals(2.0f, state.microphoneGain)
             assertEquals(60_000L, state.quickInputNotificationTimeoutMs)
         }
 

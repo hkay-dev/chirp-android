@@ -22,7 +22,6 @@ class KeyboardSettingsViewModel @Inject constructor(
         val saveKeyboardRecordings: Boolean = false,
         val llmEnabled: Boolean = true,
         val defaultProcessingMode: String? = null,
-        val microphoneGain: Float = 1.0f,
         val quickInputNotificationTimeoutMs: Long = DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS,
     )
 
@@ -35,14 +34,12 @@ class KeyboardSettingsViewModel @Inject constructor(
                 keyboardPreferences.saveKeyboardRecordings,
                 keyboardPreferences.llmEnabled,
                 keyboardPreferences.defaultProcessingMode,
-                keyboardPreferences.microphoneGain,
                 keyboardPreferences.quickInputNotificationTimeoutMs,
-            ) { saveRecordings, llmEnabled, processingMode, micGain, notificationTimeoutMs ->
+            ) { saveRecordings, llmEnabled, processingMode, notificationTimeoutMs ->
                 UiState(
                     saveKeyboardRecordings = saveRecordings,
                     llmEnabled = llmEnabled,
                     defaultProcessingMode = processingMode,
-                    microphoneGain = micGain,
                     quickInputNotificationTimeoutMs = notificationTimeoutMs,
                 )
             }.collect { state ->
@@ -72,12 +69,6 @@ class KeyboardSettingsViewModel @Inject constructor(
     fun setQuickInputNotificationTimeoutMs(timeoutMs: Long) {
         viewModelScope.launch {
             keyboardPreferences.setQuickInputNotificationTimeoutMs(timeoutMs)
-        }
-    }
-
-    fun setMicrophoneGain(gain: Float) {
-        viewModelScope.launch {
-            keyboardPreferences.setMicrophoneGain(gain)
         }
     }
 }
