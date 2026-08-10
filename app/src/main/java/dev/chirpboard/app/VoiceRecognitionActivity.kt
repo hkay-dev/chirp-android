@@ -475,7 +475,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         }
         // Reflect Starting in the dialog immediately; the coordinator's generation+mutex
         // (not this flag) is what serializes a rapid second tap against the in-flight start.
-        _recordingState.value = RecordingState.Starting(RecordingOrigin.KEYBOARD)
+        _recordingState.value = RecordingState.Starting(RecordingOrigin.RECOGNITION)
         captureTeardownDiscardsAudio = false
         _lostInputDeviceName.value = null
         val generation = sessionCoordinator.issueGeneration()
@@ -506,7 +506,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         return@launch
                     }
                     if (_recordingState.value !is RecordingState.Starting) return@launch
-                    _recordingState.value = RecordingState.Recording(RecordingOrigin.KEYBOARD)
+                    _recordingState.value = RecordingState.Recording(RecordingOrigin.RECOGNITION)
                     checkpointFirstRecognitionAudio()
                     armCaptureStallWatchdog(generation, endpointer)
                 }
@@ -639,7 +639,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         stopJob = rescueScope.launch(Dispatchers.Main.immediate) {
             try {
                 Log.d(TAG, "Stop button pressed (LLM: $llmEnabled, Mode: ${processingMode.id})")
-                _recordingState.value = RecordingState.Stopping(RecordingOrigin.KEYBOARD)
+                _recordingState.value = RecordingState.Stopping(RecordingOrigin.RECOGNITION)
                 captureCheckpointJob?.join()
                 captureCheckpointJob = null
 
