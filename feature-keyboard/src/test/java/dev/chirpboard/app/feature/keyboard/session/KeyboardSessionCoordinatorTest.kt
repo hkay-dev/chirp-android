@@ -1476,6 +1476,63 @@ class KeyboardSessionCoordinatorTest {
     }
 
     @Test
+    fun destroy_releasesStreamingProviderOnlyAfterStreamingWorkFinishes() {
+        // destroy() used to launch provider.release() without joining the streaming jobs; a job
+        // parked in a blocking native call would then race the native release (use-after-free).
+        // Hold the prepare job open and assert release() waits for it.
+        val realScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val prepareGate = CountDownLatch(1)
+        val prepareEntered = CountDownLatch(1)
+        val released = CountDownLatch(1)
+        try {
+            val streamingProvider =
+                mockk<dev.chirpboard.app.core.transcription.StreamingTranscriberProvider> {
+                    coEvery { prepare() } coAnswers {
+                        prepareEntered.countDown()
+                        check(prepareGate.await(5, TimeUnit.SECONDS)) { "prepare gate never opened" }
+                        true
+                    }
+                    coEvery { release() } coAnswers { released.countDown() }
+                }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = realScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    streamingTranscriberProvider = streamingProvider,
+                )
+
+            coordinator.prepareStreamingPreview()
+            assertTrue("prepare should be in flight", prepareEntered.await(5, TimeUnit.SECONDS))
+
+            coordinator.destroy()
+
+            // release() must not run while the prepare job is still inside the provider.
+            assertFalse(
+                "release must wait for in-flight streaming work",
+                released.await(300, TimeUnit.MILLISECONDS),
+            )
+
+            prepareGate.countDown()
+            assertTrue("release must run once streaming work finished", released.await(5, TimeUnit.SECONDS))
+        } finally {
+            prepareGate.countDown()
+            realScope.cancel()
+        }
+    }
+
+    @Test
     fun changeMode_writesKeyboardScopedDefaultInsteadOfGlobalMode() =
         runTest {
             // PLH-1/PLH-8 class: a pick on the keyboard surface must never silently flip the

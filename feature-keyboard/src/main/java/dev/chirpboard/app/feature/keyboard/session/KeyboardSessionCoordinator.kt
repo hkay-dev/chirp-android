@@ -419,10 +419,22 @@ class KeyboardSessionCoordinator(
      * Clears the KEYBOARD stopping-timeout handler only when it is still ours.
      */
     fun destroy() {
+        val rollingJob = rollingTranscriptionJob
+        val prepareJob = streamingPreviewPrepareJob
         stopRollingTranscription()
-        streamingPreviewPrepareJob?.cancel()
+        prepareJob?.cancel()
         streamingTranscriberProvider?.let { provider ->
-            scope.launch(NonCancellable + Dispatchers.IO) { provider.release() }
+            // Cancellation is cooperative: the rolling job may be parked inside a blocking native
+            // call (StreamingTranscriptionSession.accept/close) and the prepare job inside
+            // provider.prepare(); neither observes the cancel until its next suspension point.
+            // Releasing the shared native provider under them would free state they are still
+            // using, so join both before release. NonCancellable keeps the join + release alive
+            // past the scope.cancel() that follows in the service's onDestroy.
+            scope.launch(NonCancellable + Dispatchers.IO) {
+                rollingJob?.join()
+                prepareJob?.join()
+                provider.release()
+            }
         }
         recordingStateManager.clearStoppingTimeoutHandler(RecordingOrigin.KEYBOARD, stoppingTimeoutRescue)
     }
