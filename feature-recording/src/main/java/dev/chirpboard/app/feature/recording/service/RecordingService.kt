@@ -391,26 +391,45 @@ class RecordingService : Service() {
         )
     }
 
+    /**
+     * A microphone-typed startForeground can throw on API 34+ when the while-in-use grant
+     * is missing (SecurityException / ForegroundServiceStartNotAllowedException). This
+     * service shares its process with the keyboard IME, so an escaped throw from
+     * onStartCommand would kill the keyboard; degrade to a surfaced recording error instead.
+     */
     private fun promoteToForegroundImmediately() {
-        ServiceCompat.startForeground(
-            this,
-            RecordingNotificationFactory.NOTIFICATION_ID,
-            notificationFactory.createStartingNotification(this),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-        )
+        try {
+            ServiceCompat.startForeground(
+                this,
+                RecordingNotificationFactory.NOTIFICATION_ID,
+                notificationFactory.createStartingNotification(this),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "startForeground refused; abandoning recording start", e)
+            recordingStateManager.onRecordingError(FOREGROUND_REFUSED_MESSAGE, e)
+            stopSelf()
+        }
     }
 
     /**
      * Re-posts the live recording notification via startForeground so an extra
      * start command does not clobber the notification of the active capture.
+     * Failure here must not take down an already-healthy capture, so it only logs.
      */
     private fun promoteToForegroundForActiveRecording() {
-        ServiceCompat.startForeground(
-            this,
-            RecordingNotificationFactory.NOTIFICATION_ID,
-            notificationFactory.createRecordingNotification(this, recordingStateManager),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
-        )
+        try {
+            ServiceCompat.startForeground(
+                this,
+                RecordingNotificationFactory.NOTIFICATION_ID,
+                notificationFactory.createRecordingNotification(this, recordingStateManager),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+            )
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            Log.e(TAG, "startForeground re-post refused for active recording", e)
+        }
     }
 
     private suspend fun startRecordingAfterLockAcquired(
@@ -1639,6 +1658,10 @@ class RecordingService : Service() {
         private const val CAPTURE_PROGRESS_CHECK_INTERVAL_MS = 1_000L
         private const val FILENAME_UNIQUE_SUFFIX_LENGTH = 8
         private const val STOP_WAKELOCK_TAG = "chirpboard:stop-finalize"
+
+        /** Surfaced when the system refuses the microphone foreground promotion. */
+        private const val FOREGROUND_REFUSED_MESSAGE =
+            "Recording couldn't start in the background. Open Chirp and try again."
 
         /** Capture-stop budget plus margin; the timed acquire guarantees release. */
         private const val STOP_WAKELOCK_TIMEOUT_MS = CAPTURE_STOP_TIMEOUT_MS + 30_000L
