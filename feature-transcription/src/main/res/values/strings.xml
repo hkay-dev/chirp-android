@@ -85,6 +85,8 @@
     <string name="transcription_error_storage_full">Not enough storage to transcribe. Free up space and retry.</string>
     <string name="transcription_error_out_of_memory">The recording is too long to transcribe on this device.</string>
     <string name="transcription_error_generic">Transcription didn’t finish. Open Chirp to retry.</string>
+    <string name="transcription_error_cloud_daily_limit">Daily cloud limit reached. Try again tomorrow or switch to on-device transcription in Settings.</string>
+    <string name="transcription_error_cloud">Cloud transcription failed. Check your connection or switch to on-device transcription in Settings.</string>
 
     <!-- I18N-08: settings ViewModel status/error copy (previously Kotlin literals). -->
     <string name="transcription_settings_model_not_downloaded">Download this model before selecting it</string>

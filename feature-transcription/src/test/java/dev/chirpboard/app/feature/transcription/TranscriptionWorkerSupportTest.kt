@@ -153,6 +153,8 @@ class TranscriptionWorkerSupportTest {
         every { context.getString(R.string.transcription_error_audio_missing) } returns "audio-missing"
         every { context.getString(R.string.transcription_error_out_of_memory) } returns "out-of-memory"
         every { context.getString(R.string.transcription_error_generic) } returns "generic"
+        every { context.getString(R.string.transcription_error_cloud_daily_limit) } returns "cloud-daily-limit"
+        every { context.getString(R.string.transcription_error_cloud) } returns "cloud"
 
         assertEquals(
             "model-missing",
@@ -175,6 +177,20 @@ class TranscriptionWorkerSupportTest {
         assertEquals(
             "out-of-memory",
             transcriptionFailureNotificationText(context, "Out of memory during transcription"),
+        )
+        assertEquals(
+            "cloud-daily-limit",
+            transcriptionFailureNotificationText(
+                context,
+                "Speech engine failed: Daily cloud transcription limit reached; use local transcription or try again tomorrow",
+            ),
+        )
+        assertEquals(
+            "cloud",
+            transcriptionFailureNotificationText(
+                context,
+                "Speech engine failed: Cloud upload was rejected (status 500)",
+            ),
         )
         assertEquals(
             "generic",

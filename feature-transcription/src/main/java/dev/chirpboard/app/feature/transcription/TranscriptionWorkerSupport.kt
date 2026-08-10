@@ -495,6 +495,12 @@ internal fun transcriptionFailureNotificationText(
         message.contains("Out of memory", ignoreCase = true) ->
             context.getString(R.string.transcription_error_out_of_memory)
 
+        message.contains("Daily cloud transcription limit", ignoreCase = true) ->
+            context.getString(R.string.transcription_error_cloud_daily_limit)
+
+        message.contains("cloud", ignoreCase = true) ->
+            context.getString(R.string.transcription_error_cloud)
+
         else -> context.getString(R.string.transcription_error_generic)
     }
 }
