@@ -8,6 +8,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkObject
+import io.mockk.verify
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -152,6 +153,57 @@ class RecordingActiveStopCommandsTest {
                     requesterOrigin = RecordingOrigin.APP,
                 )
 
+                assertTrue(stateManager.state.value is RecordingState.Recording)
+            } finally {
+                unmockkObject(RecordingServiceCommands)
+            }
+        }
+
+    @Test
+    fun `stop while keyboard session is already stopping does not queue a pending stop`() =
+        runTest {
+            val store = pendingStopStore()
+            val stateManager = RecordingStateManager()
+            stateManager.tryStartRecording(RecordingOrigin.KEYBOARD, profileId = null)
+            stateManager.onRecordingStarted(audioFilePath = "keyboard.m4a")
+            stateManager.transitionToStopping()
+
+            RecordingActiveStopCommands.stopActiveRecording(
+                context = mockk(relaxed = true),
+                recordingStateManager = stateManager,
+                keyboardStopBridge = KeyboardRecordingStopBridge(),
+                pendingStopStore = store,
+                requesterOrigin = RecordingOrigin.WIDGET,
+            )
+
+            // A pending stop written here would outlive this session's cleanup and stop
+            // the next dictation the moment it starts.
+            assertEquals(null, store.peek())
+            assertTrue(stateManager.state.value is RecordingState.Stopping)
+        }
+
+    @Test
+    fun `stop of a recognition session leaves state untouched and dispatches nothing`() =
+        runTest {
+            val stateManager = RecordingStateManager()
+            stateManager.tryStartRecording(RecordingOrigin.RECOGNITION, profileId = null)
+            stateManager.onRecordingStarted(audioFilePath = "recognition-session")
+            mockkObject(RecordingServiceCommands)
+            try {
+                every { RecordingServiceCommands.stopRecording(any()) } returns true
+
+                RecordingActiveStopCommands.stopActiveRecording(
+                    context = mockk(relaxed = true),
+                    recordingStateManager = stateManager,
+                    keyboardStopBridge = KeyboardRecordingStopBridge(),
+                    pendingStopStore = pendingStopStore(),
+                    requesterOrigin = RecordingOrigin.WIDGET,
+                )
+
+                // Recognition captures are not owned by RecordingService; a dispatched stop
+                // would target a session the service never ran, and a refused dispatch would
+                // force Error and release the lock under a hot mic.
+                verify(exactly = 0) { RecordingServiceCommands.stopRecording(any()) }
                 assertTrue(stateManager.state.value is RecordingState.Recording)
             } finally {
                 unmockkObject(RecordingServiceCommands)

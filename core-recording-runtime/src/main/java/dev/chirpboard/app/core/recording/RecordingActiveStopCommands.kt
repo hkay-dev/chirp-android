@@ -1,8 +1,6 @@
 package dev.chirpboard.app.core.recording
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Origin-aware stop entry point for any surface that needs to end the active recording.
@@ -20,16 +18,29 @@ object RecordingActiveStopCommands {
         if (!state.isActive) {
             return
         }
+        if (state is RecordingState.Stopping) {
+            // The session is already finishing. Re-dispatching a service stop is a no-op,
+            // but the keyboard arm below would enqueue a pending stop that survives this
+            // session's cleanup and can kill the NEXT dictation the moment it starts.
+            return
+        }
 
         when (state.activeOrigin) {
             RecordingOrigin.KEYBOARD -> {
                 if (keyboardStopBridge.requestStop()) {
                     return
                 }
-                withContext(Dispatchers.IO) {
-                    pendingStopStore.enqueue(requesterOrigin)
-                }
+                pendingStopStore.enqueue(requesterOrigin)
                 onKeyboardStopQueued?.invoke()
+            }
+            RecordingOrigin.RECOGNITION -> {
+                // Recognition captures are driven in-process by the RECOGNIZE_SPEECH
+                // dialog/service, not by RecordingService. Dispatching a service stop
+                // would start an unrelated service instance for a session it never
+                // owned, and the refusal fallback below would force Error and release
+                // the lock while the recognition recorder is still capturing. The
+                // recognition surface ends its own session.
+                return
             }
             else -> {
                 val dispatched = RecordingServiceCommands.stopRecording(context)
