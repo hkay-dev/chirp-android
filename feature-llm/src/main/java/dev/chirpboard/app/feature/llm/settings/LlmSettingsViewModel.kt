@@ -143,7 +143,13 @@ class LlmSettingsViewModel
 
                 val provider = _uiState.value.activeProvider
                 val apiKey = _uiState.value.apiKey.trim()
-                if (apiKey.isBlank()) return@launch
+                if (apiKey.isBlank()) {
+                    // A silent return here made the Save button look broken.
+                    _uiState.update {
+                        it.copy(connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_key_blank)))
+                    }
+                    return@launch
+                }
 
                 preferences.setApiKeyFor(provider, apiKey)
                 val saved = preferences.hasApiKeyFor(provider)

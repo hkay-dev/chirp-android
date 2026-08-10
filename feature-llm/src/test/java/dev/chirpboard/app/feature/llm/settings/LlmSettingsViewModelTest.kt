@@ -39,6 +39,7 @@ class LlmSettingsViewModelTest {
                 "Couldn't reach the provider. Check your internet connection."
             every { getString(R.string.llm_error_connection_rejected) } returns
                 "The provider rejected the request. Check your API key and model."
+            every { getString(R.string.llm_error_key_blank) } returns "Enter an API key first"
         }
     private lateinit var preferences: LlmSettingsStore
     private lateinit var backupManager: LlmApiKeyBackupManager
@@ -132,6 +133,20 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "saved-key") }
+        }
+
+    @Test
+    fun `saveApiKey with blank input shows an error and saves nothing`() =
+        runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.updateApiKey("   ")
+            viewModel.saveApiKey()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val result = viewModel.uiState.value.connectionTestResult
+            assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Error)
+            assertEquals("Enter an API key first", (result as LlmSettingsViewModel.ConnectionTestResult.Error).message)
+            verify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
         }
 
     @Test

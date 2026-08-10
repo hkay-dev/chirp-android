@@ -83,6 +83,7 @@
     <string name="llm_error_secure_storage_unavailable">Secure storage unavailable on this device</string>
     <string name="llm_error_key_save_failed">Failed to save API key</string>
     <string name="llm_error_key_not_configured">API key not configured</string>
+    <string name="llm_error_key_blank">Enter an API key first</string>
     <!-- I18N-05: connection-test failures map to actionable copy; raw errors stay in logs. -->
     <string name="llm_error_connection_network">Couldn’t reach the provider. Check your internet connection.</string>
     <string name="llm_error_connection_rejected">The provider rejected the request. Check your API key and model.</string>
