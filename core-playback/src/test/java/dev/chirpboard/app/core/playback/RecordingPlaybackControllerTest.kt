@@ -231,10 +231,12 @@ class RecordingPlaybackControllerTest {
     private fun testContext(): Context {
         val context = mockk<Context>(relaxed = true)
         every { context.applicationContext } returns context
+        every { context.getString(R.string.playback_error_file_missing) } returns FILE_MISSING_MESSAGE
         return context
     }
 
     private companion object {
         const val BLOCKED_MESSAGE = "Can't play audio while a recording is in progress"
+        const val FILE_MISSING_MESSAGE = "Audio file not found"
     }
 }

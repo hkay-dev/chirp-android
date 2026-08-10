@@ -264,7 +264,7 @@ class RecordingPlaybackController
                     RecordingPlaybackState(
                         recordingId = recordingId,
                         audioPath = audioPath,
-                        errorMessage = "Audio file not found",
+                        errorMessage = context.getString(R.string.playback_error_file_missing),
                         playbackSpeed = _state.value.playbackSpeed,
                     )
                 return false
@@ -285,7 +285,7 @@ class RecordingPlaybackController
                     _state.value =
                         _state.value.copy(
                             isLoading = false,
-                            errorMessage = "Playback unavailable",
+                            errorMessage = context.getString(R.string.playback_error_generic),
                         )
                 }
             }
