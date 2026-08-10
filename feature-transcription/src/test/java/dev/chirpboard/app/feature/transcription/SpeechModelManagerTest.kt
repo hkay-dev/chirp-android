@@ -54,14 +54,16 @@ class SpeechModelManagerTest {
         SpeechModelManager(speechModelStore, readinessGate, downloadGateway, backgroundScope)
 
     @Test
-    fun `deleteModel invalidates cache without warming deleted model`() = runTest {
+    fun `deleteModel invalidates the gate without warming the deleted model`() = runTest {
         val manager = createManager()
         coEvery { speechModelStore.deleteModel() } returns true
 
         val result = manager.deleteModel()
 
         assertTrue(result)
-        verify { speechModelStore.invalidateVerificationCache() }
+        // Cache scrubbing is the store's job (scoped to the deleted model); a blanket
+        // invalidation here would force other models into a full re-hash.
+        verify(exactly = 0) { speechModelStore.invalidateVerificationCache() }
         verify { readinessGate.invalidate() }
         verify(exactly = 0) { readinessGate.verifyIfNeeded(any()) }
     }

@@ -221,7 +221,9 @@ class SpeechModelManager
                     if (selectionStore == null) speechModelStore.deleteModel()
                     else speechModelStore.deleteModel(_managedModel.value)
                 if (success) {
-                    speechModelStore.invalidateVerificationCache()
+                    // The store's deleteModel already scrubbed its verification cache for the
+                    // deleted model; a second blanket invalidation here would needlessly force
+                    // every other model's next readiness check into a full re-hash.
                     readinessGate.invalidate()
                     applyEvaluation(evaluateManagedModel())
                 }

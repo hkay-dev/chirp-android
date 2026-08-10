@@ -653,9 +653,20 @@ class ModelDownloader(
             if (legacyPath.exists()) {
                 success = legacyPath.deleteRecursively() && success
             }
-            invalidateVerificationCache()
+            // Scrub only this model's entries: a blanket clear would force the other models'
+            // next readiness check into a full multi-hundred-MB re-hash for no reason.
+            clearVerificationCacheFor(modelId)
             success
         }
+
+    private fun clearVerificationCacheFor(modelId: LocalSpeechModelId) {
+        val files = modelFiles ?: modelSpec(modelId).files
+        val directories =
+            listOf(modelDirectory(modelId), modelDirectory(modelId, preferInternalStorage = true))
+        for (directory in directories) {
+            files.forEach { file -> clearCacheEntry(File(directory, file.name).absolutePath) }
+        }
+    }
 
     override suspend fun getDownloadedSize(): Long =
         getDownloadedSize(selectedModelId())
