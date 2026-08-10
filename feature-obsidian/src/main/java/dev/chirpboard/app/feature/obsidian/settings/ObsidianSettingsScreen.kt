@@ -1,6 +1,5 @@
 package dev.chirpboard.app.feature.obsidian.settings
 
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
@@ -65,21 +63,15 @@ fun ObsidianSettingsScreen(
     onNavigateBack: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
 
-    // SAF folder picker launcher
+    // SAF folder picker launcher. Persisting the grant happens in the ViewModel: it is a
+    // Binder call that can also throw, so it must run off the main thread with its failure
+    // surfaced instead of crashing the screen.
     val folderPickerLauncher =
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenDocumentTree(),
         ) { uri: Uri? ->
-            uri?.let {
-                // Take persistable permission so we can access the folder later
-                val takeFlags =
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(it, takeFlags)
-                viewModel.setVaultUri(it)
-            }
+            uri?.let(viewModel::setVaultUri)
         }
 
     // Re-check SAF access every time the screen comes back to the foreground, not just on
@@ -102,22 +94,35 @@ fun ObsidianSettingsScreen(
                     .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(ChirpSpacing.Large),
         ) {
-            // Vault configuration
-            VaultConfigurationCard(
-                vaultName = uiState.vaultName,
-                hasAccess = uiState.hasAccess,
-                isConfigured = uiState.vaultUri != null,
-                onSelectVault = { folderPickerLauncher.launch(null) },
-                onClearVault = viewModel::clearVault,
-            )
-
-            // Auto-export toggle (only shown when vault is configured)
-            PushDownReveal(visible = uiState.vaultUri != null) {
-                AutoExportRow(
-                    enabled = uiState.autoExportEnabled,
+            // Wait for the stored preferences before drawing the vault card: rendering the
+            // defaults would flash "No vault configured" at users who have one.
+            if (!uiState.isLoading) {
+                // Vault configuration
+                VaultConfigurationCard(
+                    vaultName = uiState.vaultName,
                     hasAccess = uiState.hasAccess,
-                    onToggle = viewModel::toggleAutoExport,
+                    isConfigured = uiState.vaultUri != null,
+                    onSelectVault = { folderPickerLauncher.launch(null) },
+                    onClearVault = viewModel::clearVault,
                 )
+
+                if (uiState.vaultSelectionFailed) {
+                    Text(
+                        text = stringResource(R.string.obsidian_vault_selection_failed),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = ChirpSpacing.ScreenHorizontal),
+                    )
+                }
+
+                // Auto-export toggle (only shown when vault is configured)
+                PushDownReveal(visible = uiState.vaultUri != null) {
+                    AutoExportRow(
+                        enabled = uiState.autoExportEnabled,
+                        hasAccess = uiState.hasAccess,
+                        onToggle = viewModel::toggleAutoExport,
+                    )
+                }
             }
 
             // Help text

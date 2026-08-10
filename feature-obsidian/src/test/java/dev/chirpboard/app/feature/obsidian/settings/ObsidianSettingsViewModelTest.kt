@@ -5,8 +5,8 @@ import app.cash.turbine.test
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
-import io.mockk.verify
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import kotlinx.coroutines.Dispatchers
@@ -72,16 +72,37 @@ class ObsidianSettingsViewModelTest {
         }
 
     @Test
-    fun `setVaultUri updates preference`() =
+    fun `setVaultUri persists the grant and then the preference`() =
         runTest {
             val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
             val testUri = mockk<Uri>(relaxed = true)
             every { testUri.toString() } returns "content://test"
+            coEvery { obsidianManager.takeVaultPermission(testUri) } returns true
 
             viewModel.setVaultUri(testUri)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            coVerify { preferences.setGlobalVaultUri("content://test") }
+            coVerifyOrder {
+                obsidianManager.takeVaultPermission(testUri)
+                preferences.setGlobalVaultUri("content://test")
+            }
+        }
+
+    @Test
+    fun `setVaultUri does not store a vault whose grant could not be persisted`() =
+        runTest {
+            val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
+            val testUri = mockk<Uri>(relaxed = true)
+            every { testUri.toString() } returns "content://test"
+            coEvery { obsidianManager.takeVaultPermission(testUri) } returns false
+
+            viewModel.setVaultUri(testUri)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // A vault we can't reopen after a restart must never be saved as configured,
+            // and the failure must be visible to the user.
+            coVerify(exactly = 0) { preferences.setGlobalVaultUri(any()) }
+            assertTrue(viewModel.uiState.value.vaultSelectionFailed)
         }
 
     @Test
@@ -108,12 +129,12 @@ class ObsidianSettingsViewModelTest {
             viewModel.clearVault()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            verify { obsidianManager.releaseVaultPermission(any()) }
+            coVerify { obsidianManager.releaseVaultPermission(any()) }
             coVerify { preferences.setGlobalVaultUri(null) }
         }
 
     @Test
-    fun `setVaultUri releases the previous vault grant when replacing it`() =
+    fun `setVaultUri releases the previous vault grant only after the new one is stored`() =
         runTest {
             globalVaultUriFlow.value = "content://old"
             coEvery { obsidianManager.hasVaultAccess(any()) } returns true
@@ -123,11 +144,16 @@ class ObsidianSettingsViewModelTest {
 
             val newUri = mockk<Uri>(relaxed = true)
             every { newUri.toString() } returns "content://new"
+            coEvery { obsidianManager.takeVaultPermission(newUri) } returns true
             viewModel.setVaultUri(newUri)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            verify { obsidianManager.releaseVaultPermission(any()) }
-            coVerify { preferences.setGlobalVaultUri("content://new") }
+            // Releasing before persisting would leave the app with no working vault if the
+            // process died in between.
+            coVerifyOrder {
+                preferences.setGlobalVaultUri("content://new")
+                obsidianManager.releaseVaultPermission(any())
+            }
         }
 
     @Test

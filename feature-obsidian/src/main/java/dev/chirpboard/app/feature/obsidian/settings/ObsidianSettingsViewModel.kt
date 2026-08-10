@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.runtime.Stable
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -37,7 +38,9 @@ class ObsidianSettingsViewModel @Inject constructor(
         /** Whether we currently have SAF access to the vault */
         val hasAccess: Boolean = false,
         /** Whether the initial data has loaded */
-        val isLoading: Boolean = true
+        val isLoading: Boolean = true,
+        /** The last vault pick couldn't be kept (the provider refused a persistable grant) */
+        val vaultSelectionFailed: Boolean = false
     )
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -60,7 +63,8 @@ class ObsidianSettingsViewModel @Inject constructor(
                     isLoading = false,
                 )
             }.collect { state ->
-                _uiState.value = state
+                // Preserve transient flags that don't derive from preferences.
+                _uiState.update { state.copy(vaultSelectionFailed = it.vaultSelectionFailed) }
             }
         }
     }
@@ -72,13 +76,24 @@ class ObsidianSettingsViewModel @Inject constructor(
      */
     fun setVaultUri(uri: Uri) {
         viewModelScope.launch {
-            // Give back the previous vault's persistable grant: Android caps persisted URI
-            // grants per app, so stale grants from replaced vaults must not accumulate.
-            val previous = _uiState.value.vaultUri?.let { Uri.parse(it) }
+            // Read the previous vault from preferences, not UI state: during the initial
+            // load window the state hasn't caught up yet and its grant would leak.
+            val previous = preferences.globalVaultUri.first()?.let { Uri.parse(it) }
+            // Persist the grant before storing the URI: a vault we can't reopen after a
+            // restart must never be saved as configured.
+            if (!obsidianManager.takeVaultPermission(uri)) {
+                _uiState.update { it.copy(vaultSelectionFailed = true) }
+                return@launch
+            }
+            _uiState.update { it.copy(vaultSelectionFailed = false) }
+            preferences.setGlobalVaultUri(uri.toString())
+            // Give back the replaced vault's grant only after the new one is stored:
+            // Android caps persisted URI grants per app, so stale grants must not
+            // accumulate — but releasing first would leave the app with no working vault
+            // if the process died in between.
             if (previous != null && previous != uri) {
                 obsidianManager.releaseVaultPermission(previous)
             }
-            preferences.setGlobalVaultUri(uri.toString())
         }
     }
 
@@ -87,10 +102,12 @@ class ObsidianSettingsViewModel @Inject constructor(
      */
     fun clearVault() {
         viewModelScope.launch {
-            _uiState.value.vaultUri?.let { obsidianManager.releaseVaultPermission(Uri.parse(it)) }
+            val current = preferences.globalVaultUri.first()?.let { Uri.parse(it) }
             preferences.setGlobalVaultUri(null)
             // Also disable auto-export when vault is cleared
             preferences.setAutoExportEnabled(false)
+            _uiState.update { it.copy(vaultSelectionFailed = false) }
+            current?.let { obsidianManager.releaseVaultPermission(it) }
         }
     }
 
@@ -99,7 +116,7 @@ class ObsidianSettingsViewModel @Inject constructor(
      */
     fun toggleAutoExport() {
         viewModelScope.launch {
-            val currentValue = _uiState.value.autoExportEnabled
+            val currentValue = preferences.autoExportEnabled.first()
             preferences.setAutoExportEnabled(!currentValue)
         }
     }

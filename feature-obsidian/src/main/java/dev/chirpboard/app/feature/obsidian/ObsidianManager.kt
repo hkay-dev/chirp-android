@@ -134,20 +134,47 @@ class ObsidianManager
             }
 
         /**
+         * Persist the read/write grant for a freshly picked vault folder. Returns false when
+         * the provider refuses (grant not persistable, or the per-app persisted-grant cap is
+         * hit) so callers can surface the failure instead of storing a vault that can't be
+         * reopened later.
+         *
+         * Suspends on the IO dispatcher: this is a Binder call into the storage provider.
+         */
+        suspend fun takeVaultPermission(vaultUri: Uri): Boolean =
+            withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        vaultUri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                    true
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "Could not persist permission for $vaultUri", e)
+                    false
+                }
+            }
+
+        /**
          * Release the persistable read/write grant taken when the vault was picked. Android
          * caps persisted URI grants per app, so grants for cleared/replaced vaults must be
          * given back instead of accumulating until new picks stop persisting.
+         *
+         * Suspends on the IO dispatcher for the same Binder reason as [takeVaultPermission].
          */
-        fun releaseVaultPermission(vaultUri: Uri) {
-            try {
-                context.contentResolver.releasePersistableUriPermission(
-                    vaultUri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                )
-            } catch (e: SecurityException) {
-                // Not held (already revoked externally) — nothing to release.
-                Log.w(TAG, "No persistable permission to release for $vaultUri", e)
+        suspend fun releaseVaultPermission(vaultUri: Uri) {
+            withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.releasePersistableUriPermission(
+                        vaultUri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                } catch (e: SecurityException) {
+                    // Not held (already revoked externally) — nothing to release.
+                    Log.w(TAG, "No persistable permission to release for $vaultUri", e)
+                }
             }
         }
 
