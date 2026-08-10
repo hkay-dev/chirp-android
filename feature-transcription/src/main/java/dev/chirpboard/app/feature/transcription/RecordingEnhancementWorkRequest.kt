@@ -1,12 +1,9 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Data
-import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -48,29 +45,5 @@ object RecordingEnhancementWorkRequest {
             .addTag(WORK_TAG_ENHANCEMENT)
             .addTag("${TranscriptionWorkRequest.WORK_TAG_RECORDING_PREFIX}$recordingId")
             .build()
-    }
-
-    fun enqueue(
-        context: Context,
-        recordingId: UUID,
-        correlationId: String? = null,
-        executionToken: String = UUID.randomUUID().toString(),
-    ): String {
-        WorkManager
-            .getInstance(context)
-            .enqueueUniqueWork(
-                workName(recordingId),
-                ExistingWorkPolicy.KEEP,
-                build(recordingId, executionToken, correlationId),
-            )
-
-        return workName(recordingId)
-    }
-
-    fun cancel(
-        context: Context,
-        recordingId: UUID,
-    ) {
-        WorkManager.getInstance(context).cancelUniqueWork(workName(recordingId))
     }
 }

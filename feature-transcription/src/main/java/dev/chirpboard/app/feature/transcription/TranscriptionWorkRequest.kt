@@ -1,13 +1,10 @@
 package dev.chirpboard.app.feature.transcription
 
-import android.content.Context
 import androidx.work.Constraints
 import androidx.work.Data
-import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import java.util.UUID
 
 /**
@@ -55,56 +52,4 @@ object TranscriptionWorkRequest {
             .addTag("$WORK_TAG_RECORDING_PREFIX$recordingId")
             .build()
     }
-
-    /**
-     * Creates and enqueues a transcription work request for the given recording.
-     *
-     * Uses [ExistingWorkPolicy.KEEP] to prevent duplicate work for the same recording.
-     * If transcription is already in progress for this recording, the existing work continues.
-     *
-     * @param context Application context
-     * @param recordingId UUID of the recording to transcribe
-     * @return The work request UUID for tracking
-     */
-    fun enqueue(
-        context: Context,
-        recordingId: UUID,
-        correlationId: String? = null,
-        executionToken: String = UUID.randomUUID().toString(),
-        requiresNetwork: Boolean = false,
-    ): String {
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork(
-                workName(recordingId),
-                ExistingWorkPolicy.KEEP,
-                build(recordingId, executionToken, correlationId, requiresNetwork)
-            )
-
-        return workName(recordingId)
-    }
-
-    /**
-     * Cancels any pending transcription work for the given recording.
-     */
-    fun cancel(context: Context, recordingId: UUID) {
-        WorkManager.getInstance(context).cancelUniqueWork(workName(recordingId))
-    }
-
-    /**
-     * Cancels all pending transcription work.
-     */
-    fun cancelAll(context: Context) {
-        WorkManager.getInstance(context).cancelAllWorkByTag(WORK_TAG_TRANSCRIPTION)
-    }
-
-    /**
-     * Gets the work info for a specific recording's transcription.
-     *
-     * @param context Application context
-     * @param recordingId UUID of the recording
-     * @return LiveData of work info list
-     */
-    fun getWorkInfo(context: Context, recordingId: UUID) =
-        WorkManager.getInstance(context)
-            .getWorkInfosByTagLiveData("$WORK_TAG_RECORDING_PREFIX$recordingId")
 }

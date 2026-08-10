@@ -44,19 +44,6 @@ private fun MediaFormat.getIntegerOrDefault(key: String, default: Int): Int {
 }
 
 /**
- * Safe accessor for MediaFormat long values.
- */
-private fun MediaFormat.getLongOrDefault(key: String, default: Long): Long {
-    return try {
-        if (containsKey(key)) getLong(key) else default
-    } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
-        Log.w(MEDIA_FORMAT_TAG, "Failed to get MediaFormat key $key, using default $default", e)
-        default
-    }
-}
-
-/**
  * Safe accessor for MediaFormat string values.
  */
 private fun MediaFormat.getStringOrNull(key: String): String? {
@@ -527,47 +514,6 @@ class AudioDecoder @Inject constructor() {
 
             Log.d(TAG, "Direct WAV decode completed: $totalSamples samples from ${file.path}")
             totalSamples
-        }
-    }
-
-    /**
-     * Get audio duration in milliseconds without decoding.
-     *
-     * @param filePath Path to audio file
-     * @return Duration in milliseconds, or -1 if unable to determine
-     */
-    fun getDurationMs(filePath: String): Long {
-        val file = File(filePath)
-        if (!file.exists()) {
-            return -1
-        }
-
-        var extractor: MediaExtractor? = null
-        return try {
-            extractor = MediaExtractor().apply {
-                setDataSource(filePath)
-            }
-
-            val audioTrackIndex = findAudioTrack(extractor)
-            if (audioTrackIndex < 0) {
-                return -1
-            }
-
-            val format = extractor.getTrackFormat(audioTrackIndex)
-            val durationUs = format.getLongOrDefault(MediaFormat.KEY_DURATION, -1000L)
-            if (durationUs < 0) -1 else durationUs / 1000 // Convert to milliseconds
-
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            Log.e(TAG, "Failed to get duration: ${e.message}", e)
-            -1
-        } finally {
-            try {
-                extractor?.release()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                Log.w(TAG, "Error releasing extractor", e)
-            }
         }
     }
 
