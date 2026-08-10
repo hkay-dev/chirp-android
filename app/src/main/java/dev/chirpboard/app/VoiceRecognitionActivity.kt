@@ -771,7 +771,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             showErrorThenReturn(
                                 VoiceRecognitionUiError.TranscriptionFailed(
                                     speechErrorCode = delivery.errorCode,
-                                    audioRescued = !secure,
+                                    // Claim a rescue only when a persist actually completed;
+                                    // "your audio was saved" must never be a guess.
+                                    audioRescued = outcome.audioPersisted,
                                 ),
                             )
                         } else {
@@ -1276,6 +1278,13 @@ internal class DictationCapturePersistenceGuard(
 
     @Volatile
     private var successPersisted = false
+
+    /**
+     * True only after a delegate persist actually returned, so error UI can honestly say
+     * "your audio was saved" instead of assuming every non-secure failure was rescued.
+     */
+    val audioPersisted: Boolean
+        get() = rescuePersisted || successPersisted
 
     private var deferredRescueSource: InlineAudioSource? = null
 

@@ -111,6 +111,7 @@ class VoiceRecognitionTranscriptionRunner
                 rawText = completedRawText,
                 processedText = completedProcessedText,
                 terminalPhase = transcription.phase.value,
+                audioPersisted = (persistence as? DictationCapturePersistenceGuard)?.audioPersisted ?: false,
             )
         }
 
@@ -127,6 +128,8 @@ class VoiceRecognitionTranscriptionRunner
             val rawText: String?,
             val processedText: String?,
             val terminalPhase: InlineTranscriptionPhase,
+            /** A capture persist (rescue or completed save) actually finished for this session. */
+            val audioPersisted: Boolean,
         )
 
         class Session internal constructor(

@@ -53,6 +53,26 @@ class DictationCapturePersistenceGuardTest {
         }
 
     @Test
+    fun `audioPersisted reflects only persists that actually completed`() =
+        runTest {
+            val failingDelegate = RecordingCapturePersistence(failNextPersist = true)
+            val failedGuard = DictationCapturePersistenceGuard(failingDelegate)
+            runCatching {
+                failedGuard.persistAudioSource(source, "raw", null, "Commit refused", InlineCapturePersistReason.RESCUE)
+            }
+            assertEquals(false, failedGuard.audioPersisted)
+
+            val guard = DictationCapturePersistenceGuard(RecordingCapturePersistence())
+            assertEquals(false, guard.audioPersisted)
+            guard.persistAudioSource(source, "raw", null, "Pipeline failed", InlineCapturePersistReason.RESCUE)
+            assertEquals(true, guard.audioPersisted)
+
+            val cancelGuard = DictationCapturePersistenceGuard(RecordingCapturePersistence())
+            cancelGuard.persistAudioSource(source, "raw", null, "Dictation cancelled", InlineCapturePersistReason.USER_CANCELLED)
+            assertEquals(false, cancelGuard.audioPersisted)
+        }
+
+    @Test
     fun `failed persist leaves the guard open for the follow-up persist`() =
         runTest {
             val delegate = RecordingCapturePersistence(failNextPersist = true)
