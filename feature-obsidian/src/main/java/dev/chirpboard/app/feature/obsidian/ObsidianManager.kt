@@ -98,31 +98,58 @@ class ObsidianManager
         /**
          * Check if we have SAF permission for the given vault URI.
          *
+         * Suspends on the IO dispatcher: DocumentFile access goes over Binder to the storage
+         * provider, which can stall on slow or cloud-backed trees.
+         *
          * @param vaultUri The SAF URI to check
          * @return true if we have read/write access
          */
-        fun hasVaultAccess(vaultUri: Uri): Boolean =
-            try {
-                val vaultDir = DocumentFile.fromTreeUri(context, vaultUri)
-                vaultDir?.canRead() == true && vaultDir.canWrite()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                false
+        suspend fun hasVaultAccess(vaultUri: Uri): Boolean =
+            withContext(Dispatchers.IO) {
+                try {
+                    val vaultDir = DocumentFile.fromTreeUri(context, vaultUri)
+                    vaultDir?.canRead() == true && vaultDir.canWrite()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    false
+                }
             }
 
         /**
          * Get the display name for a vault URI.
          *
+         * Suspends on the IO dispatcher for the same Binder-stall reason as [hasVaultAccess].
+         *
          * @param vaultUri The SAF URI
          * @return Display name or null if unavailable
          */
-        fun getVaultDisplayName(vaultUri: Uri): String? =
-            try {
-                DocumentFile.fromTreeUri(context, vaultUri)?.name
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                null
+        suspend fun getVaultDisplayName(vaultUri: Uri): String? =
+            withContext(Dispatchers.IO) {
+                try {
+                    DocumentFile.fromTreeUri(context, vaultUri)?.name
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    null
+                }
             }
+
+        /**
+         * Release the persistable read/write grant taken when the vault was picked. Android
+         * caps persisted URI grants per app, so grants for cleared/replaced vaults must be
+         * given back instead of accumulating until new picks stop persisting.
+         */
+        fun releaseVaultPermission(vaultUri: Uri) {
+            try {
+                context.contentResolver.releasePersistableUriPermission(
+                    vaultUri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            } catch (e: SecurityException) {
+                // Not held (already revoked externally) — nothing to release.
+                Log.w(TAG, "No persistable permission to release for $vaultUri", e)
+            }
+        }
 
         /**
          * Write content atomically using temp file pattern.

@@ -59,7 +59,8 @@ class ObsidianManagerTest {
     }
 
     @Test
-    fun `hasVaultAccess returns true when directory is readable and writable`() {
+    fun `hasVaultAccess returns true when directory is readable and writable`() =
+        runTest {
         val uri = mockk<Uri>()
         val documentFile = mockk<DocumentFile>()
         
@@ -71,7 +72,8 @@ class ObsidianManagerTest {
     }
 
     @Test
-    fun `hasVaultAccess returns false when directory is not writable`() {
+    fun `hasVaultAccess returns false when directory is not writable`() =
+        runTest {
         val uri = mockk<Uri>()
         val documentFile = mockk<DocumentFile>()
         
@@ -83,14 +85,16 @@ class ObsidianManagerTest {
     }
 
     @Test
-    fun `hasVaultAccess returns false when DocumentFile is null`() {
+    fun `hasVaultAccess returns false when DocumentFile is null`() =
+        runTest {
         val uri = mockk<Uri>()
         every { DocumentFile.fromTreeUri(context, uri) } returns null
         assertFalse(manager.hasVaultAccess(uri))
     }
 
     @Test
-    fun `getVaultDisplayName returns name when directory exists`() {
+    fun `getVaultDisplayName returns name when directory exists`() =
+        runTest {
         val uri = mockk<Uri>()
         val documentFile = mockk<DocumentFile>()
         
