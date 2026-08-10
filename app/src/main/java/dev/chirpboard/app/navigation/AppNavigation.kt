@@ -32,9 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -58,6 +56,7 @@ import dev.chirpboard.app.core.ui.playback.shouldShowGlobalMiniPlayer
 import java.util.UUID
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.runningFold
 
 /**
  * Material 3 motion: shared axis forward/backward transitions.
@@ -278,11 +277,16 @@ private fun GlobalMiniPlayer(
     playbackController: RecordingPlaybackController,
     onOpenRecording: (UUID) -> Unit,
 ) {
-    val playbackState by playbackController.state.collectAsStateWithLifecycle()
-    var displayState by remember { mutableStateOf(playbackState) }
-    if (playbackState.isActive || playbackState.isLoading) {
-        displayState = playbackState
-    }
+    // Latch in the flow, not with a composition-time write (that was a backwards
+    // write). Holding every non-idle state also fixes error frames: the old
+    // isActive || isLoading condition never latched them (isActive is false once
+    // errorMessage is set), so the bar stayed visible showing a stale spinner
+    // instead of the failure message it exists to keep on screen (AUD-12).
+    val displayState by remember(playbackController) {
+        playbackController.state.runningFold(playbackController.state.value) { latched, next ->
+            if (next.isIdle) latched else next
+        }
+    }.collectAsStateWithLifecycle(playbackController.state.value)
     RecordingMiniPlayerBar(
         state = displayState,
         onPlayPause = playbackController::togglePlayPause,
