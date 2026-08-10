@@ -76,31 +76,40 @@ class ChirpApplication : Application(), Configuration.Provider {
     lateinit var recordingStartupCoordinator: Lazy<RecordingStartupCoordinator>
 
     @Inject
-    lateinit var widgetStateObserver: WidgetStateObserver
+    lateinit var widgetStateObserver: Lazy<WidgetStateObserver>
 
     @Inject
-    lateinit var recognizerResidencyPolicy: RecognizerResidencyPolicy
+    lateinit var recognizerResidencyPolicy: Lazy<RecognizerResidencyPolicy>
 
     private val applicationScope = CoroutineScope(
         SupervisorJob() + Dispatchers.Default
     )
-    private var thermalStatusListener: PowerManager.OnThermalStatusChangedListener? = null
 
     override fun onCreate() {
         super.onCreate()
 
-        // ERR-21: local-only crash breadcrumbs (rotating stack-trace files; never uploaded).
-        // Installed first so a crash anywhere in the startup path below is still recorded.
-        CrashLogWriter(File(filesDir, CrashLogWriter.LOG_DIR_NAME)).install()
-        DictationReliabilityMetrics.initialize(this)
-
+        // StrictMode before everything else so the startup work below is visible to it
+        // (it used to be installed after the main-thread disk IO it exists to catch).
         DebugStrictMode.enableIfDebug(
             (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
 
+        // ERR-21: local-only crash breadcrumbs (rotating stack-trace files; never uploaded).
+        // Installed before the startup path below so a crash anywhere in it is still recorded.
+        CrashLogWriter(File(filesDir, CrashLogWriter.LOG_DIR_NAME)).install()
+
         registerRecognizerThermalRelease()
 
-        widgetStateObserver.startObserving()
+        applicationScope.launch {
+            // Bounded SharedPreferences load (up to 200 samples x 7 metrics). It used to run
+            // synchronously here on the main thread, blocking the IME's cold first frame; the
+            // snapshot is a StateFlow, so late arrival is harmless to its only reader.
+            DictationReliabilityMetrics.initialize(this@ChirpApplication)
+        }
+
+        applicationScope.launch {
+            widgetStateObserver.get().startObserving()
+        }
 
         applicationScope.launch {
             val result = apiKeyMigration.get().migrate()
@@ -235,14 +244,6 @@ class ChirpApplication : Application(), Configuration.Provider {
             .setWorkerFactory(workerFactory)
             .build()
 
-    override fun onTerminate() {
-        thermalStatusListener?.let { listener ->
-            getSystemService(PowerManager::class.java)?.removeThermalStatusListener(listener)
-        }
-        thermalStatusListener = null
-        super.onTerminate()
-    }
-
     /**
      * LOAD-1 / KBD-1 / PRF-1 / REL-09: the selected offline recognizer stays warm after loading.
      * It is never released on a single surface's start or teardown. It is
@@ -295,7 +296,7 @@ class ChirpApplication : Application(), Configuration.Provider {
             try {
                 if (requireSystemLowMemory && !isSystemLowOnMemory()) return@launch
                 Log.i(TAG, "Releasing speech recognizer under memory pressure: $reason")
-                recognizerResidencyPolicy.releaseForConfirmedPressure(reason)
+                recognizerResidencyPolicy.get().releaseForConfirmedPressure(reason)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.e(TAG, "Failed to release recognizer under memory pressure", e)
@@ -306,6 +307,8 @@ class ChirpApplication : Application(), Configuration.Provider {
     /**
      * Severe thermal throttling makes a local model a poor background resident. Release it
      * only when no capture or decode owns it. The next visible IME session warms it normally.
+     * The listener lives for the whole process; there is no unregister path (Application has
+     * no real end-of-life callback on production devices).
      */
     private fun registerRecognizerThermalRelease() {
         val powerManager = getSystemService(PowerManager::class.java) ?: return
@@ -315,7 +318,6 @@ class ChirpApplication : Application(), Configuration.Provider {
                     releaseRecognizerForMemoryPressure(reason = "thermalStatus=$status")
                 }
             }
-        thermalStatusListener = listener
         powerManager.addThermalStatusListener(ContextCompat.getMainExecutor(this), listener)
     }
 
