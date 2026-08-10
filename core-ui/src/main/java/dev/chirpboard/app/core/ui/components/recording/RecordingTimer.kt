@@ -56,7 +56,6 @@ fun RecordingTimer(
     modifier: Modifier = Modifier,
 ) {
     var elapsedMs by remember { mutableLongStateOf(0L) }
-    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
 
     val textColor by animateColorAsState(
         targetValue = if (isRecording) MaterialTheme.colorScheme.chirpAccents.recordingLive else MaterialTheme.colorScheme.onSurface,
@@ -66,30 +65,23 @@ fun RecordingTimer(
 
     LaunchedEffect(recordingState) {
         when (val state = recordingState) {
-            is RecordingState.Starting -> {
-                previousSegmentsMs = 0L
-                elapsedMs = 0L
-            }
+            is RecordingState.Starting -> elapsedMs = 0L
 
             is RecordingState.Recording -> {
-                val segmentStart = state.startTimeMs
+                // Prior-segment time comes from the state itself, so a timer composed
+                // fresh mid-session shows the true total across pauses and rotations.
                 while (true) {
                     elapsedMs = snapToSecond(
-                        previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                        state.accumulatedBeforeSegmentMs +
+                            (System.currentTimeMillis() - state.startTimeMs),
                     )
                     delay(ChirpMotion.TIMER_TICK_MS)
                 }
             }
 
-            is RecordingState.Paused -> {
-                previousSegmentsMs = state.accumulatedMs
-                elapsedMs = state.accumulatedMs
-            }
+            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
 
-            is RecordingState.Idle -> {
-                previousSegmentsMs = 0L
-                elapsedMs = 0L
-            }
+            is RecordingState.Idle -> elapsedMs = 0L
 
             else -> Unit
         }

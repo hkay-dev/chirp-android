@@ -1055,32 +1055,25 @@ private fun VoiceRecognitionErrorStatus(
 @Composable
 private fun VoiceRecognitionTimer(recordingState: RecordingState) {
     var elapsedMs by remember { mutableLongStateOf(0L) }
-    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(recordingState) {
         when (val state = recordingState) {
-            is RecordingState.Starting -> {
-                previousSegmentsMs = 0L
-                elapsedMs = 0L
-            }
+            is RecordingState.Starting -> elapsedMs = 0L
 
             is RecordingState.Recording -> {
-                val segmentStart = state.startTimeMs
+                // Prior-segment time comes from the state itself, so a timer composed
+                // fresh mid-session shows the true total across pauses and rotations.
                 while (true) {
-                    val raw = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    val raw =
+                        state.accumulatedBeforeSegmentMs +
+                            (System.currentTimeMillis() - state.startTimeMs)
                     elapsedMs = raw - (raw % MILLIS_PER_SECOND)
                     delay(ChirpMotion.TIMER_TICK_MS)
                 }
             }
 
-            is RecordingState.Paused -> {
-                previousSegmentsMs = state.accumulatedMs
-                elapsedMs = state.accumulatedMs
-            }
+            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
 
-            is RecordingState.Idle -> {
-                previousSegmentsMs = 0L
-                elapsedMs = 0L
-            }
+            is RecordingState.Idle -> elapsedMs = 0L
 
             else -> Unit
         }

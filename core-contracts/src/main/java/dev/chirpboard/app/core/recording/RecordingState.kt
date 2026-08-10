@@ -37,6 +37,13 @@ sealed class RecordingState {
         val startTimeMs: Long = System.currentTimeMillis(),
         val audioFilePath: String? = null,
         val recordingId: UUID? = null,
+        /**
+         * Milliseconds recorded before this segment started (earlier segments across
+         * pauses and file rotations). Total elapsed = this + (now - [startTimeMs]).
+         * Carried in the state so timers can render the true total even when they
+         * (re)compose mid-session and never saw the earlier Paused states.
+         */
+        val accumulatedBeforeSegmentMs: Long = 0L,
     ) : RecordingState()
     
     /** Recording is paused */

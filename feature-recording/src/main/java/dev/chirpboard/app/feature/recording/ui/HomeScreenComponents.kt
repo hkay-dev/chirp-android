@@ -292,27 +292,23 @@ private const val MAX_VISIBLE_TAGS = 3
 @Composable
 private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
     var elapsedMs by remember { mutableLongStateOf(0L) }
-    var previousSegmentsMs by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(recordingState) {
         when (val state = recordingState) {
-            is RecordingState.Starting -> {
-                previousSegmentsMs = 0L
-                elapsedMs = 0L
-            }
+            is RecordingState.Starting -> elapsedMs = 0L
 
             is RecordingState.Recording -> {
-                val segmentStart = state.startTimeMs
+                // Prior-segment time comes from the state itself, so a row that composes
+                // fresh mid-session (scrolled back, screen re-entered) shows the true total.
                 while (true) {
-                    elapsedMs = previousSegmentsMs + (System.currentTimeMillis() - segmentStart)
+                    elapsedMs =
+                        state.accumulatedBeforeSegmentMs +
+                            (System.currentTimeMillis() - state.startTimeMs)
                     delay(ChirpMotion.TIMER_TICK_MS)
                 }
             }
 
-            is RecordingState.Paused -> {
-                previousSegmentsMs = state.accumulatedMs
-                elapsedMs = state.accumulatedMs
-            }
+            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
 
             else -> Unit
         }

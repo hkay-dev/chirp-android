@@ -187,6 +187,7 @@ class RecordingStateManager @Inject constructor() {
                         startTimeMs = nowMs(),
                         audioFilePath = audioFilePath,
                         recordingId = recordingId ?: current.recordingId,
+                        accumulatedBeforeSegmentMs = accumulatedSegmentMs.get(),
                     )
                 }
                 else -> {
@@ -240,6 +241,7 @@ class RecordingStateManager @Inject constructor() {
                         startTimeMs = nowMs(),
                         audioFilePath = newAudioFilePath ?: current.audioFilePath,
                         recordingId = current.recordingId,
+                        accumulatedBeforeSegmentMs = current.accumulatedMs,
                     )
                 }
                 else -> {
@@ -534,6 +536,7 @@ class RecordingStateManager @Inject constructor() {
                     startTimeMs = nowMs(),
                     audioFilePath = newAudioFilePath,
                     recordingId = current.recordingId,
+                    accumulatedBeforeSegmentMs = totalAccumulated,
                 )
             if (_state.compareAndSet(current, nextState)) {
                 accumulatedSegmentMs.set(totalAccumulated)
