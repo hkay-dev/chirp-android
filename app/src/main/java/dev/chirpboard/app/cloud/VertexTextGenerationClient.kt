@@ -27,12 +27,20 @@ class VertexTextGenerationClient
         private val gson = Gson()
         private val baseUrl = serviceConfiguration.baseUrl.trim().trimEnd('/')
 
-        suspend fun isConfigured(): Boolean =
-            baseUrl.toHttpUrlOrNull()?.let { url ->
-                url.isHttps ||
-                    (serviceConfiguration.allowInsecureLoopback && url.host in setOf("127.0.0.1", "localhost"))
-            } == true &&
-                !authTokenProvider.getIdToken().isNullOrBlank()
+        suspend fun isConfigured(): Boolean {
+            val endpointConfigured =
+                baseUrl.toHttpUrlOrNull()?.let { url ->
+                    url.isHttps ||
+                        (serviceConfiguration.allowInsecureLoopback && url.host in setOf("127.0.0.1", "localhost"))
+                } == true
+            if (!endpointConfigured) return false
+            // The token provider may refresh over the network (Firebase getIdToken), and
+            // availability checks can run from Main. The token travels out as a Result so
+            // a provider failure rethrows as the original instance, not the copy the
+            // coroutine stack-trace recovery makes at the withContext boundary.
+            val token = withContext(Dispatchers.IO) { runCatching { authTokenProvider.getIdToken() } }
+            return !token.getOrThrow().isNullOrBlank()
+        }
 
         suspend fun generate(
             text: String,

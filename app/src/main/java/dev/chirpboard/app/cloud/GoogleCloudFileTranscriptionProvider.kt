@@ -52,14 +52,18 @@ class GoogleCloudFileTranscriptionProvider
             ) {
                 return CloudTranscriptionConfigurationStatus.ENDPOINT_MISSING
             }
-            return try {
-                if (authTokenProvider.getIdToken().isNullOrBlank()) {
-                    CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING
-                } else {
-                    CloudTranscriptionConfigurationStatus.READY
+            // The token provider may refresh over the network (Firebase getIdToken), and
+            // this is reachable from viewModelScope on Main.
+            return withContext(Dispatchers.IO) {
+                try {
+                    if (authTokenProvider.getIdToken().isNullOrBlank()) {
+                        CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING
+                    } else {
+                        CloudTranscriptionConfigurationStatus.READY
+                    }
+                } catch (_: CloudAuthTemporarilyUnavailableException) {
+                    CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE
                 }
-            } catch (_: CloudAuthTemporarilyUnavailableException) {
-                CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE
             }
         }
 
