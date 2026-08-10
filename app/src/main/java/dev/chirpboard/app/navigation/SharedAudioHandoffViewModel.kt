@@ -34,7 +34,6 @@ internal sealed interface SharedAudioIntakeState {
     ) : SharedAudioIntakeState
 }
 
-private const val EXTRA_SHARED_AUDIO_REQUEST_TOKEN = "dev.chirpboard.app.extra.SHARED_AUDIO_REQUEST_TOKEN"
 private const val LAST_HANDLED_SHARED_AUDIO_TOKEN = "last_handled_shared_audio_token"
 
 internal fun Intent.toSharedAudioRequestOrNull(): SharedAudioRequest? {
@@ -53,11 +52,12 @@ internal fun Intent.toSharedAudioRequestOrNull(): SharedAudioRequest? {
     }
 
     val streamUri = extractSharedAudioUri() ?: return null
-    val token =
-        getStringExtra(EXTRA_SHARED_AUDIO_REQUEST_TOKEN)
-            ?: UUID.randomUUID().toString().also { putExtra(EXTRA_SHARED_AUDIO_REQUEST_TOKEN, it) }
 
-    return SharedAudioRequest(token = token, uri = streamUri)
+    // Each delivered intent is parsed exactly once (MainActivity gates onCreate parsing on a
+    // null savedInstanceState; onNewIntent runs once per delivery), so a fresh token per parse
+    // identifies the share event. The ViewModel still dedups by token because the request
+    // object lives in compose state and can re-trigger its LaunchedEffect after the import.
+    return SharedAudioRequest(token = UUID.randomUUID().toString(), uri = streamUri)
 }
 
 private fun Intent.extractSharedAudioUri(): Uri? =

@@ -133,10 +133,15 @@ class MainActivity : ComponentActivity() {
         startupPromptsRequested =
             savedInstanceState?.getBoolean(KEY_STARTUP_PROMPTS_REQUESTED) ?: false
 
-        sharedAudioRequest = intent.toSharedAudioRequestOrNull()
-        // Deep links only on a fresh launch: a recreation (rotation) re-delivers the same
-        // intent, and re-navigating would yank the user away from wherever they went.
+        // Shares and deep links only on a fresh launch: a recreation re-delivers the same
+        // intent. For deep links, re-navigating would yank the user away from wherever they
+        // went. For shared audio it is worse: a relaunch after process death redelivers the
+        // system's stored copy of the intent WITHOUT the in-process dedup token extra, so
+        // re-parsing would mint a new token and import the share again — a duplicate
+        // recording whenever the process died after the import persisted. In-flight imports
+        // survive rotation inside the activity-scoped SharedAudioHandoffViewModel.
         if (savedInstanceState == null) {
+            sharedAudioRequest = intent.toSharedAudioRequestOrNull()
             pendingNavRoute = intent.toDeepLinkRouteOrNull()
         }
 
