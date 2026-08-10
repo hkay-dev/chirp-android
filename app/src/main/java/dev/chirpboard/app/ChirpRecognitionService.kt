@@ -550,14 +550,19 @@ class ChirpRecognitionService : RecognitionService() {
         recognizerIntent: Intent,
         supportCallback: SupportCallback,
     ) {
-        val supported = listOf(SUPPORTED_RECOGNITION_LANGUAGE_TAG)
-        val installed = if (transcriberProvider.isModelDownloaded()) supported else emptyList()
-        val support =
-            RecognitionSupport.Builder()
-                .setSupportedOnDeviceLanguages(supported)
-                .setInstalledOnDeviceLanguages(installed)
-                .build()
-        supportCallback.onSupportResult(support)
+        // isModelDownloaded re-hashes the full model (hundreds of MB of SHA-256) on a
+        // verification-cache miss, and these callbacks arrive on the IME-shared main thread;
+        // answer from a background dispatcher (rescueScope survives past onDestroy).
+        rescueScope.launch {
+            val supported = listOf(SUPPORTED_RECOGNITION_LANGUAGE_TAG)
+            val installed = if (transcriberProvider.isModelDownloaded()) supported else emptyList()
+            val support =
+                RecognitionSupport.Builder()
+                    .setSupportedOnDeviceLanguages(supported)
+                    .setInstalledOnDeviceLanguages(installed)
+                    .build()
+            supportCallback.onSupportResult(support)
+        }
     }
 
     /**
@@ -571,15 +576,16 @@ class ChirpRecognitionService : RecognitionService() {
         listener: ModelDownloadListener,
     ) {
         val requestedLanguage = recognitionRequestLanguageTag(recognizerIntent)
-        when {
-            !isRecognitionLanguageSupported(requestedLanguage) -> {
-                Log.w(TAG, "Model download requested for unsupported language: $requestedLanguage")
-                listener.onError(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED)
-            }
-
-            transcriberProvider.isModelDownloaded() -> listener.onSuccess()
-
-            else -> {
+        if (!isRecognitionLanguageSupported(requestedLanguage)) {
+            Log.w(TAG, "Model download requested for unsupported language: $requestedLanguage")
+            listener.onError(SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED)
+            return
+        }
+        // Same as onCheckRecognitionSupport: keep the possible full-file hash off the main thread.
+        rescueScope.launch {
+            if (transcriberProvider.isModelDownloaded()) {
+                listener.onSuccess()
+            } else {
                 Log.w(TAG, "Model download must be started from the Chirp app, not the recognition service")
                 listener.onError(SpeechRecognizer.ERROR_SERVER)
             }
