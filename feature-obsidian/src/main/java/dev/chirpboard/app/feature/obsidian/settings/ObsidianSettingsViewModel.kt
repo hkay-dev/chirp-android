@@ -72,6 +72,12 @@ class ObsidianSettingsViewModel @Inject constructor(
      */
     fun setVaultUri(uri: Uri) {
         viewModelScope.launch {
+            // Give back the previous vault's persistable grant: Android caps persisted URI
+            // grants per app, so stale grants from replaced vaults must not accumulate.
+            val previous = _uiState.value.vaultUri?.let { Uri.parse(it) }
+            if (previous != null && previous != uri) {
+                obsidianManager.releaseVaultPermission(previous)
+            }
             preferences.setGlobalVaultUri(uri.toString())
         }
     }
@@ -81,6 +87,7 @@ class ObsidianSettingsViewModel @Inject constructor(
      */
     fun clearVault() {
         viewModelScope.launch {
+            _uiState.value.vaultUri?.let { obsidianManager.releaseVaultPermission(Uri.parse(it)) }
             preferences.setGlobalVaultUri(null)
             // Also disable auto-export when vault is cleared
             preferences.setAutoExportEnabled(false)

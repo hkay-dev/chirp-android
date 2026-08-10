@@ -3,8 +3,10 @@ package dev.chirpboard.app.feature.obsidian.settings
 import android.net.Uri
 import app.cash.turbine.test
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.verify
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import kotlinx.coroutines.Dispatchers
@@ -53,8 +55,8 @@ class ObsidianSettingsViewModelTest {
             globalVaultUriFlow.value = uriStr
             autoExportEnabledFlow.value = true
 
-            every { obsidianManager.hasVaultAccess(any()) } returns true
-            every { obsidianManager.getVaultDisplayName(any()) } returns "My Vault"
+            coEvery { obsidianManager.hasVaultAccess(any()) } returns true
+            coEvery { obsidianManager.getVaultDisplayName(any()) } returns "My Vault"
 
             val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
             testDispatcher.scheduler.advanceUntilIdle()
@@ -95,6 +97,40 @@ class ObsidianSettingsViewModelTest {
         }
 
     @Test
+    fun `clearVault releases the persisted grant for the configured vault`() =
+        runTest {
+            globalVaultUriFlow.value = "content://test"
+            coEvery { obsidianManager.hasVaultAccess(any()) } returns true
+            coEvery { obsidianManager.getVaultDisplayName(any()) } returns "My Vault"
+            val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.clearVault()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            verify { obsidianManager.releaseVaultPermission(any()) }
+            coVerify { preferences.setGlobalVaultUri(null) }
+        }
+
+    @Test
+    fun `setVaultUri releases the previous vault grant when replacing it`() =
+        runTest {
+            globalVaultUriFlow.value = "content://old"
+            coEvery { obsidianManager.hasVaultAccess(any()) } returns true
+            coEvery { obsidianManager.getVaultDisplayName(any()) } returns "Old Vault"
+            val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val newUri = mockk<Uri>(relaxed = true)
+            every { newUri.toString() } returns "content://new"
+            viewModel.setVaultUri(newUri)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            verify { obsidianManager.releaseVaultPermission(any()) }
+            coVerify { preferences.setGlobalVaultUri("content://new") }
+        }
+
+    @Test
     fun `toggleAutoExport flips current setting`() =
         runTest {
             autoExportEnabledFlow.value = true
@@ -114,7 +150,7 @@ class ObsidianSettingsViewModelTest {
             val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            every { obsidianManager.hasVaultAccess(any()) } returns false
+            coEvery { obsidianManager.hasVaultAccess(any()) } returns false
 
             viewModel.refreshAccessStatus()
             testDispatcher.scheduler.advanceUntilIdle()
