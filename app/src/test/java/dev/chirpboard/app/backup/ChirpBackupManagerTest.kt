@@ -15,6 +15,7 @@ import dev.chirpboard.app.feature.llm.repository.ProcessingPresetBackupItem
 import dev.chirpboard.app.feature.llm.repository.ProcessingPresetBackupResult
 import dev.chirpboard.app.feature.llm.settings.LlmApiKeyBackupManager
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import dev.chirpboard.app.feature.llm.settings.SecureStorageUnavailableException
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -308,6 +309,27 @@ class ChirpBackupManagerTest {
             val keysResult = summary.results.single { it.section == BackupSection.API_KEYS }
             assertEquals(ChirpBackupManager.SectionFailure.KEYS_REJECTED, keysResult.failure)
             assertNull(summary.results.single { it.section == BackupSection.TAGS }.failure)
+        }
+
+    @Test
+    fun `unavailable secure storage is reported distinctly from a wrong passphrase`() =
+        runTest {
+            val blob = Base64.getEncoder().encodeToString("encrypted".toByteArray())
+            coEvery { apiKeyBackupManager.restoreEncryptedSnapshot(any(), any()) } returns
+                Result.failure(SecureStorageUnavailableException())
+
+            val summary =
+                manager().applyImport(
+                    contents = contents(apiKeysBase64 = blob),
+                    sections = setOf(BackupSection.API_KEYS),
+                    mode = BackupImportMode.MERGE,
+                    passphrase = "right-passphrase".toCharArray(),
+                )
+
+            assertEquals(
+                ChirpBackupManager.SectionFailure.KEYS_STORAGE_UNAVAILABLE,
+                summary.results.single().failure,
+            )
         }
 
     @Test

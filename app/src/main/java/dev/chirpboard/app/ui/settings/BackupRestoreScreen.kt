@@ -528,6 +528,9 @@ private fun sectionResultText(result: ChirpBackupManager.SectionResult): String 
         result.failure == ChirpBackupManager.SectionFailure.KEYS_REJECTED ->
             stringResource(R.string.backup_result_keys_rejected)
 
+        result.failure == ChirpBackupManager.SectionFailure.KEYS_STORAGE_UNAVAILABLE ->
+            stringResource(R.string.backup_result_keys_storage_unavailable)
+
         // Settings apply one preference per commit, so "left unchanged" would overclaim.
         result.failure != null && result.section == BackupSection.SETTINGS ->
             stringResource(R.string.backup_result_settings_failed)

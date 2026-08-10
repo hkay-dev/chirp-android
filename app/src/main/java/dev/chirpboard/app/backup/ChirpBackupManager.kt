@@ -14,6 +14,7 @@ import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.llm.repository.ProcessingPresetBackupItem
 import dev.chirpboard.app.feature.llm.settings.LlmApiKeyBackupManager
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import dev.chirpboard.app.feature.llm.settings.SecureStorageUnavailableException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
@@ -84,6 +85,13 @@ class ChirpBackupManager
         enum class SectionFailure {
             /** API-keys section: wrong passphrase or corrupted CHIRPKEY payload. */
             KEYS_REJECTED,
+
+            /**
+             * API-keys section: the device keystore layer is unusable, so no passphrase can
+             * ever succeed. Kept distinct from [KEYS_REJECTED] so the UI doesn't send the user
+             * into a retype-the-passphrase loop.
+             */
+            KEYS_STORAGE_UNAVAILABLE,
 
             /**
              * Anything else; details are logged. Room sections (each a single @Transaction)
@@ -407,7 +415,12 @@ class ChirpBackupManager
                         section = BackupSection.API_KEYS,
                         inserted = 0,
                         updated = 0,
-                        failure = SectionFailure.KEYS_REJECTED,
+                        failure =
+                            if (error is SecureStorageUnavailableException) {
+                                SectionFailure.KEYS_STORAGE_UNAVAILABLE
+                            } else {
+                                SectionFailure.KEYS_REJECTED
+                            },
                     )
                 },
             )
@@ -434,7 +447,7 @@ class ChirpBackupManager
                 if (read == -1) break
                 total += read
                 if (total > MAX_BACKUP_FILE_BYTES) {
-                    throw BackupFormatException(BackupFormatException.Reason.NOT_A_CHIRP_BACKUP)
+                    throw BackupFormatException(BackupFormatException.Reason.TOO_LARGE)
                 }
                 buffer.write(chunk, 0, read)
             }

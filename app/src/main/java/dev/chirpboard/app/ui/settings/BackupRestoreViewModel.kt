@@ -276,6 +276,9 @@ class BackupRestoreViewModel
                 BackupFormatException.Reason.EMPTY ->
                     appContext.getString(R.string.backup_import_error_empty)
 
+                BackupFormatException.Reason.TOO_LARGE ->
+                    appContext.getString(R.string.backup_import_error_too_large)
+
                 null -> appContext.getString(R.string.backup_import_error_unreadable)
             }
 

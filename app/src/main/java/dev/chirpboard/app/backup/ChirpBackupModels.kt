@@ -207,5 +207,8 @@ class BackupFormatException(
 
         /** Structurally valid but contains nothing restorable. */
         EMPTY,
+
+        /** Larger than any real chirp-backup; refused before parsing. */
+        TOO_LARGE,
     }
 }

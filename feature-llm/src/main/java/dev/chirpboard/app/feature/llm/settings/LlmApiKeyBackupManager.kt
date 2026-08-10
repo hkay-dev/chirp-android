@@ -18,6 +18,13 @@ class EncryptedKeyBackup(
     val keyCount: Int,
 )
 
+/**
+ * The device keystore / EncryptedSharedPreferences layer is unusable, so keys can neither be
+ * snapshotted nor restored. Typed so callers can tell this apart from a wrong passphrase:
+ * retyping the passphrase can never fix it, and the error UI must not suggest that it can.
+ */
+class SecureStorageUnavailableException : IllegalStateException("Secure storage unavailable on this device")
+
 @Singleton
 class LlmApiKeyBackupManager
     @Inject
@@ -41,7 +48,7 @@ class LlmApiKeyBackupManager
             withContext(Dispatchers.Default) {
                 runCatching {
                     if (!preferences.isSecureStorageAvailable()) {
-                        error("Secure storage unavailable on this device")
+                        throw SecureStorageUnavailableException()
                     }
 
                     val snapshot = preferences.buildSettingsSnapshot()
@@ -73,7 +80,7 @@ class LlmApiKeyBackupManager
             withContext(Dispatchers.Default) {
                 runCatching {
                     if (!preferences.isSecureStorageAvailable()) {
-                        error("Secure storage unavailable on this device")
+                        throw SecureStorageUnavailableException()
                     }
 
                     val payloadJson = LlmApiKeyBackupCodec.decrypt(encrypted, passphrase)
