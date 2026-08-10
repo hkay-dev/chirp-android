@@ -18,9 +18,14 @@
     <string name="keyboard_settings_notification_duration_title">Quick input result</string>
     <string name="keyboard_settings_notification_duration_description">Keep the completed transcription available for one-tap copying.</string>
     <string name="keyboard_settings_notification_duration_select">Select how long quick input stays available</string>
-    <string name="keyboard_settings_notification_duration_30_seconds">30 seconds</string>
-    <string name="keyboard_settings_notification_duration_1_minute">1 minute</string>
-    <string name="keyboard_settings_notification_duration_5_minutes">5 minutes</string>
+    <plurals name="keyboard_settings_notification_duration_seconds">
+        <item quantity="one">%d second</item>
+        <item quantity="other">%d seconds</item>
+    </plurals>
+    <plurals name="keyboard_settings_notification_duration_minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
     <string name="keyboard_settings_section_behavior">Behavior</string>
     <string name="keyboard_settings_system_title">System Settings</string>
     <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>

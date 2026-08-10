@@ -33,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,14 +52,27 @@ import kotlinx.coroutines.launch
 
 private val KeyboardProcessingModeIds = listOf(null, "proofread", "formal", "casual", "email", "code", "smart")
 
+private const val MILLIS_PER_SECOND = 1_000L
+private const val SECONDS_PER_MINUTE = 60
+
 @Composable
-private fun quickInputNotificationTimeoutLabel(timeoutMs: Long): String =
-    when (timeoutMs) {
-        30_000L -> stringResource(R.string.keyboard_settings_notification_duration_30_seconds)
-        60_000L -> stringResource(R.string.keyboard_settings_notification_duration_1_minute)
-        300_000L -> stringResource(R.string.keyboard_settings_notification_duration_5_minutes)
-        else -> stringResource(R.string.keyboard_settings_notification_duration_30_seconds)
+private fun quickInputNotificationTimeoutLabel(timeoutMs: Long): String {
+    val totalSeconds = (timeoutMs / MILLIS_PER_SECOND).toInt()
+    return if (totalSeconds < SECONDS_PER_MINUTE) {
+        pluralStringResource(
+            R.plurals.keyboard_settings_notification_duration_seconds,
+            totalSeconds,
+            totalSeconds,
+        )
+    } else {
+        val minutes = totalSeconds / SECONDS_PER_MINUTE
+        pluralStringResource(
+            R.plurals.keyboard_settings_notification_duration_minutes,
+            minutes,
+            minutes,
+        )
     }
+}
 
 @Composable
 private fun keyboardProcessingModeLabel(modeId: String?): String =
