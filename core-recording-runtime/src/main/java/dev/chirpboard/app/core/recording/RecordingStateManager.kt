@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -57,13 +56,6 @@ class RecordingStateManager @Inject constructor() {
      *  UI observes this to navigate to the recording detail after saving. */
     private val _lastCompletedRecordingId = MutableStateFlow<UUID?>(null)
     val lastCompletedRecordingId: StateFlow<UUID?> = _lastCompletedRecordingId.asStateFlow()
-    
-    /**
-     * Accumulated time from previous segments (paused recordings).
-     * Thread-safe via AtomicLong to prevent race conditions when
-     * multiple threads read/write during pause/resume operations.
-     */
-    private val accumulatedSegmentMs = AtomicLong(0L)
     
     /** Atomic lock to prevent concurrent start attempts */
     private val recordingLock = AtomicBoolean(false)
@@ -149,7 +141,6 @@ class RecordingStateManager @Inject constructor() {
         }
 
         // We have the lock - update state to Starting
-        accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Starting")
             RecordingState.Starting(origin, profileId)
@@ -193,7 +184,9 @@ class RecordingStateManager @Inject constructor() {
                         startTimeMs = nowMs(),
                         audioFilePath = audioFilePath,
                         recordingId = recordingId ?: current.recordingId,
-                        accumulatedBeforeSegmentMs = accumulatedSegmentMs.get(),
+                        // A fresh session always starts its first segment at zero; pause/resume
+                        // and rotation carry the accumulated total forward through the state.
+                        accumulatedBeforeSegmentMs = 0L,
                     )
                 }
                 else -> {
@@ -216,7 +209,7 @@ class RecordingStateManager @Inject constructor() {
                 break
             }
             val elapsedThisSegment = nowMs() - current.startTimeMs
-            val totalAccumulated = accumulatedSegmentMs.get() + elapsedThisSegment
+            val totalAccumulated = current.accumulatedBeforeSegmentMs + elapsedThisSegment
             val nextState = RecordingState.Paused(
                 origin = current.origin,
                 profileId = current.profileId,
@@ -225,7 +218,6 @@ class RecordingStateManager @Inject constructor() {
                 recordingId = current.recordingId,
             )
             if (_state.compareAndSet(current, nextState)) {
-                accumulatedSegmentMs.set(totalAccumulated)
                 Log.d(TAG, "State: Recording -> Paused")
                 break
             }
@@ -563,7 +555,6 @@ class RecordingStateManager @Inject constructor() {
      */
     fun forceCancel() {
         timeoutJob?.cancel()
-        accumulatedSegmentMs.set(0L)
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Idle (force cancelled)")
             RecordingState.Idle
@@ -584,7 +575,7 @@ class RecordingStateManager @Inject constructor() {
                 break
             }
             val elapsedThisSegment = nowMs() - current.startTimeMs
-            val totalAccumulated = accumulatedSegmentMs.get() + elapsedThisSegment
+            val totalAccumulated = current.accumulatedBeforeSegmentMs + elapsedThisSegment
             val nextState =
                 RecordingState.Recording(
                     origin = current.origin,
@@ -595,7 +586,6 @@ class RecordingStateManager @Inject constructor() {
                     accumulatedBeforeSegmentMs = totalAccumulated,
                 )
             if (_state.compareAndSet(current, nextState)) {
-                accumulatedSegmentMs.set(totalAccumulated)
                 Log.d(TAG, "Rotated capture segment; accumulatedMs=$totalAccumulated")
                 break
             }
@@ -649,7 +639,7 @@ class RecordingStateManager @Inject constructor() {
     fun getCurrentDurationMs(): Long {
         return when (val currentState = _state.value) {
             is RecordingState.Recording -> {
-                accumulatedSegmentMs.get() + (nowMs() - currentState.startTimeMs)
+                currentState.accumulatedBeforeSegmentMs + (nowMs() - currentState.startTimeMs)
             }
             is RecordingState.Paused -> {
                 currentState.accumulatedMs
