@@ -265,6 +265,9 @@ class RecordingStateManager @Inject constructor() {
         var transitioned = false
 
         _state.update { current ->
+            // update() retries this lambda on a lost CAS; reset the flag so a retry that
+            // takes the ignore branch cannot report a transition that never happened.
+            transitioned = false
             when (current) {
                 is RecordingState.Starting,
                 is RecordingState.Recording,
@@ -391,6 +394,9 @@ class RecordingStateManager @Inject constructor() {
     fun onCaptureStopHandoff(recordingId: UUID?) {
         var handoffAccepted = false
         _state.update { current ->
+            // update() retries this lambda on a lost CAS; reset the flag so a retry that
+            // takes an ignore branch cannot run the acceptance side effects below.
+            handoffAccepted = false
             when (current) {
                 is RecordingState.Starting,
                 is RecordingState.Recording,
@@ -444,6 +450,9 @@ class RecordingStateManager @Inject constructor() {
     fun onRecordingCompleted(recordingId: UUID? = null) {
         var completionAccepted = false
         _state.update { current ->
+            // update() retries this lambda on a lost CAS; reset the flag so a retry that
+            // takes an ignore branch cannot run the acceptance side effects below.
+            completionAccepted = false
             val currentRecordingId = current.activeRecordingId
             if (recordingId != null && currentRecordingId != null && currentRecordingId != recordingId) {
                 Log.w(
