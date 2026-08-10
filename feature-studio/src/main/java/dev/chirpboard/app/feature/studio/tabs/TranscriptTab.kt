@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +34,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -584,7 +586,26 @@ private fun TimedTranscriptContent(
             if (activeSegmentIndex < 0) -1 else activeSegmentIndex / 100
         }
 
-    LazyColumn(modifier = modifier) {
+    val listState = rememberLazyListState()
+    LaunchedEffect(Unit) {
+        // Entering the tab mid-playback starts at the active chunk, not the top.
+        if (activeChunkIndex > 0) listState.scrollToItem(activeChunkIndex)
+    }
+    LaunchedEffect(activeChunkIndex) {
+        if (activeChunkIndex < 0 || listState.isScrollInProgress) return@LaunchedEffect
+        val visible = listState.layoutInfo.visibleItemsInfo
+        // Follow the karaoke highlight only while the user is actually watching it: if
+        // neither the newly active chunk nor its neighbor is on screen, they scrolled
+        // away on purpose and yanking the list back would fight them.
+        val following = visible.any { it.index in (activeChunkIndex - 1)..activeChunkIndex }
+        val activeAtTop =
+            visible.firstOrNull()?.let { it.index == activeChunkIndex && it.offset >= 0 } == true
+        if (following && !activeAtTop) {
+            listState.animateScrollToItem(activeChunkIndex)
+        }
+    }
+
+    LazyColumn(state = listState, modifier = modifier) {
         itemsIndexed(chunks, key = { index, _ -> index }) { chunkIndex, chunk ->
             val chunkStartIndex = chunkIndex * 100
             val isActiveChunk = chunkIndex == activeChunkIndex
