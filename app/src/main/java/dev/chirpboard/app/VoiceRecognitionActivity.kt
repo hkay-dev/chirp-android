@@ -313,13 +313,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
         // session like a user action instead of leaving a frozen "listening" dialog.
         recorder.onLimitReached = {
             Log.w(TAG, "Recording limit reached; stopping recognition capture")
-            stopFromSystemInterrupt()
+            stopWithSettledSettings()
         }
         recorder.onRecordingError = { error -> onCaptureError(error) }
         audioFocus.onFocusLost = { kind ->
             if (kind == AudioFocusManager.FocusLossKind.PERMANENT) {
                 Log.w(TAG, "Permanent audio focus loss; stopping recognition capture")
-                stopFromSystemInterrupt()
+                stopWithSettledSettings()
             }
         }
 
@@ -413,7 +413,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     callerPrompt = callerPrompt,
                     englishOnlyHint = englishOnlyHint,
                     onStart = ::startRecording,
-                    onStop = { stopRecording(effectiveLlmEnabled, currentMode) },
+                    onStop = ::stopWithSettledSettings,
                     onRetry = ::retryAfterNoSpeech,
                     onCancel = ::cancelRecording,
                     onOpenApp = ::openAppAndDismiss,
@@ -795,11 +795,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
     }
 
     /**
-     * Shared terminal path for system-initiated session ends (recorder cap, permanent
-     * audio-focus loss): commit the capture exactly like a user stop, using the session's
-     * effective AI settings.
+     * Commits the capture using the settled AI settings, shared by the user's stop and
+     * system-initiated session ends (recorder cap, permanent audio-focus loss). Reads the
+     * values with first() rather than the Compose snapshots: those start on initialValue
+     * defaults, so a stop landing before DataStore's first emission would run the wrong
+     * LLM toggle or processing mode.
      */
-    private fun stopFromSystemInterrupt() {
+    private fun stopWithSettledSettings() {
         lifecycleScope.launch {
             val llmEnabled = !secureSession && keyboardPreferences.llmEnabled.first()
             val mode = modePort.currentMode.first()
