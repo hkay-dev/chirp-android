@@ -341,7 +341,7 @@ class HomeViewModelTest {
             HomeContentPhase.LOADING,
             homeContentPhase(
                 contentLoaded = false,
-                totalRecordings = 0,
+                libraryEmpty = true,
                 searchBlank = true,
                 filterAll = true,
             ),
@@ -354,7 +354,7 @@ class HomeViewModelTest {
             HomeContentPhase.EMPTY,
             homeContentPhase(
                 contentLoaded = true,
-                totalRecordings = 0,
+                libraryEmpty = true,
                 searchBlank = true,
                 filterAll = true,
             ),
@@ -367,7 +367,7 @@ class HomeViewModelTest {
             HomeContentPhase.LIST,
             homeContentPhase(
                 contentLoaded = true,
-                totalRecordings = 3,
+                libraryEmpty = false,
                 searchBlank = true,
                 filterAll = true,
             ),
@@ -382,7 +382,7 @@ class HomeViewModelTest {
             HomeContentPhase.LIST,
             homeContentPhase(
                 contentLoaded = true,
-                totalRecordings = 0,
+                libraryEmpty = true,
                 searchBlank = false,
                 filterAll = true,
             ),
@@ -391,7 +391,7 @@ class HomeViewModelTest {
             HomeContentPhase.LIST,
             homeContentPhase(
                 contentLoaded = true,
-                totalRecordings = 0,
+                libraryEmpty = true,
                 searchBlank = true,
                 filterAll = false,
             ),
@@ -920,7 +920,7 @@ class HomeViewModelTest {
         }
 
     @Test
-    fun `contentLoaded flips true once the first recordings emission lands`() =
+    fun `libraryLoadState latches loaded and reports emptiness from the same emission`() =
         runTest {
             // LOAD-3: the gate stays false until Room emits, so Home holds the skeleton rather than
             // flashing the empty state, then latches true on the first emission (here, an empty list
@@ -929,12 +929,13 @@ class HomeViewModelTest {
                 flowOf(RepositoryFlowState(emptyList()))
 
             val localViewModel = createHomeViewModel()
-            assertFalse(localViewModel.contentLoaded.value)
+            assertFalse(localViewModel.libraryLoadState.value.loaded)
 
-            val collector = launch { localViewModel.contentLoaded.collect { } }
+            val collector = launch { localViewModel.libraryLoadState.collect { } }
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertTrue(localViewModel.contentLoaded.value)
+            assertTrue(localViewModel.libraryLoadState.value.loaded)
+            assertTrue(localViewModel.libraryLoadState.value.empty)
             collector.cancel()
         }
 

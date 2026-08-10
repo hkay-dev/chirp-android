@@ -114,6 +114,16 @@ enum class ListFilterMode {
     PROCESSING,
 }
 
+/**
+ * LOAD-3: first-load latch plus the emptiness of that same load, in one value so the two can
+ * never disagree across independently-seeded flows.
+ */
+@androidx.compose.runtime.Stable
+data class HomeLibraryLoadState(
+    val loaded: Boolean = false,
+    val empty: Boolean = true,
+)
+
 @androidx.compose.runtime.Stable
 data class HomeQuickStartEntry(
     val id: UUID,
@@ -244,19 +254,20 @@ class HomeViewModel
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         /**
-         * LOAD-3: false until the first recordings emission from Room resolves, then latches true.
+         * LOAD-3: `loaded` is false until the first recordings emission from Room resolves, then
+         * latches true; `empty` reports whether that same emission carried zero recordings.
          *
          * Distinguishes "not loaded yet" from "loaded and genuinely empty" so the home screen holds
          * a skeleton on cold launch instead of flashing the empty illustration (and then crossfading
-         * to the list) for a user who actually has recordings. Derived from the same source flow as
-         * [allRecordingsRaw]; the [allRecordingsRaw] StateFlow's seeded `emptyList()` cannot itself
-         * distinguish the two cases, so a dedicated first-emission signal is required.
+         * to the list) for a user who actually has recordings. Both fields travel in one value
+         * derived from the same source flow as [allRecordingsRaw]: pairing the loaded latch with a
+         * count from a separate query (the stats aggregate) let the empty illustration flash
+         * whenever the list query resolved before the aggregate did.
          */
-        val contentLoaded: StateFlow<Boolean> =
+        val libraryLoadState: StateFlow<HomeLibraryLoadState> =
             allRecordingsState
-                .map { true }
-                .distinctUntilChanged()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+                .map { HomeLibraryLoadState(loaded = true, empty = it.value.isEmpty()) }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeLibraryLoadState())
 
         private val allRecordingsList: StateFlow<List<Recording>> = allRecordingsRaw
 

@@ -124,7 +124,7 @@ fun HomeScreen(
     val playbackRowState by viewModel.playbackRowState.collectAsStateWithLifecycle()
     // LOAD-3: distinguishes "first DB load not yet resolved" from "loaded and genuinely empty" so
     // the empty illustration never flashes for a user who actually has recordings.
-    val contentLoaded by viewModel.contentLoaded.collectAsStateWithLifecycle()
+    val libraryLoad by viewModel.libraryLoadState.collectAsStateWithLifecycle()
 
     val launcher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
@@ -360,8 +360,8 @@ fun HomeScreen(
     // once the first load is known do we choose between the genuine empty state and the list.
     val homeContentPhase =
         homeContentPhase(
-            contentLoaded = contentLoaded,
-            totalRecordings = stats.totalRecordings,
+            contentLoaded = libraryLoad.loaded,
+            libraryEmpty = libraryLoad.empty,
             searchBlank = searchQuery.isBlank(),
             filterAll = listFilter == ListFilterMode.ALL,
         )
@@ -979,20 +979,22 @@ internal enum class HomeContentPhase {
  * part that prevents the empty-state flash — is unit-tested without a Compose runtime.
  *
  * @param contentLoaded true once the first recordings emission has resolved.
- * @param totalRecordings the loaded recording count (only meaningful once [contentLoaded]).
+ * @param libraryEmpty whether that same emission carried zero recordings. Must come from the same
+ * flow that drives [contentLoaded] — pairing it with a count from an independently-seeded query
+ * (e.g. the stats aggregate) reintroduces the flash whenever the list query resolves first.
  * @param searchBlank true when there is no active search query.
  * @param filterAll true when the list filter is [ListFilterMode.ALL].
  */
 internal fun homeContentPhase(
     contentLoaded: Boolean,
-    totalRecordings: Int,
+    libraryEmpty: Boolean,
     searchBlank: Boolean,
     filterAll: Boolean,
 ): HomeContentPhase =
     when {
         // Never claim "empty" before the first load resolves: hold the skeleton instead.
         !contentLoaded -> HomeContentPhase.LOADING
-        totalRecordings == 0 && searchBlank && filterAll -> HomeContentPhase.EMPTY
+        libraryEmpty && searchBlank && filterAll -> HomeContentPhase.EMPTY
         else -> HomeContentPhase.LIST
     }
 
