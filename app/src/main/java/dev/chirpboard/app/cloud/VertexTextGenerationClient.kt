@@ -78,6 +78,22 @@ class VertexTextGenerationClient
                             )
                         }
                         if (!response.isSuccessful) {
+                            // Daily/per-recording quotas reset on the server's schedule, so
+                            // retrying with backoff only burns the worker's attempts.
+                            when (response.parseServerErrorCode()) {
+                                "daily_vertex_limit" ->
+                                    return@withContext Result.failure(
+                                        PermanentVertexTextGenerationException(
+                                            "Daily cloud enhancement limit reached; try again tomorrow",
+                                        ),
+                                    )
+                                "recording_generation_limit" ->
+                                    return@withContext Result.failure(
+                                        PermanentVertexTextGenerationException(
+                                            "This recording has reached its cloud enhancement limit",
+                                        ),
+                                    )
+                            }
                             val message =
                                 when (response.code) {
                                     401, 403 -> "Cloud authentication was rejected"
@@ -112,6 +128,12 @@ class VertexTextGenerationClient
                 }
             }
 
+        private fun okhttp3.Response.parseServerErrorCode(): String? =
+            runCatching {
+                val raw = peekBody(MAX_ERROR_BODY_BYTES).string()
+                gson.fromJson(raw, VertexErrorEnvelope::class.java)?.error?.code
+            }.getOrNull()
+
         private fun stableRequestKey(
             recordingId: String,
             body: String,
@@ -125,6 +147,7 @@ class VertexTextGenerationClient
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
             const val MIN_RECORDING_ID_LENGTH = 8
             const val MAX_RECORDING_ID_LENGTH = 128
+            const val MAX_ERROR_BODY_BYTES = 16L * 1024L
         }
     }
 
@@ -139,6 +162,17 @@ private data class VertexGenerateRequest(
 private data class VertexGenerateResponse(
     val text: String,
     val model: String,
+)
+
+@Keep
+private data class VertexErrorEnvelope(
+    val error: VertexErrorDetail?,
+)
+
+@Keep
+private data class VertexErrorDetail(
+    val code: String?,
+    val message: String?,
 )
 
 private class PermanentVertexTextGenerationException(

@@ -117,6 +117,31 @@ class VertexTextGenerationClientTest {
         }
 
     @Test
+    fun `daily and per-recording quota limits are terminal failures with their own messages`() =
+        runTest {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(429)
+                    .setBody("""{"error":{"code":"daily_vertex_limit","message":"Daily limit reached."}}"""),
+            )
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(429)
+                    .setBody("""{"error":{"code":"recording_generation_limit","message":"Limit reached."}}"""),
+            )
+
+            val dailyFailure = client().generate("raw", "clean it", null, RECORDING_ID).exceptionOrNull()
+            val recordingFailure = client().generate("raw two", "clean it", null, RECORDING_ID).exceptionOrNull()
+
+            // A quota 429 resets on the server's schedule; retrying with backoff only
+            // burns the enhancement worker's attempts.
+            assertFalse(dailyFailure is IOException)
+            assertEquals("Daily cloud enhancement limit reached; try again tomorrow", dailyFailure?.message)
+            assertFalse(recordingFailure is IOException)
+            assertEquals("This recording has reached its cloud enhancement limit", recordingFailure?.message)
+        }
+
+    @Test
     fun `temporary Firebase token refresh failure stays retryable`() =
         runTest {
             val outage = CloudAuthTemporarilyUnavailableException("refresh unavailable")

@@ -488,20 +488,50 @@ class GoogleCloudFileTranscriptionProvider
             upload: Boolean = false,
         ): CloudRequestException {
             val requiresFreshUploadSession = upload && code in FRESH_UPLOAD_SESSION_STATUS_CODES
+            // Known server error codes override the status-based defaults: a 429 for the
+            // daily quota is pointless to retry before UTC midnight, while a 409 for an
+            // unfinished upload resolves itself on the next attempt.
+            when (if (upload) null else parseServerErrorCode()) {
+                "daily_dictation_limit" ->
+                    return CloudRequestException(
+                        "Daily cloud transcription limit reached; use local transcription or try again tomorrow",
+                        retryable = false,
+                    )
+                "upload_incomplete" ->
+                    return CloudRequestException(
+                        "Cloud upload has not finished; it will resume automatically",
+                        retryable = true,
+                    )
+                "deletion_in_progress" ->
+                    return CloudRequestException(
+                        "This recording's cloud transcription is being deleted",
+                        retryable = false,
+                    )
+            }
+            // 401 is retryable: tokens are fetched fresh per request, so the next attempt
+            // gets a new one. 403 stays permanent (the account itself was refused).
             val retryable =
                 requiresFreshUploadSession ||
+                    code == 401 ||
                     code == 408 ||
                     code == 429 ||
                     code >= 500
             val publicMessage =
                 when (code) {
-                    401, 403 -> "Cloud authentication was rejected"
+                    401 -> "Cloud sign-in needs to be refreshed"
+                    403 -> "Cloud authentication was rejected"
                     408, 429 -> "Cloud transcription is temporarily busy"
                     in 500..599 -> "Cloud transcription service is temporarily unavailable"
                     else -> if (upload) "Cloud upload failed" else "Cloud transcription request was rejected"
                 }
             return CloudRequestException(publicMessage, retryable, requiresFreshUploadSession)
         }
+
+        private fun Response.parseServerErrorCode(): String? =
+            runCatching {
+                val raw = peekBody(MAX_ERROR_BODY_BYTES).string()
+                gson.fromJson(raw, ServerErrorEnvelope::class.java)?.error?.code
+            }.getOrNull()
 
         private companion object {
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
@@ -521,6 +551,7 @@ class GoogleCloudFileTranscriptionProvider
             const val MIN_UPLOAD_CHUNK_BYTES = 256L * 1024L
             const val MAX_UPLOAD_CHUNK_BYTES = 16L * 1024L * 1024L
             const val MAX_STALLED_UPLOAD_RESPONSES = 3
+            const val MAX_ERROR_BODY_BYTES = 16L * 1024L
             val FRESH_UPLOAD_SESSION_STATUS_CODES = setOf(400, 404, 409, 410, 412)
         }
     }
@@ -601,4 +632,15 @@ private data class DictationError(
     val code: String,
     val message: String,
     val retryable: Boolean,
+)
+
+@Keep
+private data class ServerErrorEnvelope(
+    val error: ServerErrorDetail?,
+)
+
+@Keep
+private data class ServerErrorDetail(
+    val code: String?,
+    val message: String?,
 )

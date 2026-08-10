@@ -119,6 +119,69 @@ class GoogleCloudFileTranscriptionProviderTest {
         }
 
     @Test
+    fun `daily dictation limit is a non-retryable failure with its own message`() = runTest {
+        server.enqueue(
+            jsonResponse(
+                """{"error":{"code":"daily_dictation_limit","message":"Daily limit reached."}}""",
+                429,
+            ),
+        )
+
+        val outcome = provider.transcribeFile(request())
+
+        // Retrying with backoff cannot succeed before the quota resets, so the worker
+        // must not burn its attempts against it.
+        assertEquals(
+            TranscriptionOutcome.EngineError(
+                reason = "Daily cloud transcription limit reached; use local transcription or try again tomorrow",
+                retryable = false,
+            ),
+            outcome,
+        )
+    }
+
+    @Test
+    fun `expired sign-in token is retryable because tokens are fetched per request`() = runTest {
+        server.enqueue(
+            jsonResponse(
+                """{"error":{"code":"unauthenticated","message":"The sign-in token is invalid."}}""",
+                401,
+            ),
+        )
+
+        val outcome = provider.transcribeFile(request())
+
+        assertEquals(
+            TranscriptionOutcome.EngineError(
+                reason = "Cloud sign-in needs to be refreshed",
+                retryable = true,
+            ),
+            outcome,
+        )
+    }
+
+    @Test
+    fun `commit before the upload finished is retryable`() = runTest {
+        server.enqueue(jsonResponse(jobEnvelope(STATE_AWAITING_UPLOAD, upload = "null"), 200))
+        server.enqueue(
+            jsonResponse(
+                """{"error":{"code":"upload_incomplete","message":"The audio upload has not finished."}}""",
+                409,
+            ),
+        )
+
+        val outcome = provider.transcribeFile(request())
+
+        assertEquals(
+            TranscriptionOutcome.EngineError(
+                reason = "Cloud upload has not finished; it will resume automatically",
+                retryable = true,
+            ),
+            outcome,
+        )
+    }
+
+    @Test
     fun `commit integrity rejection retries and reuploads in the same run`() = runTest {
         val retryUpload = uploadDescriptor("/retry-upload-session")
         server.enqueue(jsonResponse(jobEnvelope(STATE_AWAITING_UPLOAD, upload = "null"), 200))
