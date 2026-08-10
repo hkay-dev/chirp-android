@@ -119,8 +119,14 @@ class MainActivity : ComponentActivity() {
         // first Compose frame, instead of cutting from a flat default window.
         val splashScreen = installSplashScreen()
         // PRF-9: hold the splash for the (sub-30ms) DataStore theme read so Material You users
-        // do not see a brand-lavender first frame snap to the dynamic palette.
-        splashScreen.setKeepOnScreenCondition { !themePreferenceLoaded }
+        // do not see a brand-lavender first frame snap to the dynamic palette. Wall-clock
+        // capped: a stalled preference read must degrade to a palette snap, not an app that
+        // hangs on its splash forever.
+        val splashHoldStart = android.os.SystemClock.uptimeMillis()
+        splashScreen.setKeepOnScreenCondition {
+            !themePreferenceLoaded &&
+                android.os.SystemClock.uptimeMillis() - splashHoldStart < SPLASH_THEME_HOLD_MAX_MS
+        }
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
@@ -298,6 +304,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val KEY_STARTUP_PROMPTS_REQUESTED = "startupPromptsRequested"
+
+        /** Upper bound on holding the splash for the theme read (normally sub-30ms). */
+        private const val SPLASH_THEME_HOLD_MAX_MS = 500L
         private const val KEYBOARD_SETTINGS_ALIAS = "dev.chirpboard.app.KeyboardSettingsLauncherActivity"
         private const val ACTION_START_RECORDING = "dev.chirpboard.app.action.START_RECORDING"
 
