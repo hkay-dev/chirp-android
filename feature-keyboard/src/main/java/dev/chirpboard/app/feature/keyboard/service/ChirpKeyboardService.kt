@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.keyboard.service
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -157,7 +158,11 @@ class ChirpKeyboardService :
         Log.d(TAG, "onCreate")
         lastKnownConfigSnapshot = keyboardConfigSnapshotOf(resources.configuration)
         serviceCreatedAtUptimeMs = SystemClock.uptimeMillis()
-        straySwitchCleanupArmed = true
+        straySwitchCleanupArmed =
+            shouldArmStraySwitchCleanup(
+                lastProcessExitTimestampMs = latestProcessExitTimestampMs(),
+                nowMs = System.currentTimeMillis(),
+            )
 
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
@@ -299,6 +304,19 @@ class ChirpKeyboardService :
     private fun isConfigChangeInFlight(): Boolean =
         SystemClock.uptimeMillis() < configChangeGraceUntilUptimeMs ||
             keyboardConfigSnapshotOf(resources.configuration) != lastKnownConfigSnapshot
+
+    /**
+     * Timestamp of this package's most recent process death, or null when none is recorded.
+     * Used to keep the stray-z cleanup disarmed when a service create is really the system
+     * restarting the IME after a kill (which then binds like a fresh IME switch).
+     */
+    private fun latestProcessExitTimestampMs(): Long? =
+        runCatching {
+            (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+                .getHistoricalProcessExitReasons(packageName, 0, 1)
+                .firstOrNull()
+                ?.timestamp
+        }.getOrNull()
 
     override fun onBindInput() {
         super.onBindInput()

@@ -85,4 +85,26 @@ class StraySwitchCharacterCleanupTest {
         assertFalse(shouldAttemptStraySwitchCleanup(60_000L))
         assertFalse(shouldAttemptStraySwitchCleanup(-1L))
     }
+
+    @Test
+    fun `arming is skipped when the process died recently`() {
+        // A system restart of the current IME after a kill recreates the service and binds
+        // within the freshness window, mimicking an IME switch; a legitimate trailing z/Z
+        // must not be deleted then.
+        val now = 1_000_000L
+        assertTrue(shouldArmStraySwitchCleanup(lastProcessExitTimestampMs = null, nowMs = now))
+        assertFalse(shouldArmStraySwitchCleanup(lastProcessExitTimestampMs = now - 1_000L, nowMs = now))
+        assertFalse(
+            shouldArmStraySwitchCleanup(
+                lastProcessExitTimestampMs = now - STRAY_SWITCH_RECENT_PROCESS_EXIT_WINDOW_MS,
+                nowMs = now,
+            ),
+        )
+        assertTrue(
+            shouldArmStraySwitchCleanup(
+                lastProcessExitTimestampMs = now - STRAY_SWITCH_RECENT_PROCESS_EXIT_WINDOW_MS - 1,
+                nowMs = now,
+            ),
+        )
+    }
 }
