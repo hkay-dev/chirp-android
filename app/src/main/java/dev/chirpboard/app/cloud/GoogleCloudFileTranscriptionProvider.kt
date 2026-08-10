@@ -21,7 +21,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -341,7 +343,7 @@ class GoogleCloudFileTranscriptionProvider
                 }
         }
 
-        private fun uploadAudio(
+        private suspend fun uploadAudio(
             audioFile: File,
             sessionUrl: String,
             contentType: String,
@@ -370,6 +372,9 @@ class GoogleCloudFileTranscriptionProvider
             var stalledResponses = 0
 
             while (offset < totalBytes) {
+                // A stopped worker must not keep pushing chunks of a potentially 256 MB
+                // file; OkHttp's blocking execute() ignores coroutine cancellation.
+                currentCoroutineContext().ensureActive()
                 val bytesRemaining = totalBytes - offset
                 val contentLength = minOf(chunkSize, bytesRemaining)
                 val endInclusive = offset + contentLength - 1L
