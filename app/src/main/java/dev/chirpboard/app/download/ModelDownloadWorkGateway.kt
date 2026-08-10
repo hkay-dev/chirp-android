@@ -28,6 +28,13 @@ import javax.inject.Singleton
 const val MODEL_DOWNLOAD_WORK_NAME = "model_download"
 
 /**
+ * Tag carrying the target model id on the unique download work. The work name is shared by
+ * all models (one download at a time), so this is what lets observers attribute progress
+ * and failures to the RIGHT model instead of whichever one the settings screen shows.
+ */
+internal const val MODEL_ID_TAG_PREFIX = "model_id:"
+
+/**
  * Runs the model download as WorkManager unique work (ERR-1) and mirrors its state for
  * observers. A CONNECTED network constraint keeps a no-network start parked as [Waiting]
  * instead of failing instantly, and exponential backoff spaces the bounded retries (ERR-3).
@@ -68,7 +75,8 @@ class ModelDownloadWorkGateway
                             ModelDownloadWorker.INPUT_PREFER_INTERNAL_STORAGE to preferInternalStorage,
                             ModelDownloadWorker.INPUT_MODEL_ID to modelId.persistedValue,
                         ),
-                    ).build()
+                    ).addTag(MODEL_ID_TAG_PREFIX + modelId.persistedValue)
+                    .build()
             // KEEP: never double-schedule while a download is pending/running; terminal work
             // (failed/succeeded/cancelled) does not block a new explicit start.
             workManager.enqueueUniqueWork(MODEL_DOWNLOAD_WORK_NAME, ExistingWorkPolicy.KEEP, request)
@@ -87,17 +95,30 @@ class ModelDownloadWorkGateway
 internal fun mapDownloadWorkInfo(info: WorkInfo?): SpeechModelDownloadWork =
     when (info?.state) {
         null, WorkInfo.State.CANCELLED -> SpeechModelDownloadWork.Idle
-        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> SpeechModelDownloadWork.Waiting
-        WorkInfo.State.RUNNING -> mapRunningDownload(info.progress)
+        WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED ->
+            SpeechModelDownloadWork.Waiting(modelId = downloadWorkModelId(info))
+        WorkInfo.State.RUNNING -> mapRunningDownload(info.progress, downloadWorkModelId(info))
         WorkInfo.State.SUCCEEDED -> SpeechModelDownloadWork.Succeeded
         WorkInfo.State.FAILED ->
             SpeechModelDownloadWork.Failed(
-                info.outputData.getString(ModelDownloadWorker.OUTPUT_ERROR) ?: "Download failed",
+                message = info.outputData.getString(ModelDownloadWorker.OUTPUT_ERROR) ?: "Download failed",
+                modelId = downloadWorkModelId(info),
             )
     }
 
-internal fun mapRunningDownload(progress: Data): SpeechModelDownloadWork.Running =
+/** Null (not DEFAULT) for work enqueued before the tag existed, so consumers can tell "unknown". */
+internal fun downloadWorkModelId(info: WorkInfo): LocalSpeechModelId? =
+    info.tags
+        .firstOrNull { it.startsWith(MODEL_ID_TAG_PREFIX) }
+        ?.removePrefix(MODEL_ID_TAG_PREFIX)
+        ?.let { value -> LocalSpeechModelId.entries.firstOrNull { it.persistedValue == value } }
+
+internal fun mapRunningDownload(
+    progress: Data,
+    modelId: LocalSpeechModelId? = null,
+): SpeechModelDownloadWork.Running =
     SpeechModelDownloadWork.Running(
         file = progress.getString(ModelDownloadWorker.PROGRESS_FILE).orEmpty(),
         progress = progress.getFloat(ModelDownloadWorker.PROGRESS_FRACTION, 0f),
+        modelId = modelId,
     )

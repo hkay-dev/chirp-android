@@ -3,6 +3,7 @@ package dev.chirpboard.app.download
 import androidx.work.Data
 import androidx.work.WorkInfo
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
@@ -13,11 +14,13 @@ class ModelDownloadWorkGatewayTest {
         state: WorkInfo.State,
         progress: Data = Data.EMPTY,
         output: Data = Data.EMPTY,
+        tags: Set<String> = emptySet(),
     ): WorkInfo =
         mockk<WorkInfo> {
             every { this@mockk.state } returns state
             every { this@mockk.progress } returns progress
             every { this@mockk.outputData } returns output
+            every { this@mockk.tags } returns tags
         }
 
     @Test
@@ -36,12 +39,43 @@ class ModelDownloadWorkGatewayTest {
     @Test
     fun `enqueued and blocked map to Waiting`() {
         assertEquals(
-            SpeechModelDownloadWork.Waiting,
+            SpeechModelDownloadWork.Waiting(),
             mapDownloadWorkInfo(workInfo(WorkInfo.State.ENQUEUED)),
         )
         assertEquals(
-            SpeechModelDownloadWork.Waiting,
+            SpeechModelDownloadWork.Waiting(),
             mapDownloadWorkInfo(workInfo(WorkInfo.State.BLOCKED)),
+        )
+    }
+
+    @Test
+    fun `the model id tag attributes work to its target model`() {
+        val tags = setOf("some_other_tag", MODEL_ID_TAG_PREFIX + "parakeet_tdt_600m")
+        assertEquals(
+            SpeechModelDownloadWork.Waiting(modelId = LocalSpeechModelId.PARAKEET_TDT_600M),
+            mapDownloadWorkInfo(workInfo(WorkInfo.State.ENQUEUED, tags = tags)),
+        )
+        assertEquals(
+            SpeechModelDownloadWork.Running(file = "", progress = 0f, modelId = LocalSpeechModelId.PARAKEET_TDT_600M),
+            mapDownloadWorkInfo(workInfo(WorkInfo.State.RUNNING, tags = tags)),
+        )
+        assertEquals(
+            SpeechModelDownloadWork.Failed("Download failed", modelId = LocalSpeechModelId.PARAKEET_TDT_600M),
+            mapDownloadWorkInfo(workInfo(WorkInfo.State.FAILED, tags = tags)),
+        )
+    }
+
+    @Test
+    fun `a missing or unknown model tag maps to a null model id, not the default model`() {
+        assertEquals(
+            SpeechModelDownloadWork.Waiting(modelId = null),
+            mapDownloadWorkInfo(workInfo(WorkInfo.State.ENQUEUED)),
+        )
+        assertEquals(
+            SpeechModelDownloadWork.Waiting(modelId = null),
+            mapDownloadWorkInfo(
+                workInfo(WorkInfo.State.ENQUEUED, tags = setOf(MODEL_ID_TAG_PREFIX + "not_a_model")),
+            ),
         )
     }
 

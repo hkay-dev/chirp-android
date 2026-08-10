@@ -6,6 +6,7 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadGateway
 import dev.chirpboard.app.core.modelreadiness.SpeechModelDownloadWork
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
+import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -93,7 +94,7 @@ class SpeechModelManagerTest {
 
         manager.applyDownloadWork(
             work = SpeechModelDownloadWork.Running(file = "encoder.int8.onnx", progress = 0.5f),
-            previous = SpeechModelDownloadWork.Waiting,
+            previous = SpeechModelDownloadWork.Waiting(),
         )
 
         assertEquals(
@@ -104,11 +105,46 @@ class SpeechModelManagerTest {
     }
 
     @Test
+    fun `work for a different model never touches this model's status`() = runTest {
+        val manager = createManager()
+
+        // Managed model defaults to LocalSpeechModelId.DEFAULT; this work belongs to 600M.
+        manager.applyDownloadWork(
+            work =
+                SpeechModelDownloadWork.Running(
+                    file = "encoder.int8.onnx",
+                    progress = 0.5f,
+                    modelId = LocalSpeechModelId.PARAKEET_TDT_600M,
+                ),
+            previous = SpeechModelDownloadWork.Idle,
+        )
+
+        assertEquals(SpeechModelManager.ModelStatus.NotDownloaded, manager.modelStatus.value)
+    }
+
+    @Test
+    fun `requestDownload refuses while another model's download is active`() = runTest {
+        val manager = createManager()
+        gatewayWork.value =
+            SpeechModelDownloadWork.Running(
+                file = "encoder.int8.onnx",
+                progress = 0.5f,
+                modelId = LocalSpeechModelId.PARAKEET_TDT_600M,
+            )
+
+        manager.requestDownload()
+
+        assertTrue(manager.modelStatus.value is SpeechModelManager.ModelStatus.Error)
+        verify(exactly = 0) { downloadGateway.startDownload(any<Boolean>()) }
+        verify(exactly = 0) { downloadGateway.startDownload(any(), any()) }
+    }
+
+    @Test
     fun `waiting work maps to WaitingForNetwork`() = runTest {
         val manager = createManager()
 
         manager.applyDownloadWork(
-            work = SpeechModelDownloadWork.Waiting,
+            work = SpeechModelDownloadWork.Waiting(),
             previous = SpeechModelDownloadWork.Idle,
         )
 
@@ -150,7 +186,7 @@ class SpeechModelManagerTest {
 
         manager.applyDownloadWork(
             work = SpeechModelDownloadWork.Running("encoder.int8.onnx", 0.3f),
-            previous = SpeechModelDownloadWork.Waiting,
+            previous = SpeechModelDownloadWork.Waiting(),
         )
         manager.applyDownloadWork(
             work = SpeechModelDownloadWork.Idle,

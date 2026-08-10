@@ -132,6 +132,17 @@ class SpeechModelManager
 
         /** Start (or keep) the app-scoped download work; status updates arrive via [modelStatus]. */
         fun requestDownload(preferInternalStorage: Boolean = false) {
+            // The unique work name is shared by all models; KEEP would silently drop this
+            // request while another model's transfer is pending, leaving an optimistic
+            // "Downloading" that never becomes real. Refuse honestly instead.
+            val active = downloadGateway.work.value
+            if ((active is SpeechModelDownloadWork.Waiting || active is SpeechModelDownloadWork.Running) &&
+                !workAppliesToManagedModel(active)
+            ) {
+                _modelStatus.value =
+                    ModelStatus.Error("Another model is still downloading. Wait for it to finish or cancel it first.")
+                return
+            }
             // Optimistic flip so the UI reacts before WorkManager reports RUNNING.
             if (_modelStatus.value !is ModelStatus.Ready) {
                 _modelStatus.value = ModelStatus.Downloading(0f)
@@ -217,11 +228,24 @@ class SpeechModelManager
                 success
             }
 
+        /**
+         * True when the download work targets the currently managed model. Work without a
+         * recorded id (enqueued before the tag existed) is assumed to be ours so an
+         * in-flight download across an app update keeps reporting progress. This is what
+         * keeps model A's running transfer, byte counts, and failure message off model B's
+         * card when the user switches which model they are managing.
+         */
+        private fun workAppliesToManagedModel(work: SpeechModelDownloadWork): Boolean =
+            work.modelId == null || work.modelId == _managedModel.value
+
         @VisibleForTesting
         internal suspend fun applyDownloadWork(
             work: SpeechModelDownloadWork,
             previous: SpeechModelDownloadWork,
         ) {
+            if (!workAppliesToManagedModel(work)) {
+                return
+            }
             when (work) {
                 SpeechModelDownloadWork.Idle -> {
                     // CANCELLED (or pruned) work: re-derive the status from disk so a
@@ -231,7 +255,7 @@ class SpeechModelManager
                     }
                 }
 
-                SpeechModelDownloadWork.Waiting -> {
+                is SpeechModelDownloadWork.Waiting -> {
                     if (_modelStatus.value !is ModelStatus.Ready) {
                         _modelStatus.value = ModelStatus.WaitingForNetwork
                     }
@@ -273,7 +297,10 @@ class SpeechModelManager
         }
 
         private fun applyEvaluation(evaluation: ModelReadinessEvaluation) {
-            _modelStatus.value = statusFor(evaluation, downloadGateway.work.value)
+            val work =
+                downloadGateway.work.value.takeIf(::workAppliesToManagedModel)
+                    ?: SpeechModelDownloadWork.Idle
+            _modelStatus.value = statusFor(evaluation, work)
         }
 
         private suspend fun evaluateManagedModel(): ModelReadinessEvaluation =

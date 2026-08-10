@@ -15,12 +15,22 @@ sealed interface SpeechModelDownloadWork {
     /** No download is scheduled or running, and no terminal result is pending. */
     data object Idle : SpeechModelDownloadWork
 
+    /**
+     * The model the work targets, when known. Null on [Idle]/[Succeeded] and for work
+     * enqueued before the id was recorded; consumers treat null as "assume it is mine"
+     * so an in-flight download across an app update keeps reporting progress.
+     */
+    val modelId: LocalSpeechModelId? get() = null
+
     /** Work is scheduled but not running: waiting for network or in retry backoff. */
-    data object Waiting : SpeechModelDownloadWork
+    data class Waiting(
+        override val modelId: LocalSpeechModelId? = null,
+    ) : SpeechModelDownloadWork
 
     data class Running(
         val file: String,
         val progress: Float,
+        override val modelId: LocalSpeechModelId? = null,
     ) : SpeechModelDownloadWork
 
     data object Succeeded : SpeechModelDownloadWork
@@ -31,6 +41,7 @@ sealed interface SpeechModelDownloadWork {
      */
     data class Failed(
         val message: String,
+        override val modelId: LocalSpeechModelId? = null,
     ) : SpeechModelDownloadWork
 }
 
