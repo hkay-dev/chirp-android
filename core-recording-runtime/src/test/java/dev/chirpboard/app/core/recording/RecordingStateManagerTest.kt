@@ -237,6 +237,62 @@ class RecordingStateManagerTest {
 
 
     @Test
+    fun onRecordingCompleted_rejectsNullRecordingIdWhileSessionWithIdIsActive() {
+        val activeRecordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+
+        // A late id-less completion from an earlier session must not force the live
+        // session (which carries a recordingId) to Idle and release the lock.
+        manager.onRecordingCompleted()
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Recording)
+        assertEquals(activeRecordingId, state.activeRecordingId)
+        assertFalse(manager.canStartRecording())
+    }
+
+    @Test
+    fun onRecordingCompleted_acceptsNullRecordingIdWhenSessionNeverCreatedRow() {
+        manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path")
+        manager.transitionToStopping()
+
+        manager.onRecordingCompleted()
+
+        assertTrue(manager.state.value is RecordingState.Idle)
+        assertTrue(manager.canStartRecording())
+    }
+
+    @Test
+    fun onRecordingError_ignoresStaleRecordingIdWhileNewerRecordingIsActive() {
+        val staleRecordingId = UUID.randomUUID()
+        val activeRecordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = activeRecordingId)
+
+        manager.onRecordingError("old session teardown failed", recordingId = staleRecordingId)
+
+        val state = manager.state.value
+        assertTrue(state is RecordingState.Recording)
+        assertEquals(activeRecordingId, state.activeRecordingId)
+        assertFalse(manager.canStartRecording())
+    }
+
+    @Test
+    fun onRecordingError_clearsAmplitudeData() {
+        manager.nowMsOverrideForTest = { 1_000L }
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path")
+        manager.updateAmplitude(0.7f)
+
+        manager.onRecordingError("capture failed")
+
+        assertEquals(0f, manager.amplitudeFlow.value)
+        assertEquals(0, manager.waveformBuffer.count)
+    }
+
+    @Test
     fun onRecordingError_transitionsToErrorAndReleasesLock() {
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.onRecordingError("Test Error")

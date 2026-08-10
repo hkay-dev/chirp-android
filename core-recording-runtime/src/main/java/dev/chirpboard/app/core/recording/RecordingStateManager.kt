@@ -452,6 +452,17 @@ class RecordingStateManager @Inject constructor() {
                 )
                 return@update current
             }
+            if (recordingId == null && currentRecordingId != null) {
+                // Same defense as onCaptureStopHandoff: only service-driven sessions carry a
+                // recordingId in state, and they never complete id-less. An id-less completion
+                // arriving here is a late callback from an earlier session; accepting it would
+                // force the live session to Idle and release the lock under a running capture.
+                Log.w(
+                    TAG,
+                    "Ignoring null recording completion while active recording is $currentRecordingId",
+                )
+                return@update current
+            }
             completionAccepted = true
             when (current) {
                 is RecordingState.Stopping -> {
@@ -487,15 +498,35 @@ class RecordingStateManager @Inject constructor() {
      * 
      * @param message User-facing error message
      * @param cause Optional underlying exception
+     * @param recordingId The failed session's recording ID when the caller has one; lets a
+     *   late async-teardown failure be ignored instead of overwriting a newer live session.
      */
-    fun onRecordingError(message: String, cause: Throwable? = null) {
-        timeoutJob?.cancel()
+    fun onRecordingError(
+        message: String,
+        cause: Throwable? = null,
+        recordingId: UUID? = null,
+    ) {
+        var errorAccepted = false
         _state.update { current ->
+            errorAccepted = false
+            val currentRecordingId = current.activeRecordingId
+            if (recordingId != null && currentRecordingId != null && currentRecordingId != recordingId) {
+                Log.w(
+                    TAG,
+                    "Ignoring stale recording error for $recordingId while active recording is $currentRecordingId",
+                )
+                return@update current
+            }
+            errorAccepted = true
             val origin = current.activeOrigin ?: RecordingOrigin.APP
             Log.d(TAG, "State: ${current::class.simpleName} -> Error")
             RecordingState.Error(origin, message, cause)
         }
-        recordingLock.set(false)
+        if (errorAccepted) {
+            timeoutJob?.cancel()
+            recordingLock.set(false)
+            clearAmplitude()
+        }
     }
     
     /**

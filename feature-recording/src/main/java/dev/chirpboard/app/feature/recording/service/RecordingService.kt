@@ -1254,6 +1254,7 @@ class RecordingService : Service() {
 
         acquireStopWakeLock()
         val sessionId = currentSessionId
+        val failedRecordingId = currentInProgressRecordingId
         val generation = stopGeneration.incrementAndGet()
 
         try {
@@ -1261,7 +1262,10 @@ class RecordingService : Service() {
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            recordingStateManager.onRecordingError("Failed to finalize recording during shutdown")
+            recordingStateManager.onRecordingError(
+                "Failed to finalize recording during shutdown",
+                recordingId = failedRecordingId,
+            )
         } finally {
             finishStopLifecycle(generation)
             emergencyStopScope.cancel()
@@ -1369,7 +1373,9 @@ class RecordingService : Service() {
                     inProgressRecordingId?.let { recordingRepository.deleteAbandonedInProgressRecording(it) }
                 }
             },
-            onRecordingError = { recordingStateManager.onRecordingError(message, cause) },
+            onRecordingError = {
+                recordingStateManager.onRecordingError(message, cause, recordingId = inProgressRecordingId)
+            },
             stopService = {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
