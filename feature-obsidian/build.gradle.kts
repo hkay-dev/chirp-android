@@ -30,6 +30,7 @@ android {
 
 dependencies {
     // Internal modules
+    implementation(project(":core-contracts"))
     implementation(project(":core-ui"))
 
     // Compose

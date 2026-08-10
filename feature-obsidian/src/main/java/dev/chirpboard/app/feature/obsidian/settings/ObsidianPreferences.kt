@@ -15,7 +15,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class ObsidianPreferences @Inject constructor(
-    private val dataStore: DataStore<Preferences>
+    @ObsidianDataStore private val dataStore: DataStore<Preferences>
 ) {
     private object Keys {
         val GLOBAL_VAULT_URI = stringPreferencesKey("global_vault_uri")
