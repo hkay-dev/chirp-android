@@ -152,14 +152,16 @@ class ObsidianManager
         }
 
         /**
-         * Write content atomically using temp file pattern.
+         * Write content atomically using a temp-file pattern. The previous export (if any)
+         * is never deleted before its replacement fully exists: it is moved aside to a
+         * backup name, restored if the replacement fails, and dropped only on success.
          *
          * Flow:
-         * 1. Create temp file with UUID suffix
-         * 2. Write content with flush and sync
-         * 3. Delete existing file (if any)
-         * 4. Rename temp to final name
-         * 5. Clean up temp on any failure
+         * 1. Create a uniquely named temp document and write + sync the content into it.
+         * 2. Scan the vault once: locate this file's previous export and sweep temp/backup
+         *    leftovers a crashed earlier export of the same file left behind.
+         * 3. Move the previous export to a backup name, promote the temp document to the
+         *    final name (rename, or stream-copy fallback), then drop the backup.
          *
          * @return URI of the created file
          * @throws IOException if write fails
@@ -169,15 +171,14 @@ class ObsidianManager
             filename: String,
             content: String,
         ): Uri {
-            val tempFilename = "$filename.tmp.${UUID.randomUUID().toString().take(8)}"
+            val uniqueSuffix = UUID.randomUUID().toString().take(8)
+            val tempFilename = "$filename.tmp.$uniqueSuffix"
             var tempFile: DocumentFile? = null
 
             try {
-                // Step 1: Create temp file
                 tempFile = vaultDir.createFile("text/markdown", tempFilename)
-                    ?: throw IOException("Failed to create temp file: $tempFilename")
+                    ?: throw ObsidianVaultAccessException("Failed to create temp file: $tempFilename")
 
-                // Step 2: Write with sync
                 context.contentResolver.openFileDescriptor(tempFile.uri, "w")?.use { pfd ->
                     FileOutputStream(pfd.fileDescriptor).use { fos ->
                         fos.write(content.toByteArray(Charsets.UTF_8))
@@ -191,35 +192,8 @@ class ObsidianManager
                     }
                 } ?: throw IOException("Failed to open temp file for writing")
 
-                // Step 3: Delete existing file if present. The filename embeds the
-                // recording's created-at timestamp, so a match here is this recording's
-                // own previous export being refreshed — not another note.
-                vaultDir.findFile(filename)?.delete()
-
-                // Step 4: Rename temp to final
-                // Note: SAF renameTo() can be unreliable, handle fallback
-                if (!tempFile.renameTo(filename)) {
-                    // Fallback: create final file, copy content, delete temp
-                    val finalFile =
-                        vaultDir.createFile("text/markdown", filename)
-                            ?: throw IOException("Failed to create final file: $filename")
-
-                    val outStream =
-                        context.contentResolver.openOutputStream(finalFile.uri)
-                            ?: throw IOException("Failed to open output stream")
-                    outStream.use { out ->
-                        val inpStream =
-                            context.contentResolver.openInputStream(tempFile.uri)
-                                ?: throw IOException("Failed to open temp stream")
-                        inpStream.use { inp ->
-                            inp.copyTo(out)
-                        }
-                    }
-                    tempFile.delete()
-                    return finalFile.uri
-                }
-
-                return tempFile.uri
+                val existing = findExistingAndSweepLeftovers(vaultDir, filename, tempFilename)
+                return replaceExisting(vaultDir, tempFile, existing, filename, uniqueSuffix)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 // Clean up temp file on any failure
@@ -232,7 +206,132 @@ class ObsidianManager
             }
         }
 
+        /**
+         * One directory scan that both locates this file's previous export and deletes
+         * temp/backup leftovers from earlier crashed exports of the same file. Leftovers
+         * are matched by the `$filename.tmp.` / `$filename.bak.` prefixes, so in-flight
+         * exports of other recordings are never touched.
+         */
+        private fun findExistingAndSweepLeftovers(
+            vaultDir: DocumentFile,
+            filename: String,
+            currentTempFilename: String,
+        ): DocumentFile? {
+            var existing: DocumentFile? = null
+            for (child in vaultDir.listFiles()) {
+                val name = child.name ?: continue
+                when {
+                    name == filename -> existing = child
+                    name == currentTempFilename -> Unit
+                    name.startsWith("$filename.tmp.") || name.startsWith("$filename.bak.") ->
+                        deleteQuietly(child, "stale export leftover $name")
+                }
+            }
+            return existing
+        }
+
+        /**
+         * Put the durable temp content in place of the previous export. The previous note
+         * is moved to a backup name first and renamed back if promotion fails, so no
+         * failure path can leave the vault without either the old or the new note.
+         */
+        private fun replaceExisting(
+            vaultDir: DocumentFile,
+            tempFile: DocumentFile,
+            existing: DocumentFile?,
+            filename: String,
+            uniqueSuffix: String,
+        ): Uri {
+            if (existing == null) return promoteTempFile(vaultDir, tempFile, filename)
+
+            if (!existing.renameTo("$filename.bak.$uniqueSuffix")) {
+                // Provider can't rename the old note aside; last resort is overwriting it
+                // in place with the already-durable temp content.
+                copyDocument(from = tempFile.uri, to = existing.uri)
+                deleteQuietly(tempFile, "temp file")
+                return existing.uri
+            }
+            try {
+                val finalUri = promoteTempFile(vaultDir, tempFile, filename)
+                // renameTo() repointed `existing` at the backup name.
+                deleteQuietly(existing, "backup of previous export")
+                return finalUri
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                try {
+                    existing.renameTo(filename)
+                } catch (restoreError: Exception) {
+                    Log.w(TAG, "Failed to restore previous export after failed write", restoreError)
+                }
+                throw e
+            }
+        }
+
+        /**
+         * Give the fully written temp document the final name: rename when the provider
+         * supports it, otherwise copy into a fresh final document. A half-written final
+         * document from a failed copy is removed, never left in the vault.
+         */
+        private fun promoteTempFile(
+            vaultDir: DocumentFile,
+            tempFile: DocumentFile,
+            filename: String,
+        ): Uri {
+            if (tempFile.renameTo(filename)) return tempFile.uri
+
+            val finalFile =
+                vaultDir.createFile("text/markdown", filename)
+                    ?: throw ObsidianVaultAccessException("Failed to create final file: $filename")
+            try {
+                copyDocument(from = tempFile.uri, to = finalFile.uri)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                deleteQuietly(finalFile, "half-written final file")
+                throw e
+            }
+            deleteQuietly(tempFile, "temp file")
+            return finalFile.uri
+        }
+
+        private fun copyDocument(
+            from: Uri,
+            to: Uri,
+        ) {
+            // "wt" truncates: without it a shorter rewrite leaves the old note's tail bytes.
+            val outStream =
+                context.contentResolver.openOutputStream(to, "wt")
+                    ?: throw IOException("Failed to open output stream")
+            outStream.use { out ->
+                val inpStream =
+                    context.contentResolver.openInputStream(from)
+                        ?: throw IOException("Failed to open temp stream")
+                inpStream.use { inp ->
+                    inp.copyTo(out)
+                }
+            }
+        }
+
+        private fun deleteQuietly(
+            file: DocumentFile,
+            label: String,
+        ) {
+            try {
+                file.delete()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.w(TAG, "Failed to delete $label", e)
+            }
+        }
     }
+
+/**
+ * The vault directory refused to create a document, which in practice means the SAF grant
+ * was revoked or the folder was moved/deleted. Typed so export-failure reporting can tell
+ * the user to re-select the vault instead of showing a generic write error.
+ */
+class ObsidianVaultAccessException(
+    message: String,
+) : IOException(message)
 
 private val InvalidExportFilenameCharacters = Regex("[\\\\/:*?\"<>|]")
 private val ExportMultiWhitespace = Regex("\\s+")

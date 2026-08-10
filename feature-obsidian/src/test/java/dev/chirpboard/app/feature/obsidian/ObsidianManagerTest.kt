@@ -204,25 +204,115 @@ class ObsidianManagerTest {
     }
 
     @Test
-    fun `re-export deletes only this recordings own previous note before the rename`() = runTest {
+    fun `re-export moves the previous note aside and deletes it only after the rename`() = runTest {
         val harness = successExportHarness()
         val expectedFilename =
             buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
         val previousExport = mockk<DocumentFile>()
+        every { previousExport.name } returns expectedFilename
+        every { previousExport.renameTo(any()) } returns true
         every { previousExport.delete() } returns true
-        every { harness.vaultDir.findFile(expectedFilename) } returns previousExport
+        every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
 
         val result =
             manager.export(harness.recording, "transcript", null, harness.vaultUri)
 
         assertTrue(result.isSuccess)
-        // The filename embeds the created-at timestamp (collision behavior pinned in the
-        // filename tests above), so the only file ever replaced is this recording's own
-        // earlier export — deleted after the temp write, right before the rename.
+        // The previous note is parked under a backup name and removed only once the new
+        // note holds the final name — it exists under some name at every instant.
         verifyOrder {
-            previousExport.delete()
+            previousExport.renameTo(match { it.startsWith("$expectedFilename.bak.") })
             harness.tempFile.renameTo(expectedFilename)
+            previousExport.delete()
         }
+    }
+
+    @Test
+    fun `a failed replacement restores the previous note instead of losing it`() = runTest {
+        val harness = successExportHarness(renameSucceeds = false)
+        val expectedFilename =
+            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
+        val previousExport = mockk<DocumentFile>()
+        every { previousExport.name } returns expectedFilename
+        every { previousExport.renameTo(any()) } returns true
+        every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
+        // Temp rename fails AND the fallback can't create the final document (grant
+        // revoked mid-export): the previous note must be renamed back.
+        every {
+            harness.vaultDir.createFile("text/markdown", capture(harness.createdTempName))
+        } returns harness.tempFile andThen null
+        every { harness.tempFile.delete() } returns true
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is ObsidianVaultAccessException)
+        verifyOrder {
+            previousExport.renameTo(match { it.startsWith("$expectedFilename.bak.") })
+            previousExport.renameTo(expectedFilename)
+        }
+        verify(exactly = 1) { harness.tempFile.delete() }
+    }
+
+    @Test
+    fun `when the provider cannot rename the previous note it is overwritten in place`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename =
+            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
+        val previousExport = mockk<DocumentFile>()
+        val previousUri = mockk<Uri>()
+        every { previousExport.name } returns expectedFilename
+        every { previousExport.uri } returns previousUri
+        every { previousExport.renameTo(any()) } returns false
+        every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
+        val copied = ByteArrayOutputStream()
+        every { contentResolver.openOutputStream(previousUri, "wt") } returns copied
+        every { contentResolver.openInputStream(harness.tempFileUri) } answers {
+            ByteArrayInputStream(harness.writtenContent().toByteArray(Charsets.UTF_8))
+        }
+        every { harness.tempFile.delete() } returns true
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isSuccess)
+        assertEquals(previousUri, result.getOrNull())
+        assertEquals(harness.writtenContent(), copied.toString(Charsets.UTF_8.name()))
+        verify(exactly = 0) { previousExport.delete() }
+        verify(exactly = 1) { harness.tempFile.delete() }
+    }
+
+    @Test
+    fun `stale temp and backup leftovers from crashed exports are swept`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename =
+            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
+        val staleTemp = mockk<DocumentFile>()
+        every { staleTemp.name } returns "$expectedFilename.tmp.deadbeef"
+        every { staleTemp.delete() } returns true
+        val staleBackup = mockk<DocumentFile>()
+        every { staleBackup.name } returns "$expectedFilename.bak.cafebabe"
+        every { staleBackup.delete() } returns true
+        val otherNote = mockk<DocumentFile>()
+        every { otherNote.name } returns "Unrelated (2026-01-01 000000).md"
+        every { harness.vaultDir.listFiles() } returns arrayOf(staleTemp, staleBackup, otherNote)
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) { staleTemp.delete() }
+        verify(exactly = 1) { staleBackup.delete() }
+        verify(exactly = 0) { otherNote.delete() }
+    }
+
+    @Test
+    fun `a vault that refuses to create files fails as an access error`() = runTest {
+        val harness = successExportHarness()
+        every { harness.vaultDir.createFile("text/markdown", any()) } returns null
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is ObsidianVaultAccessException)
     }
 
     @Test
@@ -237,7 +327,7 @@ class ObsidianManagerTest {
             harness.vaultDir.createFile("text/markdown", capture(harness.createdTempName))
         } returns harness.tempFile andThen finalFile
         val copied = ByteArrayOutputStream()
-        every { contentResolver.openOutputStream(finalUri) } returns copied
+        every { contentResolver.openOutputStream(finalUri, "wt") } returns copied
         every { contentResolver.openInputStream(harness.tempFileUri) } answers {
             ByteArrayInputStream(harness.writtenContent().toByteArray(Charsets.UTF_8))
         }
@@ -249,6 +339,26 @@ class ObsidianManagerTest {
         assertEquals(finalUri, result.getOrNull())
         // The fallback copies the already-written temp content and removes the temp file.
         assertEquals(harness.writtenContent(), copied.toString(Charsets.UTF_8.name()))
+        verify(exactly = 1) { harness.tempFile.delete() }
+    }
+
+    @Test
+    fun `a failed fallback copy removes the half-written final file`() = runTest {
+        val harness = successExportHarness(renameSucceeds = false)
+        val finalFile = mockk<DocumentFile>()
+        val finalUri = mockk<Uri>()
+        every { finalFile.uri } returns finalUri
+        every { finalFile.delete() } returns true
+        every {
+            harness.vaultDir.createFile("text/markdown", capture(harness.createdTempName))
+        } returns harness.tempFile andThen finalFile
+        every { contentResolver.openOutputStream(finalUri, "wt") } returns null
+        every { harness.tempFile.delete() } returns true
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isFailure)
+        verify(exactly = 1) { finalFile.delete() }
         verify(exactly = 1) { harness.tempFile.delete() }
     }
 
@@ -327,7 +437,7 @@ class ObsidianManagerTest {
 
         every { DocumentFile.fromTreeUri(context, vaultUri) } returns vaultDir
         every { vaultDir.canWrite() } returns true
-        every { vaultDir.findFile(any()) } returns null
+        every { vaultDir.listFiles() } returns emptyArray()
         every { vaultDir.createFile("text/markdown", capture(createdTempName)) } returns tempFile
         every { tempFile.uri } returns tempFileUri
         every { tempFile.renameTo(any()) } returns renameSucceeds

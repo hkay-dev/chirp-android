@@ -40,6 +40,7 @@ import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.llm.settings.LlmProvider
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
+import dev.chirpboard.app.feature.obsidian.ObsidianVaultAccessException
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import dev.chirpboard.app.feature.obsidian.R as ObsidianR
 import dev.chirpboard.app.feature.transcription.inline.InlineTranscriptionCoordinatorImpl
@@ -680,7 +681,10 @@ class ObsidianTranscriptExportPort
                 )
             }
 
-            val isAccessIssue = error is SecurityException || error is IllegalArgumentException
+            val isAccessIssue =
+                error is SecurityException ||
+                    error is IllegalArgumentException ||
+                    error is ObsidianVaultAccessException
             val message =
                 if (isAccessIssue) {
                     context.getString(ObsidianR.string.obsidian_export_failed_vault_access)
