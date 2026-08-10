@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dev.chirpboard.app.R
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,7 +49,7 @@ class SettingsViewModel
                 val isDebug = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
                 _uiState.update { state ->
                     state.copy(
-                        appVersion = packageInfo.versionName ?: "Unknown",
+                        appVersion = packageInfo.versionName ?: application.getString(R.string.about_version_unknown),
                         buildNumber = PackageInfoCompat.getLongVersionCode(packageInfo).toString(),
                         isDebugBuild = isDebug,
                     )
@@ -56,8 +57,8 @@ class SettingsViewModel
             } catch (e: PackageManager.NameNotFoundException) {
                 _uiState.update { state ->
                     state.copy(
-                        appVersion = "Unknown",
-                        buildNumber = "Unknown",
+                        appVersion = application.getString(R.string.about_version_unknown),
+                        buildNumber = application.getString(R.string.about_version_unknown),
                     )
                 }
             }

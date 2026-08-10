@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.transcription.settings
 
 import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
+import dev.chirpboard.app.feature.transcription.R
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
 import dev.chirpboard.app.feature.transcription.SpeechModelManager.ModelStatus
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
@@ -47,6 +48,17 @@ class TranscriptionSettingsViewModelTest {
     private lateinit var selectedEngine: MutableStateFlow<TranscriptionEngine>
     private lateinit var cloudTranscriber: CloudFileTranscriptionProvider
 
+    // I18N-08: settings copy moved to resources; the mock resolves the ids the tests assert.
+    private val appContext =
+        mockk<android.content.Context> {
+            every { getString(R.string.transcription_settings_delete_failed) } returns
+                "Failed to delete model files"
+            every { getString(R.string.transcription_settings_model_not_downloaded) } returns
+                "Download this model before selecting it"
+            every { getString(R.string.transcription_settings_vulkan_cpu_fallback) } returns
+                "Vulkan could not start on this device. CPU fallback is active."
+        }
+
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
@@ -75,6 +87,7 @@ class TranscriptionSettingsViewModelTest {
 
         viewModel =
             TranscriptionSettingsViewModel(
+                appContext,
                 mockModelManager,
                 savedStateHandle,
                 routingStore,

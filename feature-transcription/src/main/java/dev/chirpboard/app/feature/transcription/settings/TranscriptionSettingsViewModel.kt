@@ -1,9 +1,11 @@
 package dev.chirpboard.app.feature.transcription.settings
 
+import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
 import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
@@ -14,6 +16,7 @@ import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
+import dev.chirpboard.app.feature.transcription.R
 import dev.chirpboard.app.feature.transcription.SpeechModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,6 +31,8 @@ import javax.inject.Inject
 class TranscriptionSettingsViewModel
     @Inject
     constructor(
+        // I18N-08: settings status/error copy comes from resources.
+        @ApplicationContext private val appContext: Context,
         private val modelManager: SpeechModelManager,
         private val savedStateHandle: SavedStateHandle,
         private val transcriptionRoutingStore: TranscriptionRoutingStore,
@@ -197,7 +202,9 @@ class TranscriptionSettingsViewModel
                         _uiState.update { it.copy(errorMessage = null) }
 
                     LocalSpeechModelActivationResult.ModelNotDownloaded ->
-                        _uiState.update { it.copy(errorMessage = "Download this model before selecting it") }
+                        _uiState.update {
+                            it.copy(errorMessage = appContext.getString(R.string.transcription_settings_model_not_downloaded))
+                        }
 
                     is LocalSpeechModelActivationResult.Failed ->
                         _uiState.update { it.copy(errorMessage = result.message) }
@@ -212,7 +219,7 @@ class TranscriptionSettingsViewModel
                     is LocalSpeechComputeBackendActivationResult.Activated -> {
                         val notice =
                             if (result.usedCpuFallback) {
-                                "Vulkan could not start on this device. CPU fallback is active."
+                                appContext.getString(R.string.transcription_settings_vulkan_cpu_fallback)
                             } else {
                                 null
                             }
@@ -325,7 +332,9 @@ class TranscriptionSettingsViewModel
                     }
 
                 if (!success) {
-                    _uiState.update { it.copy(errorMessage = "Failed to delete model files") }
+                    _uiState.update {
+                        it.copy(errorMessage = appContext.getString(R.string.transcription_settings_delete_failed))
+                    }
                 }
             }
         }
