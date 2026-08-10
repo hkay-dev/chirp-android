@@ -8,6 +8,7 @@ import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -109,6 +110,7 @@ class RecordingManagerTest {
             var queued = false
             keyboardStopBridge.registerStopHandler { false }
             every { stateManager.state.value } returns RecordingState.Recording(origin = RecordingOrigin.KEYBOARD)
+            coEvery { pendingStopStore.enqueue(any()) } returns true
 
             manager.stopRecording {
                 queued = true
