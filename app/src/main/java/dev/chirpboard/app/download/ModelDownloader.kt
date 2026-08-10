@@ -488,10 +488,10 @@ class ModelDownloader(
                     continue
                 }
 
-                if (destFile.exists()) {
-                    destFile.delete()
-                }
-
+                // A superseded destFile (e.g. the spec's checksum changed in an app update) is
+                // deliberately left in place: promoteModelCandidateAtomically renames it to
+                // .last-working so a failed native init can roll back to it. Deleting it here
+                // made that rollback machinery unreachable for these downloads.
                 if (!downloadSingleFile(file, modelPath, downloadBaseUrl, totalDownloaded, totalSize)) {
                     return@flow
                 }

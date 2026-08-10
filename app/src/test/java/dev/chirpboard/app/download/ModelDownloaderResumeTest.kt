@@ -184,6 +184,23 @@ class ModelDownloaderResumeTest {
         }
 
     @Test
+    fun `replacing a superseded model file keeps it as the last-working rollback`() =
+        runBlocking {
+            // An existing file that no longer matches the spec's checksum (an app update
+            // shipped a new artifact) must be preserved as .last-working, not deleted, so a
+            // failed native init can roll back to it.
+            File(modelsDir, FILE_NAME).writeText("OLD WORKING")
+
+            server.dispatcher = ResumeDispatcher(truncateFirstResponse = false)
+            val downloader = newDownloader()
+
+            val states = downloader.downloadModelFlow().toList()
+            assertEquals(ModelDownloader.DownloadState.Complete, states.last())
+            assertEquals(CONTENT, File(modelsDir, FILE_NAME).readText())
+            assertEquals("OLD WORKING", File(modelsDir, "$FILE_NAME$LAST_WORKING_MODEL_SUFFIX").readText())
+        }
+
+    @Test
     fun `resolveResumePlan requires a partial with a strong etag`() {
         val temp = File(testDir, "plan.download")
         val etag = File(testDir, "plan.download.etag")
