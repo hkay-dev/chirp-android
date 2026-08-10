@@ -143,7 +143,10 @@ fun TranscriptTab(
 
         val bodyMode =
             when {
-                isFailed && !isEditingTranscript -> TranscriptBodyMode.Failed
+                // A FAILED recording that still holds transcript text (an enhancement-stage
+                // failure keeps the raw transcript) renders that text via the normal branches
+                // below; only a failure with nothing salvageable gets the failed body.
+                isFailed && !isEditingTranscript && !hasTranscriptContent -> TranscriptBodyMode.Failed
                 // PLH-6: passage selection replaces the karaoke body with a selectable text view
                 // plus the three AI passage actions.
                 isSelectingTranscript && !isEditingTranscript -> TranscriptBodyMode.Selecting
@@ -172,7 +175,8 @@ fun TranscriptTab(
                 when (mode) {
                     TranscriptBodyMode.Processing -> TranscriptProcessingSkeleton()
 
-                    TranscriptBodyMode.Failed -> Unit
+                    TranscriptBodyMode.Failed ->
+                        FailedTranscriptContent(onRetryTranscription = onRetryTranscription)
 
                     TranscriptBodyMode.Selecting ->
                         TranscriptSelectionContent(
@@ -401,6 +405,35 @@ private fun EmptyCompletedTranscriptContent(onRetryTranscription: (() -> Unit)?)
         )
         Text(
             text = stringResource(R.string.rec_no_speech_message),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (onRetryTranscription != null) {
+            FilledTonalButton(onClick = onRetryTranscription) {
+                Text(stringResource(CoreR.string.rec_retry_transcription))
+            }
+        }
+    }
+}
+
+/**
+ * Body for a FAILED recording with no salvageable transcript text: explain and offer a retry
+ * instead of a completely blank pane (a failure that kept its raw transcript renders the
+ * transcript itself, not this).
+ */
+@Composable
+private fun FailedTranscriptContent(onRetryTranscription: (() -> Unit)?) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.rec_transcript_failed_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = stringResource(R.string.rec_transcript_failed_message),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

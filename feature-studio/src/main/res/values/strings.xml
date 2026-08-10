@@ -29,6 +29,8 @@
     <string name="desc_collapse_note">Collapse note</string>
     <string name="rec_no_speech_title">No speech detected in this recording</string>
     <string name="rec_no_speech_message">The audio is saved, but transcription didn’t find any words in it. If that doesn’t look right, retry the transcription.</string>
+    <string name="rec_transcript_failed_title">Transcription failed</string>
+    <string name="rec_transcript_failed_message">No transcript was produced for this recording. You can try again.</string>
     <string name="rec_duration_pending" translatable="false">--:--</string>
     <string name="rec_retranscribe">Re-transcribe</string>
     <string name="rec_retranscribe_desc">Re-transcribe recording</string>
