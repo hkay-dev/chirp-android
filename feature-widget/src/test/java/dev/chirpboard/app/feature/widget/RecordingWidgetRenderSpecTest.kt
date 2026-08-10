@@ -78,4 +78,31 @@ class RecordingWidgetRenderSpecTest {
         assertEquals(R.drawable.ic_widget_record, spec.iconRes)
         assertEquals(R.string.widget_desc_start_recording, spec.contentDescriptionRes)
     }
+
+    @Test
+    fun recording_isTheOnlyStateThatShowsTheChronometer() {
+        // Null means "tick the chronometer". Every other state must route through the
+        // plain TextView: setChronometer's format-string argument silently breaks on
+        // translations containing '%'.
+        assertEquals(null, widgetStatusTextRes(RecordingState.Recording(origin = RecordingOrigin.APP)))
+        assertEquals(
+            R.string.widget_status_paused,
+            widgetStatusTextRes(RecordingState.Paused(origin = RecordingOrigin.APP, accumulatedMs = 1_000L)),
+        )
+        assertEquals(
+            R.string.widget_status_starting,
+            widgetStatusTextRes(RecordingState.Starting(origin = RecordingOrigin.WIDGET)),
+        )
+        assertEquals(
+            R.string.widget_status_saving,
+            widgetStatusTextRes(
+                RecordingState.Stopping(origin = RecordingOrigin.APP, recordingId = UUID.randomUUID()),
+            ),
+        )
+        assertEquals(
+            R.string.widget_status_error,
+            widgetStatusTextRes(RecordingState.Error(origin = RecordingOrigin.WIDGET, message = "boom")),
+        )
+        assertEquals(R.string.widget_status_idle, widgetStatusTextRes(RecordingState.Idle))
+    }
 }

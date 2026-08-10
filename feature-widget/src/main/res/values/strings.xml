@@ -8,6 +8,7 @@
     <string name="widget_status_starting">Starting…</string>
     <string name="widget_status_saving">Saving…</string>
     <string name="widget_status_error">Error</string>
+    <string name="widget_status_paused">Paused</string>
     <!-- State-specific button descriptions (IME-21): TalkBack hears the action a tap performs. -->
     <string name="widget_desc_start_recording">Start recording</string>
     <string name="widget_desc_stop_recording">Stop and save recording</string>

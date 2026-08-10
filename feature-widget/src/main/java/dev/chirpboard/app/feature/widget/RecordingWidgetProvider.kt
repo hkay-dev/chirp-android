@@ -90,29 +90,21 @@ class RecordingWidgetProvider : AppWidgetProvider() {
                 context.getString(buttonSpec.contentDescriptionRes),
             )
 
-            when (state) {
-                is RecordingState.Recording -> {
-                    // Use Chronometer for recording duration
-                    val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
-                    views.setChronometer(R.id.widget_status, base, null, true)
-                }
-                is RecordingState.Paused -> {
-                    // Show the accumulated time statically
-                    val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
-                    views.setChronometer(R.id.widget_status, base, null, false)
-                }
-                is RecordingState.Starting -> {
-                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_starting), false)
-                }
-                is RecordingState.Stopping -> {
-                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_saving), false)
-                }
-                is RecordingState.Error -> {
-                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_error), false)
-                }
-                is RecordingState.Idle -> {
-                    views.setChronometer(R.id.widget_status, 0, context.getString(R.string.widget_status_idle), false)
-                }
+            // The ticking Chronometer is only for live recording. Status words go through a
+            // plain TextView: setChronometer's third argument is a FORMAT string, so routing
+            // user-facing copy through it meant any translation with a stray '%' would
+            // silently render as a raw since-boot elapsed-time counter.
+            val statusTextRes = widgetStatusTextRes(state)
+            if (statusTextRes == null) {
+                views.setViewVisibility(R.id.widget_status, android.view.View.VISIBLE)
+                views.setViewVisibility(R.id.widget_status_text, android.view.View.GONE)
+                val base = android.os.SystemClock.elapsedRealtime() - currentDurationMs
+                views.setChronometer(R.id.widget_status, base, null, true)
+            } else {
+                views.setViewVisibility(R.id.widget_status, android.view.View.GONE)
+                views.setViewVisibility(R.id.widget_status_text, android.view.View.VISIBLE)
+                views.setChronometer(R.id.widget_status, 0, null, false)
+                views.setTextViewText(R.id.widget_status_text, context.getString(statusTextRes))
             }
 
             // Set up click handler for toggle button
@@ -139,6 +131,21 @@ internal data class WidgetButtonSpec(
     @field:ColorRes val tintRes: Int,
     @field:StringRes val contentDescriptionRes: Int,
 )
+
+/**
+ * Pure state -> status line mapping (JVM-testable). Null means "show the ticking
+ * chronometer instead". Paused gets an explicit word: a frozen timer alone was
+ * indistinguishable from Stopping apart from the button tint.
+ */
+internal fun widgetStatusTextRes(state: RecordingState): Int? =
+    when (state) {
+        is RecordingState.Recording -> null
+        is RecordingState.Paused -> R.string.widget_status_paused
+        is RecordingState.Starting -> R.string.widget_status_starting
+        is RecordingState.Stopping -> R.string.widget_status_saving
+        is RecordingState.Error -> R.string.widget_status_error
+        is RecordingState.Idle -> R.string.widget_status_idle
+    }
 
 /**
  * Pure state -> render mapping (JVM-testable, TST-014). Derived from
