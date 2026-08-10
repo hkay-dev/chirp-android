@@ -40,7 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -729,8 +729,11 @@ private fun BackupPassphraseDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
-    var passphrase by rememberSaveable { mutableStateOf("") }
-    var confirmPassphrase by rememberSaveable { mutableStateOf("") }
+    // Deliberately remember, not rememberSaveable: the saved-instance Bundle is written to
+    // disk unencrypted, and the passphrase protecting the encrypted backup must never land
+    // there. Retyping after a rare process death is the right trade.
+    var passphrase by remember { mutableStateOf("") }
+    var confirmPassphrase by remember { mutableStateOf("") }
     val requiresConfirmation = mode == PassphrasePromptMode.EXPORT
     val canConfirm =
         passphrase.length >= MIN_BACKUP_PASSPHRASE_LENGTH &&

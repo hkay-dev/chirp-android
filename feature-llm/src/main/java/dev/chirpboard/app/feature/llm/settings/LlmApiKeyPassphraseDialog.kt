@@ -9,7 +9,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -29,8 +29,12 @@ internal fun LlmApiKeyPassphraseDialog(
     onDismiss: () -> Unit,
     onConfirm: (passphrase: String) -> Unit,
 ) {
-    var passphrase by rememberSaveable { mutableStateOf("") }
-    var confirmPassphrase by rememberSaveable { mutableStateOf("") }
+    // Deliberately remember, not rememberSaveable: the saved-instance Bundle is written to
+    // disk unencrypted, and the passphrase protecting the encrypted backup must never land
+    // there. The dialog itself doesn't survive process death anyway (its visibility lives
+    // in non-persisted ViewModel state), so nothing is lost by retyping.
+    var passphrase by remember { mutableStateOf("") }
+    var confirmPassphrase by remember { mutableStateOf("") }
     val requiresConfirmation = mode == LlmPassphraseDialogMode.Backup
     val canConfirm =
         passphrase.length >= MIN_PASSPHRASE_LENGTH &&
