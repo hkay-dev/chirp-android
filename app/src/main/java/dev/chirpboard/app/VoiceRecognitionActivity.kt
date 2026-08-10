@@ -400,6 +400,16 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             inputDeviceSelector.refreshDevices()
                         }
                     }
+                // ERR-9: RECORD_AUDIO can be requested right here (this is an Activity
+                // surface); on grant the persistent PermissionMissing state resolves into
+                // the session the user originally asked for.
+                val micPermissionLauncher =
+                    rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                        if (granted) {
+                            _uiError.value = null
+                            startRecording()
+                        }
+                    }
 
                 VoiceRecognitionDialog(
                     waveformBuffer = recorder.waveformBuffer,
@@ -420,6 +430,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                     onRetry = ::retryAfterNoSpeech,
                     onCancel = ::cancelRecording,
                     onOpenApp = ::openAppAndDismiss,
+                    onRequestMicPermission = {
+                        micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                    },
                     onDismissComplete = { finish() },
                     onToggleLlm = { enabled ->
                         lifecycleScope.launch {

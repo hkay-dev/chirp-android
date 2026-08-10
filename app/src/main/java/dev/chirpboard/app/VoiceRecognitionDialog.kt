@@ -131,6 +131,7 @@ internal fun VoiceRecognitionDialog(
     onRetry: () -> Unit,
     onCancel: () -> Unit,
     onOpenApp: () -> Unit,
+    onRequestMicPermission: () -> Unit,
     onDismissComplete: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
@@ -265,6 +266,7 @@ internal fun VoiceRecognitionDialog(
                 onRetry = onRetry,
                 onCancel = requestCancel,
                 onOpenApp = onOpenApp,
+                onRequestMicPermission = onRequestMicPermission,
                 onToggleLlm = onToggleLlm,
                 onModeChange = onModeChange,
                 inputDevicePicker = inputDevicePicker,
@@ -319,6 +321,7 @@ private fun VoiceRecognitionDialogContent(
     onRetry: () -> Unit,
     onCancel: () -> Unit,
     onOpenApp: () -> Unit,
+    onRequestMicPermission: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
     inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
@@ -469,6 +472,7 @@ private fun VoiceRecognitionDialogContent(
                         callerPrompt = callerPrompt,
                         onRetry = onRetry,
                         onOpenApp = onOpenApp,
+                        onRequestMicPermission = onRequestMicPermission,
                     )
 
                     AnimatedVisibility(
@@ -855,6 +859,7 @@ private fun VoiceRecognitionTranscriptArea(
     callerPrompt: String?,
     onRetry: () -> Unit,
     onOpenApp: () -> Unit,
+    onRequestMicPermission: () -> Unit,
 ) {
     val partialTranscript by partialTranscriptFlow.collectAsStateWithLifecycle("")
     val kind =
@@ -895,6 +900,7 @@ private fun VoiceRecognitionTranscriptArea(
                         statusLiveRegion = statusLiveRegion,
                         onRetry = onRetry,
                         onOpenApp = onOpenApp,
+                        onRequestMicPermission = onRequestMicPermission,
                     )
 
                 TranscriptAreaKind.Transcript ->
@@ -964,10 +970,11 @@ private fun VoiceRecognitionTranscriptArea(
 
 /**
  * Terminal in-dialog error status (ERR-9/ERR-23/ERR-27): explains the failure where the
- * sheet previously just vanished. The permission state carries an "Open Chirp" affordance
- * since an IME-less dialog cannot request the grant itself. The no-speech timeout is a
- * gentle state, not a failure: neutral color and a "Try again" affordance instead of an
- * abrupt close (the error code is returned only if the user dismisses without retrying).
+ * sheet previously just vanished. The permission state requests the grant right here
+ * (this is a full Activity surface), keeping "Open Chirp" as the fallback for a
+ * permanently denied grant. The no-speech states are gentle, not failures: neutral color
+ * and a "Try again" affordance instead of an abrupt close (the error code is returned
+ * only if the user dismisses without retrying).
  */
 @Composable
 private fun VoiceRecognitionErrorStatus(
@@ -975,6 +982,7 @@ private fun VoiceRecognitionErrorStatus(
     statusLiveRegion: Modifier,
     onRetry: () -> Unit,
     onOpenApp: () -> Unit,
+    onRequestMicPermission: () -> Unit,
 ) {
     val message =
         when (uiError) {
@@ -1027,7 +1035,11 @@ private fun VoiceRecognitionErrorStatus(
         }
         if (uiError == VoiceRecognitionUiError.PermissionMissing) {
             Spacer(modifier = Modifier.height(ChirpSpacing.Small))
-            FilledTonalButton(onClick = onOpenApp) {
+            FilledTonalButton(onClick = onRequestMicPermission) {
+                Text(stringResource(R.string.voice_recognition_allow_mic))
+            }
+            // Fallback for a permanently denied grant, where the system dialog no longer shows.
+            TextButton(onClick = onOpenApp) {
                 Text(stringResource(R.string.voice_recognition_open_app))
             }
         }

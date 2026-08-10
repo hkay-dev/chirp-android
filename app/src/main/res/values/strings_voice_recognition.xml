@@ -19,7 +19,9 @@
     <!-- Shown when the caller requested a non-English language (PIPE-08): the model is English-only. -->
     <string name="voice_recognition_english_only">Transcription is English-only</string>
     <!-- Terminal in-dialog error states; shown briefly before the result is returned (ERR-23/ERR-27). -->
-    <string name="voice_recognition_error_permission">Microphone access needed. Open Chirp to allow it.</string>
+    <string name="voice_recognition_error_permission">Microphone access is needed to dictate</string>
+    <!-- Requests RECORD_AUDIO right in the dialog; "Open Chirp" remains the permanently-denied fallback. -->
+    <string name="voice_recognition_allow_mic">Allow microphone</string>
     <string name="voice_recognition_error_busy">Microphone in use by %1$s</string>
     <string name="voice_recognition_error_capture_failed">Recording stopped unexpectedly</string>
     <string name="voice_recognition_error_transcription">Couldn’t transcribe your dictation</string>
