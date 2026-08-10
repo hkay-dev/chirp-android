@@ -616,6 +616,40 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `background transcript write keeps a mid-edit draft and edit mode`() =
+        runTest {
+            // A pipeline write (enhancement finishing) landing while the user types must not
+            // discard the draft or force-exit edit mode.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            val transcriptFlow =
+                MutableStateFlow<RepositoryFlowState<Transcript?>>(
+                    RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")),
+                )
+            every { repository.getTranscriptFlow(recordingId) } returns transcriptFlow
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingTranscript()
+            viewModel.updateTranscriptDraft("half-typed correction")
+            advanceUntilIdle()
+
+            transcriptFlow.value =
+                RepositoryFlowState(
+                    sampleTranscript(recordingId, rawText = "original text").copy(processedText = "polished text"),
+                )
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isEditingTranscript)
+            assertEquals("half-typed correction", viewModel.uiState.value.transcriptDraft)
+        }
+
+    @Test
     fun `recording row duration seeds the ui state before playback loads media`() =
         runTest {
             // Regression (sweep-03/04): the header pill and player total read uiState.durationMs,

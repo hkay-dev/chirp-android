@@ -92,6 +92,7 @@
     <string name="rec_msg_correction_cleared">Manual transcript correction cleared</string>
     <string name="rec_msg_correction_saved">Transcript correction saved</string>
     <string name="rec_msg_correction_save_failed">Couldn’t save the correction. Your device storage may be full.</string>
+    <string name="rec_msg_transcript_updated_while_editing">The transcript changed in the background. Your edit is kept.</string>
     <string name="rec_msg_promotion_unavailable">This correction can’t be promoted</string>
     <string name="rec_msg_replacement_exists">Matching word replacement already exists</string>
     <string name="rec_msg_replacement_added">Word replacement added</string>

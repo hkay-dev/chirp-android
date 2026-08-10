@@ -285,7 +285,14 @@ class ProcessingStudioViewModel
                         val effectiveTranscriptText = transcript?.effectiveText.orEmpty()
                         val wasEditingTranscript = currentState.isEditingTranscript
                         val transcriptChanged = effectiveTranscriptText != currentState.effectiveTranscriptText
-                        val isEditingTranscript = wasEditingTranscript && !transcriptChanged
+                        // A pipeline write landing mid-edit (enhancement finishing, correction
+                        // promotion) must not throw away the user's unsaved typing: keep the draft
+                        // and stay in edit mode. Saving uses the then-current effective text as its
+                        // correction source, so the user's words still win over the pipeline's.
+                        if (wasEditingTranscript && transcriptChanged) {
+                            _message.value = context.getString(R.string.rec_msg_transcript_updated_while_editing)
+                        }
+                        val isEditingTranscript = wasEditingTranscript
                         val transcriptState =
                             buildTimedTranscript(
                                 rawText = effectiveTranscriptText,
