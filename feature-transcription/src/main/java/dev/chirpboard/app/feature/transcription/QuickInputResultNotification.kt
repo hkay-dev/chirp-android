@@ -5,16 +5,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.BroadcastReceiver
-import android.content.ClipData
-import android.content.ClipDescription
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.PersistableBundle
 import android.util.Log
-import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -63,8 +57,9 @@ internal fun quickInputNotificationPreferredText(content: QuickInputNotification
 
 /**
  * Keeps the latest successful quick-input result reachable when a caller fails to insert it.
- * A fixed notification id replaces older results. Tapping copies the preferred text and leaves
- * the card in place until its configured timeout. No caller focus or editor state is touched.
+ * A fixed notification id replaces older results. Tapping copies the preferred text (via
+ * [QuickInputCopyActivity], which holds window focus for one frame so the write is honored)
+ * and leaves the card in place until its configured timeout. No editor state is touched.
  */
 @Singleton
 class QuickInputResultNotificationPublisher
@@ -155,9 +150,9 @@ class QuickInputResultNotificationPublisher
                     copyPendingIntent(
                         action =
                             if (content.processedText != null) {
-                                QuickInputResultCopyReceiver.ACTION_COPY_AI
+                                QuickInputCopyActivity.ACTION_COPY_AI
                             } else {
-                                QuickInputResultCopyReceiver.ACTION_COPY_RAW
+                                QuickInputCopyActivity.ACTION_COPY_RAW
                         },
                         requestCode = COPY_PREFERRED_REQUEST_CODE,
                         text = quickInputNotificationPreferredText(content),
@@ -175,7 +170,7 @@ class QuickInputResultNotificationPublisher
                     0,
                     context.getString(R.string.quick_input_result_copy_raw),
                     copyPendingIntent(
-                        action = QuickInputResultCopyReceiver.ACTION_COPY_RAW,
+                        action = QuickInputCopyActivity.ACTION_COPY_RAW,
                         requestCode = COPY_RAW_REQUEST_CODE,
                         text = content.rawText,
                     ),
@@ -185,7 +180,7 @@ class QuickInputResultNotificationPublisher
                             0,
                             context.getString(R.string.quick_input_result_copy_ai),
                             copyPendingIntent(
-                                action = QuickInputResultCopyReceiver.ACTION_COPY_AI,
+                                action = QuickInputCopyActivity.ACTION_COPY_AI,
                                 requestCode = COPY_AI_REQUEST_CODE,
                                 text = processed,
                             ),
@@ -194,17 +189,20 @@ class QuickInputResultNotificationPublisher
                 }.build()
         }
 
+        // An activity, not a broadcast: the clipboard write needs window focus to be
+        // honored on every build (see QuickInputCopyActivity).
         private fun copyPendingIntent(
             action: String,
             requestCode: Int,
             text: String,
         ): PendingIntent =
-            PendingIntent.getBroadcast(
+            PendingIntent.getActivity(
                 context,
                 requestCode,
-                Intent(context, QuickInputResultCopyReceiver::class.java)
+                Intent(context, QuickInputCopyActivity::class.java)
                     .setAction(action)
-                    .putExtra(QuickInputResultCopyReceiver.EXTRA_TEXT, text),
+                    .putExtra(QuickInputCopyActivity.EXTRA_TEXT, text)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
 
@@ -216,44 +214,3 @@ class QuickInputResultNotificationPublisher
                 .setContentText(context.getString(R.string.quick_input_result_public_body))
                 .build()
     }
-
-/** Copies one short-lived result held by an immutable, app-private notification action. */
-class QuickInputResultCopyReceiver : BroadcastReceiver() {
-    override fun onReceive(
-        context: Context,
-        intent: Intent,
-    ) {
-        val copyAi = intent.action == ACTION_COPY_AI
-        if (!copyAi && intent.action != ACTION_COPY_RAW) return
-        val text = intent.getStringExtra(EXTRA_TEXT)?.takeIf { it.isNotBlank() } ?: return
-        val clipboard = context.getSystemService(ClipboardManager::class.java)
-        if (clipboard == null) {
-            Toast.makeText(context, R.string.quick_input_result_copy_failed, Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val clip = ClipData.newPlainText(context.getString(R.string.transcription_title), text)
-        clip.description.extras =
-            PersistableBundle().apply {
-                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
-            }
-        try {
-            clipboard.setPrimaryClip(clip)
-        } catch (error: RuntimeException) {
-            Log.e(TAG, "Could not copy quick-input result", error)
-            Toast.makeText(context, R.string.quick_input_result_copy_failed, Toast.LENGTH_SHORT).show()
-            return
-        }
-        Toast.makeText(
-            context,
-            if (copyAi) R.string.quick_input_result_copied_ai else R.string.quick_input_result_copied_raw,
-            Toast.LENGTH_SHORT,
-        ).show()
-    }
-
-    companion object {
-        internal const val ACTION_COPY_RAW = "dev.chirpboard.app.action.COPY_QUICK_INPUT_RAW"
-        internal const val ACTION_COPY_AI = "dev.chirpboard.app.action.COPY_QUICK_INPUT_AI"
-        internal const val EXTRA_TEXT = "dev.chirpboard.app.extra.QUICK_INPUT_TEXT"
-    }
-}

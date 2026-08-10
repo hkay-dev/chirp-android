@@ -128,6 +128,10 @@ must cross that boundary explicitly. The least risky choices are:
   options in Keyboard Settings.
 - Tapping the notification copies the preferred result without dismissing it. Offer `Copy original`
   and, when it differs, `Copy AI result`; never put secure-session text in a notification.
+- Perform the copy from a briefly focused translucent activity, never a background receiver.
+  Android only guarantees a clipboard write for the focused app or the default IME, so the old
+  receiver could show `Copied` while the write was silently dropped. On Android 13+ the system's
+  clipboard confirmation is the only feedback; the app toast remains for older versions.
 - Never use accessibility or cross-app focus manipulation for quick-input delivery.
 - Keep explicit cancellation user-owned. App switching and ordinary activity teardown leave a
   non-secure transcription running; secure teardown cancels and deletes its temporary audio.

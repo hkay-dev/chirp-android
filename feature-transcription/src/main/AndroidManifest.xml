@@ -9,9 +9,15 @@
             android:name=".TranscriptionCopyActionReceiver"
             android:exported="false" />
 
-        <receiver
-            android:name=".QuickInputResultCopyReceiver"
-            android:exported="false" />
+        <!-- Copy actions must run focused so the clipboard write is honored on every
+             build; a translucent activity holds focus for one frame and finishes. -->
+        <activity
+            android:name=".QuickInputCopyActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- WorkManager foreground worker (TranscriptionWorker setForeground) -->
         <service
