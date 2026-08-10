@@ -24,7 +24,20 @@ class Preferences @Inject constructor(
         sharedPreferences.edit().remove(KEY_GEMINI_API_KEY).apply()
     }
 
+    /**
+     * Latch for the one-time API key migration. Without it every process start rebuilt
+     * EncryptedSharedPreferences (100-500 ms of Keystore work) just to learn the migration
+     * already ran.
+     */
+    fun isApiKeyMigrationDone(): Boolean =
+        sharedPreferences.getBoolean(KEY_API_KEY_MIGRATION_DONE, false)
+
+    fun setApiKeyMigrationDone() {
+        sharedPreferences.edit().putBoolean(KEY_API_KEY_MIGRATION_DONE, true).apply()
+    }
+
     companion object {
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
+        private const val KEY_API_KEY_MIGRATION_DONE = "api_key_migration_done"
     }
 }

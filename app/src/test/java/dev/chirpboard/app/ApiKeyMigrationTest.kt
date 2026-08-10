@@ -32,6 +32,9 @@ class ApiKeyMigrationTest {
         every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>()) } returns 0
         every { Log.e(any<String>(), any<String>(), any<Throwable>()) } returns 0
+
+        every { preferences.isApiKeyMigrationDone() } returns false
+        every { preferences.setApiKeyMigrationDone() } just runs
     }
 
     @After
@@ -49,6 +52,7 @@ class ApiKeyMigrationTest {
             assertEquals(ApiKeyMigration.MigrationResult.NO_CUSTOM_KEY, migration.migrate())
         }
 
+    @Test
     fun `migrate moves custom plaintext key into secure storage`() =
         runTest {
             every { llmPreferences.isSecureStorageAvailable() } returns true
@@ -70,6 +74,18 @@ class ApiKeyMigrationTest {
             every { llmPreferences.hasApiKey() } returns true
 
             assertEquals(ApiKeyMigration.MigrationResult.ALREADY_MIGRATED, migration.migrate())
+        }
+
+    @Test
+    fun `migrate short-circuits on the plain-prefs latch without touching secure storage`() =
+        runTest {
+            // The latch exists so app start never pays the EncryptedSharedPreferences
+            // construction cost again once the migration has completed once.
+            every { preferences.isApiKeyMigrationDone() } returns true
+
+            assertEquals(ApiKeyMigration.MigrationResult.ALREADY_MIGRATED, migration.migrate())
+
+            verify(exactly = 0) { llmPreferences.isSecureStorageAvailable() }
         }
 }
 

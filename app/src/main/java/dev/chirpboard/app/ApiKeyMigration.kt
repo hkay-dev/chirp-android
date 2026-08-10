@@ -21,36 +21,45 @@ class ApiKeyMigration @Inject constructor(
     }
     
     suspend fun migrate(): MigrationResult {
+        // Plain-prefs latch: touching llmPreferences below constructs
+        // EncryptedSharedPreferences (100-500 ms of Keystore + AES work), which is far too
+        // expensive to repeat on every process start for a migration that ran long ago.
+        if (preferences.isApiKeyMigrationDone()) {
+            return MigrationResult.ALREADY_MIGRATED
+        }
         return try {
             // Check if encryption is available
             if (!llmPreferences.isSecureStorageAvailable()) {
                 Log.w(TAG, "Secure storage unavailable, skipping migration")
                 return MigrationResult.ENCRYPTION_UNAVAILABLE
             }
-            
+
             // Already migrated?
             if (llmPreferences.hasApiKey()) {
                 Log.d(TAG, "API key already in secure storage")
+                preferences.setApiKeyMigrationDone()
                 return MigrationResult.ALREADY_MIGRATED
             }
-            
+
             // Get old key
             val oldKey = preferences.readLegacyGeminiApiKeyForMigration()
-            
+
             if (KnownGeminiPlaceholderKeys.isPlaceholder(oldKey)) {
                 Log.d(TAG, "No custom API key to migrate")
+                preferences.setApiKeyMigrationDone()
                 return MigrationResult.NO_CUSTOM_KEY
             }
-            
+
             // Migrate to secure storage
             llmPreferences.setApiKey(oldKey)
-            
+
             // Clear from old storage
             preferences.clearGeminiApiKey()
-            
+
             Log.i(TAG, "API key migrated to secure storage")
+            preferences.setApiKeyMigrationDone()
             MigrationResult.SUCCESS
-            
+
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Migration failed", e)
