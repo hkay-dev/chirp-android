@@ -42,17 +42,30 @@ interface RecordingDao {
     @Query("SELECT audioPath FROM recordings")
     suspend fun getAllAudioPaths(): List<String>
 
+    /**
+     * Matches titles AND transcript text: the home list is capped at [HOME_RECORDINGS_LIMIT],
+     * so search is the only path to older recordings — and their titles are often
+     * auto-generated, so content search is what actually finds them. [pattern] is a
+     * ready-made `%…%` LIKE pattern with `\`-escaped metacharacters (see the repository),
+     * so a user typing `%` or `_` searches for those literal characters.
+     */
     @Query(
         """
-        SELECT * FROM recordings 
-        WHERE title LIKE '%' || :query || '%' 
-        AND status != 'RECORDING'
-        ORDER BY createdAt DESC, id ASC
+        SELECT r.* FROM recordings r
+        LEFT JOIN transcripts t ON t.recordingId = r.id
+        WHERE (
+            r.title LIKE :pattern ESCAPE '\'
+            OR t.rawText LIKE :pattern ESCAPE '\'
+            OR t.processedText LIKE :pattern ESCAPE '\'
+            OR t.manualCorrectionText LIKE :pattern ESCAPE '\'
+        )
+        AND r.status != 'RECORDING'
+        ORDER BY r.createdAt DESC, r.id ASC
         LIMIT :limit
     """,
     )
     fun searchRecordings(
-        query: String,
+        pattern: String,
         limit: Int,
     ): Flow<List<Recording>>
 

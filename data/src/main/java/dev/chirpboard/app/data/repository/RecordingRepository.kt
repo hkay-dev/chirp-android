@@ -195,8 +195,18 @@ class RecordingRepository
             limit: Int = DEFAULT_SEARCH_LIMIT,
         ): Flow<RepositoryFlowState<List<Recording>>> =
             recordingDao
-                .searchRecordings(query, limit.coerceIn(1, MAX_SEARCH_LIMIT))
+                .searchRecordings(likeContainsPattern(query), limit.coerceIn(1, MAX_SEARCH_LIMIT))
                 .catchRepositoryFlowState(TAG, emptyList())
+
+        // LIKE has no literal mode: escape the metacharacters so a user typing "%"/"_" searches
+        // for those characters instead of getting wildcard matches over the whole library.
+        private fun likeContainsPattern(query: String): String =
+            "%" +
+                query
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_") +
+                "%"
 
         suspend fun createRecording(
             title: String,

@@ -100,7 +100,7 @@ class RecordingDaoTest {
         dao.insert(inProgress)
         dao.insert(completed)
 
-        val results = dao.searchRecordings("Live", limit = 10).first()
+        val results = dao.searchRecordings("%Live%", limit = 10).first()
 
         assertEquals(1, results.size)
         assertEquals(completed.id, results.single().id)
@@ -364,7 +364,7 @@ class RecordingDaoTest {
             )
         }
 
-        val results = dao.searchRecordings("Match", limit = 2).first()
+        val results = dao.searchRecordings("%Match%", limit = 2).first()
 
         assertEquals(2, results.size)
         assertEquals(ids.take(2), results.map { it.id })

@@ -27,6 +27,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -808,5 +809,14 @@ class RecordingRepositoryTest {
                 )
             }
             coVerify(exactly = 0) { recordingDao.updateTitle(any(), any()) }
+        }
+
+    @Test
+    fun `searchRecordings escapes LIKE metacharacters so they match literally`() =
+        runTest {
+            repository.searchRecordings("""50%_\ off""")
+
+            // \ -> \\, % -> \%, _ -> \_, wrapped in the contains-match wildcards.
+            verify { recordingDao.searchRecordings("""%50\%\_\\ off%""", any()) }
         }
 }
