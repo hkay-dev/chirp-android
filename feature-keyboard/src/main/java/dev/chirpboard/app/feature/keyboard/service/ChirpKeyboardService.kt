@@ -283,6 +283,13 @@ class ChirpKeyboardService :
         // isSystemInDarkTheme/density) stale until the IME process restarts. Forwarding the new
         // configuration ourselves makes the update deterministic; safe on detached views.
         composeView?.dispatchConfigurationChanged(newConfig)
+        // LIF-09: adopt the new configuration once its restart burst is over. Without this a
+        // config flip while the keyboard is hidden (rotation, dark mode, fold) leaves the
+        // snapshot stale until the next onStartInputView, so isConfigChangeInFlight stays true
+        // for every later dismissal and routes them through the delayed orphaned-finalize path.
+        // Restarts arriving after this line are still covered by the grace window; restarts
+        // arriving before it saw the old snapshot and matched the diff.
+        lastKnownConfigSnapshot = keyboardConfigSnapshotOf(newConfig)
     }
 
     // The view-restart messages from a config change can arrive before or after our own
