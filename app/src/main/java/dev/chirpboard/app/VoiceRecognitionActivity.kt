@@ -870,8 +870,10 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     /**
      * ERR-9/ERR-10: "Open Chirp" affordance for the permission-missing and model-unavailable
-     * states. Opens the app, then resolves the dialog: a pending error returns its mapped
-     * code, otherwise the recognition is reported as cancelled.
+     * states. Opens the app, then resolves the dialog through the cancel path: a pending
+     * error returns its mapped code, and a still-live capture is torn down as a deliberate
+     * abandon (discard mark + coordinator cancel) so onDestroy does not misfile it as a
+     * "Voice recognition interrupted" rescue.
      */
     private fun openAppAndDismiss() {
         runCatching {
@@ -881,12 +883,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 },
             )
         }.onFailure { e -> Log.e(TAG, "Failed to open the app", e) }
-        val pendingError = _uiError.value
-        if (pendingError != null) {
-            returnError(pendingError.speechErrorCode)
-        } else {
-            dismissWithResult(Activity.RESULT_CANCELED)
-        }
+        cancelRecording()
     }
 
     override fun onDestroy() {
