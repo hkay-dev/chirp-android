@@ -3,15 +3,18 @@ package dev.chirpboard.app.feature.widget
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import android.widget.Toast
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
 import dev.chirpboard.app.core.recording.RecordingActiveStopCommands
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingServiceCommands
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +49,17 @@ class WidgetReceiver : BroadcastReceiver() {
                 CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
                     try {
                         toggleRecording(context)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // This receiver runs in the process that hosts the IME; an uncaught
+                        // exception here would kill the keyboard and any live recording.
+                        Log.e(TAG, "Widget toggle failed", e)
+                        Toast.makeText(
+                            context.applicationContext,
+                            context.getString(R.string.widget_action_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } finally {
                         pendingResult.finish()
                     }
@@ -90,19 +104,43 @@ class WidgetReceiver : BroadcastReceiver() {
     }
 
     private fun startRecordingFromWidget(context: Context) {
+        // A start without the mic permission can only bounce back as an Error state the
+        // widget renders as a bare "Error"; say what is actually wrong instead.
+        if (!RecordingPermissionGuard.hasRecordAudioPermission(context)) {
+            Toast.makeText(
+                context.applicationContext,
+                context.getString(R.string.widget_permission_needed),
+                Toast.LENGTH_SHORT,
+            ).show()
+            return
+        }
         val dispatched =
             RecordingServiceCommands.startRecording(
                 context = context,
                 origin = RecordingOrigin.WIDGET,
                 profileId = null,
             )
-        if (!dispatched) {
+        if (dispatched) {
+            // Optimistic frame: real state stays Idle until the service's onStartCommand
+            // runs, so without this the widget shows "Tap to record" for the whole
+            // service-start latency and an impatient second tap stops the recording the
+            // first tap just started.
+            RecordingWidgetProvider.updateWidgetState(
+                context,
+                RecordingState.Starting(RecordingOrigin.WIDGET),
+                currentDurationMs = 0L,
+            )
+        } else {
             Toast.makeText(
                 context.applicationContext,
                 context.getString(R.string.widget_start_failed),
                 Toast.LENGTH_SHORT,
             ).show()
         }
+    }
+
+    private companion object {
+        const val TAG = "WidgetReceiver"
     }
 }
 

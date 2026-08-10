@@ -61,7 +61,8 @@ class RecordingWidgetProvider : AppWidgetProvider() {
         const val ACTION_TOGGLE_RECORDING = "dev.chirpboard.app.TOGGLE_RECORDING"
 
         fun updateWidgetState(context: Context, state: RecordingState, currentDurationMs: Long) {
-            val appWidgetManager = AppWidgetManager.getInstance(context)
+            // getInstance is null on devices with no widget host (rare, but real).
+            val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
             val componentName = ComponentName(context, RecordingWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
 

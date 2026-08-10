@@ -1,7 +1,5 @@
 package dev.chirpboard.app.feature.widget
 
-import android.appwidget.AppWidgetManager
-import android.content.ComponentName
 import android.content.Context
 import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -42,22 +40,10 @@ class WidgetStateObserver @Inject constructor(
     }
 
     private fun renderWidgets(state: RecordingState) {
-        val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
-        val widgetIds =
-            appWidgetManager.getAppWidgetIds(
-                ComponentName(context, RecordingWidgetProvider::class.java),
-            )
-        if (widgetIds == null || widgetIds.isEmpty()) return
-
-        val durationMs = recordingStateManager.getCurrentDurationMs()
-        for (widgetId in widgetIds) {
-            RecordingWidgetProvider.updateAppWidgetWithState(
-                context,
-                appWidgetManager,
-                widgetId,
-                state,
-                durationMs,
-            )
-        }
+        RecordingWidgetProvider.updateWidgetState(
+            context,
+            state,
+            recordingStateManager.getCurrentDurationMs(),
+        )
     }
 }
