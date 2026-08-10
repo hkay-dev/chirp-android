@@ -976,6 +976,14 @@ class VoiceRecognitionActivity : ComponentActivity() {
         data: Intent? = null,
         finishImmediately: Boolean = false,
     ) {
+        // Exactly one delivery per request. All callers run on the main thread, so this
+        // flag is the single authority: without it, showErrorThenReturn's delayed return
+        // racing a user cancel (or a completing stop racing a cancel inside the dismiss
+        // window) called pendingIntent.send twice — duplicate text at the caller.
+        if (_shouldDismiss.value) {
+            Log.w(TAG, "Result already delivered; dropping late result (code=$resultCode)")
+            return
+        }
         val resultChannel =
             deliverRecognitionActivityResult(
                 context = this,
