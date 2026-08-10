@@ -399,29 +399,41 @@ class LlmSettingsViewModel
         }
 
         private suspend fun refreshFromPreferences() {
+            // update {} is a compare-and-set retry loop, so its lambda can run more than once
+            // under concurrent state changes. Everything with a side effect — the
+            // SavedStateHandle write and especially the one-shot
+            // consumeSecureStorageResetNotice() read, which would be swallowed on a retry —
+            // must happen exactly once, out here; only pure state assembly goes inside.
             val provider = preferences.getActiveProvider()
             val storedApiKey = preferences.fetchApiKeyFor(provider).orEmpty()
+            val apiKeyInput =
+                savedStateHandle.get<String>(apiKeyInputKey(provider))
+                    ?: _uiState.value.apiKey.takeIf { it.isNotBlank() }
+                    ?: storedApiKey
+            savedStateHandle[apiKeyInputKey(provider)] = apiKeyInput
+            val llmEnabled = preferences.getLlmEnabled()
+            val selectedModelId = preferences.getModelFor(provider)
+            val isKeyConfigured = preferences.hasApiKeyFor(provider)
+            val configuredKeyCount = preferences.countConfiguredApiKeys()
+            val isSecureStorageAvailable = preferences.isSecureStorageAvailable()
+            val secureStorageResetNoticed = preferences.consumeSecureStorageResetNotice()
+            val autoTitle = preferences.getAutoTitle()
+            val autoSummary = preferences.getAutoSummary()
             _uiState.update { current ->
-                val apiKeyInput =
-                    savedStateHandle.get<String>(apiKeyInputKey(provider))
-                        ?: current.apiKey.takeIf { it.isNotBlank() }
-                        ?: storedApiKey
-                savedStateHandle[apiKeyInputKey(provider)] = apiKeyInput
                 current.copy(
-                    llmEnabled = preferences.getLlmEnabled(),
+                    llmEnabled = llmEnabled,
                     activeProvider = provider,
                     availableModels = modelsFor(provider),
-                    selectedModelId = preferences.getModelFor(provider),
+                    selectedModelId = selectedModelId,
                     apiKey = apiKeyInput,
-                    isKeyConfigured = preferences.hasApiKeyFor(provider),
-                    configuredKeyCount = preferences.countConfiguredApiKeys(),
-                    isSecureStorageAvailable = preferences.isSecureStorageAvailable(),
-                    // One-shot consume; OR with the current value so a mid-session refresh
-                    // cannot clear a notice the user has not dismissed yet.
-                    secureStorageWasReset =
-                        current.secureStorageWasReset || preferences.consumeSecureStorageResetNotice(),
-                    autoTitle = preferences.getAutoTitle(),
-                    autoSummary = preferences.getAutoSummary(),
+                    isKeyConfigured = isKeyConfigured,
+                    configuredKeyCount = configuredKeyCount,
+                    isSecureStorageAvailable = isSecureStorageAvailable,
+                    // OR with the current value so a mid-session refresh cannot clear a
+                    // notice the user has not dismissed yet.
+                    secureStorageWasReset = current.secureStorageWasReset || secureStorageResetNoticed,
+                    autoTitle = autoTitle,
+                    autoSummary = autoSummary,
                 )
             }
         }
