@@ -105,15 +105,19 @@ class KeyboardSessionCoordinator(
     private val availableModes = MutableStateFlow<List<ProcessingModeListItem>>(emptyList())
     private val livePartialTranscript = MutableStateFlow<String?>(null)
 
-    private var recordingJob: Job? = null
+    // The job fields below are written and read across Main, Default, IO, and the teardown
+    // dispatcher; @Volatile gives the cross-thread visibility the atomics already have.
+    // Without it, e.g. awaitLiveCaptureJournal on the teardown thread can miss a Main-thread
+    // liveCaptureJournalJob write, skip its join, and race the journal on the capture file.
+    @Volatile private var recordingJob: Job? = null
     private var stopRequestedDuringStart = false
-    private var startJob: Job? = null
-    private var transcriptionJob: Job? = null
+    @Volatile private var startJob: Job? = null
+    @Volatile private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
-    private var rollingTranscriptionJob: Job? = null
-    private var streamingPreviewPrepareJob: Job? = null
+    @Volatile private var rollingTranscriptionJob: Job? = null
+    @Volatile private var streamingPreviewPrepareJob: Job? = null
     @Volatile private var streamingPreviewReady = false
-    private var liveCaptureJournalJob: Job? = null
+    @Volatile private var liveCaptureJournalJob: Job? = null
     private var modelWarmupRequested = false
     private var modelInitializationRequested = false
     private var latencyTrace: DictationLatencyTrace? = null
@@ -123,7 +127,7 @@ class KeyboardSessionCoordinator(
      * new session so the deferred (off-main) recorder teardown of the cancelled session can never
      * race the next [capture] start on the shared recorder.
      */
-    private var cancelJob: Job? = null
+    @Volatile private var cancelJob: Job? = null
 
     /**
      * The most recent off-main stop/finalize teardown coroutine (the one that runs
@@ -133,7 +137,7 @@ class KeyboardSessionCoordinator(
      * either deleting the just-captured temp PCM (data loss) or orphaning it because the
      * transcription pipeline was launched on an already-cancelled scope.
      */
-    private var teardownJob: Job? = null
+    @Volatile private var teardownJob: Job? = null
 
     /**
      * Identifies the stop pipeline currently allowed to drive the recording state machine.
@@ -593,8 +597,11 @@ class KeyboardSessionCoordinator(
             isRecording.value -> stopAndTranscribe(commitText)
             startJob?.isActive == true -> requestStopDuringStart()
             panel == VoicePanelPhase.Error -> {
+                // The panel's affordance says "Retry": clear the error and actually start a new
+                // dictation (startRecording warms the local model itself), instead of only
+                // resetting and making the user tap the mic a second time.
                 transcription.resetPhase()
-                initializeModel()
+                startRecording()
             }
             panel == VoicePanelPhase.LlmError -> transcription.resetPhase()
             // MIC-008: the previous dictation's stop pipeline is still finishing. A start
@@ -1258,7 +1265,11 @@ class KeyboardSessionCoordinator(
     }
 
     private fun clearPendingStop() {
-        scope.launch {
+        // NonCancellable + teardownDispatcher, not the Main scope: every teardown call site is
+        // already off-main, and during onDestroy the main thread is parked in
+        // awaitInFlightTeardown, so a Main-queued launch would be killed by scope.cancel()
+        // and leak the pending stop into the next process.
+        scope.launch(NonCancellable + teardownDispatcher) {
             runCatching { pendingStopStore.clear() }
                 .onFailure { Log.w(tag, "Failed to clear pending keyboard stop", it) }
         }
