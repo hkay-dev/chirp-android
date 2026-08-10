@@ -1,5 +1,6 @@
 package dev.chirpboard.app.cloud
 
+import android.util.Log
 import androidx.annotation.Keep
 import com.google.gson.Gson
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
@@ -81,15 +82,22 @@ class GoogleCloudFileTranscriptionProvider
                     // outlive it in the DataStore.
                     if (!error.retryable) checkpointStore.clear(request.recordingId)
                     TranscriptionOutcome.EngineError(error.publicMessage, error.retryable)
-                } catch (_: IOException) {
+                } catch (error: IOException) {
+                    Log.w(TAG, "Cloud transcription connection failed", error)
                     TranscriptionOutcome.EngineError("Cloud transcription connection failed", retryable = true)
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    // Without this the only trace of an unexpected failure (a malformed
+                    // response Gson maps to nulls, an unexpected runtime exception) is a
+                    // generic FAILED recording.
+                    Log.w(TAG, "Cloud transcription failed unexpectedly", error)
                     checkpointStore.clear(request.recordingId)
                     TranscriptionOutcome.EngineError("Cloud transcription failed", retryable = false)
                 }
             }
 
         private suspend fun transcribe(request: CloudFileTranscriptionRequest): TranscriptionOutcome {
+            // Fail fast on a misconfigured endpoint before checksumming what can be a
+            // 256 MB audio file; the result is intentionally unused.
             endpoint("/v1/dictations")
             val audioFile = File(request.audioPath)
             if (!audioFile.isFile || audioFile.length() <= 0L) {
@@ -548,6 +556,7 @@ class GoogleCloudFileTranscriptionProvider
             }.getOrNull()
 
         private companion object {
+            const val TAG = "CloudTranscription"
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
             val EMPTY_REQUEST_BODY = ByteArray(0).toRequestBody(JSON_MEDIA_TYPE)
             val EMPTY_UPLOAD_BODY = ByteArray(0).toRequestBody(null)
