@@ -30,8 +30,9 @@ object RecordingActiveStopCommands {
                 if (keyboardStopBridge.requestStop()) {
                     return
                 }
-                pendingStopStore.enqueue(requesterOrigin)
-                onKeyboardStopQueued?.invoke()
+                if (pendingStopStore.enqueue(requesterOrigin)) {
+                    onKeyboardStopQueued?.invoke()
+                }
             }
             RecordingOrigin.RECOGNITION -> {
                 // Recognition captures are driven in-process by the RECOGNIZE_SPEECH

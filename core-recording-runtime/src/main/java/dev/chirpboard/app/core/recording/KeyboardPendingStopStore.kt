@@ -1,13 +1,16 @@
 package dev.chirpboard.app.core.recording
 
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chirpboard.app.core.di.KeyboardPendingStopDataStore
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 
 @Singleton
@@ -16,15 +19,35 @@ class KeyboardPendingStopStore
     constructor(
         @KeyboardPendingStopDataStore private val dataStore: DataStore<Preferences>,
     ) {
-        suspend fun enqueue(requesterOrigin: RecordingOrigin) {
-            dataStore.edit { preferences ->
-                preferences[REQUESTED_AT_KEY] = System.currentTimeMillis()
-                preferences[REQUESTER_ORIGIN_KEY] = requesterOrigin.name
+        /**
+         * @return true when the pending stop was durably written. The corruption handler only
+         *   covers CorruptionException, so a plain disk IOException surfaces here; swallowing
+         *   it (and reporting the failure) beats crashing the caller's scope in the IME process.
+         */
+        suspend fun enqueue(requesterOrigin: RecordingOrigin): Boolean =
+            try {
+                dataStore.edit { preferences ->
+                    preferences[REQUESTED_AT_KEY] = System.currentTimeMillis()
+                    preferences[REQUESTER_ORIGIN_KEY] = requesterOrigin.name
+                }
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                Log.e(TAG, "Failed to persist pending keyboard stop", e)
+                false
             }
-        }
 
         suspend fun peek(nowEpochMs: Long = System.currentTimeMillis()): PendingKeyboardStop? {
-            val preferences = dataStore.data.first()
+            val preferences =
+                try {
+                    dataStore.data.first()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: IOException) {
+                    Log.e(TAG, "Failed to read pending keyboard stop", e)
+                    return null
+                }
             val requestedAt = preferences[REQUESTED_AT_KEY] ?: return null
             val originName = preferences[REQUESTER_ORIGIN_KEY] ?: return null
             val origin = runCatching { RecordingOrigin.valueOf(originName) }.getOrNull() ?: return null
@@ -41,9 +64,16 @@ class KeyboardPendingStopStore
         }
 
         suspend fun clear() {
-            dataStore.edit { preferences ->
-                preferences.remove(REQUESTED_AT_KEY)
-                preferences.remove(REQUESTER_ORIGIN_KEY)
+            try {
+                dataStore.edit { preferences ->
+                    preferences.remove(REQUESTED_AT_KEY)
+                    preferences.remove(REQUESTER_ORIGIN_KEY)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                // The TTL bounds a pending stop that could not be cleared.
+                Log.e(TAG, "Failed to clear pending keyboard stop", e)
             }
         }
 
@@ -70,6 +100,7 @@ class KeyboardPendingStopStore
             }
 
         companion object {
+            private const val TAG = "KeyboardPendingStop"
             private val REQUESTED_AT_KEY = longPreferencesKey("requested_at_epoch_ms")
             private val REQUESTER_ORIGIN_KEY = stringPreferencesKey("requester_origin")
 
