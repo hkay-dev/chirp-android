@@ -237,11 +237,14 @@ fun HomeScreen(
     LaunchedEffect(recordingState) {
         if (recordingState is RecordingState.Error) {
             val error = recordingState as RecordingState.Error
-            viewModel.clearError()
+            // Clear only after the snackbar ran: clearError() flips the state to Idle, which
+            // changes this effect's key and would cancel the suspended showSnackbar before it
+            // ever displayed.
             snackbarHostState.showSnackbar(
                 message = error.message,
                 duration = SnackbarDuration.Short,
             )
+            viewModel.clearError()
         }
     }
 
