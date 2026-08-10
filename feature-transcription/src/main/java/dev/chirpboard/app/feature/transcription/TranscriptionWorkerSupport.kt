@@ -14,6 +14,9 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ForegroundInfo
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES
+import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.ACTION_OPEN_TRANSCRIPTION_RECORDING
@@ -495,6 +498,36 @@ internal fun transcriptionFailureNotificationText(
         else -> context.getString(R.string.transcription_error_generic)
     }
 }
+
+/**
+ * A cloud recording falls back to the local engine when the cloud request could never
+ * succeed: the payload exceeds the service limits, or the endpoint/auth is not configured
+ * at all (the routing preference can outlive a working configuration).
+ * TEMPORARILY_UNAVAILABLE stays on the cloud path — that request fails retryable and
+ * succeeds once the token service recovers.
+ *
+ * @return the reliability-log reason code for the reroute, or null to stay on cloud.
+ */
+internal suspend fun resolveCloudLocalFallbackReason(
+    durationMs: Long,
+    audioBytes: Long,
+    configurationStatus: suspend () -> CloudTranscriptionConfigurationStatus,
+): String? =
+    when {
+        durationMs > GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS || audioBytes > GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES ->
+            "cloud_limit_local_fallback"
+
+        else ->
+            when (configurationStatus()) {
+                CloudTranscriptionConfigurationStatus.ENDPOINT_MISSING,
+                CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING,
+                -> "cloud_unconfigured_local_fallback"
+
+                CloudTranscriptionConfigurationStatus.READY,
+                CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE,
+                -> null
+            }
+    }
 
 internal data class WorkerFailureDisposition(
     val status: RecordingStatus,

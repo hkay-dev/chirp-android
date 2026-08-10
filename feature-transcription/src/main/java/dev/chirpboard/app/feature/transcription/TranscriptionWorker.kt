@@ -192,12 +192,18 @@ class TranscriptionWorker
                 return buildTranscriptionFailureResult("Audio file not found")
             }
 
+            val cloudLocalFallbackReason =
+                if (requestedTranscriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3) {
+                    resolveCloudLocalFallbackReason(
+                        durationMs = ownedRecording.durationMs,
+                        audioBytes = audioFile.length(),
+                        configurationStatus = { cloudTranscriber.configurationStatus() },
+                    )
+                } else {
+                    null
+                }
             val transcriptionEngine =
-                if (
-                    requestedTranscriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3 &&
-                    (ownedRecording.durationMs > GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS ||
-                        audioFile.length() > GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES)
-                ) {
+                if (cloudLocalFallbackReason != null) {
                     val rerouted =
                         recordingRepository.rerouteTranscriptionEngineForExecution(
                             recordingId = recordingId,
@@ -209,7 +215,7 @@ class TranscriptionWorker
                         logStaleTranscription(recordingId, correlationId, "cloud_limit_fallback_stale")
                         return androidx.work.ListenableWorker.Result.success()
                     }
-                    transcriptionLog.recovered("cloud_limit_local_fallback")
+                    transcriptionLog.recovered(cloudLocalFallbackReason)
                     TranscriptionEngine.LOCAL_PARAKEET
                 } else {
                     requestedTranscriptionEngine

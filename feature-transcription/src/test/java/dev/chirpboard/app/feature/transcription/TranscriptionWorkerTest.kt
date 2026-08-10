@@ -18,6 +18,7 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionProvider
+import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStatus
 import dev.chirpboard.app.core.transcription.CloudFileTranscriptionRequest
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
 import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
@@ -127,6 +128,8 @@ class TranscriptionWorkerTest {
         every { transcriberProvider.isModelDownloaded() } returns true
         every { transcriberProvider.isReady() } returns true
         cloudTranscriber = mockk()
+        coEvery { cloudTranscriber.configurationStatus() } returns
+            CloudTranscriptionConfigurationStatus.READY
         transcriptionRoutingStore = mockk(relaxed = true)
         audioDecoder = mockk()
         audioEncoder = mockk(relaxed = true)
@@ -691,6 +694,66 @@ class TranscriptionWorkerTest {
             assertTrue(result is ListenableWorker.Result.Success)
             coVerify(exactly = 1) { transcriberProvider.transcribe(any(), any()) }
             coVerify(exactly = 0) { cloudTranscriber.transcribeFile(any()) }
+        }
+
+    @Test
+    fun `cloud recording with unconfigured cloud service reroutes to the local engine`() =
+        runTest {
+            stubOwnedRecording(transcriptionEngine = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3)
+            coEvery { cloudTranscriber.configurationStatus() } returns
+                CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING
+            coEvery {
+                recordingRepository.rerouteTranscriptionEngineForExecution(
+                    recordingId = recordingId,
+                    executionToken = EXECUTION_TOKEN,
+                    expectedEngineId = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id,
+                    newEngineId = TranscriptionEngine.LOCAL_PARAKEET.id,
+                )
+            } returns true
+            coEvery { transcriberProvider.transcribe(any(), any()) } returns
+                TranscriptionOutcome.Success("local fallback transcript")
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = any(),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            coVerify(exactly = 1) { transcriberProvider.transcribe(any(), any()) }
+            coVerify(exactly = 0) { cloudTranscriber.transcribeFile(any()) }
+        }
+
+    @Test
+    fun `cloud recording stays on cloud when the token service is temporarily unavailable`() =
+        runTest {
+            stubOwnedRecording(transcriptionEngine = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3)
+            coEvery { cloudTranscriber.configurationStatus() } returns
+                CloudTranscriptionConfigurationStatus.TEMPORARILY_UNAVAILABLE
+            coEvery { cloudTranscriber.transcribeFile(any()) } returns
+                TranscriptionOutcome.Success("cloud transcript")
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = any(),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            coVerify(exactly = 0) {
+                recordingRepository.rerouteTranscriptionEngineForExecution(any(), any(), any(), any())
+            }
+            coVerify(exactly = 1) { cloudTranscriber.transcribeFile(any()) }
         }
 
     @Test
