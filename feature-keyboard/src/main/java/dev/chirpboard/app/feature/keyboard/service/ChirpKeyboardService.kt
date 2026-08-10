@@ -243,6 +243,15 @@ class ChirpKeyboardService :
 
         coordinator.refreshModelStatus()
 
+        // KBD-KSO: FLAG_KEEP_SCREEN_ON follows the dictation session, not window visibility.
+        // Tying it to visibility kept the display lit for as long as any text field had focus.
+        scope.launch {
+            recordingStateManager.state
+                .map(::keyboardKeepsScreenAwake)
+                .distinctUntilChanged()
+                .collect { keepAwake -> updateImeKeepScreenOn(window?.window, keepAwake) }
+        }
+
         stopBridgeRegistration =
             keyboardStopBridge.registerStopHandler {
                 stopAndTranscribeForCurrentInput()
@@ -299,7 +308,8 @@ class ChirpKeyboardService :
     override fun onWindowShown() {
         super.onWindowShown()
         localRecognizerWarmWindow.onImeVisibilityChanged(true)
-        updateImeKeepScreenOn(window?.window, enabled = true)
+        // The window instance can change across show cycles; re-apply the dictation-scoped flag.
+        updateImeKeepScreenOn(window?.window, enabled = coordinator.isRecordingActive())
         windowShownState.value = true
         if (recomposerFrameClock.isPaused) {
             recomposerFrameClock.resume()
@@ -575,9 +585,9 @@ class ChirpKeyboardService :
         val session = inputSessionGuard.captureCommitSession()
         if (session == null) {
             // Sensitive fields already show the dictation-off notice; for any other dead session
-            // (no active input) surface the same explanation as a dismissible overlay.
+            // (no active input) explain the real condition — there is no field to type into.
             if (!inputSessionGuard.isSensitiveInput) {
-                coordinator.setSessionError(getString(R.string.keyboard_sensitive_input_disabled))
+                coordinator.setSessionError(getString(R.string.keyboard_no_active_field))
             }
             return
         }
@@ -592,7 +602,18 @@ class ChirpKeyboardService :
         if (!coordinator.isRecordingActive()) {
             return false
         }
-        val session = inputSessionGuard.captureCommitSession() ?: return false
+        val session = inputSessionGuard.captureCommitSession()
+        if (session == null) {
+            // No live editor to commit into, but the microphone is open. This is the stop path
+            // for a phone call, permanent audio-focus loss, and the widget's stop command;
+            // refusing here left a hot mic with no visible UI. Stop into the durable rescue
+            // path instead — the transcript lands in history.
+            coordinator.finalizeActiveRecording(
+                errorMessage = getString(R.string.keyboard_stopped_without_field),
+                suppressHistory = inputSessionGuard.isLearningSuppressed,
+            )
+            return true
+        }
         return coordinator.stopAndTranscribe { text -> commitToInputSession(session, text) }
     }
 
@@ -614,7 +635,7 @@ class ChirpKeyboardService :
     }
 }
 
-/** Keeps the display awake only for the time the IME window is actually visible. */
+/** Applies or clears FLAG_KEEP_SCREEN_ON on the IME window. */
 internal fun updateImeKeepScreenOn(
     window: Window?,
     enabled: Boolean,
@@ -632,4 +653,12 @@ internal fun updateImeKeepScreenOn(
  * pins the keyboard's chip to a device its own next session will not use.
  */
 internal fun keyboardPickerSessionLive(state: RecordingState): Boolean =
+    state.isActive && state.activeOrigin == RecordingOrigin.KEYBOARD
+
+/**
+ * KBD-KSO: the display stays awake only while the KEYBOARD origin owns an active dictation
+ * (through Stopping, so the screen cannot sleep while the transcript is still landing). A merely
+ * visible keyboard must not hold the flag, or the screen never times out on any focused field.
+ */
+internal fun keyboardKeepsScreenAwake(state: RecordingState): Boolean =
     state.isActive && state.activeOrigin == RecordingOrigin.KEYBOARD
