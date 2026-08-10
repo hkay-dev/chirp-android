@@ -1022,6 +1022,10 @@ internal suspend fun writeInputStreamToTempFile(
             downloaded += read
             onTotalBytesWritten(downloaded)
         }
+        // Force the bytes to disk before the caller checksums the file and records the
+        // size+mtime verification cache entry: without this, power loss after "verified"
+        // could leave a corrupt file that the cache keeps reporting as valid.
+        output.fd.sync()
     }
     return downloaded
 }
