@@ -37,6 +37,7 @@ import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.haptic.HapticFeedback
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -132,12 +133,23 @@ class KeyboardSessionCoordinator(
     /**
      * The most recent off-main stop/finalize teardown coroutine (the one that runs
      * [QuickCaptureSessionImpl.stopAsAudioSource] under NonCancellable and then launches the
-     * transcription pipeline). [awaitInFlightTeardown] joins it during service destruction so
-     * `capture.close()` cannot race the in-flight `stopToFileBacked()` on the shared recorder —
-     * either deleting the just-captured temp PCM (data loss) or orphaning it because the
-     * transcription pipeline was launched on an already-cancelled scope.
+     * transcription pipeline). Service destruction waits on [recorderReleaseGate] (completed by
+     * this job at the recorder boundary), not on the whole job: the durable-handoff tail is
+     * NonCancellable and thread-safe off Main, so it may keep running past `scope.cancel()`.
      */
     @Volatile private var teardownJob: Job? = null
+
+    /**
+     * Completes the moment the current stop/finalize teardown has released the shared recorder
+     * (immediately after `capture.stopAsAudioSource()` returns, which transfers ownership of the
+     * temp PCM away from the recorder). [awaitInFlightTeardown] joins this instead of the whole
+     * [teardownJob] so the main thread only ever waits out the 5-50ms recorder teardown, never
+     * the durable handoff (handoff mutex + multi-MB file move + Room insert + WorkManager
+     * enqueue) that follows it. Every writer of [teardownJob] installs a fresh gate first and
+     * backstops it with `invokeOnCompletion`, so the gate always completes even if the teardown
+     * coroutine never runs (scope already cancelled) or fails before the recorder call.
+     */
+    @Volatile private var recorderReleaseGate: CompletableJob? = null
 
     /**
      * Identifies the stop pipeline currently allowed to drive the recording state machine.
@@ -336,12 +348,18 @@ class KeyboardSessionCoordinator(
                     recordingJob?.cancel()
                     recordingJob = null
                     capture.abandonAudioFocus()
+                    val recorderGate = installRecorderReleaseGate()
                     teardownJob =
                         scope.launch(teardownDispatcher) {
                             withContext(NonCancellable) {
                                 try {
-                                    awaitLiveCaptureJournal()
-                                    val audioSource = capture.stopAsAudioSource()
+                                    val audioSource =
+                                        try {
+                                            awaitLiveCaptureJournal()
+                                            capture.stopAsAudioSource()
+                                        } finally {
+                                            recorderGate.complete()
+                                        }
                                     if (audioSource != null) {
                                         // A recorder failure can still leave minutes of valid audio.
                                         // Give it to the same durable handoff as a normal stop. Local
@@ -372,7 +390,7 @@ class KeyboardSessionCoordinator(
                                 recordingStateManager.onRecordingError(error.userMessage)
                                 transcription.setError(error.userMessage)
                             }
-                        }
+                        }.also { it.invokeOnCompletion { recorderGate.complete() } }
                 }
             }
         }
@@ -421,35 +439,66 @@ class KeyboardSessionCoordinator(
     }
 
     /**
-     * Blocks the caller until any in-flight off-main stop/finalize teardown finishes. The IME
-     * service must call this on the main thread during `onDestroy`, AFTER
+     * Blocks the caller until any in-flight off-main teardown has released the shared recorder.
+     * The IME service must call this on the main thread during `onDestroy`, AFTER
      * [cancelRecording] and BEFORE `capture.close()`/`scope.cancel()`.
      *
      * The teardown coroutine ([stopAndTranscribe]/[finalizeActiveRecording]) runs
      * [QuickCaptureSessionImpl.stopAsAudioSource] -> `VoiceRecorder.stopToFileBacked()` on the IO
      * dispatcher under the recorder's `sampleLock`. If `capture.close()` ran on main before that
-     * finished, the two would interleave on the lock: `close()` could delete the just-captured
-     * temp PCM (data loss), or `finishStopAfterTeardown` would launch the transcription pipeline
-     * on the already-cancelled scope (orphaning the staged PCM with no recording row). Joining the
-     * job here serializes the whole teardown before destruction proceeds, restoring the
-     * pre-PERF-5 invariant that on-main stop and on-main destroy could never interleave.
+     * finished, the two would interleave on the lock and `close()` could delete the just-captured
+     * temp PCM (data loss). This waits on [recorderReleaseGate] — completed the moment
+     * `stopAsAudioSource()` returns — NOT on the whole teardown job: the tail that follows
+     * (durable handoff: handoff mutex + multi-MB file move + Room insert + WorkManager enqueue)
+     * can take long enough to ANR the main thread, is `NonCancellable` so it survives
+     * `scope.cancel()`, and touches only thread-safe state. A transcription-pipeline launch that
+     * lands after the scope was cancelled is detected in `finishStopAfterTeardown` (the lazy
+     * job's `start()` returns false) and the staged capture is rescue-persisted there, so cutting
+     * the join at the recorder boundary can never orphan captured speech.
      *
-     * The teardown body is `NonCancellable`, so it always completes; the wait is bounded by the
-     * 5-50ms recorder teardown and is only ever paid on service destruction.
-     *
-     * Joins the [cancelRecording] teardown ([cancelJob]) too: when destruction interrupts an
-     * active recording, `cancelRecording(userInitiated = false)` runs `capture.cancelCapture()`
-     * off-main on the same recorder, which would otherwise race `capture.close()` on the lock.
+     * Joins the [cancelRecording] teardown ([cancelJob]) fully: its body (cancelCapture, journal
+     * abandon, discard, state completion) is all cheap recorder/file cleanup on the same recorder
+     * lock, with no handoff tail.
      *
      * Crucially, every teardown writer launches its whole body on [teardownDispatcher] (not the
-     * scope's Main dispatcher), so the coroutine's resume after the recorder teardown stays on the
-     * teardown executor thread and is never posted back to the Android main Handler queue. That is
-     * what makes this `runBlocking { join() }` safe to call on the main thread: `runBlocking`
-     * installs a private event loop that does NOT pump the Android Looper, so a Main-confined
-     * continuation would never run while the main thread is parked here and `join()` would deadlock.
-     * Because the joined jobs never need Main to complete, the join always returns.
+     * scope's Main dispatcher), so the recorder boundary is reached on the teardown executor
+     * thread and never posted back to the Android main Handler queue. That is what makes this
+     * `runBlocking { join() }` safe to call on the main thread: `runBlocking` installs a private
+     * event loop that does NOT pump the Android Looper, so a Main-confined continuation would
+     * never run while the main thread is parked here and `join()` would deadlock. Because the
+     * joined jobs never need Main to complete, the join always returns.
      */
     fun awaitInFlightTeardown() {
+        val pendingCancel = cancelJob?.takeUnless { it.isCompleted }
+        val pendingGate =
+            if (teardownJob?.isCompleted == false) recorderReleaseGate?.takeUnless { it.isCompleted } else null
+        if (pendingCancel == null && pendingGate == null) {
+            return
+        }
+        runBlocking {
+            pendingCancel?.join()
+            pendingGate?.join()
+        }
+    }
+
+    /**
+     * Installs a fresh [recorderReleaseGate] for a teardown about to be launched. The writer
+     * completes it in a `finally` right after `capture.stopAsAudioSource()` and additionally
+     * backstops it with `invokeOnCompletion` on the teardown job, so [awaitInFlightTeardown]
+     * can never wait on a gate whose teardown already ended (or never ran on a cancelled scope).
+     */
+    private fun installRecorderReleaseGate(): CompletableJob {
+        val gate = Job()
+        recorderReleaseGate = gate
+        return gate
+    }
+
+    /**
+     * Test-only: joins the entire in-flight teardown/cancel jobs, including the post-recorder
+     * durable-handoff tail that [awaitInFlightTeardown] deliberately does not wait for.
+     * Production destruction must never call this on the main thread.
+     */
+    internal fun joinInFlightTeardownForTest() {
         val pending = listOfNotNull(teardownJob, cancelJob).filterNot { it.isCompleted }
         if (pending.isEmpty()) {
             return
@@ -833,34 +882,41 @@ class KeyboardSessionCoordinator(
         recordingJob?.cancel()
         recordingJob = null
 
+        val recorderGate = installRecorderReleaseGate()
         teardownJob =
             scope.launch(teardownDispatcher) {
                 // AudioRecord.stop/release plus the buffered-stream flush take sampleLock across a
                 // disk write and a binder transaction (5-50ms). Run them off the main thread. The
                 // teardown + state handoff are NonCancellable so a service destroy landing inside
                 // this window still stages the captured audio (stopAsAudioSource transfers ownership
-                // of the temp PCM away from the recorder) and launches the transcription pipeline.
-                // onDestroy joins this job via awaitInFlightTeardown before capture.close()/scope.cancel(),
-                // so close() cannot race the in-flight stopToFileBacked() (deleting the temp PCM) and
-                // the pipeline is never launched on an already-cancelled scope. That pipeline is an
-                // ordinary scope child, so a destroy cancels it unmarked -> it rescues the capture,
-                // exactly as before this teardown moved off the main thread. Stopping-timeout/
-                // pending-stop ordering intact.
+                // of the temp PCM away from the recorder). onDestroy waits on recorderReleaseGate
+                // (completed right after stopAsAudioSource) before capture.close()/scope.cancel(),
+                // so close() cannot race the in-flight stopToFileBacked() (deleting the temp PCM);
+                // the NonCancellable tail keeps running past scope.cancel(), and a pipeline launch
+                // that lands after the cancel is rescued in finishStopAfterTeardown. That pipeline
+                // is an ordinary scope child, so a destroy cancels it unmarked -> it rescues the
+                // capture, exactly as before this teardown moved off the main thread.
+                // Stopping-timeout/pending-stop ordering intact.
                 //
                 // The whole body runs on teardownDispatcher (not the scope's Main dispatcher) so the
                 // continuation after the recorder teardown never re-dispatches to the Android main
-                // Handler queue. awaitInFlightTeardown joins this job with runBlocking on the main
-                // thread; if the tail resumed on Main it would deadlock (runBlocking's private event
-                // loop does not pump the Looper). All work in the tail (RecordingStateManager,
+                // Handler queue. awaitInFlightTeardown joins the gate with runBlocking on the main
+                // thread; if the boundary resumed on Main it would deadlock (runBlocking's private
+                // event loop does not pump the Looper). All work in the tail (RecordingStateManager,
                 // transcription, persistence, AtomicReference) is thread-safe off Main.
                 withContext(NonCancellable) {
-                    awaitLiveCaptureJournal()
-                    val audioSource = capture.stopAsAudioSource()
+                    val audioSource =
+                        try {
+                            awaitLiveCaptureJournal()
+                            capture.stopAsAudioSource()
+                        } finally {
+                            recorderGate.complete()
+                        }
                     capture.latestIntegrityReport()?.let { report -> latencyTrace?.recordIntegrity(report) }
                     latencyTrace?.mark("audio_synced")
                     finishStopAfterTeardown(audioSource, commitText, suppressHistory)
                 }
-            }
+            }.also { it.invokeOnCompletion { recorderGate.complete() } }
         return true
     }
 
@@ -1131,7 +1187,27 @@ class KeyboardSessionCoordinator(
                 }
             }
         transcriptionJob = newJob
-        checkNotNull(newJob).start()
+        if (!checkNotNull(newJob).start()) {
+            // Service destruction cancelled the scope between the recorder teardown and this
+            // launch (awaitInFlightTeardown only waits out the recorder boundary), so the lazy
+            // job will never run and the staged capture would be orphaned with no recording row.
+            // We are still inside the NonCancellable teardown: rescue-persist it and complete the
+            // state machine here instead.
+            transcriptionJob = null
+            activeStopToken.set(null)
+            runCatching {
+                sessionPersistence.persistAudioSource(
+                    audioSource = audioSource,
+                    rawText = null,
+                    processedText = null,
+                    errorMessage = localRouteRescueMessage ?: DESTROY_RESCUE_MESSAGE,
+                    reason = InlineCapturePersistReason.RESCUE,
+                )
+            }.onFailure { Log.e(tag, "Failed to rescue the capture after destroy interrupted the stop", it) }
+            sessionPersistence.releasePendingAudioSource()
+            recordingStateManager.onRecordingCompleted()
+            clearPendingStop()
+        }
     }
 
     /**
@@ -1397,18 +1473,25 @@ class KeyboardSessionCoordinator(
         // Flip the UI flag synchronously, then run the recorder teardown off the IME main thread.
         isRecording.value = false
         transcription.resetPhase()
+        val recorderGate = installRecorderReleaseGate()
         teardownJob =
             scope.launch(teardownDispatcher) {
                 try {
                     withContext(NonCancellable) {
                         // stopAsAudioSource() runs AudioRecord.stop/release + a buffered-stream flush
                         // under sampleLock; keep it off main like the other teardown paths. onDestroy
-                        // joins this job via awaitInFlightTeardown before capture.close() so the rescue
-                        // persist completes before the recorder is closed under it. The whole body runs
-                        // on teardownDispatcher so awaitInFlightTeardown's main-thread runBlocking join
-                        // never deadlocks waiting on a Main-confined continuation.
-                        awaitLiveCaptureJournal()
-                        val audioSource = capture.stopAsAudioSource()
+                        // waits on recorderReleaseGate (completed right after stopAsAudioSource)
+                        // before capture.close() so close() cannot race the recorder teardown; the
+                        // NonCancellable rescue tail keeps running past scope.cancel(). The whole body
+                        // runs on teardownDispatcher so awaitInFlightTeardown's main-thread runBlocking
+                        // join never deadlocks waiting on a Main-confined continuation.
+                        val audioSource =
+                            try {
+                                awaitLiveCaptureJournal()
+                                capture.stopAsAudioSource()
+                            } finally {
+                                recorderGate.complete()
+                            }
                         if (suppressHistory) {
                             // Keep the established no-learning behavior. A focus-close is a
                             // rescue, so its audio still survives even though normal incognito
@@ -1444,7 +1527,7 @@ class KeyboardSessionCoordinator(
                 } finally {
                     onComplete()
                 }
-            }
+            }.also { it.invokeOnCompletion { recorderGate.complete() } }
     }
 
     /** Mic-permission overlay (ERR-8): offers the open-app affordance instead of a futile Retry. */
@@ -1494,6 +1577,14 @@ class KeyboardSessionCoordinator(
             "Transcription is taking longer than expected"
         internal const val STOP_TIMEOUT_RESCUE_MESSAGE =
             "Dictation stop timed out; the captured audio was saved to recordings"
+
+        /**
+         * Persisted with the RESCUE reason when service destruction cancelled the scope between
+         * the recorder teardown and the transcription-pipeline launch, so the pipeline could
+         * never run and transcribe the capture.
+         */
+        internal const val DESTROY_RESCUE_MESSAGE =
+            "The keyboard closed before transcription could start; the captured audio was saved to recordings"
 
         /**
          * MIC-017: persisted with the USER_CANCELLED reason when a cancel landed inside the

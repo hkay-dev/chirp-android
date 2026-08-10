@@ -209,7 +209,7 @@ class KeyboardSessionCoordinatorTest {
 
             coordinator.startRecording()
             coordinator.stopAndTranscribe { true }
-            coordinator.awaitInFlightTeardown()
+            coordinator.joinInFlightTeardownForTest()
 
             coVerify(exactly = 1) {
                 keyboardDictationHandoff.handoff(
@@ -887,7 +887,7 @@ class KeyboardSessionCoordinatorTest {
             coordinator.startRecording()
 
             captureErrorHandler.captured.invoke(QuickCaptureError("Microphone disconnected"))
-            coordinator.awaitInFlightTeardown()
+            coordinator.joinInFlightTeardownForTest()
 
             coVerify(exactly = 1) {
                 keyboardDictationHandoff.handoff(
@@ -1053,10 +1053,10 @@ class KeyboardSessionCoordinatorTest {
             joiner.start()
             stopGate.countDown()
 
-            // awaitInFlightTeardown must not return until the teardown (and the
-            // finishStopAfterTeardown that stages the capture + launches the pipeline) has run,
-            // so a subsequent capture.close() can never delete the just-captured temp PCM.
-            assertTrue("awaitInFlightTeardown should join the teardown", awaitDone.await(5, TimeUnit.SECONDS))
+            // awaitInFlightTeardown must not return while stopAsAudioSource is still in flight
+            // (the recorder boundary), so a subsequent capture.close() can never delete the
+            // just-captured temp PCM. The post-recorder tail continues off-main on its own.
+            assertTrue("awaitInFlightTeardown should join the recorder teardown", awaitDone.await(5, TimeUnit.SECONDS))
             assertTrue("capture must be staged before destroy proceeds", staged.await(5, TimeUnit.SECONDS))
             verify { recordingStateManager.transitionToStopping() }
         } finally {
@@ -1262,7 +1262,7 @@ class KeyboardSessionCoordinatorTest {
             coordinator.cancelRecording()
 
             stopGate.countDown()
-            coordinator.awaitInFlightTeardown()
+            coordinator.joinInFlightTeardownForTest()
 
             // The pipeline never starts: no commit, no Stopping transition, no COMPLETED persist.
             coVerify(exactly = 0) {
@@ -1332,11 +1332,143 @@ class KeyboardSessionCoordinatorTest {
             coordinator.cancelRecording(userInitiated = false)
 
             stopGate.countDown()
-            coordinator.awaitInFlightTeardown()
+            coordinator.joinInFlightTeardownForTest()
 
             assertTrue("pipeline must still launch", transcribeStarted.await(5, TimeUnit.SECONDS))
             verify(exactly = 0) { transcription.markUserCancelled() }
             verify { recordingStateManager.transitionToStopping() }
+        } finally {
+            realScope.cancel()
+            teardownExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun awaitInFlightTeardown_returnsAtRecorderBoundaryWithoutWaitingForTheHandoff() {
+        // The ANR this guards against: onDestroy's main-thread runBlocking used to join the
+        // ENTIRE teardown, including the durable handoff (mutex + multi-MB file move + Room
+        // insert + WorkManager enqueue). Hold the handoff open on a real background dispatcher
+        // and assert awaitInFlightTeardown returns once the recorder is released, while the
+        // handoff is still in flight.
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val realScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val handoffGate = CountDownLatch(1)
+        val handoffEntered = CountDownLatch(1)
+        try {
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } returns
+                InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
+            coEvery { keyboardDictationHandoff.handoff(any()) } coAnswers {
+                handoffEntered.countDown()
+                check(handoffGate.await(5, TimeUnit.SECONDS)) { "handoff gate never opened" }
+                KeyboardDictationHandoffResult.Durable(UUID.randomUUID())
+            }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = realScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            assertTrue("handoff should be in flight", handoffEntered.await(5, TimeUnit.SECONDS))
+
+            val awaitDone = CountDownLatch(1)
+            Thread {
+                coordinator.awaitInFlightTeardown()
+                awaitDone.countDown()
+            }.start()
+
+            // The recorder boundary is already past (stopAsAudioSource returned before the
+            // handoff), so the "main thread" must come back while the handoff is still blocked.
+            assertTrue(
+                "awaitInFlightTeardown must not wait for the durable handoff",
+                awaitDone.await(5, TimeUnit.SECONDS),
+            )
+            assertEquals("the handoff must still be in flight", 1L, handoffGate.count)
+
+            handoffGate.countDown()
+            coordinator.joinInFlightTeardownForTest()
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+        } finally {
+            realScope.cancel()
+            teardownExecutor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun destroyDuringStopTeardown_rescuesTheCaptureWhenThePipelineCannotLaunch() {
+        // With the destroy join cut at the recorder boundary, scope.cancel() can land between
+        // the recorder teardown and the lazy transcription-pipeline launch. start() then returns
+        // false and the staged capture must be rescue-persisted instead of orphaned.
+        val teardownExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val teardownDispatcher = teardownExecutor.asCoroutineDispatcher()
+        val realScope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val handoffGate = CountDownLatch(1)
+        val handoffEntered = CountDownLatch(1)
+        try {
+            coEvery { capture.start(null) } returns QuickCaptureStartResult.Success
+            every { capture.stopAsAudioSource() } returns
+                InlineAudioSource.PcmFloatFile(path = "/tmp/keyboard-test.f32pcm", sampleCount = 16_000L)
+            // InlineLocal keeps the flow on the inline pipeline path, whose launch will fail.
+            coEvery { keyboardDictationHandoff.handoff(any()) } coAnswers {
+                handoffEntered.countDown()
+                check(handoffGate.await(5, TimeUnit.SECONDS)) { "handoff gate never opened" }
+                KeyboardDictationHandoffResult.InlineLocal
+            }
+            val coordinator =
+                KeyboardSessionCoordinator(
+                    tag = "KeyboardSessionCoordinatorTest",
+                    context = context,
+                    scope = realScope,
+                    capture = capture,
+                    transcription = transcription,
+                    persistence = persistence,
+                    keyboardDictationHandoff = keyboardDictationHandoff,
+                    transcriptionRoutingStore = transcriptionRoutingStore,
+                    transcriberProvider = transcriberProvider,
+                    recordingStateManager = recordingStateManager,
+                    keyboardPreferences = keyboardPreferences,
+                    modePort = modePort,
+                    pendingStopStore = pendingStopStore,
+                    modelReadinessGate = modelReadinessGate,
+                    teardownDispatcher = teardownDispatcher,
+                )
+
+            coordinator.startRecording()
+            coordinator.stopAndTranscribe { true }
+            assertTrue("handoff should be in flight", handoffEntered.await(5, TimeUnit.SECONDS))
+
+            // The recorder boundary is past, so onDestroy would have stopped waiting; the
+            // service scope gets cancelled while the NonCancellable tail is still running.
+            realScope.cancel()
+            handoffGate.countDown()
+            coordinator.joinInFlightTeardownForTest()
+
+            // The lazy pipeline could not start on the cancelled scope; the capture is rescued.
+            coVerify(exactly = 0) {
+                transcription.transcribeWithCommitResult(any(), any(), any(), any(), any())
+            }
+            assertEquals(1, persistence.persistCalls)
+            assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+            assertEquals(KeyboardSessionCoordinator.DESTROY_RESCUE_MESSAGE, persistence.lastErrorMessage)
+            assertEquals(1, persistence.releasePendingCalls)
+            verify { recordingStateManager.onRecordingCompleted(any()) }
+            coVerify(atLeast = 1) { pendingStopStore.clear() }
         } finally {
             realScope.cancel()
             teardownExecutor.shutdownNow()

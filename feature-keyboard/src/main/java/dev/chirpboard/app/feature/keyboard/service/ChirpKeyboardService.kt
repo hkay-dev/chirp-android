@@ -530,13 +530,14 @@ class ChirpKeyboardService :
         coordinator.destroy()
         phoneCallHandler?.unregister()
         phoneCallHandler = null
-        // Wait out any off-main stop/finalize/cancel recorder teardown before closing the
+        // Wait out any off-main stop/finalize/cancel RECORDER teardown before closing the
         // recorder. Both run stopToFileBacked()/cancelCapture() on IO under the recorder's
         // sampleLock; without this join capture.close() (on main) could win the lock and delete
-        // the just-captured dictation temp PCM, or the transcription pipeline would be launched
-        // on the already-cancelled scope and orphan the staged PCM. The wait is bounded by the
-        // 5-50ms teardown and restores the pre-PERF-5 ordering where on-main stop and on-main
-        // destroy could never interleave.
+        // the just-captured dictation temp PCM. The wait is bounded by the 5-50ms recorder
+        // teardown only: the durable-handoff tail (file move + Room insert + WorkManager
+        // enqueue) is NonCancellable, survives the scope.cancel() below, and rescues the staged
+        // capture itself if the pipeline can no longer launch, so blocking main on it here
+        // would just risk an ANR for nothing.
         coordinator.awaitInFlightTeardown()
         coordinator.capture.close()
         moveLifecycleDownToCreated()
