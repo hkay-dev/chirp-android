@@ -7,6 +7,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.EaseInOut
 import androidx.compose.animation.core.EaseInOutQuad
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -144,7 +145,9 @@ internal fun VoiceRecognitionDialog(
     val shouldDismiss by shouldDismissFlow.collectAsStateWithLifecycle(false)
     val modelState by modelStateFlow.collectAsStateWithLifecycle(VoiceRecognitionModelState.Initializing)
     val uiError by uiErrorFlow.collectAsStateWithLifecycle(null)
-    var isVisible by remember { mutableStateOf(true) }
+    // Seeded false with targetState=true so the enter transition actually plays; a plain
+    // visible=true starts with current==target and skips the enter entirely.
+    val sheetVisibility = remember { MutableTransitionState(false).apply { targetState = true } }
     var showDiscardConfirm by remember { mutableStateOf(false) }
 
     // A11Y-2: cancelling once the user's speech is captured but not yet returned (the
@@ -190,7 +193,7 @@ internal fun VoiceRecognitionDialog(
 
     LaunchedEffect(shouldDismiss) {
         if (shouldDismiss) {
-            isVisible = false
+            sheetVisibility.targetState = false
             delay(VOICE_RECOGNITION_EXIT_MS)
             onDismissComplete()
         }
@@ -211,10 +214,13 @@ internal fun VoiceRecognitionDialog(
         fadeOut(animationSpec = tween(150)) +
             slideOutVertically(
                 targetOffsetY = { it },
+                // Sized to VOICE_RECOGNITION_EXIT_MS: onDismissComplete fires (and the
+                // activity finishes) after exactly that delay, so a slower spring here
+                // was cut off mid-slide.
                 animationSpec =
-                    spring(
-                        dampingRatio = 0.9f,
-                        stiffness = 400f,
+                    tween(
+                        durationMillis = VOICE_RECOGNITION_EXIT_MS.toInt(),
+                        easing = FastOutSlowInEasing,
                     ),
             )
 
@@ -236,7 +242,7 @@ internal fun VoiceRecognitionDialog(
         contentAlignment = Alignment.BottomCenter,
     ) {
         AnimatedVisibility(
-            visible = isVisible,
+            visibleState = sheetVisibility,
             enter = enterTransition,
             exit = exitTransition,
         ) {
