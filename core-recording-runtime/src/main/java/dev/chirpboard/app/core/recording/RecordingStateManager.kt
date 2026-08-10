@@ -610,7 +610,10 @@ class RecordingStateManager @Inject constructor() {
      */
     fun updateAmplitude(amplitude: Float) {
         val now = nowMs()
-        if (now - lastAmplitudeEmitMs < AMPLITUDE_THROTTLE_MS) {
+        // An explicit zero is a reset (pause, capture error) and must always land; the
+        // throttle used to swallow it when it arrived within 100ms of the last sample,
+        // leaving the level meter pinned at the last value for the whole pause.
+        if (amplitude != 0f && now - lastAmplitudeEmitMs < AMPLITUDE_THROTTLE_MS) {
             return
         }
         lastAmplitudeEmitMs = now

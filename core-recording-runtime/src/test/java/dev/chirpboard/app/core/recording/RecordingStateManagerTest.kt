@@ -378,6 +378,19 @@ class RecordingStateManagerTest {
     }
 
     @Test
+    fun amplitudeUpdates_zeroResetBypassesThrottle() {
+        // Pause and capture-error paths reset the meter with an explicit 0f that can land
+        // within the throttle window of the loop's last sample; it must never be dropped.
+        var now = 1_000L
+        manager.nowMsOverrideForTest = { now }
+        manager.updateAmplitude(0.5f)
+        now = 1_050L
+        manager.updateAmplitude(0f)
+
+        assertEquals(0f, manager.amplitudeFlow.value)
+    }
+
+    @Test
     fun stoppingTimeout_handlerTransitioningOutOfStoppingPreventsErrorState() =
         runTest {
             // TST-012: virtual time replaces the former CountDownLatch + Thread.sleep(100).
