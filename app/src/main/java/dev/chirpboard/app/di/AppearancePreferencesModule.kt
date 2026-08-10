@@ -17,6 +17,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import javax.inject.Qualifier
 import javax.inject.Singleton
@@ -39,9 +40,18 @@ class DataStoreDynamicColorPreference(
     private val dataStore: DataStore<Preferences>,
 ) : DynamicColorPreference {
     override val useDynamicColor: Flow<Boolean> =
-        dataStore.data.map { preferences ->
-            preferences[USE_DYNAMIC_COLOR_KEY] ?: DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR
-        }
+        dataStore.data
+            .map { preferences ->
+                preferences[USE_DYNAMIC_COLOR_KEY] ?: DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR
+            }
+            // The corruption handler only covers CorruptionException. A plain IOException
+            // (disk full, transient read failure) would otherwise propagate into the Compose
+            // root, where this flow is collected while MainActivity holds the splash screen,
+            // and crash the app on every launch. The brand default is strictly better.
+            .catch { error ->
+                Log.e(TAG, "appearance preference read failed; using default", error)
+                emit(DynamicColorPreference.DEFAULT_USE_DYNAMIC_COLOR)
+            }
 
     override suspend fun setUseDynamicColor(enabled: Boolean) {
         dataStore.edit { preferences ->
@@ -50,6 +60,7 @@ class DataStoreDynamicColorPreference(
     }
 
     private companion object {
+        const val TAG = "AppearancePrefs"
         val USE_DYNAMIC_COLOR_KEY = booleanPreferencesKey("use_dynamic_color")
     }
 }
