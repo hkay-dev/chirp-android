@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -27,6 +28,22 @@ class RecordingPlaybackService : MediaSessionService() {
                 .build()
                 .also { player ->
                     player.repeatMode = Player.REPEAT_MODE_OFF
+                    player.addListener(
+                        object : Player.Listener {
+                            override fun onTimelineChanged(
+                                timeline: Timeline,
+                                reason: Int,
+                            ) {
+                                // The controller clears the queue when the user dismisses
+                                // playback. Media3 starts this service for real playback but
+                                // never stops it again, so an empty queue while paused is the
+                                // signal to shut down (the controller unbinds right after).
+                                if (timeline.isEmpty && !player.playWhenReady) {
+                                    stopSelf()
+                                }
+                            }
+                        },
+                    )
                 }
         player = exoPlayer
         mediaSession =

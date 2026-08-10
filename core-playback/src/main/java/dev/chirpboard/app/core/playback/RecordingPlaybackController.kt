@@ -236,11 +236,22 @@ class RecordingPlaybackController
 
         fun stop() {
             positionJob?.cancel()
-            controller?.run {
-                pause()
-                clearMediaItems()
-            }
             _state.value = RecordingPlaybackState(playbackSpeed = _state.value.playbackSpeed)
+            // Dismissing playback is the teardown point: release the controller so the
+            // bound RecordingPlaybackService (and its ExoPlayer) can actually die.
+            // Without this the singleton kept them alive for the rest of the process
+            // after the first play. runWithController reconnects on the next use.
+            scope.launch {
+                connectMutex.withLock {
+                    controller?.run {
+                        pause()
+                        clearMediaItems()
+                        removeListener(playerListener)
+                        release()
+                    }
+                    controller = null
+                }
+            }
         }
 
         fun onStudioOpened(
