@@ -535,6 +535,7 @@ class RecordingRepositoryTransactionTest {
                     recordingId = recording.id,
                     executionToken = "stale-enhancement-token",
                     sourceTranscriptRevision = "raw transcript||",
+                    sourceTitle = "Enhance guard",
                     result =
                         RecordingEnhancementResult(
                             processedText = null,
@@ -548,6 +549,7 @@ class RecordingRepositoryTransactionTest {
                     recordingId = recording.id,
                     executionToken = "current-enhancement-token",
                     sourceTranscriptRevision = "changed transcript||",
+                    sourceTitle = "Enhance guard",
                     result =
                         RecordingEnhancementResult(
                             processedText = null,

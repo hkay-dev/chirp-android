@@ -147,7 +147,7 @@ class RecordingEnhancementWorkerTest {
                 )
             }
             coVerify(exactly = 0) { recordingRepository.failEnhancement(any(), any(), any()) }
-            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any(), any()) }
         }
 
     @Test
@@ -177,7 +177,7 @@ class RecordingEnhancementWorkerTest {
                 )
             }
             coVerify(exactly = 0) { recordingRepository.failEnhancement(any(), any(), any()) }
-            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any()) }
+            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any(), any()) }
             assertEquals(0, textEnhancement.summaryCalls)
         }
 
@@ -247,7 +247,7 @@ class RecordingEnhancementWorkerTest {
             val resultSlot = slot<RecordingEnhancementResult>()
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
-            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), any()) } returns true
             textEnhancement.available = true
             textEnhancement.titleResult = Result.failure(IllegalStateException("title failed"))
             textEnhancement.summaryResult = Result.failure(IllegalStateException("summary failed"))
@@ -256,7 +256,7 @@ class RecordingEnhancementWorkerTest {
 
             assertEquals(listOf("processed transcript", "processed transcript"), textEnhancement.contextTexts)
             coVerify(exactly = 1) {
-                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
+                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), capture(resultSlot))
             }
             assertNull(resultSlot.captured.processedText)
             assertNull(resultSlot.captured.processingMode)
@@ -281,14 +281,14 @@ class RecordingEnhancementWorkerTest {
                 summaryStatus = EnhancementSubworkStatus.FAILED,
                 summaryErrorMessage = "summary failed",
             )
-            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), any()) } returns true
             textEnhancement.available = true
             textEnhancement.summaryResult = Result.success("Recovered summary")
 
             worker().doWork()
 
             coVerify(exactly = 1) {
-                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
+                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), capture(resultSlot))
             }
             assertEquals(0, textEnhancement.titleCalls)
             assertEquals(1, textEnhancement.summaryCalls)
@@ -305,7 +305,7 @@ class RecordingEnhancementWorkerTest {
             val resultSlot = slot<RecordingEnhancementResult>()
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
-            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), any()) } returns true
             textEnhancement.available = true
             textEnhancement.titleResult = Result.success("\"Weekly Sync\nNotes\"")
             textEnhancement.summaryResult = Result.success("  \"A short summary.\"  ")
@@ -313,7 +313,7 @@ class RecordingEnhancementWorkerTest {
             worker().doWork()
 
             coVerify(exactly = 1) {
-                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
+                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), capture(resultSlot))
             }
             assertEquals("Weekly Sync Notes", resultSlot.captured.title)
             assertEquals("A short summary.", resultSlot.captured.summary)
@@ -326,14 +326,14 @@ class RecordingEnhancementWorkerTest {
             val resultSlot = slot<RecordingEnhancementResult>()
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
-            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), any()) } returns true
             textEnhancement.available = true
             textEnhancement.titleResult = Result.success("\"\"")
 
             worker().doWork()
 
             coVerify(exactly = 1) {
-                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", capture(resultSlot))
+                recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), capture(resultSlot))
             }
             assertNull(resultSlot.captured.title)
             assertEquals(EnhancementSubworkStatus.FAILED, resultSlot.captured.titleStatus)
@@ -345,7 +345,7 @@ class RecordingEnhancementWorkerTest {
             val recordingId = UUID.randomUUID()
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
-            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns true
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), any()) } returns true
             textEnhancement.available = true
 
             worker().doWork()
@@ -359,7 +359,7 @@ class RecordingEnhancementWorkerTest {
             val recordingId = UUID.randomUUID()
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
-            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any()) } returns false
+            coEvery { recordingRepository.completeEnhancement(recordingId, EXECUTION_TOKEN, "raw transcript||", any(), any()) } returns false
             textEnhancement.available = true
 
             worker().doWork()

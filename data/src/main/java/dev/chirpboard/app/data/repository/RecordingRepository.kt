@@ -841,6 +841,7 @@ class RecordingRepository
             recordingId: UUID,
             executionToken: String,
             sourceTranscriptRevision: String,
+            sourceTitle: String,
             result: RecordingEnhancementResult,
         ): Boolean =
             completeEnhancementLocked(
@@ -851,6 +852,7 @@ class RecordingRepository
                         snapshot.sourceTranscriptRevision == sourceTranscriptRevision
                 },
                 transcriptGuard = { transcript -> transcript.sourceRevision() == sourceTranscriptRevision },
+                sourceTitle = sourceTitle,
             )
 
         private suspend fun completeEnhancementLocked(
@@ -858,6 +860,7 @@ class RecordingRepository
             result: RecordingEnhancementResult,
             snapshotGuard: (RecordingEnhancementSnapshotEntity) -> Boolean,
             transcriptGuard: (Transcript) -> Boolean,
+            sourceTitle: String? = null,
         ): Boolean =
             database.withTransaction {
                 val now = Date()
@@ -888,7 +891,14 @@ class RecordingRepository
                     )
                 }
                 result.title?.let { title ->
-                    recordingDao.updateTitle(recordingId, title)
+                    // The generated title lands only if the title is still what the enhancement
+                    // started from: a rename made while ENHANCING is a deliberate user choice
+                    // and must never be silently overwritten (it isn't stored anywhere else).
+                    if (sourceTitle == null) {
+                        recordingDao.updateTitle(recordingId, title)
+                    } else {
+                        recordingDao.updateTitleIfCurrent(recordingId, title, expectedTitle = sourceTitle)
+                    }
                 }
 
                 val updatedSnapshot = snapshot.applyResult(result, now)

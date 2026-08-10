@@ -294,6 +294,8 @@ class RecordingEnhancementWorker
                     recordingId = recordingId,
                     executionToken = executionToken,
                     sourceTranscriptRevision = execution.sourceTranscriptRevision,
+                    // A user rename made while ENHANCING must beat the generated title.
+                    sourceTitle = snapshot.recording.title,
                     result =
                         RecordingEnhancementResult(
                             processedText = transformedText ?: baseProcessedText.takeIf { transcript.processedText == null },

@@ -14,6 +14,7 @@ import dev.chirpboard.app.data.entity.toEntity
 import dev.chirpboard.app.data.entity.toModel
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.EnhancementSubworkStatus
+import dev.chirpboard.app.data.model.RecordingEnhancementResult
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
@@ -769,5 +770,43 @@ class RecordingRepositoryTest {
 
             coEvery { recordingDao.getNotes(id) } returns null
             assertNull(repository.getNotes(id))
+        }
+
+    @Test
+    fun `completeEnhancement applies the generated title only while the title is unrenamed`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            coEvery { recordingDao.getStatus(recordingId) } returns RecordingStatus.ENHANCING
+            coEvery { enhancementSnapshotDao.getSnapshot(recordingId) } returns
+                enhancementSnapshot(recordingId).copy(activeEnhancementExecutionToken = "token-1")
+            coEvery { transcriptDao.getTranscript(recordingId) } returns
+                Transcript(recordingId = recordingId, rawText = "raw transcript")
+
+            val committed =
+                repository.completeEnhancement(
+                    recordingId = recordingId,
+                    executionToken = "token-1",
+                    sourceTranscriptRevision = "raw transcript||",
+                    sourceTitle = "Recording 3:41 PM",
+                    result =
+                        RecordingEnhancementResult(
+                            processedText = null,
+                            processingMode = null,
+                            title = "Groceries and errands",
+                            summary = null,
+                            titleStatus = EnhancementSubworkStatus.SUCCEEDED,
+                        ),
+                )
+
+            assertTrue(committed)
+            // Conditional write: a rename made while ENHANCING wins over the generated title.
+            coVerify(exactly = 1) {
+                recordingDao.updateTitleIfCurrent(
+                    recordingId,
+                    "Groceries and errands",
+                    expectedTitle = "Recording 3:41 PM",
+                )
+            }
+            coVerify(exactly = 0) { recordingDao.updateTitle(any(), any()) }
         }
 }

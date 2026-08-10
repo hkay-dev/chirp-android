@@ -234,6 +234,14 @@ interface RecordingDao {
         title: String,
     )
 
+    /** Applies a generated title only while the title is untouched: a user rename always wins. */
+    @Query("UPDATE recordings SET title = :title WHERE id = :id AND title = :expectedTitle")
+    suspend fun updateTitleIfCurrent(
+        id: UUID,
+        title: String,
+        expectedTitle: String,
+    ): Int
+
     @Query("UPDATE recordings SET durationMs = :durationMs WHERE id = :id")
     suspend fun updateDuration(
         id: UUID,
