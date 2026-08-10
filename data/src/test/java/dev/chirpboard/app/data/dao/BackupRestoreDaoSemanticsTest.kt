@@ -317,6 +317,13 @@ private class FakeTagDao : TagDao {
         tags.forEach { insert(it) }
     }
 
+    override suspend fun insertIgnoringExisting(tag: Tag) {
+        // @Insert(IGNORE) semantics: an existing row with the same id is left untouched.
+        if (tags.none { it.id == tag.id }) {
+            tags += tag
+        }
+    }
+
     override suspend fun update(tag: Tag): Int {
         val index = tags.indexOfFirst { it.id == tag.id }
         if (index == -1) return 0

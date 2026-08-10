@@ -5,6 +5,7 @@ import dev.chirpboard.app.data.repository.RepositoryFlowState
 import dev.chirpboard.app.data.repository.TagRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -87,6 +88,27 @@ class TagsViewModelTest {
 
         // Assignments captured before the cascade delete are handed back to the lossless restore.
         coVerify(exactly = 1) { tagRepository.restoreTagWithAssignments(tag, recordingIds, profileIds) }
+    }
+
+    @Test
+    fun `undo tapped before the delete commits waits for it and still restores`() = runTest {
+        // The snackbar's Undo can arrive while the delete coroutine is still snapshotting
+        // assignments. The restore must wait for the delete to commit (otherwise it would
+        // throw on the still-present row, or be wiped by the delete landing afterwards).
+        val tag = Tag(id = UUID.randomUUID(), name = "Work", color = "#FF5733")
+        val recordingIds = listOf(UUID.randomUUID())
+        coEvery { tagRepository.getRecordingIdsForTag(tag.id) } returns recordingIds
+        val viewModel = TagsViewModel(tagRepository)
+
+        viewModel.deleteTag(tag)
+        viewModel.undoDelete()
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            tagRepository.delete(tag)
+            tagRepository.restoreTagWithAssignments(tag, recordingIds, emptyList())
+        }
+        coVerify(exactly = 0) { tagRepository.insert(any()) }
     }
 
     @Test

@@ -13,6 +13,8 @@ import dev.chirpboard.app.data.entity.Tag
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
 
+private const val SQLITE_BIND_LIMIT = 900
+
 data class RecordingTagRow(
     val recordingId: UUID,
     val id: UUID,
@@ -54,6 +56,9 @@ interface TagDao {
 
     @Insert
     suspend fun insert(tag: Tag)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIgnoringExisting(tag: Tag)
 
     @Insert
     suspend fun insertTags(tags: List<Tag>)
@@ -106,6 +111,32 @@ interface TagDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertProfileDefaultTagLinks(links: List<ProfileDefaultTag>)
+
+    /**
+     * Undo of a swipe-delete: re-inserts the tag and re-links its cascaded recording/profile
+     * assignments in ONE transaction, so a crash mid-restore can never leave the tag back with
+     * only part of its links. The tag insert IGNOREs an already-present row (the undo raced a
+     * delete that never committed), and links to recordings/profiles removed during the undo
+     * window are filtered out instead of violating their foreign keys.
+     */
+    @Transaction
+    suspend fun restoreTagWithAssignments(
+        tag: Tag,
+        recordingIds: List<UUID>,
+        profileIds: List<UUID>,
+    ) {
+        insertIgnoringExisting(tag)
+        val existingRecordingIds =
+            recordingIds.chunked(SQLITE_BIND_LIMIT).flatMap { getExistingRecordingIds(it) }
+        if (existingRecordingIds.isNotEmpty()) {
+            addTagsToRecording(existingRecordingIds.map { RecordingTag(it, tag.id) })
+        }
+        val existingProfileIds =
+            profileIds.chunked(SQLITE_BIND_LIMIT).flatMap { getExistingProfileIds(it) }
+        if (existingProfileIds.isNotEmpty()) {
+            insertProfileDefaultTagLinks(existingProfileIds.map { ProfileDefaultTag(it, tag.id) })
+        }
+    }
 
     /**
      * Backup restore, REPLACE semantics: clears every tag, then inserts the backup's tags.

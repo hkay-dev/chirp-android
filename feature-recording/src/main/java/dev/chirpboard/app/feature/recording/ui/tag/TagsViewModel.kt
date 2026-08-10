@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +41,10 @@ class TagsViewModel
 
         private var pendingDeletion: PendingDeletion? = null
 
+        // The in-flight delete. An Undo must wait for it: restoring before the delete commits
+        // would either hit the still-present row or be wiped again when the delete lands.
+        private var deleteJob: Job? = null
+
         val tags: StateFlow<List<Tag>> =
             tagRepository
                 .getAllTags()
@@ -70,26 +75,31 @@ class TagsViewModel
             // recording_tags and profile_default_tags rows, so an Undo re-inserts the tag (id
             // preserved) and re-links those assignments — a lossless undo.
             _pendingUndo.value = tag
-            viewModelScope.launch {
-                val recordingIds = tagRepository.getRecordingIdsForTag(tag.id)
-                val profileIds = tagRepository.getProfileIdsForTag(tag.id)
-                pendingDeletion = PendingDeletion(tag, recordingIds, profileIds)
-                tagRepository.delete(tag)
-            }
+            deleteJob =
+                viewModelScope.launch {
+                    val recordingIds = tagRepository.getRecordingIdsForTag(tag.id)
+                    val profileIds = tagRepository.getProfileIdsForTag(tag.id)
+                    pendingDeletion = PendingDeletion(tag, recordingIds, profileIds)
+                    tagRepository.delete(tag)
+                }
         }
 
         /** PROP-11: restore the last swipe-deleted tag — id/name/color and its assignments. */
         fun undoDelete() {
             val tag = _pendingUndo.value ?: return
-            val snapshot = pendingDeletion
             _pendingUndo.value = null
-            pendingDeletion = null
             viewModelScope.launch {
+                // An immediate Undo can arrive while the delete coroutine is still snapshotting:
+                // restoring now would be undone by the still-pending delete. Wait it out.
+                deleteJob?.join()
+                val snapshot = pendingDeletion
+                pendingDeletion = null
                 if (snapshot != null && snapshot.tag.id == tag.id) {
                     tagRepository.restoreTagWithAssignments(snapshot.tag, snapshot.recordingIds, snapshot.profileIds)
                 } else {
-                    // Undo raced the assignment snapshot (sub-millisecond window) — restore the tag itself.
-                    tagRepository.insert(tag)
+                    // The delete coroutine died before snapshotting — restore the tag itself.
+                    // (Assignment-less restore; the IGNORE insert tolerates a still-present row.)
+                    tagRepository.restoreTagWithAssignments(tag, emptyList(), emptyList())
                 }
             }
         }

@@ -3,7 +3,6 @@ package dev.chirpboard.app.data.repository
 import dev.chirpboard.app.data.dao.BackupUpsertCounts
 import dev.chirpboard.app.data.dao.RecordingTagRow
 import dev.chirpboard.app.data.dao.TagDao
-import dev.chirpboard.app.data.entity.ProfileDefaultTag
 import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.Tag
 import kotlinx.coroutines.flow.Flow
@@ -61,28 +60,15 @@ class TagRepository
 
         /**
          * Re-inserts a swipe-deleted tag (id/name/color preserved) and re-links the recording and
-         * profile-default assignments its delete cascaded away, so an Undo is lossless. Links to a
-         * recording/profile removed during the brief undo window are filtered out (never re-linked)
-         * rather than throwing a foreign-key violation; ids are chunked to stay under SQLite's bind
-         * limit for users with very heavily-used tags.
+         * profile-default assignments its delete cascaded away, so an Undo is lossless. Runs as a
+         * single DAO transaction; ids are chunked to stay under SQLite's bind limit for users with
+         * very heavily-used tags.
          */
         suspend fun restoreTagWithAssignments(
             tag: Tag,
             recordingIds: List<UUID>,
             profileIds: List<UUID>,
-        ) {
-            tagDao.insert(tag)
-            val existingRecordingIds =
-                recordingIds.chunked(SQLITE_BIND_LIMIT).flatMap { tagDao.getExistingRecordingIds(it) }
-            if (existingRecordingIds.isNotEmpty()) {
-                tagDao.addTagsToRecording(existingRecordingIds.map { RecordingTag(it, tag.id) })
-            }
-            val existingProfileIds =
-                profileIds.chunked(SQLITE_BIND_LIMIT).flatMap { tagDao.getExistingProfileIds(it) }
-            if (existingProfileIds.isNotEmpty()) {
-                tagDao.insertProfileDefaultTagLinks(existingProfileIds.map { ProfileDefaultTag(it, tag.id) })
-            }
-        }
+        ) = tagDao.restoreTagWithAssignments(tag, recordingIds, profileIds)
 
         fun getTagsForRecording(recordingId: UUID): Flow<RepositoryFlowState<List<Tag>>> =
             tagDao.getTagsForRecording(recordingId).catchRepositoryFlowState(TAG, emptyList())
