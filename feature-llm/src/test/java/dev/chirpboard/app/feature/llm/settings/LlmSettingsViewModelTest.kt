@@ -193,6 +193,41 @@ class LlmSettingsViewModelTest {
         }
 
     @Test
+    fun `testConnection failure restores the previously stored key`() =
+        runTest {
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.updateApiKey("bad-key")
+            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
+                Result.failure(java.io.IOException("Unable to resolve host"))
+
+            viewModel.testConnection()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // The draft was written for the test, then rolled back to the stored key.
+            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "bad-key") }
+            verify { preferences.setApiKeyFor(LlmProvider.GEMINI, "initial-key") }
+        }
+
+    @Test
+    fun `testConnection failure clears the key when none was stored before`() =
+        runTest {
+            every { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns null
+            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns false
+            viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, SavedStateHandle())
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.updateApiKey("bad-key")
+            // The draft write succeeds, so the post-write verification passes.
+            every { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
+            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
+                Result.failure(java.io.IOException("Unable to resolve host"))
+
+            viewModel.testConnection()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            verify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
+        }
+
+    @Test
     fun `dismissTestResult clears result`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()

@@ -205,6 +205,11 @@ class LlmSettingsViewModel
                     return@launch
                 }
 
+                // The client reads its key from the store, so the draft has to be written
+                // before the probe — but a failed test must not leave that unvalidated
+                // draft as the live credential for background workers. Remember what was
+                // stored so it can be put back if the test fails.
+                val previousKey = preferences.fetchApiKeyFor(provider)
                 preferences.setApiKeyFor(provider, apiKey)
                 if (!preferences.hasApiKeyFor(provider)) {
                     _uiState.update {
@@ -221,6 +226,14 @@ class LlmSettingsViewModel
                         context = TranscriptLlmContext("Hello"),
                         systemPrompt = "Reply with 'OK' if you can read this.",
                     )
+
+                if (result.isFailure && previousKey != apiKey) {
+                    if (previousKey.isNullOrBlank()) {
+                        preferences.clearApiKeyFor(provider)
+                    } else {
+                        preferences.setApiKeyFor(provider, previousKey)
+                    }
+                }
 
                 _uiState.update {
                     it.copy(
