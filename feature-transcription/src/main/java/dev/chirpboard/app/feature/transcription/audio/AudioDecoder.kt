@@ -494,14 +494,25 @@ class AudioDecoder @Inject constructor() {
             var remaining = layout.dataBytes
 
             raf.seek(layout.dataOffset)
-            val readBuffer = ByteArray(CHUNK_SIZE * layout.channelCount * 2)
+            val frameBytes = layout.channelCount * 2
+            val readBuffer = ByteArray(CHUNK_SIZE * frameBytes)
             while (remaining > 0) {
                 val toRead = minOf(readBuffer.size.toLong(), remaining).toInt()
-                val bytesRead = raf.read(readBuffer, 0, toRead)
-                if (bytesRead <= 0) break
-                remaining -= bytesRead
+                // read() may return fewer bytes than requested. Handing a partial buffer
+                // to the resampler would shift every later 16-bit sample by the shortfall,
+                // so fill the request completely and only ever pass whole frames on.
+                var filled = 0
+                while (filled < toRead) {
+                    val bytesRead = raf.read(readBuffer, filled, toRead - filled)
+                    if (bytesRead <= 0) break
+                    filled += bytesRead
+                }
+                if (filled == 0) break
+                remaining -= filled
+                val usableBytes = filled - (filled % frameBytes)
+                if (usableBytes == 0) break
 
-                val pcmData = readBuffer.copyOf(bytesRead)
+                val pcmData = readBuffer.copyOf(usableBytes)
                 val samples = resampler.process(pcmData)
                 chunkBuffer.add(samples) { chunk ->
                     onChunk(chunk)
