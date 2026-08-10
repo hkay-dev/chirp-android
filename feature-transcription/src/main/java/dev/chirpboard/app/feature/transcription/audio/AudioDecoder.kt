@@ -12,6 +12,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -280,6 +281,10 @@ class AudioDecoder @Inject constructor() {
                 }
             }
 
+            // The loop condition also exits on cancellation; a cancelled decode must throw
+            // instead of returning truncated audio as a complete result.
+            coroutineContext.ensureActive()
+
             // Emit any remaining samples
             chunkBuffer.flush { chunk ->
                 onChunk(chunk)
@@ -484,6 +489,7 @@ class AudioDecoder @Inject constructor() {
             val frameBytes = layout.channelCount * 2
             val readBuffer = ByteArray(CHUNK_SIZE * frameBytes)
             while (remaining > 0) {
+                coroutineContext.ensureActive()
                 val toRead = minOf(readBuffer.size.toLong(), remaining).toInt()
                 // read() may return fewer bytes than requested. Handing a partial buffer
                 // to the resampler would shift every later 16-bit sample by the shortfall,
