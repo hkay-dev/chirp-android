@@ -793,9 +793,34 @@ class ProcessingStudioViewModelTest {
             deleted.await()
 
             verify { playbackController.stop() }
+            coVerify { transcriptionRecovery.cancelProcessing(recordingId) }
             coVerify { repository.delete(recording) }
             assertFalse(audioFile.exists())
             assertNull(viewModel.message.value)
+        }
+
+    @Test
+    fun `deleteRecording still navigates back when the row is already gone`() =
+        runTest {
+            // The user confirmed a delete; a row removed elsewhere must not turn the button
+            // into a silent no-op that strands them on a dead screen.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            coEvery { repository.getRecording(recordingId) } returns null
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            var onDeletedInvoked = false
+            viewModel.deleteRecording { onDeletedInvoked = true }
+            advanceUntilIdle()
+
+            assertTrue(onDeletedInvoked)
+            coVerify(exactly = 0) { repository.delete(any()) }
         }
 
     @Test

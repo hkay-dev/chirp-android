@@ -1005,10 +1005,20 @@ class ProcessingStudioViewModel
         fun deleteRecording(onDeleted: () -> Unit) {
             viewModelScope.launch {
                 val id = currentRecordingId ?: return@launch
-                val rec = repository.getRecording(id) ?: return@launch
+                val rec = repository.getRecording(id)
+                if (rec == null) {
+                    // The row is already gone (deleted from Home, a recovery worker): the user
+                    // confirmed a delete, so still leave the now-dead screen instead of silently
+                    // doing nothing.
+                    onDeleted()
+                    return@launch
+                }
                 if (playbackController.state.value.recordingId == id) {
                     playbackController.stop()
                 }
+                // Same contract as the Home delete (PIPE-07): a still-processing recording must
+                // not keep transcribing against a deleted row and file.
+                transcriptionRecovery.cancelProcessing(id)
                 try {
                     repository.delete(rec)
                     withContext(Dispatchers.IO) {
