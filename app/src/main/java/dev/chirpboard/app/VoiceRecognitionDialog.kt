@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -165,6 +166,12 @@ internal fun VoiceRecognitionDialog(
             else -> onCancel()
         }
     }
+
+    // The system back gesture must behave exactly like the labeled cancel affordances.
+    // Without this the default finish() bypasses the result contract entirely: the caller
+    // gets no result, a pending error code is lost, and a live capture is misfiled as a
+    // system interruption instead of a user cancel.
+    BackHandler(onBack = requestCancel)
 
     // The 10 Hz waveform tick (sampleCountFlow) and the per-token partial transcript are
     // intentionally NOT collected here: collecting them at the dialog root would re-run the
