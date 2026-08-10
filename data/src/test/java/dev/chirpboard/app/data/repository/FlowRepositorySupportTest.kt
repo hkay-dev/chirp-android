@@ -13,29 +13,49 @@ class FlowRepositorySupportTest {
     val androidLog = MockAndroidLogRule()
 
     @Test
-    fun `catchRepositoryFlow emits default on failure`() =
+    fun `catchRepositoryFlow emits default on failure then retries and recovers`() =
         runTest {
-            flow<List<String>> {
-                emit(listOf("ok"))
-                error("boom")
+            // A failed Room flow must not stay dead: after the safe default the upstream query
+            // is re-collected, so the screen heals once the error clears.
+            var attempts = 0
+            flow {
+                attempts++
+                if (attempts == 1) {
+                    emit(listOf("ok"))
+                    error("boom")
+                } else {
+                    emit(listOf("recovered"))
+                }
             }.catchRepositoryFlow(tag = "TestRepo", default = emptyList()).test {
                 assertEquals(listOf("ok"), awaitItem())
                 assertEquals(emptyList<String>(), awaitItem())
+                assertEquals(listOf("recovered"), awaitItem())
                 awaitComplete()
             }
         }
 
     @Test
-    fun `catchRepositoryFlowState emits error message on failure`() =
+    fun `catchRepositoryFlowState emits error message on failure then recovers`() =
         runTest {
-            flow<List<String>> {
-                emit(listOf("ok"))
-                error("boom")
+            var attempts = 0
+            flow {
+                attempts++
+                if (attempts == 1) {
+                    emit(listOf("ok"))
+                    error("boom")
+                } else {
+                    emit(listOf("ok"))
+                }
             }.catchRepositoryFlowState(tag = "TestRepo", default = emptyList()).test {
                 assertEquals(listOf("ok"), awaitItem().value)
                 val failed = awaitItem()
                 assertEquals(emptyList<String>(), failed.value)
                 assertEquals("boom", failed.errorMessage)
+                // The retried collection re-emits the value WITHOUT the error marker, so the UI
+                // leaves its error state even when the data itself is unchanged.
+                val recovered = awaitItem()
+                assertEquals(listOf("ok"), recovered.value)
+                assertEquals(null, recovered.errorMessage)
                 awaitComplete()
             }
         }
