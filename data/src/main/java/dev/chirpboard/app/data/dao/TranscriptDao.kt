@@ -42,9 +42,6 @@ interface TranscriptDao {
     @Query("SELECT * FROM transcripts WHERE recordingId = :recordingId")
     fun getTranscriptFlow(recordingId: UUID): Flow<Transcript?>
 
-    @Query("SELECT * FROM transcripts WHERE id = :id")
-    suspend fun getTranscriptById(id: UUID): Transcript?
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(transcript: Transcript)
 

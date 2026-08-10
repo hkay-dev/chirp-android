@@ -540,7 +540,6 @@ private class FakeProfileDao : ProfileDao {
     override suspend fun getDefaultTagIds(profileId: UUID): List<UUID> =
         defaultTags[profileId].orEmpty().toList()
 
-    override suspend fun getDefaultTagCount(profileId: UUID): Int = unused()
 }
 
 private fun unused(): Nothing = throw UnsupportedOperationException("not used by backup-restore semantics")

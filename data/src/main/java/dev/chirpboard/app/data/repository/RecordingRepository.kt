@@ -429,9 +429,6 @@ class RecordingRepository
         fun getTranscriptTimingsFlow(recordingId: UUID): Flow<RepositoryFlowState<List<TranscriptTiming>>> =
             transcriptDao.getTranscriptTimingsFlow(recordingId).catchRepositoryFlowState(TAG, emptyList())
 
-        suspend fun getStructuredOutcomeSnapshot(recordingId: UUID): StructuredOutcomeSnapshot? =
-            structuredOutcomeSnapshotDao.getSnapshot(recordingId)?.toModel()
-
         fun getStructuredOutcomeSnapshotFlow(recordingId: UUID): Flow<RepositoryFlowState<StructuredOutcomeSnapshot?>> =
             structuredOutcomeSnapshotDao
                 .getSnapshotFlow(recordingId)
@@ -1119,21 +1116,6 @@ class RecordingRepository
                 }
                 recording
             }
-
-        /**
-         * Delete multiple recordings in a transaction.
-         * Processes in batches of [SQLITE_BIND_LIMIT] (900) to respect SQLite's 999
-         * bind-variable limit.
-         *
-         * Note: Associated transcripts are automatically deleted via CASCADE.
-         */
-        suspend fun deleteRecordings(ids: List<UUID>) {
-            database.withTransaction {
-                ids.distinct().chunked(SQLITE_BIND_LIMIT).forEach { batch ->
-                    recordingDao.deleteByIds(batch)
-                }
-            }
-        }
 
         private suspend fun applyProfileDefaultTags(
             recordingId: UUID,

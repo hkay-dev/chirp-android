@@ -93,9 +93,6 @@ interface ProfileDao {
     @Query("DELETE FROM profile_default_tags WHERE profileId = :profileId")
     suspend fun deleteDefaultTagsForProfile(profileId: UUID)
 
-    @Query("SELECT COUNT(*) FROM profile_default_tags WHERE profileId = :profileId")
-    suspend fun getDefaultTagCount(profileId: UUID): Int
-
     @Transaction
     suspend fun insertWithDefaultTags(
         profile: Profile,

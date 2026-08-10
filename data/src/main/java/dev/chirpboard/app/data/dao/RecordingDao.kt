@@ -37,8 +37,6 @@ interface RecordingDao {
     )
     suspend fun getPendingTerminalNotifications(): List<Recording>
 
-    @Query("SELECT * FROM recordings WHERE profileId = :profileId ORDER BY createdAt DESC, id ASC")
-    fun getRecordingsByProfile(profileId: UUID): Flow<List<Recording>>
     @Query("SELECT audioPath FROM recordings")
     suspend fun getAllAudioPaths(): List<String>
 
@@ -75,34 +73,8 @@ interface RecordingDao {
     @Update
     suspend fun update(recording: Recording): Int
 
-    @Query("UPDATE recordings SET status = :status WHERE id = :id")
-    suspend fun updateStatusUnchecked(
-        id: UUID,
-        status: RecordingStatus,
-    ): Int
-
-    @Query("UPDATE recordings SET status = :status, errorMessage = :errorMessage WHERE id = :id")
-    suspend fun updateStatusWithErrorUnchecked(
-        id: UUID,
-        status: RecordingStatus,
-        errorMessage: String?,
-    ): Int
-
     @Query("SELECT status FROM recordings WHERE id = :id")
     suspend fun getStatus(id: UUID): RecordingStatus?
-
-    @Query(
-        """
-        UPDATE recordings
-        SET status = :status, errorMessage = NULL
-        WHERE id = :id AND status IN (:allowedStatuses)
-        """,
-    )
-    suspend fun updateStatusIfCurrentIn(
-        id: UUID,
-        status: RecordingStatus,
-        allowedStatuses: List<RecordingStatus>,
-    ): Int
 
     @Query(
         """
@@ -339,9 +311,6 @@ interface RecordingDao {
     @Delete
     suspend fun delete(recording: Recording)
 
-    @Query("DELETE FROM recordings WHERE id IN (:ids)")
-    suspend fun deleteByIds(ids: List<UUID>)
-
     @Query("DELETE FROM recordings WHERE id = :id AND status = :status")
     suspend fun deleteByIdAndStatus(
         id: UUID,
@@ -353,9 +322,6 @@ interface RecordingDao {
 
     @Query("SELECT COUNT(*) FROM recordings")
     suspend fun getCount(): Int
-
-    @Query("SELECT COUNT(*) FROM recordings WHERE status = :status")
-    suspend fun getCountByStatus(status: RecordingStatus): Int
 
     /**
      * Full-table aggregate for the home header stats (DAT-006). Unlike [getAllRecordings]
