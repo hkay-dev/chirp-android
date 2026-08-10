@@ -356,6 +356,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 } else {
                     VoiceRecognitionModelState.Unavailable
                 }
+            if (!ready) {
+                endLiveCaptureForUnavailableModel()
+            }
         }
 
         // IME-15/SEC-1: honor the caller's instructional prompt; PIPE-08: surface that the
@@ -467,6 +470,12 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private fun startRecording() {
         if (_recordingState.value !is RecordingState.Idle) {
             Log.w(TAG, "Already recording, ignoring start request")
+            return
+        }
+        if (_modelState.value == VoiceRecognitionModelState.Unavailable) {
+            // The ModelUnavailable status (with its "Open Chirp" affordance) owns the sheet;
+            // capturing audio the dead pipeline can never transcribe helps no one.
+            Log.w(TAG, "Recognizer model unavailable; not starting capture")
             return
         }
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
@@ -806,6 +815,24 @@ class VoiceRecognitionActivity : ComponentActivity() {
             val llmEnabled = !secureSession && keyboardPreferences.llmEnabled.first()
             val mode = modePort.currentMode.first()
             stopRecording(llmEnabled, mode)
+        }
+    }
+
+    /**
+     * ERR-10: a capture running against a model that failed to load can never produce
+     * text. Once the mic is live, commit it through the normal stop path — transcription
+     * fails, the failure is explained in-dialog and the audio is rescued — instead of the
+     * sheet listening forever into a dead pipeline. [startRecording] refuses new sessions
+     * in this state, so the situation cannot recur via retry.
+     */
+    private suspend fun endLiveCaptureForUnavailableModel() {
+        if (_shouldDismiss.value || _uiError.value != null) {
+            return
+        }
+        val settled = _recordingState.first { it !is RecordingState.Starting }
+        if (settled is RecordingState.Recording) {
+            Log.w(TAG, "Model unavailable; committing the live capture")
+            stopWithSettledSettings()
         }
     }
 
