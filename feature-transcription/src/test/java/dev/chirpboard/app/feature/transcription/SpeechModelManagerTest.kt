@@ -12,6 +12,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -121,6 +122,29 @@ class SpeechModelManagerTest {
             previous = SpeechModelDownloadWork.Idle,
         )
 
+        assertEquals(SpeechModelManager.ModelStatus.NotDownloaded, manager.modelStatus.value)
+    }
+
+    @Test
+    fun `manageModel can switch away from a model that is downloading`() = runTest {
+        val manager = createManager()
+        gatewayWork.value =
+            SpeechModelDownloadWork.Running(
+                file = "encoder.int8.onnx",
+                progress = 0.5f,
+                modelId = LocalSpeechModelId.DEFAULT,
+            )
+        manager.applyDownloadWork(
+            work = gatewayWork.value,
+            previous = SpeechModelDownloadWork.Idle,
+        )
+        assertTrue(manager.modelStatus.value is SpeechModelManager.ModelStatus.Downloading)
+
+        manager.manageModel(LocalSpeechModelId.PARAKEET_TDT_600M)
+        // backgroundScope work only runs while the test coroutine is suspended.
+        yield()
+
+        assertEquals(LocalSpeechModelId.PARAKEET_TDT_600M, manager.managedModel.value)
         assertEquals(SpeechModelManager.ModelStatus.NotDownloaded, manager.modelStatus.value)
     }
 

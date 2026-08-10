@@ -183,7 +183,10 @@ class SpeechModelManager
             else speechModelStore.getDownloadedSize(_managedModel.value)
 
         fun manageModel(modelId: LocalSpeechModelId) {
-            if (_modelStatus.value is ModelStatus.Downloading || _modelStatus.value is ModelStatus.WaitingForNetwork) return
+            // Switching mid-download is safe now that download work carries its model id:
+            // the other model's progress/errors are filtered out by workAppliesToManagedModel,
+            // and switching back re-derives the live download state. Blocking the switch here
+            // used to trap the user on a card stuck at "Waiting for network".
             _managedModel.value = modelId
             refreshStatus()
         }
