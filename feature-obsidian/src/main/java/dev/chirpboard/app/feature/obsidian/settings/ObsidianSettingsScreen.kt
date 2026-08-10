@@ -33,7 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
@@ -82,9 +82,12 @@ fun ObsidianSettingsScreen(
             }
         }
 
-    // Refresh access status when screen becomes visible
-    LaunchedEffect(Unit) {
+    // Re-check SAF access every time the screen comes back to the foreground, not just on
+    // first composition: the user can revoke or move the vault folder in the system Files
+    // app and return here, and the "connected" badge must not lie.
+    LifecycleResumeEffect(Unit) {
         viewModel.refreshAccessStatus()
+        onPauseOrDispose { }
     }
 
     ChirpSettingsDetailScaffold(
