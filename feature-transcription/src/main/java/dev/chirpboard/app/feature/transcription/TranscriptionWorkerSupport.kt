@@ -392,16 +392,19 @@ private fun transcriptionCopyPendingIntent(
 ): PendingIntent {
     val action =
         if (copyAiResult) {
-            TranscriptionCopyActionReceiver.ACTION_COPY_AI
+            QuickInputCopyActivity.ACTION_COPY_TRANSCRIPT_AI
         } else {
-            TranscriptionCopyActionReceiver.ACTION_COPY_RAW
+            QuickInputCopyActivity.ACTION_COPY_TRANSCRIPT_RAW
         }
     val requestCode = recordingId.hashCode() xor if (copyAiResult) COPY_AI_REQUEST_CODE_MASK else COPY_RAW_REQUEST_CODE_MASK
+    // An activity, not a broadcast: the clipboard write needs window focus to be
+    // honored on every build (see QuickInputCopyActivity).
     val intent =
-        Intent(context, TranscriptionCopyActionReceiver::class.java)
+        Intent(context, QuickInputCopyActivity::class.java)
             .setAction(action)
             .putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
-    return PendingIntent.getBroadcast(
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    return PendingIntent.getActivity(
         context,
         requestCode,
         intent,

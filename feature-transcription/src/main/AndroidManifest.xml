@@ -5,10 +5,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application>
-        <receiver
-            android:name=".TranscriptionCopyActionReceiver"
-            android:exported="false" />
-
         <!-- Copy actions must run focused so the clipboard write is honored on every
              build; a translucent activity holds focus for one frame and finishes. -->
         <activity
