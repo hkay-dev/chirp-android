@@ -166,6 +166,22 @@ class KeyboardInputConnectionActionsTest {
     }
 
     @Test
+    fun `deletePreviousWord fallback repeats per grapheme cluster not per code unit`() {
+        // Word segment "😀😀" is 4 UTF-16 units but 2 clusters; the per-character fallback must
+        // run twice, not four times (each deletePreviousCharacter removes a whole cluster).
+        val connection = mockk<InputConnection>(relaxed = true)
+        every { connection.getSelectedText(0) } returns ""
+        every { connection.getTextBeforeCursor(512, 0) } returns "hi 😀😀"
+        every { connection.deleteSurroundingText(4, 0) } returns false
+        every { connection.getTextBeforeCursor(GRAPHEME_WINDOW, 0) } returns "😀"
+        every { connection.deleteSurroundingText(2, 0) } returns true
+
+        deletePreviousWord(connection)
+
+        verify(exactly = 2) { connection.deleteSurroundingText(2, 0) }
+    }
+
+    @Test
     fun `deletePreviousWord deletes selected text`() {
         val connection = mockk<InputConnection>(relaxed = true)
         every { connection.getSelectedText(0) } returns "hello"

@@ -65,17 +65,34 @@ internal fun deletePreviousWord(inputConnection: InputConnection?) {
     }
 
     if (!connection.deleteSurroundingText(deleteCount, 0)) {
+        // The fallback deletes one grapheme CLUSTER per step, so it must repeat the cluster
+        // count of the word segment — repeating the UTF-16 unit count would over-delete words
+        // containing surrogate pairs or ZWJ emoji.
+        val clusterCount = graphemeClusterCount(before, before.length - deleteCount)
         // IME-23: one batch edit around the per-character fallback so the editor sees a single
         // invalidation instead of up to 32 flickering intermediate states.
         connection.beginBatchEdit()
         try {
-            repeat(deleteCount.coerceAtMost(WORD_DELETE_FALLBACK_CAP)) {
+            repeat(clusterCount.coerceAtMost(WORD_DELETE_FALLBACK_CAP)) {
                 deletePreviousCharacter(connection)
             }
         } finally {
             connection.endBatchEdit()
         }
     }
+}
+
+/** Number of grapheme clusters in `text[start, text.length)`. */
+private fun graphemeClusterCount(text: CharSequence, start: Int): Int {
+    var index = text.length
+    var count = 0
+    while (index > start) {
+        val previous = GraphemeBoundaries.previousBoundary(text, index)
+        if (previous >= index) break
+        index = previous
+        count += 1
+    }
+    return count
 }
 
 /**
