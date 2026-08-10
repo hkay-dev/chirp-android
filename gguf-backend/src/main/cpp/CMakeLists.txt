@@ -13,7 +13,8 @@ FetchContent_Declare(
     transcribe_cpp
     GIT_REPOSITORY https://github.com/handy-computer/transcribe.cpp.git
     GIT_TAG 553f1099a2b3a5bc4421894be171f09960fc0f3a
-    GIT_SHALLOW TRUE
+    # No GIT_SHALLOW: a depth-1 clone only contains the default branch head, so
+    # checking out this pinned commit fails once upstream moves past it.
     GIT_PROGRESS TRUE
 )
 FetchContent_MakeAvailable(transcribe_cpp)
