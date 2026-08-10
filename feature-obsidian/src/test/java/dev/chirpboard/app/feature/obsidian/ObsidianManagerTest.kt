@@ -197,7 +197,7 @@ class ObsidianManagerTest {
                 .ofInstant(Instant.ofEpochMilli(CREATED_AT_EPOCH_MS), ZoneId.systemDefault())
                 .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
         assertTrue(written.startsWith("---\n"))
-        assertTrue(written.contains("title: Weekly Sync\n"))
+        assertTrue(written.contains("title: \"Weekly Sync\"\n"))
         assertTrue(written.contains("date: $expectedLocalDate\n"))
         assertTrue(written.contains("the transcript body"))
         assertTrue(written.contains("a short summary"))
@@ -281,6 +281,17 @@ class ObsidianManagerTest {
         assertEquals(100, sanitizeObsidianFilename("x".repeat(250)).length)
         // Titles that sanitize to nothing fall back instead of producing ".md".
         assertEquals("Untitled", sanitizeObsidianFilename(""))
+    }
+
+    @Test
+    fun `sanitizeObsidianFilename strips control characters and truncates at character boundaries`() {
+        // Non-whitespace control characters (SOH, BEL, DEL) are removed outright.
+        assertEquals("abc", sanitizeObsidianFilename("a" + Char(1) + "b" + Char(7) + "c" + Char(127)))
+        // Truncation never splits a surrogate pair: an emoji straddling the 100-unit cap
+        // is dropped whole instead of leaving a lone surrogate in the filename.
+        val truncated = sanitizeObsidianFilename("x".repeat(99) + "😀")
+        assertEquals(99, truncated.length)
+        assertFalse(truncated.last().isHighSurrogate())
     }
 
     private class SuccessExportHarness(

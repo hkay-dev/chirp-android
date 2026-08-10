@@ -17,12 +17,12 @@ object MarkdownFormatter {
      * Output format:
      * ```
      * ---
-     * title: Recording Title
+     * title: "Recording Title"
      * date: 2024-01-15T10:30:00
      * duration: 125
-     * tags: [tag1, tag2]
-     * summary: One-line summary
-     * source: app
+     * tags: ["tag1", "tag2"]
+     * summary: "One-line summary"
+     * source: "app"
      * ---
      *
      * ## Transcript
@@ -57,7 +57,7 @@ object MarkdownFormatter {
         if (summary != null) {
             appendLine("summary: ${escapeYamlString(summary)}")
         }
-        appendLine("source: $source")
+        appendLine("source: ${escapeYamlString(source)}")
         appendLine("---")
         appendLine()
 
@@ -68,27 +68,18 @@ object MarkdownFormatter {
     }
 
     /**
-     * Escape special characters in YAML strings.
-     * Wraps in quotes if the string contains special characters.
+     * Render a string as a double-quoted YAML scalar. Always quoted: plain scalars silently
+     * coerce ("true", "1.5", "2024-01-15" become booleans, numbers, dates) and break on
+     * leading indicators like "- " or "? ", so a character blocklist can't be complete.
      */
     private fun escapeYamlString(value: String): String {
-        val needsQuotes = value.any { it in listOf(':', '#', '[', ']', '{', '}', ',', '&', '*', '!', '|', '>', '\'', '"', '%', '@', '`') } ||
-            value.startsWith(' ') ||
-            value.endsWith(' ') ||
-            value.contains('\n') ||
-            value.isEmpty()
-
-        return if (needsQuotes) {
-            // Strictly escape backslashes, quotes, and newlines. 
-            // If using a literal block scalar (e.g. `|`) we wouldn't need quotes, but inline JSON/YAML style is safer here.
-            val escaped = value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-            "\"$escaped\""
-        } else {
-            value
-        }
+        val escaped = value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        return "\"$escaped\""
     }
 
     /**

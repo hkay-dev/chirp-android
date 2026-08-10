@@ -236,6 +236,13 @@ class ObsidianManager
 
 private val InvalidExportFilenameCharacters = Regex("[\\\\/:*?\"<>|]")
 private val ExportMultiWhitespace = Regex("\\s+")
+
+// Runs after whitespace collapsing, so this only sees the non-whitespace control
+// characters (NUL, BEL, DEL, …) that providers reject or render as tofu.
+private val ExportControlCharacters = Regex("\\p{Cntrl}")
+
+/** Filename length cap in UTF-16 units. */
+private const val MaxExportFilenameLength = 100
 private val ExportFilenameTimestampFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HHmmss")
 
 /**
@@ -264,6 +271,18 @@ internal fun sanitizeObsidianFilename(name: String): String =
     name
         .replace(InvalidExportFilenameCharacters, "_")
         .replace(ExportMultiWhitespace, " ")
+        .replace(ExportControlCharacters, "")
         .trim()
-        .take(100) // Limit length
+        .let(::truncateAtCharacterBoundary)
         .ifBlank { "Untitled" }
+
+/**
+ * Caps the name at [MaxExportFilenameLength] UTF-16 units without splitting a surrogate
+ * pair: a truncation landing mid-emoji would leave a lone surrogate, which is not valid
+ * UTF-8 and gets rejected or mangled by SAF providers.
+ */
+private fun truncateAtCharacterBoundary(name: String): String {
+    if (name.length <= MaxExportFilenameLength) return name
+    val cut = name.take(MaxExportFilenameLength)
+    return if (cut.last().isHighSurrogate()) cut.dropLast(1) else cut
+}
