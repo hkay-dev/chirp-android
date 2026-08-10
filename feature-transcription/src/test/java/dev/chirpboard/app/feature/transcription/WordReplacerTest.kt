@@ -53,4 +53,35 @@ class WordReplacerTest {
         val result = classUnderTest.apply("hello world", rules)
         assertEquals("greetings", result)
     }
+
+    @Test
+    fun `apply matches rules that start or end with punctuation`() = kotlinx.coroutines.test.runTest {
+        val rules = listOf(
+            WordReplacement(original = "dot net", replacement = ".NET", enabled = true),
+            WordReplacement(original = "C++", replacement = "C plus plus", enabled = true)
+        )
+        val result = classUnderTest.apply("I use dot net and C++ daily", rules)
+        assertEquals("I use .NET and C plus plus daily", result)
+    }
+
+    @Test
+    fun `apply does not replace inside larger words`() = kotlinx.coroutines.test.runTest {
+        val rule = WordReplacement(original = "cat", replacement = "dog", enabled = true)
+        val result = classUnderTest.apply("concatenate the cat", listOf(rule))
+        assertEquals("concatenate the dog", result)
+    }
+
+    @Test
+    fun `apply treats dollar signs and backslashes in the replacement literally`() = kotlinx.coroutines.test.runTest {
+        val rule = WordReplacement(original = "price", replacement = "$5 \\ up", enabled = true)
+        val result = classUnderTest.apply("the price today", listOf(rule))
+        assertEquals("the $5 \\ up today", result)
+    }
+
+    @Test
+    fun `apply ignores rules with an empty original`() = kotlinx.coroutines.test.runTest {
+        val rule = WordReplacement(original = "", replacement = "x", enabled = true)
+        val result = classUnderTest.apply("hello world", listOf(rule))
+        assertEquals("hello world", result)
+    }
 }

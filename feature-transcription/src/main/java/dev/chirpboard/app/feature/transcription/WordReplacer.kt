@@ -21,11 +21,17 @@ class WordReplacer @Inject constructor() {
      */
     suspend fun apply(text: String, replacements: List<WordReplacement>): String = withContext(Dispatchers.Default) {
         var result = text
-        for (rule in replacements.filter { it.enabled }) {
+        for (rule in replacements.filter { it.enabled && it.original.isNotEmpty() }) {
             val options = if (rule.caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)
-            val regex = Regex("\\b${Regex.escape(rule.original)}\\b", options)
-            result = result.replace(regex, rule.replacement)
+            // \b only exists next to a word character, so anchoring a rule that starts or
+            // ends with punctuation (".NET", "C++") would make it never match at all.
+            val prefix = if (rule.original.first().isWordChar()) "\\b" else ""
+            val suffix = if (rule.original.last().isWordChar()) "\\b" else ""
+            val regex = Regex(prefix + Regex.escape(rule.original) + suffix, options)
+            result = result.replace(regex, Regex.escapeReplacement(rule.replacement))
         }
         result
     }
+
+    private fun Char.isWordChar(): Boolean = isLetterOrDigit() || this == '_'
 }
