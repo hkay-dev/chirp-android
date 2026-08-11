@@ -27,7 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.CopyActionButton
-import dev.chirpboard.app.core.ui.components.MorphingTranscriptionProgress
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.StudioOutlinedAction
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressCopy
 import dev.chirpboard.app.feature.studio.R
@@ -239,8 +239,7 @@ private fun StructuredOutcomeSection(
 
 @Composable
 private fun StructuredOutcomeGeneratingProgress() {
-    MorphingTranscriptionProgress(
-        compact = true,
+    TranscriptionProgressBanner(
         copy =
             TranscriptionProgressCopy(
                 title = stringResource(R.string.rec_structured_generating_title),

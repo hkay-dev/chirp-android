@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
-import dev.chirpboard.app.core.ui.components.MorphingTranscriptionProgress
+import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressCopy
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressKind
 
@@ -36,8 +36,7 @@ internal fun StudioProcessingHeader(
                 transitionSpec = { ChirpMotion.studioContentCrossfade },
                 label = "studio_progress_phase",
             ) {
-                MorphingTranscriptionProgress(
-                    compact = true,
+                TranscriptionProgressBanner(
                     copy = copy,
                     kind = it,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
