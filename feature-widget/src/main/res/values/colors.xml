@@ -8,8 +8,11 @@
 <resources>
     <!-- Live-recording semantic accent (chirpAccents.recordingLive, light) -->
     <color name="widget_tint_live">#C4314B</color>
-    <!-- Neutral tint while a recording is finalizing -->
-    <color name="widget_tint_saving">#8E8E93</color>
+    <!-- Neutral tint while a recording is finalizing. Darker than the app's neutral grey:
+         against the near-white system_neutral2_100 container, #8E8E93 measured 2.9:1 and
+         missed the 3:1 minimum for graphical objects exactly when the user is looking for
+         confirmation that the recording is being saved. -->
+    <color name="widget_tint_saving">#6C6C70</color>
     <!-- Press feedback on the record/stop button; the only feedback that does not wait
          on a service round-trip -->
     <color name="widget_button_ripple">#33000000</color>
