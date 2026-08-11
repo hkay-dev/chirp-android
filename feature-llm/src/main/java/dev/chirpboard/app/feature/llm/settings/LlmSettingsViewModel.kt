@@ -11,6 +11,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -230,18 +233,22 @@ class LlmSettingsViewModel
                     return@launch
                 }
 
+                // The restore must survive the screen closing mid-test: the probe and the
+                // preference writes are suspend calls, so a cancelled scope would otherwise
+                // skip the rollback and leave the unvalidated draft as the live key.
                 val result =
-                    llmClient.process(
-                        context = TranscriptLlmContext("Hello"),
-                        systemPrompt = "Reply with 'OK' if you can read this.",
-                    )
-
-                if (result.isFailure && previousKey != apiKey) {
-                    if (previousKey.isNullOrBlank()) {
-                        preferences.clearApiKeyFor(provider)
-                    } else {
-                        preferences.setApiKeyFor(provider, previousKey)
+                    try {
+                        llmClient.process(
+                            context = TranscriptLlmContext("Hello"),
+                            systemPrompt = "Reply with 'OK' if you can read this.",
+                        )
+                    } catch (e: CancellationException) {
+                        withContext(NonCancellable) { restoreStoredKey(provider, previousKey, apiKey) }
+                        throw e
                     }
+
+                if (result.isFailure) {
+                    withContext(NonCancellable) { restoreStoredKey(provider, previousKey, apiKey) }
                 }
 
                 _uiState.update {
@@ -417,6 +424,19 @@ class LlmSettingsViewModel
             viewModelScope.launch {
                 preferences.setLlmEnabled(enabled)
                 _uiState.update { it.copy(llmEnabled = enabled) }
+            }
+        }
+
+        private suspend fun restoreStoredKey(
+            provider: LlmProvider,
+            previousKey: String?,
+            draftKey: String,
+        ) {
+            if (previousKey == draftKey) return
+            if (previousKey.isNullOrBlank()) {
+                preferences.clearApiKeyFor(provider)
+            } else {
+                preferences.setApiKeyFor(provider, previousKey)
             }
         }
 
