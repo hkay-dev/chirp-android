@@ -52,7 +52,7 @@ fun TagChip(
     val defaultColor = MaterialTheme.colorScheme.primary
     val tagColor =
         remember(tag.color, defaultColor) {
-            tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
+            tag.color?.let { parseTagColor(it, defaultColor) } ?: defaultColor
         }
     val backgroundColor by animateColorAsState(
         targetValue = if (selected) tagColor else Color.Transparent,
@@ -135,16 +135,3 @@ fun TagChip(
     }
 }
 
-/**
- * Parse a hex color string to a Compose Color.
- */
-private fun parseColor(
-    hexColor: String,
-    fallbackColor: Color,
-): Color =
-    try {
-        Color(android.graphics.Color.parseColor(hexColor))
-    } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
-        fallbackColor
-    }

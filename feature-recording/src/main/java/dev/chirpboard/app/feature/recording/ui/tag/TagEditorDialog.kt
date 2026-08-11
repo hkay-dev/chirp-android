@@ -149,7 +149,7 @@ private fun ColorCircle(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val color = parseColor(colorHex, MaterialTheme.colorScheme.outline)
+    val color = parseTagColor(colorHex, MaterialTheme.colorScheme.outline)
     val checkColor = if (color.luminance() > 0.5f) Color.Black else Color.White
 
     Box(
@@ -187,13 +187,3 @@ private fun ColorCircle(
     }
 }
 
-private fun parseColor(
-    hexColor: String,
-    fallbackColor: Color,
-): Color =
-    try {
-        Color(android.graphics.Color.parseColor(hexColor))
-    } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
-        fallbackColor
-    }

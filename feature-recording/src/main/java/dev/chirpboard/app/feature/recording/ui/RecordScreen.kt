@@ -446,8 +446,11 @@ fun RecordScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                    // remember: allocating a new ImmutableList every recomposition would defeat
+                    // TagPicker's stable-parameter skipping while the waveform animates.
+                    val stableTags = remember(availableTags) { availableTags.toImmutableList() }
                     TagPicker(
-                        availableTags = availableTags.toImmutableList(),
+                        availableTags = stableTags,
                         selectedTagIds = selectedTagIds,
                         onTagToggle = viewModel::toggleTag,
                         onCreateTag = viewModel::createTagForRecording,

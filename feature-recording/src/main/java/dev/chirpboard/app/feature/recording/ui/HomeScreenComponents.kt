@@ -72,6 +72,7 @@ import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.EmptyState
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R
+import dev.chirpboard.app.feature.recording.ui.tag.parseTagColor
 import dev.chirpboard.app.core.ui.components.MetadataPillRow
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
@@ -379,13 +380,7 @@ private fun CompactTagChip(
     val defaultColor = MaterialTheme.colorScheme.tertiary
     val tagColor =
         remember(colorHex, defaultColor) {
-            colorHex?.let {
-                try {
-                    Color(android.graphics.Color.parseColor(it))
-                } catch (_: Exception) {
-                    defaultColor
-                }
-            } ?: defaultColor
+            colorHex?.let { parseTagColor(it, defaultColor) } ?: defaultColor
         }
 
     Row(

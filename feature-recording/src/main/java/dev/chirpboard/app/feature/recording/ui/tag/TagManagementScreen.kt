@@ -267,7 +267,7 @@ private fun TagItemCard(
     val defaultColor = MaterialTheme.colorScheme.primary
     val tagColor =
         remember(tag.color, defaultColor) {
-            tag.color?.let { parseColor(it, defaultColor) } ?: defaultColor
+            tag.color?.let { parseTagColor(it, defaultColor) } ?: defaultColor
         }
     val outlineColor = MaterialTheme.colorScheme.outlineVariant
     val editTagDescription = stringResource(R.string.desc_edit_tag)
@@ -313,13 +313,3 @@ private fun TagItemCard(
         }
     )
 }
-private fun parseColor(
-    hexColor: String,
-    fallbackColor: Color,
-): Color =
-    try {
-        Color(android.graphics.Color.parseColor(hexColor))
-    } catch (e: Exception) {
-        if (e is kotlinx.coroutines.CancellationException) throw e
-        fallbackColor
-    }
