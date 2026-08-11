@@ -381,11 +381,14 @@ class RecordViewModel
             }
         }
 
-        fun createTagForRecording(name: String) {
+        fun createTagForRecording(
+            name: String,
+            color: String? = null,
+        ) {
             val recordingId = recordingState.value.activeRecordingId ?: return
             viewModelScope.launch {
                 try {
-                    val tag = tagRepository.createTag(name.trim())
+                    val tag = tagRepository.createTag(name.trim(), color)
                     tagRepository.addTagToRecording(recordingId, tag.id)
                     _selectedTagIds.update { it + tag.id }
                 } catch (e: SQLiteException) {

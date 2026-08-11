@@ -33,7 +33,7 @@ import java.util.UUID
  * @param availableTags All available tags to choose from
  * @param selectedTagIds Set of currently selected tag IDs
  * @param onTagToggle Called when a tag is toggled on/off
- * @param onCreateTag Called with the name when a new tag is created
+ * @param onCreateTag Called with the name and picked color when a new tag is created
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -41,7 +41,7 @@ fun TagPicker(
     availableTags: ImmutableList<Tag>,
     selectedTagIds: Set<UUID>,
     onTagToggle: (UUID) -> Unit,
-    onCreateTag: (String) -> Unit,
+    onCreateTag: (name: String, color: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // LIF-12: dialog (and its typed content) survives rotation/process death.
@@ -68,8 +68,8 @@ fun TagPicker(
         TagEditorDialog(
             tag = null,
             onDismiss = { showCreateDialog = false },
-            onSave = { name, _ ->
-                onCreateTag(name)
+            onSave = { name, color ->
+                onCreateTag(name, color)
                 showCreateDialog = false
             },
         )
