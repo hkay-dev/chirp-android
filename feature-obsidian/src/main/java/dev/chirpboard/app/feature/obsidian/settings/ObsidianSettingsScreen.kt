@@ -120,7 +120,7 @@ fun ObsidianSettingsScreen(
                     AutoExportRow(
                         enabled = uiState.autoExportEnabled,
                         hasAccess = uiState.hasAccess,
-                        onToggle = viewModel::toggleAutoExport,
+                        onToggle = viewModel::setAutoExport,
                     )
                 }
             }
@@ -252,7 +252,7 @@ private fun VaultConfigurationCard(
 private fun AutoExportRow(
     enabled: Boolean,
     hasAccess: Boolean,
-    onToggle: () -> Unit,
+    onToggle: (Boolean) -> Unit,
 ) {
     SettingsSwitchItem(
         icon = Icons.Default.Sync,
@@ -264,8 +264,11 @@ private fun AutoExportRow(
                 stringResource(R.string.obsidian_auto_export_needs_access)
             },
         checked = enabled,
-        onCheckedChange = { onToggle() },
-        enabled = hasAccess,
+        onCheckedChange = onToggle,
+        // Losing vault access must not trap auto-export in the on position: it would keep
+        // firing failed-export notifications after every transcription with no way to stop it
+        // short of clearing the vault. Only turning it *on* needs access.
+        enabled = hasAccess || enabled,
     )
 }
 

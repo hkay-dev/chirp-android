@@ -112,12 +112,13 @@ class ObsidianSettingsViewModel @Inject constructor(
     }
 
     /**
-     * Toggle auto-export on/off.
+     * Set auto-export on/off. Takes the value the switch moved to rather than re-reading and
+     * inverting the stored one: two fast taps would otherwise both read the pre-tap value and
+     * write the same result, leaving the setting on when the user meant to end up back off.
      */
-    fun toggleAutoExport() {
+    fun setAutoExport(enabled: Boolean) {
         viewModelScope.launch {
-            val currentValue = preferences.autoExportEnabled.first()
-            preferences.setAutoExportEnabled(!currentValue)
+            preferences.setAutoExportEnabled(enabled)
         }
     }
 

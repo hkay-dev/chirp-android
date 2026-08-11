@@ -157,15 +157,31 @@ class ObsidianSettingsViewModelTest {
         }
 
     @Test
-    fun `toggleAutoExport flips current setting`() =
+    fun `setAutoExport writes the requested value`() =
         runTest {
             autoExportEnabledFlow.value = true
             val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
             testDispatcher.scheduler.advanceUntilIdle()
 
-            viewModel.toggleAutoExport()
+            viewModel.setAutoExport(false)
             testDispatcher.scheduler.advanceUntilIdle()
 
+            coVerify { preferences.setAutoExportEnabled(false) }
+        }
+
+    @Test
+    fun `setAutoExport double tap ends on the last requested value`() =
+        runTest {
+            autoExportEnabledFlow.value = false
+            val viewModel = ObsidianSettingsViewModel(preferences, obsidianManager)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            // Off -> on -> off, both taps landing before either write completes.
+            viewModel.setAutoExport(true)
+            viewModel.setAutoExport(false)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify { preferences.setAutoExportEnabled(true) }
             coVerify { preferences.setAutoExportEnabled(false) }
         }
 
