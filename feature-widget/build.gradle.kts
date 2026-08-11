@@ -32,9 +32,6 @@ dependencies {
 
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
-    
-    // Core
-    implementation(libs.androidx.core.ktx)
 
     // Test
     testImplementation(libs.junit4)

@@ -148,13 +148,12 @@
         </receiver>
 
         <!-- Widget Toggle Receiver -->
+        <!-- No intent-filter: the receiver is not exported and its only PendingIntent names
+             the component explicitly, so a filter here would be unreachable while duplicating
+             the literal value of RecordingWidgetProvider.ACTION_TOGGLE_RECORDING. -->
         <receiver
             android:name="dev.chirpboard.app.feature.widget.WidgetReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="dev.chirpboard.app.TOGGLE_RECORDING" />
-            </intent-filter>
-        </receiver>
+            android:exported="false" />
 
         <!-- FileProvider for sharing audio files -->
         <provider
