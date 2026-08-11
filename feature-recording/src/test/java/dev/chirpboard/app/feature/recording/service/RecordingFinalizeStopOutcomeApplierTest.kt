@@ -8,6 +8,8 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.UUID
@@ -52,6 +54,7 @@ class RecordingFinalizeStopOutcomeApplierTest {
             val audioFile = File.createTempFile("recoverable-finalize", ".m4a")
             val sessionJournal = mockk<RecordingSessionJournal>(relaxed = true)
             val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+            var lossNotified = false
 
             RecordingFinalizeStopOutcomeApplier.apply(
                 result = StopPersistenceResult.PersistenceFailed("failed"),
@@ -69,10 +72,13 @@ class RecordingFinalizeStopOutcomeApplierTest {
                 sessionId = sessionId,
                 sessionJournal = sessionJournal,
                 recordingRepository = recordingRepository,
+                notifyUnrecoverableLoss = { lossNotified = true },
             )
 
             verify(exactly = 0) { sessionJournal.markAbandoned(sessionId) }
             coVerify(exactly = 0) { recordingRepository.deleteAbandonedInProgressRecording(recordingId) }
+            // Recoverable artifacts remain, so this is not a loss the user needs told about.
+            assertFalse(lossNotified)
             audioFile.delete()
         }
 
@@ -83,6 +89,7 @@ class RecordingFinalizeStopOutcomeApplierTest {
             val sessionId = UUID.randomUUID()
             val sessionJournal = mockk<RecordingSessionJournal>(relaxed = true)
             val recordingRepository = mockk<RecordingRepository>(relaxed = true)
+            var lossNotified = false
 
             RecordingFinalizeStopOutcomeApplier.apply(
                 result = StopPersistenceResult.NoAudioFile,
@@ -100,9 +107,11 @@ class RecordingFinalizeStopOutcomeApplierTest {
                 sessionId = sessionId,
                 sessionJournal = sessionJournal,
                 recordingRepository = recordingRepository,
+                notifyUnrecoverableLoss = { lossNotified = true },
             )
 
             verify { sessionJournal.markAbandoned(sessionId) }
             coVerify { recordingRepository.deleteAbandonedInProgressRecording(recordingId) }
+            assertTrue(lossNotified)
         }
 }

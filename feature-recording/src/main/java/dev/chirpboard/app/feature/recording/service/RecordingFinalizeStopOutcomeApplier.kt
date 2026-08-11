@@ -13,6 +13,7 @@ internal object RecordingFinalizeStopOutcomeApplier {
         sessionId: UUID?,
         sessionJournal: RecordingSessionJournal,
         recordingRepository: RecordingRepository,
+        notifyUnrecoverableLoss: () -> Unit = {},
     ) {
         val correlationId = snapshot?.correlationId ?: ReliabilityEventLogger.newCorrelationId("record")
         when (result) {
@@ -47,6 +48,9 @@ internal object RecordingFinalizeStopOutcomeApplier {
                         sessionId = sessionId,
                         snapshot = snapshot,
                     )
+                    // Total loss: no audio on disk, no row to recover. The user must
+                    // hear about it now or the recording just silently disappears.
+                    notifyUnrecoverableLoss()
                 }
             }
 
@@ -63,6 +67,7 @@ internal object RecordingFinalizeStopOutcomeApplier {
                         sessionId = sessionId,
                         snapshot = snapshot,
                     )
+                    notifyUnrecoverableLoss()
                 }
             }
         }

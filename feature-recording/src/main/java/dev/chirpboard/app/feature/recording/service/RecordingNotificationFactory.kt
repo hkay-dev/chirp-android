@@ -38,19 +38,19 @@ class RecordingNotificationFactory
         @Volatile
         private var cachedPausePendingIntent: PendingIntent? = null
 
-        fun ensureChannel(service: Service) {
+        fun ensureChannel(context: Context) {
             val channel =
                 NotificationChannel(
                     CHANNEL_ID,
-                    service.getString(R.string.rec_notification_channel_name),
+                    context.getString(R.string.rec_notification_channel_name),
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
-                    description = service.getString(R.string.rec_notification_channel_description)
+                    description = context.getString(R.string.rec_notification_channel_description)
                     setShowBadge(false)
                     setSound(null, null)
                     enableVibration(false)
                 }
-            val notificationManager = service.getSystemService(NotificationManager::class.java)
+            val notificationManager = context.getSystemService(NotificationManager::class.java)
             notificationManager.createNotificationChannel(channel)
             // Installs that ran a v1 build keep an orphaned channel in system settings forever.
             notificationManager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
@@ -202,11 +202,35 @@ class RecordingNotificationFactory
                 .notify(AUTO_STOP_NOTIFICATION_ID, notification)
         }
 
+        /**
+         * Terminal failure surface for the background finalize: the stopped recording
+         * could not be saved and nothing recoverable remains on disk. The foreground
+         * service and its notification are gone by the time this runs, so without this
+         * post the recording simply vanishes with no explanation. No timeout: losing a
+         * recording must stay visible until the user dismisses it.
+         */
+        fun notifySaveFailed(context: Context) {
+            ensureChannel(context)
+            val notification =
+                NotificationCompat
+                    .Builder(context, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_notif_mic)
+                    .setAutoCancel(true)
+                    .setOnlyAlertOnce(true)
+                    .setContentIntent(launchPendingIntent(context))
+                    .setContentTitle(context.getString(R.string.rec_save_failed_title))
+                    .setContentText(context.getString(R.string.rec_save_failed_text))
+                    .build()
+            context
+                .getSystemService(NotificationManager::class.java)
+                .notify(SAVE_FAILED_NOTIFICATION_ID, notification)
+        }
+
         @VisibleForTesting
-        internal fun launchPendingIntent(service: Service): PendingIntent? {
+        internal fun launchPendingIntent(context: Context): PendingIntent? {
             cachedLaunchPendingIntent?.let { return it }
             val launchIntent =
-                service.packageManager.getLaunchIntentForPackage(service.packageName)?.apply {
+                context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
                     // addFlags keeps FLAG_ACTIVITY_NEW_TASK from getLaunchIntentForPackage;
                     // assignment used to strip it and rely on the platform force-adding it.
                     addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -214,7 +238,7 @@ class RecordingNotificationFactory
             return launchIntent?.let {
                 PendingIntent
                     .getActivity(
-                        service.applicationContext,
+                        context.applicationContext,
                         0,
                         it,
                         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -270,6 +294,7 @@ class RecordingNotificationFactory
             const val NOTIFICATION_ID = 1001
             const val RESTART_REFUSED_NOTIFICATION_ID = 1002
             const val AUTO_STOP_NOTIFICATION_ID = 1003
+            const val SAVE_FAILED_NOTIFICATION_ID = 1004
             private const val TRANSIENT_NOTIFICATION_TIMEOUT_MS = 8_000L
             private const val AUTO_STOP_NOTIFICATION_TIMEOUT_MS = 30_000L
             private const val BRAND_RECORDING_COLOR = "#D32F2F"

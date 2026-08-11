@@ -118,6 +118,8 @@
     <string name="rec_notification_device_changed">Microphone changed when the recording resumed</string>
     <!-- Named variant; %1$s is the input device the resume selected. -->
     <string name="rec_notification_device_changed_named">Microphone changed — now recording from %1$s</string>
+    <string name="rec_save_failed_title">Recording could not be saved</string>
+    <string name="rec_save_failed_text">Something went wrong while saving, and the audio could not be recovered</string>
     <string name="rec_auto_stop_title">Recording stopped and saved</string>
     <string name="rec_auto_stop_storage">Storage was full</string>
     <string name="rec_auto_stop_focus">Another app took control of audio</string>

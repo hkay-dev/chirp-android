@@ -26,6 +26,7 @@ class RecordingFinalizeWorker
         private val sessionJournal: RecordingSessionJournal,
         private val recordingRepository: RecordingRepository,
         private val recoveryStore: RecordingRecoveryStore,
+        private val notificationFactory: RecordingNotificationFactory,
     ) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result {
             val snapshot = StopSnapshot.fromWorkData(inputData)
@@ -67,6 +68,7 @@ class RecordingFinalizeWorker
                 sessionId = sessionId,
                 sessionJournal = sessionJournal,
                 recordingRepository = recordingRepository,
+                notifyUnrecoverableLoss = { notificationFactory.notifySaveFailed(applicationContext) },
             )
             recoveryStore.refresh()
 
