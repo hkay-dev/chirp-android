@@ -6,9 +6,7 @@ import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
-import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
-import dev.chirpboard.app.core.transcription.LocalSpeechModelDeletionGuard
 import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
 import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.ContinuousAudioTranscriberPreference
@@ -32,8 +30,6 @@ class SelectableLocalTranscriberProvider(
     private val selectionStore: LocalSpeechModelSelectionStore,
 ) : TranscriberProvider,
     LocalSpeechModelActivator,
-    LocalSpeechComputeBackendActivator,
-    LocalSpeechModelDeletionGuard,
     ContinuousAudioTranscriberPreference,
     PcmFloatFileTranscriberProvider {
     private val switchMutex = Mutex()

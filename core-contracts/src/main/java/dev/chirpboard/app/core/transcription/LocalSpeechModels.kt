@@ -115,6 +115,13 @@ sealed interface LocalSpeechModelActivationResult {
 
 interface LocalSpeechModelActivator {
     suspend fun activate(modelId: LocalSpeechModelId): LocalSpeechModelActivationResult
+
+    suspend fun activateComputeBackend(
+        backend: LocalSpeechComputeBackend,
+    ): LocalSpeechComputeBackendActivationResult
+
+    /** Keeps model files intact during an active native decode; false means try again later. */
+    suspend fun releaseForDeletion(modelId: LocalSpeechModelId): Boolean
 }
 
 sealed interface LocalSpeechComputeBackendActivationResult {
@@ -124,15 +131,4 @@ sealed interface LocalSpeechComputeBackendActivationResult {
     ) : LocalSpeechComputeBackendActivationResult
 
     data class Failed(val message: String) : LocalSpeechComputeBackendActivationResult
-}
-
-interface LocalSpeechComputeBackendActivator {
-    suspend fun activateComputeBackend(
-        backend: LocalSpeechComputeBackend,
-    ): LocalSpeechComputeBackendActivationResult
-}
-
-/** Optional guard that keeps model files intact during an active native decode. */
-interface LocalSpeechModelDeletionGuard {
-    suspend fun releaseForDeletion(modelId: LocalSpeechModelId): Boolean
 }

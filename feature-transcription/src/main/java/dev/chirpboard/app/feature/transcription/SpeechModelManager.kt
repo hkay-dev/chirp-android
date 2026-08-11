@@ -11,10 +11,8 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelStore
 import dev.chirpboard.app.core.transcription.LocalSpeechBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
-import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
-import dev.chirpboard.app.core.transcription.LocalSpeechModelDeletionGuard
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
 import dev.chirpboard.app.core.transcription.LocalSpeechModelInfo
 import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
@@ -208,15 +206,13 @@ class SpeechModelManager
         suspend fun activateComputeBackend(
             backend: LocalSpeechComputeBackend,
         ): LocalSpeechComputeBackendActivationResult {
-            val activator = modelActivator as? LocalSpeechComputeBackendActivator
-                ?: return LocalSpeechComputeBackendActivationResult.Failed("Compute switching is unavailable")
-            return activator.activateComputeBackend(backend)
+            return modelActivator?.activateComputeBackend(backend)
+                ?: LocalSpeechComputeBackendActivationResult.Failed("Compute switching is unavailable")
         }
 
         suspend fun deleteModel(): Boolean =
             withContext(Dispatchers.IO) {
-                val deletionGuard = modelActivator as? LocalSpeechModelDeletionGuard
-                if (deletionGuard != null && !deletionGuard.releaseForDeletion(_managedModel.value)) {
+                if (modelActivator?.releaseForDeletion(_managedModel.value) == false) {
                     _modelStatus.value = ModelStatus.Error("This model is transcribing right now. Try again shortly.")
                     return@withContext false
                 }
