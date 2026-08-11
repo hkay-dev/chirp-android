@@ -78,6 +78,13 @@ internal class SharedAudioHandoffViewModel
         internal val navigationTarget: StateFlow<UUID?> = _navigationTarget.asStateFlow()
 
         private var activeRequest: SharedAudioRequest? = null
+
+        /**
+         * A share that arrived while another import was still running. Held (latest wins) and
+         * started when the active import settles — success, or the user dismissing a failure —
+         * instead of being silently dropped.
+         */
+        private var pendingRequest: SharedAudioRequest? = null
         private var importJob: Job? = null
 
         internal fun onIncomingRequest(request: SharedAudioRequest?) {
@@ -86,11 +93,15 @@ internal class SharedAudioHandoffViewModel
             }
 
             val lastHandledToken = savedStateHandle.get<String>(LAST_HANDLED_SHARED_AUDIO_TOKEN)
-            if (request.token == lastHandledToken || request.token == activeRequest?.token) {
+            if (request.token == lastHandledToken ||
+                request.token == activeRequest?.token ||
+                request.token == pendingRequest?.token
+            ) {
                 return
             }
 
-            if (importJob?.isActive == true) {
+            if (importJob?.isActive == true || uiState.value is SharedAudioIntakeState.Failure) {
+                pendingRequest = request
                 return
             }
 
@@ -107,6 +118,7 @@ internal class SharedAudioHandoffViewModel
             savedStateHandle[LAST_HANDLED_SHARED_AUDIO_TOKEN] = failedRequest.token
             activeRequest = null
             _uiState.value = SharedAudioIntakeState.Idle
+            startPendingRequest()
         }
 
         internal fun onNavigationHandled() {
@@ -142,5 +154,12 @@ internal class SharedAudioHandoffViewModel
             activeRequest = null
             _uiState.value = SharedAudioIntakeState.Idle
             _navigationTarget.value = recordingId
+            startPendingRequest()
+        }
+
+        private fun startPendingRequest() {
+            val next = pendingRequest ?: return
+            pendingRequest = null
+            beginImport(next)
         }
     }

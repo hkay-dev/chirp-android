@@ -98,6 +98,53 @@ class SharedAudioHandoffViewModelTest {
         }
 
     @Test
+    fun `share arriving during an in-flight import runs after it finishes`() =
+        runTest {
+            val firstUri = mockk<Uri>()
+            val secondUri = mockk<Uri>()
+            val secondRecordingId = UUID.randomUUID()
+
+            coEvery { audioImportOrchestrator.import(firstUri) } returns AudioImportResult.SavedAndQueued(UUID.randomUUID())
+            coEvery { audioImportOrchestrator.import(secondUri) } returns AudioImportResult.SavedAndQueued(secondRecordingId)
+
+            viewModel.onIncomingRequest(SharedAudioRequest(token = "share-6", uri = firstUri))
+            // No advance yet: the first import is still in flight when the second share lands.
+            viewModel.onIncomingRequest(SharedAudioRequest(token = "share-7", uri = secondUri))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 1) { audioImportOrchestrator.import(firstUri) }
+            coVerify(exactly = 1) { audioImportOrchestrator.import(secondUri) }
+            assertEquals(secondRecordingId, viewModel.navigationTarget.value)
+        }
+
+    @Test
+    fun `share arriving while a failure is showing runs after dismissal`() =
+        runTest {
+            val firstUri = mockk<Uri>()
+            val secondUri = mockk<Uri>()
+            val secondRecordingId = UUID.randomUUID()
+
+            coEvery { audioImportOrchestrator.import(firstUri) } returns
+                AudioImportResult.FailedBeforePersistence("Couldn't copy the shared audio file.")
+            coEvery { audioImportOrchestrator.import(secondUri) } returns AudioImportResult.SavedAndQueued(secondRecordingId)
+
+            viewModel.onIncomingRequest(SharedAudioRequest(token = "share-8", uri = firstUri))
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertTrue(viewModel.uiState.value is SharedAudioIntakeState.Failure)
+
+            viewModel.onIncomingRequest(SharedAudioRequest(token = "share-9", uri = secondUri))
+            // The failure stays on screen until the user resolves it; the new share waits.
+            assertTrue(viewModel.uiState.value is SharedAudioIntakeState.Failure)
+            coVerify(exactly = 0) { audioImportOrchestrator.import(secondUri) }
+
+            viewModel.dismissFailure()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 1) { audioImportOrchestrator.import(secondUri) }
+            assertEquals(secondRecordingId, viewModel.navigationTarget.value)
+        }
+
+    @Test
     fun `failed intake can retry and recover`() =
         runTest {
             val uri = mockk<Uri>()
