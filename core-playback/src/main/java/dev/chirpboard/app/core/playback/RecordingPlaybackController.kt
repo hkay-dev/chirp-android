@@ -57,6 +57,22 @@ class RecordingPlaybackController
         private val connectMutex = Mutex()
         private var positionJob: Job? = null
 
+        init {
+            // Restore the persisted speed once at startup; from here _state.playbackSpeed is
+            // authoritative and createController applies it on every connect. Reading the
+            // store per-connect raced an in-flight setPlaybackSpeed persist and snapped the
+            // chip back to the old value.
+            scope.launch {
+                val stored =
+                    runCatching { audioSettingsStore.currentPlaybackSpeed() }
+                        .getOrDefault(1f)
+                _state.value =
+                    _state.value.copy(
+                        playbackSpeed = AudioSettingsStore.nearestPlaybackSpeed(stored),
+                    )
+            }
+        }
+
         private val playerListener =
             object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -244,7 +260,11 @@ class RecordingPlaybackController
         fun setPlaybackSpeed(speed: Float) {
             val snapped = AudioSettingsStore.nearestPlaybackSpeed(speed)
             _state.value = _state.value.copy(playbackSpeed = snapped)
-            runWithController { player ->
+            // Only an existing controller gets the live update. Never connect here: with
+            // nothing playing this would bind the playback service just to store a number,
+            // and a connect failure would surface a bogus "unable to play" mini-player.
+            // createController applies the state speed on the next real connect.
+            controller?.let { player ->
                 player.setPlaybackSpeed(snapped)
                 syncFromPlayer()
             }
@@ -268,7 +288,7 @@ class RecordingPlaybackController
             // Dismissing playback is the teardown point: release the controller so the
             // bound RecordingPlaybackService (and its ExoPlayer) can actually die.
             // Without this the singleton kept them alive for the rest of the process
-            // after the first play. runWithController reconnects on the next use.
+            // after the first play. withConnectedController reconnects on the next use.
             scope.launch {
                 connectMutex.withLock {
                     controller?.run {
@@ -294,7 +314,7 @@ class RecordingPlaybackController
         }
 
         // Suspends for the file stats: exists()/canRead() hit disk, and every caller is
-        // a tap handler on the main thread. Runs inside runWithController's coroutine.
+        // a tap handler on the main thread. Runs inside the caller's launched coroutine.
         private suspend fun validateAudioFile(
             audioPath: String,
             recordingId: UUID,
@@ -315,10 +335,6 @@ class RecordingPlaybackController
                 return false
             }
             return true
-        }
-
-        private fun runWithController(block: suspend (MediaController) -> Unit) {
-            scope.launch { withConnectedController(block) }
         }
 
         // The mutex is held across the whole command, not just the connect: stop() tears the
@@ -365,12 +381,9 @@ class RecordingPlaybackController
                     .buildAsync()
                     .await()
                     .also { it.addListener(playerListener) }
-            // Restore the persisted playback speed before anything plays.
-            val storedSpeed =
-                runCatching { audioSettingsStore.currentPlaybackSpeed() }
-                    .getOrDefault(1f)
-            runCatching { controller.setPlaybackSpeed(storedSpeed) }
-            _state.value = _state.value.copy(playbackSpeed = storedSpeed)
+            // Apply the current speed before anything plays (restored at startup, kept
+            // up to date by setPlaybackSpeed).
+            runCatching { controller.setPlaybackSpeed(_state.value.playbackSpeed) }
             return controller
         }
 

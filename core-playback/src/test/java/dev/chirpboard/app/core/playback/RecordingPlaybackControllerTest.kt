@@ -44,6 +44,9 @@ class RecordingPlaybackControllerTest {
         every { Log.e(any(), any<String>()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
         Dispatchers.setMain(UnconfinedTestDispatcher())
+        // The controller restores this once at startup; the relaxed default (0f) would
+        // otherwise snap to the lowest supported speed.
+        coEvery { audioSettingsStore.currentPlaybackSpeed() } returns 1f
     }
 
     @After
