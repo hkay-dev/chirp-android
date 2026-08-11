@@ -212,6 +212,7 @@ class RecordingPlaybackController
             title: String,
             audioPath: String,
         ) {
+            pauseIfDifferentRecording(recordingId)
             _state.value =
                 RecordingPlaybackState(
                     recordingId = recordingId,
@@ -331,6 +332,12 @@ class RecordingPlaybackController
                     file.exists() && file.canRead()
                 }
             if (!readable) {
+                // Claiming the session for a recording that cannot be played has to silence
+                // whatever was audible, exactly as a successful play would have. Without this
+                // a tap on a deleted recording left the previous one playing while the mini
+                // player, its transport and togglePlayPause all pointed at the failed id —
+                // the pause button then re-ran play() on the missing file instead.
+                pauseIfDifferentRecording(recordingId)
                 _state.value =
                     RecordingPlaybackState(
                         recordingId = recordingId,
