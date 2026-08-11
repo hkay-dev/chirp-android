@@ -1,25 +1,32 @@
 package dev.chirpboard.app
 
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
-/** Streams an exact little-endian float32 capture in bounded arrays for recovery decode. */
+/**
+ * Streams an exact little-endian float32 capture in bounded arrays for recovery decode.
+ *
+ * Validation failures throw [IOException] (not [IllegalArgumentException]): a zero-length
+ * capture or a file truncated/deleted after its sample count was recorded are runtime I/O
+ * conditions the recovery caller maps to a transcription outcome, not programming errors.
+ */
 internal fun preservedPcmFloatFlow(
     path: String,
     sampleCount: Long,
     sliceSamples: Int,
 ): Flow<FloatArray> =
     flow {
-        require(sampleCount > 0L)
-        require(sliceSamples > 0)
+        if (sampleCount <= 0L) throw IOException("Preserved PCM has no samples")
+        if (sliceSamples <= 0) throw IOException("Preserved PCM slice size must be positive")
         val expectedBytes = Math.multiplyExact(sampleCount, Float.SIZE_BYTES.toLong())
         val file = File(path)
-        require(file.isFile && file.length() == expectedBytes) {
-            "Preserved PCM length does not match its trusted sample count"
+        if (!file.isFile || file.length() != expectedBytes) {
+            throw IOException("Preserved PCM length does not match its trusted sample count")
         }
 
         RandomAccessFile(file, "r").use { input ->

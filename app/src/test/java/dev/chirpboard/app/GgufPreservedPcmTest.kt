@@ -1,5 +1,6 @@
 package dev.chirpboard.app
 
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlinx.coroutines.flow.toList
@@ -40,6 +41,8 @@ class GgufPreservedPcmTest {
                 preservedPcmFloatFlow(file.absolutePath, sampleCount = 2, sliceSamples = 2).toList()
             }.exceptionOrNull()
 
-        assertTrue(failure is IllegalArgumentException)
+        // IOException, not IllegalArgumentException: a truncated/deleted capture is a
+        // runtime condition the recovery caller maps to a transcription outcome.
+        assertTrue(failure is IOException)
     }
 }
