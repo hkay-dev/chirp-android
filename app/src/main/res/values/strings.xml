@@ -236,7 +236,6 @@
     <string name="model_download_failed_title">Model download failed</string>
 
     <!-- I18N-08: fallback history title when a dictation produced no usable text preview. -->
-    <string name="recognition_history_fallback_title">Voice transcription</string>
 
     <string name="shared_audio_handoff_loading">Importing shared audio…</string>
     <string name="shared_audio_handoff_failed_title">Couldn’t import that audio</string>
