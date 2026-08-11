@@ -122,7 +122,6 @@ fun TranscriptTab(
                 rawTranscriptText = rawTranscriptText,
                 enhancedTranscriptText = enhancedTranscriptText,
                 effectiveTranscriptText = effectiveTranscriptText,
-                enabled = true,
                 onCopyTranscript = onCopyTranscript,
                 onCopyOriginal = onCopyOriginal,
                 onCopyEnhanced = onCopyEnhanced,
@@ -486,7 +485,6 @@ private fun TranscriptCopyActions(
     rawTranscriptText: String,
     enhancedTranscriptText: String,
     effectiveTranscriptText: String,
-    enabled: Boolean,
     onCopyTranscript: () -> Unit,
     onCopyOriginal: () -> Unit,
     onCopyEnhanced: () -> Unit,
@@ -500,7 +498,7 @@ private fun TranscriptCopyActions(
         if (llmProcessingEnabled) {
             OutlinedButton(
                 onClick = onCopyOriginal,
-                enabled = enabled && rawTranscriptText.isNotBlank(),
+                enabled = rawTranscriptText.isNotBlank(),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.ContentCopy,
@@ -512,7 +510,7 @@ private fun TranscriptCopyActions(
             }
             OutlinedButton(
                 onClick = onCopyEnhanced,
-                enabled = enabled && enhancedTranscriptText.isNotBlank(),
+                enabled = enhancedTranscriptText.isNotBlank(),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.AutoAwesome,
@@ -525,7 +523,7 @@ private fun TranscriptCopyActions(
         } else {
             OutlinedButton(
                 onClick = onCopyTranscript,
-                enabled = enabled && effectiveTranscriptText.isNotBlank(),
+                enabled = effectiveTranscriptText.isNotBlank(),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.ContentCopy,

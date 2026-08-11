@@ -58,8 +58,14 @@ data class ProcessingStudioState(
         get() = isPlaybackAndShareReadyAudioPath(audioPath)
 }
 
+// String ops, not File(): isAudioReady is read from composition on every recomposition,
+// and a File allocation per read shows up on long screens.
 internal fun isPlaybackAndShareReadyAudioPath(audioPath: String): Boolean =
-    audioPath.isNotBlank() && !File(audioPath).extension.equals(RAW_KEYBOARD_AUDIO_EXTENSION, ignoreCase = true)
+    audioPath.isNotBlank() &&
+        !audioPath
+            .substringAfterLast('/')
+            .substringAfterLast('.', "")
+            .equals(RAW_KEYBOARD_AUDIO_EXTENSION, ignoreCase = true)
 
 private const val RAW_KEYBOARD_AUDIO_EXTENSION = "f32pcm"
 

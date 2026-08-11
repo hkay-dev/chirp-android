@@ -20,6 +20,7 @@ import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.core.util.DurableFiles
 import java.io.IOException
+import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.R as CoreUiR
 import kotlinx.collections.immutable.toImmutableList
@@ -1372,12 +1373,8 @@ class ProcessingStudioViewModel
             super.onCleared()
         }
 
-        private fun isTranscriptBusy(status: RecordingStatus?): Boolean =
-            status == RecordingStatus.RECORDING ||
-                status == RecordingStatus.PENDING_TRANSCRIPTION ||
-                status == RecordingStatus.TRANSCRIBING ||
-                status == RecordingStatus.ENHANCING ||
-                status == RecordingStatus.PENDING_ENHANCEMENT
+        // Same status set the Screen uses to disable edit/retranscribe, so the two can't drift.
+        private fun isTranscriptBusy(status: RecordingStatus?): Boolean = status.transcriptionProgressKind() != null
 
         /**
          * Recomputes the karaoke highlight index in the hoisted [playbackTick] flow whenever the
