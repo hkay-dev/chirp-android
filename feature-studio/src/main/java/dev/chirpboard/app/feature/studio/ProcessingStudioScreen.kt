@@ -335,7 +335,20 @@ fun ProcessingStudioScreen(
                 TopAppBar(
                     title = { Text(stringResource(R.string.rec_details)) },
                     navigationIcon = {
-                        IconButton(onClick = onNavigateBack) {
+                        // LIF-11: the arrow takes the same path as the system back gesture —
+                        // popping directly would destroy the ViewModel and any in-progress edit
+                        // without the discard confirmation BackHandler provides.
+                        IconButton(
+                            onClick = {
+                                when {
+                                    state.isSelectingTranscript -> viewModel.exitTranscriptSelectionMode()
+                                    state.isEditingTranscript -> requestCloseTranscriptEdit()
+                                    state.isEditingNotes -> viewModel.cancelEditingNotes()
+                                    state.isEditingTitle -> viewModel.cancelEditingTitle()
+                                    else -> onNavigateBack()
+                                }
+                            },
+                        ) {
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = stringResource(CoreR.string.desc_navigate_back))
                         }
                     },
