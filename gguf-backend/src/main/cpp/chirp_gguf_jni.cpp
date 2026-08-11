@@ -148,6 +148,10 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
 
     std::lock_guard<std::mutex> lock(g_mutex);
     g_last_error.clear();
+    // Close the resident session before opening its replacement. Holding both would double
+    // peak model memory during every reload; on a failed load the Kotlin manager drops the
+    // old recognizer and reloads on demand, so nothing keeps decoding a closed session.
+    close_locked();
 
     transcribe_session_params session_params;
     transcribe_session_params_init(&session_params);
@@ -185,7 +189,6 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeLoad(
         return JNI_FALSE;
     }
 
-    if (g_session != nullptr) transcribe_close(g_session);
     g_session = candidate;
     g_used_cpu_fallback = used_cpu_fallback;
     transcribe_set_abort_callback(g_session, should_abort, nullptr);

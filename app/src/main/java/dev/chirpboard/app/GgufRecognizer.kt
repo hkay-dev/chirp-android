@@ -493,6 +493,12 @@ internal object GgufRecognizerManager {
                 true
             } else {
                 candidate.retireAfterNativeReplacement()
+                // nativeLoad closes the resident session before opening its replacement, so
+                // after a failed load `previous` can no longer decode. Release it (a no-op
+                // when the failure happened before the native load ran) rather than keeping
+                // a recognizer that reports ready without a session; use paths reload lazily.
+                previous?.let { withContext(NonCancellable) { it.release() } }
+                recognizer = null
                 false
             }
         }
