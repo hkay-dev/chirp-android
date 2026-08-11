@@ -142,7 +142,7 @@ class TranscriptCorrectionWorkflowTest {
             )
 
         assertEquals(
-            "Add an API key in AI Processing settings to use transcript tools",
+            R.string.rec_msg_selection_api_key_missing,
             state.validateTranscriptSelectionActionRequest(hasApiKey = false),
         )
     }

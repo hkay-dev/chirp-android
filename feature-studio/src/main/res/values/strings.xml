@@ -111,5 +111,9 @@
     <string name="rec_ai_failure_network">Couldn’t reach the AI service. Check your internet connection and try again.</string>
     <string name="rec_ai_failure_generic">The AI request failed. Try again, or check your AI Processing settings.</string>
     <string name="rec_msg_chat_api_key_missing">Add an API key in AI Processing settings to chat about this recording</string>
+    <string name="rec_msg_structured_api_key_missing">Add an API key in AI Processing settings to generate structured outcomes</string>
+    <string name="rec_msg_structured_already_generating">Structured outcomes are already generating</string>
+    <string name="rec_msg_select_text_first">Select transcript text first</string>
+    <string name="rec_msg_selection_api_key_missing">Add an API key in AI Processing settings to use transcript tools</string>
     <string name="rec_msg_transcript_draft_lost">Your unsaved transcript edits could not be recovered</string>
 </resources>

@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.studio
 
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Stable
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
@@ -72,17 +73,19 @@ internal fun buildStructuredOutcomeSectionState(
     )
 }
 
+// I18N: validators return string resource ids; the ViewModel resolves them with its context.
+@StringRes
 internal fun validateStructuredOutcomeGenerationRequest(
     recordingStatus: RecordingStatus?,
     effectiveTranscriptText: String,
     hasApiKey: Boolean,
     isGenerating: Boolean,
-): String? =
+): Int? =
     when {
-        recordingStatus != RecordingStatus.COMPLETED -> "Structured outcomes are available after processing finishes"
-        effectiveTranscriptText.isBlank() -> "Structured outcomes need transcript text first"
-        !hasApiKey -> "Add an API key in AI Processing settings to generate structured outcomes"
-        isGenerating -> "Structured outcomes are already generating"
+        recordingStatus != RecordingStatus.COMPLETED -> R.string.rec_structured_unavailable
+        effectiveTranscriptText.isBlank() -> R.string.rec_structured_no_transcript
+        !hasApiKey -> R.string.rec_msg_structured_api_key_missing
+        isGenerating -> R.string.rec_msg_structured_already_generating
         else -> null
     }
 

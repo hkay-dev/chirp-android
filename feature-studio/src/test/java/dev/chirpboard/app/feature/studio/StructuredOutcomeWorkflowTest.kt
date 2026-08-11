@@ -14,7 +14,7 @@ class StructuredOutcomeWorkflowTest {
     @Test
     fun `validateStructuredOutcomeGenerationRequest requires completed transcript and api key`() {
         assertEquals(
-            "Structured outcomes are available after processing finishes",
+            R.string.rec_structured_unavailable,
             validateStructuredOutcomeGenerationRequest(
                 recordingStatus = RecordingStatus.ENHANCING,
                 effectiveTranscriptText = "hello",
@@ -24,7 +24,7 @@ class StructuredOutcomeWorkflowTest {
         )
 
         assertEquals(
-            "Structured outcomes need transcript text first",
+            R.string.rec_structured_no_transcript,
             validateStructuredOutcomeGenerationRequest(
                 recordingStatus = RecordingStatus.COMPLETED,
                 effectiveTranscriptText = "",
@@ -34,7 +34,7 @@ class StructuredOutcomeWorkflowTest {
         )
 
         assertEquals(
-            "Add an API key in AI Processing settings to generate structured outcomes",
+            R.string.rec_msg_structured_api_key_missing,
             validateStructuredOutcomeGenerationRequest(
                 recordingStatus = RecordingStatus.COMPLETED,
                 effectiveTranscriptText = "hello",
@@ -44,7 +44,7 @@ class StructuredOutcomeWorkflowTest {
         )
 
         assertEquals(
-            "Structured outcomes are already generating",
+            R.string.rec_msg_structured_already_generating,
             validateStructuredOutcomeGenerationRequest(
                 recordingStatus = RecordingStatus.COMPLETED,
                 effectiveTranscriptText = "hello",

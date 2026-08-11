@@ -1,5 +1,6 @@
 package dev.chirpboard.app.feature.studio
 
+import androidx.annotation.StringRes
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
 
 private val TRANSCRIPT_CORRECTION_TOKEN_REGEX = "\\s+".toRegex()
@@ -126,10 +127,12 @@ internal fun ProcessingStudioState.failTranscriptSelectionAction(): ProcessingSt
 
 internal fun ProcessingStudioState.canEnterTranscriptSelectionMode(): Boolean = renderedTranscriptText.isNotBlank() && !isEditingTranscript
 
-internal fun ProcessingStudioState.validateTranscriptSelectionActionRequest(hasApiKey: Boolean): String? =
+// I18N: returns a string resource id; the ViewModel resolves it with its context.
+@StringRes
+internal fun ProcessingStudioState.validateTranscriptSelectionActionRequest(hasApiKey: Boolean): Int? =
     when {
-        selectedTranscriptPassage.isBlank() -> "Select transcript text first"
-        !hasApiKey -> "Add an API key in AI Processing settings to use transcript tools"
+        selectedTranscriptPassage.isBlank() -> R.string.rec_msg_select_text_first
+        !hasApiKey -> R.string.rec_msg_selection_api_key_missing
         else -> null
     }
 

@@ -704,7 +704,7 @@ class ProcessingStudioViewModel
                         isGenerating = structuredOutcomeGenerationInFlight.value,
                     )
                 if (validationMessage != null) {
-                    _message.value = validationMessage
+                    _message.value = context.getString(validationMessage)
                     return@launch
                 }
 
@@ -834,7 +834,7 @@ class ProcessingStudioViewModel
                 val state = _uiState.value
                 val validationMessage = state.validateTranscriptSelectionActionRequest(hasApiKey = hasApiKey)
                 if (validationMessage != null) {
-                    _message.value = validationMessage
+                    _message.value = context.getString(validationMessage)
                     return@launch
                 }
 
