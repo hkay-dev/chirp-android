@@ -555,7 +555,7 @@ private fun UntimedTranscriptContent(
     val textChunks =
         remember(transcript.text) {
             transcript.text
-                .split("\\s+".toRegex())
+                .split(UNTIMED_WHITESPACE_REGEX)
                 .filter { it.isNotBlank() }
                 .chunked(100)
                 .map { it.joinToString(" ") }
@@ -638,6 +638,8 @@ private fun TimedTranscriptContent(
  * karaoke follow lag by whole screens and rebuilt 100 link spans per word.
  */
 private const val TIMED_SEGMENTS_PER_CHUNK = 20
+
+private val UNTIMED_WHITESPACE_REGEX = "\\s+".toRegex()
 
 @Composable
 private fun rememberTimedTranscriptChunk(
