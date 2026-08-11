@@ -91,85 +91,41 @@ internal class GgufRecognizer(
     }
 
     suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome =
-        decodeDispatcher.run {
-            mutex.withLock {
-                if (sampleRate != VoiceRecorder.SAMPLE_RATE) {
-                    return@withLock TranscriptionOutcome.EngineError(
-                        reason = "GGUF transcription requires 16 kHz audio",
-                        retryable = false,
-                    )
-                }
-                var engine =
-                    native ?: return@withLock TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
-                val audioDurationMs = samples.size * 1_000L / sampleRate
-                if (audioDurationMs > CONTINUOUS_DECODE_MAX_SECONDS * 1_000L) {
-                    Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; using preserved-audio recovery")
-                    var recovered = transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate)
-                    if (recovered == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
-                        switchToCpu()?.let { cpuEngine ->
-                            engine = cpuEngine
-                            recovered = transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate)
-                        }
-                    }
-                    return@withLock recoveryOutcome(recovered)
-                }
-                val started = SystemClock.elapsedRealtime()
-
-                // Content integrity rule: the complete continuous recording is authoritative.
-                // Overlapping chunks are only a recovery path if the native whole-run fails.
-                var continuous =
-                    runNativeDecode(
-                        engine = engine,
-                        audioDurationMs = audioDurationMs,
-                        source = GgufDecodeSource.MEMORY,
-                        classify = ::classifyText,
-                    ) { engine.transcribe(samples) }
-                var continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
-                if (continuousText == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
-                    switchToCpu()?.let { cpuEngine ->
-                        engine = cpuEngine
-                        continuous =
-                            runNativeDecode(
-                                engine = engine,
-                                audioDurationMs = audioDurationMs,
-                                source = GgufDecodeSource.MEMORY,
-                                classify = ::classifyText,
-                            ) { engine.transcribe(samples) }
-                        continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
-                    }
-                }
-                val text =
-                    if (continuousText != null) {
-                        continuousText
-                    } else {
-                        Log.w(GGUF_TAG, "Continuous decode stopped; retrying from preserved audio in recovery chunks")
-                        transcribeRecoveryChunks(engine, samples.asFlow(sampleRate), sampleRate)
-                    }
-
-                val elapsed = SystemClock.elapsedRealtime() - started
-                val audioMs = samples.size * 1_000L / sampleRate
-                val rtf = if (audioMs > 0) elapsed.toDouble() / audioMs else 0.0
-                Log.i(
-                    GGUF_TAG,
-                    "backend=gguf-${config.modelId.persistedValue} phase=decode audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
-                )
-                when {
-                    text == null ->
-                        TranscriptionOutcome.EngineError(
-                            nativeFailureMessage(continuous, engine),
-                            retryable = true,
-                        )
-
-                    text.isBlank() -> TranscriptionOutcome.NoSpeech
-                    else -> TranscriptionOutcome.Success(text.trim(), wordTimings = null)
-                }
-            }
-        }
+        transcribeContinuous(
+            sampleCount = samples.size.toLong(),
+            sampleRate = sampleRate,
+            source = GgufDecodeSource.MEMORY,
+            recoverySource = { samples.asFlow(sampleRate) },
+            decode = { engine -> engine.transcribe(samples) },
+        )
 
     suspend fun transcribePcmFloatFile(
         path: String,
         sampleCount: Long,
         sampleRate: Int,
+    ): TranscriptionOutcome =
+        transcribeContinuous(
+            sampleCount = sampleCount,
+            sampleRate = sampleRate,
+            source = GgufDecodeSource.MAPPED_FILE,
+            recoverySource = { preservedPcmFloatFlow(path, sampleCount, sampleRate) },
+            decode = { engine -> engine.transcribePcmFloatFile(path, sampleCount) },
+        )
+
+    /**
+     * Shared decode path for in-memory and preserved-file audio.
+     *
+     * Content integrity rule: the complete continuous recording is authoritative. Overlapping
+     * recovery chunks (from [recoverySource]) are used only when the recording exceeds the
+     * proven continuous memory ceiling or the native whole-run fails. A failed Vulkan decode
+     * retries once on CPU.
+     */
+    private suspend fun transcribeContinuous(
+        sampleCount: Long,
+        sampleRate: Int,
+        source: GgufDecodeSource,
+        recoverySource: () -> Flow<FloatArray>,
+        decode: (GgufNativeRecognizer) -> String?,
     ): TranscriptionOutcome =
         decodeDispatcher.run {
             mutex.withLock {
@@ -183,22 +139,12 @@ internal class GgufRecognizer(
                     native ?: return@withLock TranscriptionOutcome.ModelUnavailable("Recognizer is not initialized")
                 val audioDurationMs = sampleCount * 1_000L / sampleRate
                 if (audioDurationMs > CONTINUOUS_DECODE_MAX_SECONDS * 1_000L) {
-                    Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; using the preserved PCM file")
-                    var recovered =
-                        transcribeRecoveryChunks(
-                            engine = engine,
-                            audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
-                            sampleRate = sampleRate,
-                        )
+                    Log.i(GGUF_TAG, "Recording exceeds the proven continuous memory ceiling; decoding preserved audio in recovery chunks")
+                    var recovered = transcribeRecoveryChunks(engine, recoverySource(), sampleRate)
                     if (recovered == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
                         switchToCpu()?.let { cpuEngine ->
                             engine = cpuEngine
-                            recovered =
-                                transcribeRecoveryChunks(
-                                    engine = engine,
-                                    audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
-                                    sampleRate = sampleRate,
-                                )
+                            recovered = transcribeRecoveryChunks(engine, recoverySource(), sampleRate)
                         }
                     }
                     return@withLock recoveryOutcome(recovered)
@@ -208,9 +154,9 @@ internal class GgufRecognizer(
                     runNativeDecode(
                         engine = engine,
                         audioDurationMs = audioDurationMs,
-                        source = GgufDecodeSource.MAPPED_FILE,
+                        source = source,
                         classify = ::classifyText,
-                    ) { engine.transcribePcmFloatFile(path, sampleCount) }
+                    ) { decode(engine) }
                 var continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
                 if (continuousText == null && actualComputeBackend == LocalSpeechComputeBackend.VULKAN) {
                     switchToCpu()?.let { cpuEngine ->
@@ -219,9 +165,9 @@ internal class GgufRecognizer(
                             runNativeDecode(
                                 engine = engine,
                                 audioDurationMs = audioDurationMs,
-                                source = GgufDecodeSource.MAPPED_FILE,
+                                source = source,
                                 classify = ::classifyText,
-                            ) { engine.transcribePcmFloatFile(path, sampleCount) }
+                            ) { decode(engine) }
                         continuousText = (continuous as? GgufWatchdogResult.Completed)?.value?.value
                     }
                 }
@@ -229,19 +175,16 @@ internal class GgufRecognizer(
                     if (continuousText != null) {
                         continuousText
                     } else {
-                        Log.w(GGUF_TAG, "Mapped decode failed; retrying from the preserved PCM file")
-                        transcribeRecoveryChunks(
-                            engine = engine,
-                            audioSource = preservedPcmFloatFlow(path, sampleCount, sampleRate),
-                            sampleRate = sampleRate,
-                        )
+                        Log.w(GGUF_TAG, "Continuous decode stopped; retrying from preserved audio in recovery chunks")
+                        transcribeRecoveryChunks(engine, recoverySource(), sampleRate)
                     }
+
                 val elapsed = SystemClock.elapsedRealtime() - started
-                val audioMs = sampleCount * 1_000L / sampleRate
-                val rtf = if (audioMs > 0) elapsed.toDouble() / audioMs else 0.0
+                val rtf = if (audioDurationMs > 0) elapsed.toDouble() / audioDurationMs else 0.0
                 Log.i(
                     GGUF_TAG,
-                    "backend=gguf-${config.modelId.persistedValue} phase=decode source=mmap audioMs=$audioMs elapsedMs=$elapsed rtf=$rtf",
+                    "backend=gguf-${config.modelId.persistedValue} phase=decode source=${source.name} " +
+                        "audioMs=$audioDurationMs elapsedMs=$elapsed rtf=$rtf",
                 )
                 when {
                     text == null ->
