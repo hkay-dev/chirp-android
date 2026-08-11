@@ -116,6 +116,20 @@ class ChirpApplication : Application(), Configuration.Provider {
             Log.d(TAG, "API key migration result: $result")
         }
 
+        // GgufNativeCapabilities.supportsVulkan lazily dlopens the native libraries the first
+        // time it is read, and several IME/service paths read it on the main thread. When the
+        // user has actually selected Vulkan, resolve the lazy here on a background thread so
+        // the first main-thread reader finds it already computed. CPU (the default) never
+        // needs it, so no dlopen cost is paid for everyone else.
+        applicationScope.launch {
+            if (
+                localSpeechModelSelectionStore.get().selectedComputeBackend.value ==
+                    LocalSpeechComputeBackend.VULKAN
+            ) {
+                GgufNativeCapabilities.supportsVulkan
+            }
+        }
+
         // The selected recognizer warms independently of recovery. A bounded delay protects the
         // first IME frame, yet avoids letting journal scans or queue repair postpone model load.
         // A transient native allocation or storage failure gets two spaced retries so one cold-
