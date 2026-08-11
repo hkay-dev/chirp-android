@@ -20,6 +20,7 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -305,13 +306,27 @@ class RecordingPlaybackController
             scope.launch { withConnectedController(block) }
         }
 
+        // The mutex is held across the whole command, not just the connect: stop() tears the
+        // controller down under the same lock, so releasing early would let a dismiss slot in
+        // between connect and command — the command then runs as a silent no-op on a released
+        // controller and the state it wrote (isLoading) can never be corrected, freezing the
+        // playback buttons until process death.
         private suspend fun withConnectedController(block: suspend (MediaController) -> Unit) {
             try {
-                val player =
-                    connectMutex.withLock {
-                        controller ?: createController().also { controller = it }
+                connectMutex.withLock {
+                    val cached = controller
+                    // A killed playback service leaves the cached controller disconnected;
+                    // every command on it is a silent no-op. Rebuild so playback recovers.
+                    if (cached != null && !cached.isConnected) {
+                        cached.removeListener(playerListener)
+                        cached.release()
+                        controller = null
                     }
-                block(player)
+                    val player = controller ?: createController().also { controller = it }
+                    block(player)
+                }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 Log.e(TAG, "Failed to connect playback controller", error)
                 _state.value =
