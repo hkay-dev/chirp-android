@@ -8,8 +8,10 @@ import dev.chirpboard.app.core.transcription.GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_M
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingProcessingNoteCodes
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
@@ -33,10 +35,18 @@ internal suspend fun <T> withSerializedQueueScheduling(block: suspend () -> T): 
  * Oversized cloud recordings must run without a network constraint so the worker can start
  * offline and reroute them to the local engine before trying a cloud request.
  */
-internal fun Recording.requiresNetworkForTranscription(): Boolean =
-    transcriptionEngineId == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id &&
-        durationMs <= GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS &&
+internal suspend fun Recording.requiresNetworkForTranscription(): Boolean {
+    if (transcriptionEngineId != TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id ||
+        durationMs > GOOGLE_CLOUD_CHIRP_3_MAX_DURATION_MS
+    ) {
+        return false
+    }
+    // Only the size check touches the filesystem, and enqueue paths are reached from
+    // viewModelScope (Main) as well as from workers, so the stat gets its own IO hop.
+    return withContext(Dispatchers.IO) {
         File(audioPath).length() <= GOOGLE_CLOUD_CHIRP_3_MAX_AUDIO_BYTES
+    }
+}
 
 internal data class ParsedRecoveryMetadata(
     val reason: String?,
