@@ -10,8 +10,13 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 internal data class GgufDecodeWatchdogPolicy(
     val minimumTimeoutMs: Long = 30_000L,
     val graceMs: Long = 15_000L,
-    val audioMultiplier: Double = 0.5,
-    val maximumTimeoutMs: Long = 90_000L,
+    // The watchdog exists to catch hung native decodes, not to enforce performance.
+    // A slow CPU decode of the 300s continuous ceiling can legitimately run near
+    // realtime, so the budget must exceed worst-case decode speed or every long
+    // decode gets cancelled and re-run through recovery chunks. 2x realtime plus
+    // grace keeps the hang detector far away from any decode that is still moving.
+    val audioMultiplier: Double = 2.0,
+    val maximumTimeoutMs: Long = 600_000L,
 ) {
     fun timeoutMs(audioDurationMs: Long): Long =
         (audioDurationMs.coerceAtLeast(0L) * audioMultiplier + graceMs)

@@ -17,8 +17,8 @@ class GgufDecodeWatchdogTest {
         val policy = GgufDecodeWatchdogPolicy()
 
         assertEquals(30_000L, policy.timeoutMs(1_000L))
-        assertEquals(45_000L, policy.timeoutMs(60_000L))
-        assertEquals(90_000L, policy.timeoutMs(300_000L))
+        assertEquals(135_000L, policy.timeoutMs(60_000L))
+        assertEquals(600_000L, policy.timeoutMs(300_000L))
     }
 
     @Test
