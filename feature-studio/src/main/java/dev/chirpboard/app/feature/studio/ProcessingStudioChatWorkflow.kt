@@ -4,13 +4,20 @@ import android.content.Context
 import dev.chirpboard.app.feature.llm.client.LlmClient
 import dev.chirpboard.app.feature.llm.model.ChatMessage
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
 import java.util.UUID
 
-internal data class StudioChatExchangeResult(
-    val messages: ImmutableList<ChatMessage>,
-    val isTyping: Boolean,
-)
+/** Only the most recent turns travel to the model; unbounded history grows every request. */
+internal const val MAX_STUDIO_CHAT_HISTORY_MESSAGES = 20
+
+internal sealed interface StudioChatExchangeOutcome {
+    data class Reply(
+        val message: ChatMessage,
+    ) : StudioChatExchangeOutcome
+
+    data class Failure(
+        val displayMessage: String,
+    ) : StudioChatExchangeOutcome
+}
 
 internal fun createStudioChatMessage(
     text: String,
@@ -27,16 +34,19 @@ internal suspend fun completeStudioChatExchange(
     context: Context,
     llmClient: LlmClient,
     transcriptText: String,
-    messagesWithUser: ImmutableList<ChatMessage>,
-): StudioChatExchangeResult {
-    val result = llmClient.generateChatResponse(transcriptText, messagesWithUser)
-    // ERR-11/I18N-05: classify the failure into actionable copy instead of a one-size-fits-all
-    // apology; the raw exception detail is for logs, not the chat bubble.
-    val aiText = result.getOrNull() ?: aiFailureDisplayMessage(context, result.exceptionOrNull())
-    val aiMessage = createStudioChatMessage(aiText, isFromUser = false)
-
-    return StudioChatExchangeResult(
-        messages = (messagesWithUser + aiMessage).toImmutableList(),
-        isTyping = false,
-    )
+    history: ImmutableList<ChatMessage>,
+): StudioChatExchangeOutcome {
+    val result =
+        llmClient.generateChatResponse(
+            transcriptText,
+            history.takeLast(MAX_STUDIO_CHAT_HISTORY_MESSAGES),
+        )
+    val reply = result.getOrNull()
+    return if (reply != null) {
+        StudioChatExchangeOutcome.Reply(createStudioChatMessage(reply, isFromUser = false))
+    } else {
+        // ERR-11/I18N-05: classify the failure into actionable copy; it surfaces as a snackbar,
+        // never as a fake assistant bubble that would replay into later requests as history.
+        StudioChatExchangeOutcome.Failure(aiFailureDisplayMessage(context, result.exceptionOrNull()))
+    }
 }

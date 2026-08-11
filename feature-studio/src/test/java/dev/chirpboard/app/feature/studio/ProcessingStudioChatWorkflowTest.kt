@@ -5,6 +5,7 @@ import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,51 +30,71 @@ class ProcessingStudioChatWorkflowTest {
     }
 
     @Test
-    fun `completeStudioChatExchange appends ai response`() = runTest {
+    fun `completeStudioChatExchange returns the ai reply`() = runTest {
         val llmClient = mockk<dev.chirpboard.app.feature.llm.client.LlmClient>()
         val userMessage = createStudioChatMessage("Question", isFromUser = true)
         coEvery {
-            llmClient.generateChatResponse("transcript", persistentListOf(userMessage))
+            llmClient.generateChatResponse("transcript", listOf(userMessage))
         } returns Result.success("Answer")
 
-        val result =
+        val outcome =
             completeStudioChatExchange(
                 context = context,
                 llmClient = llmClient,
                 transcriptText = "transcript",
-                messagesWithUser = persistentListOf(userMessage),
+                history = persistentListOf(userMessage),
             )
 
-        assertFalse(result.isTyping)
-        assertEquals(2, result.messages.size)
-        assertEquals("Question", result.messages[0].text)
-        assertEquals("Answer", result.messages[1].text)
-        assertFalse(result.messages[1].isFromUser)
+        val reply = outcome as StudioChatExchangeOutcome.Reply
+        assertEquals("Answer", reply.message.text)
+        assertFalse(reply.message.isFromUser)
+    }
+
+    @Test
+    fun `completeStudioChatExchange caps the history sent to the model`() = runTest {
+        val llmClient = mockk<dev.chirpboard.app.feature.llm.client.LlmClient>()
+        val history =
+            (1..MAX_STUDIO_CHAT_HISTORY_MESSAGES + 5)
+                .map { createStudioChatMessage("m$it", isFromUser = it % 2 == 1) }
+                .toImmutableList()
+        coEvery {
+            llmClient.generateChatResponse("transcript", history.takeLast(MAX_STUDIO_CHAT_HISTORY_MESSAGES))
+        } returns Result.success("Answer")
+
+        val outcome =
+            completeStudioChatExchange(
+                context = context,
+                llmClient = llmClient,
+                transcriptText = "transcript",
+                history = history,
+            )
+
+        assertEquals("Answer", (outcome as StudioChatExchangeOutcome.Reply).message.text)
     }
 
     @Test
     fun `completeStudioChatExchange surfaces actionable copy on failure`() = runTest {
-        // ERR-11/I18N-05: failures classify into actionable copy instead of a generic apology
-        // (and never leak raw exception text into the chat bubble).
+        // ERR-11/I18N-05: failures classify into actionable copy instead of a generic apology,
+        // and come back as a Failure (snackbar) rather than a fake assistant bubble that would
+        // replay into later requests as conversation history.
         val llmClient = mockk<dev.chirpboard.app.feature.llm.client.LlmClient>()
         val userMessage = createStudioChatMessage("Question", isFromUser = true)
         coEvery {
-            llmClient.generateChatResponse("transcript", persistentListOf(userMessage))
+            llmClient.generateChatResponse("transcript", listOf(userMessage))
         } returns Result.failure(java.io.IOException("Unable to resolve host"))
 
-        val result =
+        val outcome =
             completeStudioChatExchange(
                 context = context,
                 llmClient = llmClient,
                 transcriptText = "transcript",
-                messagesWithUser = persistentListOf(userMessage),
+                history = persistentListOf(userMessage),
             )
 
         assertEquals(
             "Couldn't reach the AI service. Check your internet connection and try again.",
-            result.messages[1].text,
+            (outcome as StudioChatExchangeOutcome.Failure).displayMessage,
         )
-        assertFalse(result.messages[1].isFromUser)
     }
 
     @Test

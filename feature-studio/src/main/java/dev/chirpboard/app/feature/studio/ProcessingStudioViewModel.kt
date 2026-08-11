@@ -107,6 +107,9 @@ class ProcessingStudioViewModel
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
 
+        // Count of chat requests awaiting a reply. Main-thread confined (viewModelScope).
+        private var chatExchangesInFlight = 0
+
         /**
          * PLH-7: after a saved manual correction reduces to a single word/phrase replacement,
          * the screen offers to promote it to a global Word Replacement via an actionable
@@ -623,19 +626,50 @@ class ProcessingStudioViewModel
                     isTyping = true,
                 )
 
+            // A counter, not a boolean: a second send while the first reply is pending must not
+            // clear the typing indicator when only one of them completes.
+            chatExchangesInFlight++
             viewModelScope.launch {
-                val result =
-                    completeStudioChatExchange(
-                        context = context,
-                        llmClient = llmClient,
-                        transcriptText = _uiState.value.effectiveTranscriptText,
-                        messagesWithUser = _uiState.value.chatMessages,
-                    )
-                _uiState.value =
-                    _uiState.value.copy(
-                        chatMessages = result.messages,
-                        isTyping = result.isTyping,
-                    )
+                try {
+                    // hasApiKey() suspends (keystore-backed read on IO). Without a key the request
+                    // is unwinnable, so un-send: drop the bubble, put the text back in the draft
+                    // (unless the user already typed something new) and point at settings —
+                    // the same actionable copy the other AI paths use.
+                    if (!llmPreferences.hasApiKey()) {
+                        _uiState.value =
+                            _uiState.value.copy(
+                                chatMessages =
+                                    _uiState.value.chatMessages
+                                        .filterNot { it.id == userMsg.id }
+                                        .toImmutableList(),
+                            )
+                        if (_uiState.value.chatDraft.isBlank()) updateChatDraft(trimmedText)
+                        _message.value = context.getString(R.string.rec_msg_chat_api_key_missing)
+                        return@launch
+                    }
+                    val outcome =
+                        completeStudioChatExchange(
+                            context = context,
+                            llmClient = llmClient,
+                            transcriptText = _uiState.value.effectiveTranscriptText,
+                            history = _uiState.value.chatMessages,
+                        )
+                    when (outcome) {
+                        is StudioChatExchangeOutcome.Reply ->
+                            // Append to the LIVE list: overwriting with a launch-time snapshot
+                            // deleted any message the user sent while this reply was in flight.
+                            _uiState.value =
+                                _uiState.value.copy(
+                                    chatMessages = (_uiState.value.chatMessages + outcome.message).toImmutableList(),
+                                )
+                        is StudioChatExchangeOutcome.Failure -> _message.value = outcome.displayMessage
+                    }
+                } finally {
+                    chatExchangesInFlight--
+                    if (chatExchangesInFlight == 0) {
+                        _uiState.value = _uiState.value.copy(isTyping = false)
+                    }
+                }
             }
         }
 

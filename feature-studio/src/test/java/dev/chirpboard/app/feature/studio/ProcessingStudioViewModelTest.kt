@@ -1211,6 +1211,77 @@ class ProcessingStudioViewModelTest {
             )
         }
 
+    @Test
+    fun `a second chat message sent while the first reply is in flight is not lost`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            val firstReply = CompletableDeferred<Result<String>>()
+            val secondReply = CompletableDeferred<Result<String>>()
+            val llmClient =
+                mockk<LlmClient>(relaxed = true) {
+                    coEvery { generateChatResponse(any(), match { it.size == 1 }) } coAnswers { firstReply.await() }
+                    coEvery { generateChatResponse(any(), match { it.size == 2 }) } coAnswers { secondReply.await() }
+                }
+            val viewModel = createViewModel(recordingId = recordingId.toString(), llmClient = llmClient, hasApiKey = true)
+            advanceUntilIdle()
+
+            viewModel.onSendChatMessage("first")
+            runCurrent()
+            viewModel.onSendChatMessage("second")
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isTyping)
+
+            firstReply.complete(Result.success("reply one"))
+            runCurrent()
+            // One exchange still pending: both user messages plus reply one, still typing.
+            assertEquals(
+                listOf("first", "second", "reply one"),
+                viewModel.uiState.value.chatMessages.map { it.text },
+            )
+            assertTrue(viewModel.uiState.value.isTyping)
+
+            secondReply.complete(Result.success("reply two"))
+            advanceUntilIdle()
+            assertEquals(
+                listOf("first", "second", "reply one", "reply two"),
+                viewModel.uiState.value.chatMessages.map { it.text },
+            )
+            assertFalse(viewModel.uiState.value.isTyping)
+        }
+
+    @Test
+    fun `chat send without an api key un-sends and restores the draft with actionable copy`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            every { context.getString(R.string.rec_msg_chat_api_key_missing) } returns
+                "Add an API key in AI Processing settings to chat about this recording"
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            val llmClient = mockk<LlmClient>(relaxed = true)
+            val viewModel = createViewModel(recordingId = recordingId.toString(), llmClient = llmClient, hasApiKey = false)
+            advanceUntilIdle()
+
+            viewModel.onSendChatMessage("question")
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.chatMessages.isEmpty())
+            assertEquals("question", viewModel.uiState.value.chatDraft)
+            assertFalse(viewModel.uiState.value.isTyping)
+            assertEquals(
+                "Add an API key in AI Processing settings to chat about this recording",
+                viewModel.message.value,
+            )
+            coVerify(exactly = 0) { llmClient.generateChatResponse(any(), any()) }
+        }
+
     private fun stubEmptyRecordingFlows(recordingId: UUID) {
         every { repository.getRecordingFlow(recordingId) } returns flowOf(RepositoryFlowState(null))
         stubSupportingFlows(recordingId)
