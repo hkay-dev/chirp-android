@@ -7,8 +7,8 @@
 #include <fcntl.h>
 #include <limits>
 #include <mutex>
+#include <new>
 #include <string>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
@@ -361,23 +361,48 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribePcmFloatFile(
         return nullptr;
     }
 
-    void * mapping = mmap(nullptr, expected_bytes, PROT_READ, MAP_PRIVATE, fd, 0);
-    const int mmap_error = errno;
-    close(fd);
-    if (mapping == MAP_FAILED) {
-        set_errno_error("map PCM file", mmap_error);
+    // Read instead of mmap: a capture file truncated after the fstat above would SIGBUS
+    // through a mapping, while a short read fails cleanly. This path is capped by the
+    // Kotlin five-minute ceiling, so the buffer tops out around 19 MB.
+    std::vector<float> pcm_data;
+    try {
+        pcm_data.resize(static_cast<size_t>(sample_count));
+    } catch (const std::bad_alloc &) {
+        g_last_error = "out of memory reading PCM file";
+        __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
+        close(fd);
         abandon_decode_locked();
         return nullptr;
     }
-    madvise(mapping, expected_bytes, MADV_SEQUENTIAL);
+    uint64_t read_bytes = 0;
+    while (read_bytes < expected_bytes) {
+        const ssize_t chunk = read(
+            fd,
+            reinterpret_cast<char *>(pcm_data.data()) + read_bytes,
+            expected_bytes - read_bytes);
+        if (chunk < 0) {
+            if (errno == EINTR) continue;
+            set_errno_error("read PCM file");
+            close(fd);
+            abandon_decode_locked();
+            return nullptr;
+        }
+        if (chunk == 0) {
+            g_last_error = "PCM file truncated during read";
+            __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
+            close(fd);
+            abandon_decode_locked();
+            return nullptr;
+        }
+        read_bytes += static_cast<uint64_t>(chunk);
+    }
+    close(fd);
 
-    jstring result = run_locked(
+    return run_locked(
         env,
-        static_cast<const float *>(mapping),
+        pcm_data.data(),
         static_cast<int>(sample_count),
         "transcribe_run_file");
-    munmap(mapping, expected_bytes);
-    return result;
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
