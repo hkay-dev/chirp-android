@@ -1,14 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Soft dynamic-neutral container behind the record/stop glyph (light/dark variants in
-     values[-night]/colors.xml). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
+     values[-night]/colors.xml).
 
-    <solid android:color="@color/widget_button_container" />
+     The ripple is the widget's only instant tap feedback: everything else waits on a
+     service round-trip, so without it a user who taps during a busy moment sees nothing
+     change and taps again — which toggles the recording straight back off. The mask clips
+     the ripple to the circle instead of letting it spill into the square view bounds. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/widget_button_ripple">
 
-    <!-- Size -->
-    <size
-        android:width="56dp"
-        android:height="56dp" />
+    <item>
+        <shape android:shape="oval">
 
-</shape>
+            <solid android:color="@color/widget_button_container" />
+
+            <!-- Size -->
+            <size
+                android:width="56dp"
+                android:height="56dp" />
+
+        </shape>
+    </item>
+
+    <item android:id="@android:id/mask">
+        <shape android:shape="oval">
+            <solid android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+
+</ripple>

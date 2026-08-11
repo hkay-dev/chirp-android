@@ -10,6 +10,9 @@
     <color name="widget_tint_live">#C4314B</color>
     <!-- Neutral tint while a recording is finalizing -->
     <color name="widget_tint_saving">#8E8E93</color>
+    <!-- Press feedback on the record/stop button; the only feedback that does not wait
+         on a service round-trip -->
+    <color name="widget_button_ripple">#33000000</color>
     <!-- Soft container behind the record/stop button (dynamic system neutral) -->
     <color name="widget_button_container">@android:color/system_neutral2_100</color>
 </resources>
