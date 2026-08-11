@@ -18,7 +18,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 
 /**
@@ -46,9 +49,22 @@ class WidgetReceiver : BroadcastReceiver() {
         when (intent.action) {
             RecordingWidgetProvider.ACTION_TOGGLE_RECORDING -> {
                 val pendingResult = goAsync()
-                CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).launch {
+                val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+                scope.launch {
                     try {
-                        toggleRecording(context)
+                        // The stop path can suspend on a DataStore write that is serialized
+                        // behind another writer. goAsync only buys about ten seconds before
+                        // the system reclaims the pending result and reports a receiver
+                        // timeout against the process that also hosts the IME, so bound the
+                        // work ourselves and tell the user rather than hanging until then.
+                        withTimeout(TOGGLE_TIMEOUT_MS) { toggleRecording(context) }
+                    } catch (e: TimeoutCancellationException) {
+                        Log.e(TAG, "Widget toggle timed out", e)
+                        Toast.makeText(
+                            context.applicationContext,
+                            context.getString(R.string.widget_action_failed),
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -62,6 +78,9 @@ class WidgetReceiver : BroadcastReceiver() {
                         ).show()
                     } finally {
                         pendingResult.finish()
+                        // Every tap builds its own scope; without this each one leaves an
+                        // Active Job behind for the lifetime of the process.
+                        scope.cancel()
                     }
                 }
             }
@@ -141,6 +160,9 @@ class WidgetReceiver : BroadcastReceiver() {
 
     private companion object {
         const val TAG = "WidgetReceiver"
+
+        /** Comfortably inside the platform's foreground broadcast budget. */
+        const val TOGGLE_TIMEOUT_MS = 8_000L
     }
 }
 
