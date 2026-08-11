@@ -103,10 +103,17 @@ internal fun buildStructuredOutcomeAskAiDraft(item: StructuredOutcomeItemUi): St
 
 internal fun String.structuredOutcomeRevision(): String {
     val digest = MessageDigest.getInstance("SHA-256")
-    return digest.digest(trim().toByteArray()).joinToString(separator = "") { byte ->
-        "%02x".format(byte)
+    val bytes = digest.digest(trim().toByteArray())
+    return buildString(bytes.size * 2) {
+        bytes.forEach { byte ->
+            val value = byte.toInt() and 0xFF
+            append(HEX_DIGITS[value ushr 4])
+            append(HEX_DIGITS[value and 0x0F])
+        }
     }
 }
+
+private const val HEX_DIGITS = "0123456789abcdef"
 
 private fun StructuredOutcomeSnapshot?.orEmptyGroup(group: StructuredOutcomeGroup): ImmutableList<StructuredOutcomeItemUi> {
     val items =

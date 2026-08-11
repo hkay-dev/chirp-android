@@ -85,6 +85,20 @@ class ProcessingStudioViewModel
         val playbackTick: StateFlow<StudioPlaybackTick> = _playbackTick.asStateFlow()
 
         private var cachedTranscriptInputs: TranscriptBuildInputs? = null
+
+        // The collector re-fires on every recording/transcript/timings/snapshot emission, and
+        // hashing the whole transcript on the main thread each time is measurable on long
+        // dictations; the text only changes when the pipeline actually writes.
+        private var cachedRevisionSource: String? = null
+        private var cachedRevision: String = ""
+
+        private fun memoizedTranscriptRevision(text: String): String {
+            if (cachedRevisionSource != text) {
+                cachedRevisionSource = text
+                cachedRevision = text.structuredOutcomeRevision()
+            }
+            return cachedRevision
+        }
         private var cachedTranscript: ProcessingStudioTranscript = ProcessingStudioTranscript.Empty
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
@@ -318,16 +332,6 @@ class ProcessingStudioViewModel
                         val isEditingTranscript = wasEditingTranscript
                         val renderedTranscriptText = transcriptState.renderedText()
                         val renderedTranscriptChanged = renderedTranscriptText != currentState.renderedTranscriptText
-                        val promotionCandidate =
-                            transcript?.manualCorrectionSourceText?.let { sourceText ->
-                                transcript.manualCorrectionText?.let { correctedText ->
-                                    analyzeTranscriptCorrectionPromotion(
-                                        sourceText = sourceText,
-                                        correctedText = correctedText,
-                                    )
-                                }
-                            }
-
                         var nextState =
                             currentState.copy(
                                 loadState = ProcessingStudioLoadState.Ready,
@@ -342,7 +346,6 @@ class ProcessingStudioViewModel
                                 transcriptDraft = if (isEditingTranscript) currentState.transcriptDraft else effectiveTranscriptText,
                                 isEditingTranscript = isEditingTranscript,
                                 hasManualCorrection = transcript?.hasManualCorrection == true,
-                                canPromoteManualCorrection = promotionCandidate != null,
                                 summary = transcript?.summary ?: "",
                                 structuredOutcomeSection =
                                     buildStructuredOutcomeSectionState(
@@ -350,6 +353,7 @@ class ProcessingStudioViewModel
                                         effectiveTranscriptText = effectiveTranscriptText,
                                         snapshot = structuredOutcomeSnapshot,
                                         isGenerating = isStructuredOutcomeGenerating,
+                                        currentRevision = memoizedTranscriptRevision(effectiveTranscriptText),
                                     ),
                                 title = recording.title,
                                 createdAt = recording.createdAt.time,

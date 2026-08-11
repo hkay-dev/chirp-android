@@ -28,7 +28,6 @@ data class ProcessingStudioState(
     val transcriptSelectionActionInFlight: TranscriptPassageAction? = null,
     val transcriptSelectionResult: TranscriptSelectionResult? = null,
     val hasManualCorrection: Boolean = false,
-    val canPromoteManualCorrection: Boolean = false,
     val summary: String = "",
     val structuredOutcomeSection: StructuredOutcomeSectionState = StructuredOutcomeSectionState(),
     val chatMessages: ImmutableList<ChatMessage> = persistentListOf(),
