@@ -778,6 +778,7 @@ class VoiceRecorder(
                             return@withContext
                         }
                         if (sampleCount >= sampleCapacity && isRecording.getAndSet(false)) {
+                            releaseAudioRecordAtLimit(collectGeneration)
                             onLimitReached?.invoke()
                             return@withContext
                         }
@@ -844,6 +845,29 @@ class VoiceRecorder(
                 }
             }
         }
+
+    /**
+     * Releases the hot AudioRecord when the capacity limit ends collection, WITHOUT bumping
+     * the session generation: the captured samples stay owned by the live session so the
+     * consumer's follow-up stop()/stopToFileBacked() still hands them off, while the
+     * microphone can never stay live if that follow-up never runs (e.g. a dead handler
+     * scope). stopAudioRecord tolerates the already-null record.
+     */
+    private fun releaseAudioRecordAtLimit(generation: Long) {
+        synchronized(sampleLock) {
+            if (sessionGeneration.get() != generation) return
+            audioRecord?.let { record ->
+                inputDeviceSelector?.stopObservingRouting(record)
+                runCatching { record.stop() }
+                record.release()
+            }
+            audioRecord = null
+            selectorSessionToken?.let { token -> inputDeviceSelector?.clearActiveDevice(token) }
+            selectorSessionToken = null
+            watchdogJob?.cancel()
+            watchdogJob = null
+        }
+    }
 
     /**
      * Rebuilds a dead platform recorder once and atomically swaps it into the same logical
