@@ -1,16 +1,9 @@
 package dev.chirpboard.app.core.recording
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
 class WaveformBuffer(val capacity: Int = 1000) {
     private val buffer = FloatArray(capacity)
     private var writeIndex = 0
     private var sampleCount = 0
-
-    private val _dataVersion = MutableStateFlow(0L)
-    val dataVersion: StateFlow<Long> = _dataVersion.asStateFlow()
 
     val count: Int
         get() = synchronized(this) { sampleCount }
@@ -20,7 +13,6 @@ class WaveformBuffer(val capacity: Int = 1000) {
             buffer[writeIndex] = amplitude
             writeIndex = (writeIndex + 1) % capacity
             if (sampleCount < capacity) sampleCount++
-            _dataVersion.value++
         }
     }
 
@@ -29,7 +21,6 @@ class WaveformBuffer(val capacity: Int = 1000) {
             buffer.fill(0f)
             writeIndex = 0
             sampleCount = 0
-            _dataVersion.value++
         }
     }
 
