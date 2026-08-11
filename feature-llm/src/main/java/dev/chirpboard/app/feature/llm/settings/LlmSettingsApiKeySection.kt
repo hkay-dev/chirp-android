@@ -48,6 +48,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -248,8 +253,28 @@ internal fun LlmSettingsApiKeySection(
             )
         }
 
+        val helpUrl = uiState.activeProvider.apiKeyHelpUrl
+        val helpText = stringResource(R.string.llm_api_key_help, helpUrl)
+        val linkColor = MaterialTheme.colorScheme.primary
         Text(
-            text = stringResource(R.string.llm_api_key_help, uiState.activeProvider.apiKeyHelpUrl),
+            text =
+                remember(helpText, helpUrl, linkColor) {
+                    buildAnnotatedString {
+                        val urlStart = helpText.indexOf(helpUrl)
+                        if (urlStart < 0) {
+                            append(helpText)
+                        } else {
+                            append(helpText.substring(0, urlStart))
+                            withLink(
+                                LinkAnnotation.Url(
+                                    url = helpUrl,
+                                    styles = TextLinkStyles(style = SpanStyle(color = linkColor)),
+                                ),
+                            ) { append(helpUrl) }
+                            append(helpText.substring(urlStart + helpUrl.length))
+                        }
+                    }
+                },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier =
