@@ -48,7 +48,12 @@ class TranscriptionCompletionExporter
                 return
             }
             val transcript = recordingRepository.getTranscript(recordingId) ?: return
-            val text = transcript.processedText?.takeIf { it.isNotBlank() } ?: transcript.rawText
+            // A manual correction can already exist here (the user can edit while
+            // enhancement is still running); the export must carry the corrected text.
+            val text =
+                transcript.manualCorrectionText?.takeIf { it.isNotBlank() }
+                    ?: transcript.processedText?.takeIf { it.isNotBlank() }
+                    ?: transcript.rawText
             if (text.isBlank()) {
                 return
             }

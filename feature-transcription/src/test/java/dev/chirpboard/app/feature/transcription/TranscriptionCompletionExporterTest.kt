@@ -110,6 +110,21 @@ class TranscriptionCompletionExporterTest {
     }
 
     @Test
+    fun `manual correction wins over pipeline text in the export`() = runTest {
+        coEvery { recordingRepository.getRecording(recordingId) } returns
+            recording(status = RecordingStatus.COMPLETED, profileId = null)
+        coEvery { recordingRepository.getTranscript(recordingId) } returns
+            transcript(processedText = "machine text", summary = null)
+                .copy(manualCorrectionText = "corrected text")
+
+        exporter.exportIfCompleted(recordingId)
+
+        coVerify(exactly = 1) {
+            exportPort.exportIfEnabled(any(), "corrected text", null, emptyList(), false)
+        }
+    }
+
+    @Test
     fun `export failure never throws out of the exporter`() = runTest {
         coEvery { recordingRepository.getRecording(recordingId) } returns
             recording(status = RecordingStatus.COMPLETED, profileId = null)
