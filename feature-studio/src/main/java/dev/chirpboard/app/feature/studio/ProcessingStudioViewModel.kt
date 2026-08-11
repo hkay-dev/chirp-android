@@ -58,6 +58,9 @@ class ProcessingStudioViewModel
          */
         internal var transcriptBuildDispatcher: CoroutineDispatcher = Dispatchers.Default
 
+        /** Dispatcher for oversized-draft side-file IO (LIF-05); overridable from tests. */
+        internal var draftFileDispatcher: CoroutineDispatcher = Dispatchers.IO
+
         private var currentRecordingId: UUID? = null
         private var currentTranscript: Transcript? = null
         private var recordingObservationJob: Job? = null
@@ -119,11 +122,12 @@ class ProcessingStudioViewModel
          * LIF-05: mid-edit state captured before process death, applied once after the first
          * recording emission so a restored screen reopens in edit mode with the draft intact.
          */
-        private var pendingDraftRestoration: StudioDraftRestoration? = readDraftRestoration()
+        private var pendingDraftRestoration: StudioDraftRestoration? = null
 
         private fun readDraftRestoration(): StudioDraftRestoration? {
             val isEditingTranscript = savedStateHandle.get<Boolean>(KEY_IS_EDITING_TRANSCRIPT) ?: false
             val transcriptDraft = savedStateHandle.get<String>(KEY_TRANSCRIPT_DRAFT)
+            val transcriptDraftInFile = savedStateHandle.get<Boolean>(KEY_TRANSCRIPT_DRAFT_IN_FILE) ?: false
             val isEditingTitle = savedStateHandle.get<Boolean>(KEY_IS_EDITING_TITLE) ?: false
             val editedTitle = savedStateHandle.get<String>(KEY_EDITED_TITLE)
             val isEditingNotes = savedStateHandle.get<Boolean>(KEY_IS_EDITING_NOTES) ?: false
@@ -133,6 +137,7 @@ class ProcessingStudioViewModel
             return StudioDraftRestoration(
                 isEditingTranscript = isEditingTranscript,
                 transcriptDraft = transcriptDraft,
+                transcriptDraftInFile = transcriptDraftInFile,
                 isEditingTitle = isEditingTitle,
                 editedTitle = editedTitle,
                 isEditingNotes = isEditingNotes,
@@ -141,14 +146,82 @@ class ProcessingStudioViewModel
             )
         }
 
+        /**
+         * LIF-05: offer the mid-edit state captured before process death. Oversized transcript
+         * drafts are not bundle-mirrored; their text is loaded back from the side file first so
+         * edit mode returns with the draft instead of silently dropping both.
+         */
+        private fun prepareDraftRestoration() {
+            val restoration = readDraftRestoration() ?: return
+            if (!restoration.transcriptDraftInFile) {
+                pendingDraftRestoration = restoration
+                return
+            }
+            viewModelScope.launch {
+                val draft =
+                    withContext(draftFileDispatcher) {
+                        runCatching { oversizedDraftFile()?.takeIf(File::exists)?.readText() }.getOrNull()
+                    }
+                offerDraftRestoration(
+                    if (draft != null) restoration.copy(transcriptDraft = draft) else restoration,
+                )
+            }
+        }
+
+        /**
+         * Applies a restoration directly when the first load already happened (the file-backed
+         * draft read can finish after the collector's first emission), otherwise parks it for
+         * the collector to consume exactly once.
+         */
+        private fun offerDraftRestoration(restoration: StudioDraftRestoration) {
+            val state = _uiState.value
+            if (state.loadState == ProcessingStudioLoadState.Ready) {
+                _uiState.value = refreshTranscriptInteractionState(state.applyDraftRestoration(restoration))
+            } else {
+                pendingDraftRestoration = restoration
+            }
+        }
+
+        private fun oversizedDraftFile(): File? =
+            currentRecordingId?.let { File(context.filesDir, "studio-draft-$it.txt") }
+
+        private fun writeOversizedDraft(draft: String) {
+            val file = oversizedDraftFile() ?: return
+            val tmp = File(file.parentFile, "${file.name}.tmp")
+            tmp.writeText(draft)
+            if (!tmp.renameTo(file)) {
+                file.delete()
+                tmp.renameTo(file)
+            }
+        }
+
+        private var oversizedDraftPersistJob: Job? = null
+
         private fun mirrorTranscriptEditState(
             isEditing: Boolean,
             draft: String?,
         ) {
             savedStateHandle[KEY_IS_EDITING_TRANSCRIPT] = isEditing
-            // Bundles have a hard size budget; very large drafts are not mirrored rather than
-            // risking a TransactionTooLargeException on every lifecycle save.
-            savedStateHandle[KEY_TRANSCRIPT_DRAFT] = draft?.takeIf { it.length <= MAX_MIRRORED_DRAFT_CHARS }
+            // Bundles have a hard size budget; very large drafts go to a side file (debounced)
+            // instead of risking a TransactionTooLargeException on every lifecycle save.
+            val mirroredDraft = draft?.takeIf { it.length <= MAX_MIRRORED_DRAFT_CHARS }
+            val oversized = draft != null && mirroredDraft == null
+            savedStateHandle[KEY_TRANSCRIPT_DRAFT] = mirroredDraft
+            savedStateHandle[KEY_TRANSCRIPT_DRAFT_IN_FILE] = oversized
+            oversizedDraftPersistJob?.cancel()
+            when {
+                oversized && draft != null ->
+                    oversizedDraftPersistJob =
+                        viewModelScope.launch {
+                            delay(OVERSIZED_DRAFT_PERSIST_DEBOUNCE_MS)
+                            withContext(draftFileDispatcher) { runCatching { writeOversizedDraft(draft) } }
+                        }
+
+                !isEditing ->
+                    viewModelScope.launch(draftFileDispatcher) {
+                        runCatching { oversizedDraftFile()?.delete() }
+                    }
+            }
         }
 
         private fun mirrorTitleEditState(
@@ -185,6 +258,8 @@ class ProcessingStudioViewModel
                     }
                 }
             }
+
+            prepareDraftRestoration()
 
             viewModelScope.launch {
                 llmPreferences.llmEnabled.collect { enabled ->
@@ -1310,6 +1385,7 @@ private data class TranscriptBuildInputs(
 /** LIF-05: SavedStateHandle keys for mid-edit state that must survive process death. */
 private const val KEY_IS_EDITING_TRANSCRIPT = "studio.isEditingTranscript"
 private const val KEY_TRANSCRIPT_DRAFT = "studio.transcriptDraft"
+private const val KEY_TRANSCRIPT_DRAFT_IN_FILE = "studio.transcriptDraftInFile"
 private const val KEY_IS_EDITING_TITLE = "studio.isEditingTitle"
 private const val KEY_EDITED_TITLE = "studio.editedTitle"
 private const val KEY_IS_EDITING_NOTES = "studio.isEditingNotes"
@@ -1322,10 +1398,18 @@ private const val KEY_CHAT_DRAFT = "studio.chatDraft"
  */
 private const val MAX_MIRRORED_DRAFT_CHARS = 100_000
 
+/**
+ * Debounce for persisting an oversized draft to its side file; long enough to coalesce
+ * keystrokes, short enough that process death loses at most a moment of typing.
+ */
+private const val OVERSIZED_DRAFT_PERSIST_DEBOUNCE_MS = 750L
+
 /** LIF-05: mid-edit state recovered from SavedStateHandle after process death. */
 internal data class StudioDraftRestoration(
     val isEditingTranscript: Boolean,
     val transcriptDraft: String?,
+    /** True when the draft outgrew the Bundle budget and lives in the side file instead. */
+    val transcriptDraftInFile: Boolean = false,
     val isEditingTitle: Boolean,
     val editedTitle: String?,
     val isEditingNotes: Boolean = false,

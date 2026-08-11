@@ -613,6 +613,76 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `oversized transcript draft is restored from its side file after process death`() =
+        runTest {
+            // LIF-05: drafts beyond the Bundle budget are persisted to a side file; the
+            // restoration must load that file instead of dropping edit mode and draft.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+            val filesDir = java.nio.file.Files.createTempDirectory("studio-draft-test").toFile()
+            every { context.filesDir } returns filesDir
+            val bigDraft = "x".repeat(150_000)
+            File(filesDir, "studio-draft-$recordingId.txt").writeText(bigDraft)
+
+            val restoredHandle =
+                SavedStateHandle(
+                    mapOf(
+                        "recordingId" to recordingId.toString(),
+                        "studio.isEditingTranscript" to true,
+                        "studio.transcriptDraftInFile" to true,
+                    ),
+                )
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = restoredHandle)
+            viewModel.draftFileDispatcher = dispatcher
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isEditingTranscript)
+            assertEquals(bigDraft, viewModel.uiState.value.transcriptDraft)
+            filesDir.deleteRecursively()
+        }
+
+    @Test
+    fun `oversized transcript draft mirrors to a side file and marks the bundle`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+            val filesDir = java.nio.file.Files.createTempDirectory("studio-draft-test").toFile()
+            every { context.filesDir } returns filesDir
+            val handle = SavedStateHandle(mapOf("recordingId" to recordingId.toString()))
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = handle)
+            viewModel.draftFileDispatcher = dispatcher
+            advanceUntilIdle()
+
+            val bigDraft = "y".repeat(150_000)
+            viewModel.startEditingTranscript()
+            viewModel.updateTranscriptDraft(bigDraft)
+            advanceUntilIdle()
+
+            val sideFile = File(filesDir, "studio-draft-$recordingId.txt")
+            assertEquals(null, handle.get<String>("studio.transcriptDraft"))
+            assertEquals(true, handle.get<Boolean>("studio.transcriptDraftInFile"))
+            assertEquals(bigDraft, sideFile.readText())
+
+            // Leaving edit mode removes the side file so stale drafts never resurrect.
+            viewModel.cancelEditingTranscript()
+            advanceUntilIdle()
+            assertFalse(sideFile.exists())
+            filesDir.deleteRecursively()
+        }
+
+    @Test
     fun `transcript draft mirrors into saved state while editing`() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
