@@ -71,6 +71,7 @@ class OrphanedAudioCleaner
                         if (safelistedPaths.contains(absolutePath)) continue
                         if (protectedPaths.contains(absolutePath)) continue
                         if (journalReferencedPaths.contains(absolutePath)) continue
+                        if (hasKeyboardHandoffMarker(recordingsDir, file)) continue
 
                         val ageReferenceMs = startedAtByPath[absolutePath] ?: file.lastModified()
                         val ageMs = now - ageReferenceMs
@@ -246,6 +247,31 @@ class OrphanedAudioCleaner
         }
 
         /**
+         * A keyboard capture (recordings/keyboard_<id>.f32pcm) still owned by the dictation
+         * handoff flow is referenced only by its marker file, not by the database or the
+         * session journal. The marker's presence alone must protect the audio: a marker
+         * whose JSON is corrupt is skipped by recovery (it can't be parsed into a path),
+         * and without this check the sweep would see the audio as unreferenced and delete
+         * a dictation the user never got back. Markers are deleted by the handoff flow
+         * once the audio is consumed, so this never protects anything indefinitely except
+         * exactly the corrupt-marker case, where keeping the audio is the point.
+         */
+        private fun hasKeyboardHandoffMarker(
+            recordingsDir: File,
+            file: File,
+        ): Boolean {
+            val name = file.name
+            if (!name.startsWith(KEYBOARD_AUDIO_PREFIX) || !name.endsWith(KEYBOARD_AUDIO_SUFFIX)) {
+                return false
+            }
+            val id = name.removePrefix(KEYBOARD_AUDIO_PREFIX).removeSuffix(KEYBOARD_AUDIO_SUFFIX)
+            return KEYBOARD_MARKER_PREFIXES.any { prefix ->
+                File(recordingsDir, "$prefix$id.json").isFile ||
+                    File(recordingsDir, "$prefix$id.json.partial").isFile
+            }
+        }
+
+        /**
          * Deletes leftover keyboard dictation capture files (cacheDir/keyboard-capture/
          * dictation-*.f32pcm) that VoiceRecorder wrote but a crashed or killed IME never
          * cleaned up. Anything older than [DICTATION_CAPTURE_MAX_AGE_MS] is dead: live
@@ -301,5 +327,11 @@ class OrphanedAudioCleaner
             private const val LARGE_ORPHAN_BYTES = 1_000_000L
             private const val QUARANTINE_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
             internal const val DICTATION_CAPTURE_MAX_AGE_MS = 24 * 60 * 60 * 1000L
+
+            // Naming convention owned by KeyboardDictationHandoffModule (app module);
+            // duplicated here because the cleaner must not depend on the app module.
+            private const val KEYBOARD_AUDIO_PREFIX = "keyboard_"
+            private const val KEYBOARD_AUDIO_SUFFIX = ".f32pcm"
+            private val KEYBOARD_MARKER_PREFIXES = listOf(".keyboard-live-", ".keyboard-handoff-")
         }
     }

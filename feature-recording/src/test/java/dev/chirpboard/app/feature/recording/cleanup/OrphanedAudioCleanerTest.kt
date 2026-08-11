@@ -108,6 +108,62 @@ class OrphanedAudioCleanerTest {
         }
 
     @Test
+    fun cleanOrphanedFiles_retainsKeyboardCaptureWhoseLiveMarkerStillExists() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val recordingId = UUID.randomUUID()
+            val audio =
+                File(recordingsDir, "keyboard_$recordingId.f32pcm").apply {
+                    writeBytes(ByteArray(16))
+                    setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+                }
+            // Corrupt JSON: recovery cannot parse this marker, so nothing in the
+            // database or journal references the audio. The marker's presence alone
+            // must keep the capture alive.
+            File(recordingsDir, ".keyboard-live-$recordingId.json").writeText("{ not json")
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertTrue(audio.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_retainsKeyboardCaptureWithPartialHandoffMarker() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val recordingId = UUID.randomUUID()
+            val audio =
+                File(recordingsDir, "keyboard_$recordingId.f32pcm").apply {
+                    writeBytes(ByteArray(16))
+                    setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+                }
+            File(recordingsDir, ".keyboard-handoff-$recordingId.json.partial").writeText("{")
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertTrue(audio.exists())
+        }
+
+    @Test
+    fun cleanOrphanedFiles_deletesKeyboardCaptureOnceItsMarkerIsGone() =
+        runTest {
+            val recordingsDir = File(context.filesDir, "recordings").apply { mkdirs() }
+            val recordingId = UUID.randomUUID()
+            val audio =
+                File(recordingsDir, "keyboard_$recordingId.f32pcm").apply {
+                    writeBytes(ByteArray(16))
+                    setLastModified(System.currentTimeMillis() - 10 * 60 * 1000)
+                }
+            coEvery { repository.getAllAudioPaths() } returns emptyList()
+
+            cleaner.cleanOrphanedFiles()
+
+            assertFalse(audio.exists())
+        }
+
+    @Test
     fun cleanOrphanedFiles_retainsReferencedMp3() =
         runTest {
             val file = orphanMp3()
