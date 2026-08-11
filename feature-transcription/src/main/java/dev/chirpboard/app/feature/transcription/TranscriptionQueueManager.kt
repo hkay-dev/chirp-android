@@ -404,7 +404,12 @@ class TranscriptionQueueManager
          * never reports success when the claim or scheduling was refused.
          */
         override suspend fun retranscribe(recordingId: UUID): ManualRecoveryResult {
-            val ownership = reconciliationMutex.withLock { queueReconciler.inspectQueueOwnership(recordingId) }
+            // No reconciliationMutex: the inspection is a read, and any race with a
+            // reconciliation pass is resolved by the status-pinned claim below plus the
+            // REPLACE enqueue (both under the scheduling mutex). Taking the lock here
+            // would stall this user action behind a full pass, which holds it across
+            // one WorkManager query (5s timeout each) per queued recording.
+            val ownership = queueReconciler.inspectQueueOwnership(recordingId)
             val blockResult = blockedManualRecoveryResult(ownership)
             if (blockResult != null) {
                 return blockResult
@@ -547,10 +552,10 @@ class TranscriptionQueueManager
             }
         }
 
+        // Pure read for the diagnostics UI; see retranscribe for why it must not wait
+        // behind a reconciliation pass.
         override suspend fun getRecoveryDiagnostics(recordingId: UUID): RecoveryDiagnostics =
-            reconciliationMutex.withLock {
-                queueReconciler.getRecoveryDiagnostics(recordingId)
-            }
+            queueReconciler.getRecoveryDiagnostics(recordingId)
 
         override suspend fun recoverRecordingsWaitingForModel() {
             if (!transcriberProvider.isModelDownloaded()) {
@@ -670,7 +675,9 @@ class TranscriptionQueueManager
             reason: String,
             supersedeEnhancement: Boolean = false,
         ): ManualRecoveryResult {
-            val ownership = reconciliationMutex.withLock { queueReconciler.inspectQueueOwnership(recordingId) }
+            // Read-only inspection; see retranscribe for why the reconciliation mutex
+            // is deliberately not taken here.
+            val ownership = queueReconciler.inspectQueueOwnership(recordingId)
             val blockResult = blockedManualRecoveryResult(ownership)
             if (blockResult != null) {
                 return blockResult
