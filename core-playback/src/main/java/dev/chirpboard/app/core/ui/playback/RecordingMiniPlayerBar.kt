@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -147,8 +148,12 @@ fun RecordingMiniPlayerBar(
                                 onClickLabel = stringResource(PlaybackR.string.playback_open_recording),
                                 onClick = onOpenRecording,
                             )
+                            // Two small text rows leave this column about 42dp tall, under
+                            // the 48dp minimum the flanking icon buttons already meet — and
+                            // this is the target that opens the recording.
+                            .heightIn(min = 48.dp)
                             .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
                 ) {
                     Text(
                         text = state.title.ifBlank { stringResource(R.string.playback_now_playing) },
