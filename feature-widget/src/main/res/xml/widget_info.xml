@@ -4,7 +4,9 @@
      updatePeriodMillis is 30 min (the platform minimum) instead of 0: live state pushes
      stop when the process dies, and with no period the launcher never calls onUpdate
      again, so a stale "Recording" frame (ticking chronometer, stop-labeled button)
-     survived until the next app launch. onUpdate re-renders the REAL state. -->
+     survived until the next app launch. onUpdate re-renders the REAL state.
+     maxResize caps the stretch at 3x3: the content is one 56dp button and two short
+     lines, so a 5x4 widget is empty space with no larger touch target. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="110dp"
     android:minHeight="110dp"
@@ -14,6 +16,8 @@
     android:targetCellHeight="2"
     android:updatePeriodMillis="1800000"
     android:initialLayout="@layout/widget_layout"
+    android:maxResizeWidth="250dp"
+    android:maxResizeHeight="250dp"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:previewLayout="@layout/widget_layout"
