@@ -411,8 +411,22 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
         return nullptr;
     }
 
+    // FindClass/NewObjectArray/NewStringUTF return null with a pending OutOfMemoryError,
+    // and calling further JNI functions with that exception pending aborts the VM. Each
+    // allocation is checked so an allocation failure surfaces as a normal decode error.
     jclass string_class = env->FindClass("java/lang/String");
+    if (string_class == nullptr) {
+        env->ExceptionClear();
+        g_last_error = "out of memory building batch result";
+        return nullptr;
+    }
     jobjectArray result = env->NewObjectArray(count, string_class, nullptr);
+    if (result == nullptr) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(string_class);
+        g_last_error = "out of memory building batch result";
+        return nullptr;
+    }
     for (jsize i = 0; i < count; ++i) {
         const transcribe_status item_status = transcribe_batch_status(g_session, i);
         if (item_status != TRANSCRIBE_OK) {
@@ -423,6 +437,13 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
         }
         const char * text = transcribe_batch_full_text(g_session, i);
         jstring item = env->NewStringUTF(text == nullptr ? "" : text);
+        if (item == nullptr) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(result);
+            env->DeleteLocalRef(string_class);
+            g_last_error = "out of memory building batch result";
+            return nullptr;
+        }
         env->SetObjectArrayElement(result, i, item);
         env->DeleteLocalRef(item);
     }
