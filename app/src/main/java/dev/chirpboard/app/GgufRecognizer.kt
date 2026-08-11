@@ -21,12 +21,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val GGUF_TAG = "GgufRecognizer"
 private const val RECOVERY_CHUNK_SECONDS = 30
 private const val RECOVERY_CHUNK_OVERLAP_MS = 2_000L
 private const val RECOVERY_BATCH_SIZE = 2
 private const val CONTINUOUS_DECODE_MAX_SECONDS = 5 * 60
+private const val RELEASE_TIMEOUT_MS = 10_000L
 
 internal class GgufRecognizer(
     private val downloader: ModelDownloader,
@@ -402,12 +404,24 @@ internal class GgufRecognizer(
         if (!released.compareAndSet(false, true)) return
         try {
             withContext(NonCancellable) {
-                decodeDispatcher.run {
-                    mutex.withLock {
-                        native?.release()
-                        native = null
-                        actualComputeBackend = null
-                    }
+                // A wedged native decode holds both the dispatcher thread and the mutex
+                // forever. Waiting for either is suspending-cancellable, so a timeout can
+                // still fire; when it does, leak the native session rather than hang every
+                // caller of release() (typically model switching) behind a dead decode.
+                val releasedCleanly =
+                    withTimeoutOrNull(RELEASE_TIMEOUT_MS) {
+                        decodeDispatcher.run {
+                            mutex.withLock {
+                                native?.release()
+                                native = null
+                                actualComputeBackend = null
+                            }
+                        }
+                    } != null
+                if (!releasedCleanly) {
+                    Log.w(GGUF_TAG, "Native release timed out behind a stuck decode; leaking the session")
+                    native = null
+                    actualComputeBackend = null
                 }
             }
         } finally {
