@@ -28,8 +28,8 @@ android {
         applicationId = "dev.chirpboard.app"
         minSdk = 36
         targetSdk = 36
-        versionCode = 42
-        versionName = "4.0.0"
+        versionCode = 43
+        versionName = "5.0.0"
         testInstrumentationRunner = "dev.chirpboard.app.ChirpTestRunner"
 
         val cloudBaseUrl = providers.gradleProperty("CHIRP_CLOUD_BASE_URL").orElse("").get()
