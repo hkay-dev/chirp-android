@@ -455,8 +455,6 @@ private class FakeWordReplacementDao : WordReplacementDao {
     override suspend fun deleteById(id: UUID) = unused()
 
     override suspend fun getCount(): Int = rows.size
-
-    override suspend fun getEnabledCount(): Int = unused()
 }
 
 private class FakeProfileDao : ProfileDao {

@@ -4,8 +4,6 @@ import dev.chirpboard.app.data.dao.BackupUpsertCounts
 import dev.chirpboard.app.data.dao.WordReplacementDao
 import dev.chirpboard.app.data.entity.WordReplacement
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -75,8 +73,6 @@ class WordReplacementRepository
 
         suspend fun getCount(): Int = wordReplacementDao.getCount()
 
-        suspend fun getEnabledCount(): Int = wordReplacementDao.getEnabledCount()
-
         /** Backup restore (REPLACE): atomically clears all rules and inserts [replacements]. */
         suspend fun replaceAllFromBackup(replacements: List<WordReplacement>): BackupUpsertCounts =
             wordReplacementDao.replaceAllReplacements(replacements)
@@ -84,24 +80,4 @@ class WordReplacementRepository
         /** Backup restore (MERGE): atomically upserts [replacements] by original phrase. */
         suspend fun upsertByOriginalFromBackup(replacements: List<WordReplacement>): BackupUpsertCounts =
             wordReplacementDao.upsertReplacementsByOriginal(replacements)
-
-        /**
-         * Apply all enabled word replacements to text.
-         * Returns the text with replacements applied.
-         */
-        suspend fun applyReplacements(text: String): String = withContext(Dispatchers.Default) {
-            val replacements = getEnabledReplacements()
-            var result = text
-
-            for (replacement in replacements) {
-                result =
-                    if (replacement.caseSensitive) {
-                        result.replace(replacement.original, replacement.replacement)
-                    } else {
-                        result.replace(replacement.original, replacement.replacement, ignoreCase = true)
-                    }
-            }
-
-            result
-        }
     }

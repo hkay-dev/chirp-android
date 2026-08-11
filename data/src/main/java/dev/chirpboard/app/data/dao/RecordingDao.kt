@@ -227,12 +227,6 @@ interface RecordingDao {
         expectedTitle: String,
     ): Int
 
-    @Query("UPDATE recordings SET durationMs = :durationMs WHERE id = :id")
-    suspend fun updateDuration(
-        id: UUID,
-        durationMs: Long,
-    )
-
     @Query("SELECT notes FROM recordings WHERE id = :id")
     suspend fun getNotes(id: UUID): String?
 
@@ -319,9 +313,6 @@ interface RecordingDao {
 
     @Query("DELETE FROM recordings WHERE id = :id")
     suspend fun deleteById(id: UUID)
-
-    @Query("SELECT COUNT(*) FROM recordings")
-    suspend fun getCount(): Int
 
     /**
      * Full-table aggregate for the home header stats (DAT-006). Unlike [getAllRecordings]

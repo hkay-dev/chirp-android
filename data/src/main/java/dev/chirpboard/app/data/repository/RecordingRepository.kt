@@ -334,11 +334,6 @@ class RecordingRepository
             title: String,
         ) = recordingDao.updateTitle(id, title)
 
-        suspend fun updateDuration(
-            id: UUID,
-            durationMs: Long,
-        ) = recordingDao.updateDuration(id, durationMs)
-
         /** Freeform user note for a recording, or null when none was written (or the row is gone). */
         suspend fun getNotes(id: UUID): String? = recordingDao.getNotes(id)
 
@@ -953,12 +948,6 @@ class RecordingRepository
                 true
             }
 
-        suspend fun skipEnhancement(recordingId: UUID): Boolean =
-            skipEnhancementLocked(
-                recordingId = recordingId,
-                snapshotGuard = { true },
-            )
-
         suspend fun skipEnhancement(
             recordingId: UUID,
             executionToken: String,
@@ -989,11 +978,6 @@ class RecordingRepository
                 )
                 true
             }
-
-        suspend fun failEnhancement(
-            recordingId: UUID,
-            errorMessage: String,
-        ): Boolean = failEnhancement(recordingId, null, errorMessage)
 
         suspend fun failEnhancement(
             recordingId: UUID,
@@ -1029,17 +1013,6 @@ class RecordingRepository
                 )
                 true
             }
-
-        suspend fun updateRawText(
-            recordingId: UUID,
-            rawText: String,
-        ) = transcriptDao.updateRawText(recordingId, rawText)
-
-        suspend fun updateProcessedText(
-            recordingId: UUID,
-            processedText: String,
-            mode: String,
-        ) = transcriptDao.updateProcessedText(recordingId, processedText, mode)
 
         suspend fun saveManualCorrection(
             recordingId: UUID,

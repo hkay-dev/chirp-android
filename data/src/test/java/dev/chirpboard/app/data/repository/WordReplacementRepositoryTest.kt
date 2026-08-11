@@ -32,17 +32,4 @@ class WordReplacementRepositoryTest {
         coVerify { mockDao.insert(result) }
     }
 
-    @Test
-    fun `applyReplacements applies multiple rules properly`() = runTest {
-        val rules = listOf(
-            WordReplacement(UUID.randomUUID(), "quick", "slow", caseSensitive = false, enabled = true),
-            WordReplacement(UUID.randomUUID(), "fox", "bear", caseSensitive = false, enabled = true)
-        )
-        coEvery { mockDao.getEnabledReplacements() } returns rules
-        
-        val input = "The quick brown fox."
-        val output = repository.applyReplacements(input)
-        
-        assertEquals("The slow brown bear.", output)
-    }
 }

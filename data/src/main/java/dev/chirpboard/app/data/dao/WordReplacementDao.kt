@@ -94,7 +94,4 @@ interface WordReplacementDao {
 
     @Query("SELECT COUNT(*) FROM word_replacements")
     suspend fun getCount(): Int
-
-    @Query("SELECT COUNT(*) FROM word_replacements WHERE enabled = 1")
-    suspend fun getEnabledCount(): Int
 }

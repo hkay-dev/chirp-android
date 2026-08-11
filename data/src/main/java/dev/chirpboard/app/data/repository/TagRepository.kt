@@ -111,8 +111,6 @@ class TagRepository
             tagIds: List<UUID>,
         ) = tagDao.setTagsForRecording(recordingId, tagIds)
 
-        suspend fun removeAllTagsFromRecording(recordingId: UUID) = tagDao.removeAllTagsFromRecording(recordingId)
-
         suspend fun getCount(): Int = tagDao.getCount()
 
         /** Backup restore (REPLACE): atomically clears all tags and inserts [tags]. */

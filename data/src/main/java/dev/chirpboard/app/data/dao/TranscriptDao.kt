@@ -1,11 +1,9 @@
 package dev.chirpboard.app.data.dao
 
 import androidx.room.Dao
-import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.model.TranscriptPreview
@@ -57,26 +55,6 @@ interface TranscriptDao {
     @Query("DELETE FROM transcript_timings WHERE recordingId = :recordingId")
     suspend fun deleteTimingsByRecordingId(recordingId: UUID)
 
-    @Update
-    suspend fun update(transcript: Transcript)
-
-    @Query("UPDATE transcripts SET rawText = :rawText, updatedAt = :updatedAt WHERE recordingId = :recordingId")
-    suspend fun updateRawText(
-        recordingId: UUID,
-        rawText: String,
-        updatedAt: java.util.Date = java.util.Date(),
-    )
-
-    @Query(
-        "UPDATE transcripts SET processedText = :processedText, processingMode = :mode, updatedAt = :updatedAt WHERE recordingId = :recordingId",
-    )
-    suspend fun updateProcessedText(
-        recordingId: UUID,
-        processedText: String,
-        mode: String,
-        updatedAt: java.util.Date = java.util.Date(),
-    )
-
     @Query(
         "UPDATE transcripts SET manualCorrectionText = :manualCorrectionText, manualCorrectionSourceText = :manualCorrectionSourceText, updatedAt = :updatedAt WHERE recordingId = :recordingId",
     )
@@ -93,10 +71,4 @@ interface TranscriptDao {
         summary: String,
         updatedAt: java.util.Date = java.util.Date(),
     )
-
-    @Delete
-    suspend fun delete(transcript: Transcript)
-
-    @Query("DELETE FROM transcripts WHERE recordingId = :recordingId")
-    suspend fun deleteByRecordingId(recordingId: UUID)
 }
