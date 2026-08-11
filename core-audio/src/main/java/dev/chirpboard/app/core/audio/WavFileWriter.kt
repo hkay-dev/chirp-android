@@ -124,7 +124,9 @@ class WavFileWriter(
                     val riff = ByteArray(CHUNK_TAG_BYTES.toInt())
                     raf.readFully(riff)
                     String(riff, Charsets.US_ASCII) == "RIFF" &&
-                        raf.readIntLE() > 0 &&
+                        // The RIFF size field is unsigned; a signed compare would reject
+                        // valid recordings past 2 GB (the format allows up to 4 GB).
+                        (raf.readIntLE().toLong() and UINT_MASK) > 0 &&
                         run {
                             val wave = ByteArray(CHUNK_TAG_BYTES.toInt())
                             raf.readFully(wave)

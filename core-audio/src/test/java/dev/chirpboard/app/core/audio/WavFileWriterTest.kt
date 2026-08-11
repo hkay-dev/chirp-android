@@ -38,6 +38,21 @@ class WavFileWriterTest {
     }
 
     @Test
+    fun `hasValidHeader accepts a RIFF size past 2 GB`() {
+        val file = File(temporaryFolder.root, "huge.wav")
+        WavFileWriter(file, sampleRate = 16_000).use { writer ->
+            writer.appendPcm16(ByteArray(2048) { 1 }, 2048)
+        }
+        RandomAccessFile(file, "rw").use { raf ->
+            // Stamp a 3.75 GB RIFF size: valid unsigned, negative as a signed int.
+            raf.seek(4)
+            raf.write(byteArrayOf(0, 0, 0, 0xF0.toByte()))
+        }
+
+        assertTrue(WavFileWriter.hasValidHeader(file))
+    }
+
+    @Test
     fun `close finalizes header to match actual data size`() {
         val file = File(temporaryFolder.root, "closed.wav")
         WavFileWriter(file, sampleRate = 44_100).use { writer ->
