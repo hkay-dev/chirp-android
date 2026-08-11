@@ -486,7 +486,10 @@ class RecordingPlaybackController
                     isPlaying = player.isPlaying,
                     isLoading = isLoading,
                     errorMessage = errorMessage,
-                    playbackSpeed = player.playbackParameters.speed,
+                    // Snapped: the player reports the float it actually applied, and
+                    // 1.25 comes back as 1.2499999 on some devices — straight into the
+                    // speed chip's label.
+                    playbackSpeed = AudioSettingsStore.nearestPlaybackSpeed(player.playbackParameters.speed),
                     noticeMessage = if (player.isPlaying) _state.value.noticeMessage else null,
                     hasStartedPlayback = _state.value.hasStartedPlayback || player.isPlaying,
                 )
