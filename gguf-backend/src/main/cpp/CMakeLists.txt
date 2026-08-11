@@ -31,7 +31,9 @@ target_include_directories(transcribe PUBLIC ${transcribe_cpp_SOURCE_DIR}/includ
 add_library(chirp_gguf SHARED chirp_gguf_jni.cpp)
 
 target_compile_features(chirp_gguf PRIVATE cxx_std_17)
-target_compile_options(chirp_gguf PRIVATE -O3 -DNDEBUG -march=armv8.2-a+dotprod+fp16)
+# -O3 -DNDEBUG -march=armv8.2-a+dotprod+fp16 come from the Gradle cppFlags, which apply to
+# the whole native tree (transcribe.cpp and GGML included). NDEBUG is forced even in debug
+# variants on purpose: GGML's asserts make unoptimized decode unusably slow on-device.
 target_compile_definitions(
     chirp_gguf
     PRIVATE
