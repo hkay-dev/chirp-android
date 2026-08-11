@@ -147,6 +147,7 @@ class RecordingPlaybackController
             scope.launch {
                 if (!validateAudioFile(audioPath, recordingId)) return@launch
                 withConnectedController { player ->
+                    _state.value = _state.value.copy(hasStartedPlayback = true)
                     val currentId = activeRecordingId(player)
                     if (currentId == recordingId) {
                         when {
@@ -173,6 +174,7 @@ class RecordingPlaybackController
                             audioPath = audioPath,
                             isLoading = true,
                             playbackSpeed = _state.value.playbackSpeed,
+                            hasStartedPlayback = true,
                         )
                     player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
                     player.prepare()
@@ -408,6 +410,7 @@ class RecordingPlaybackController
                     errorMessage = errorMessage,
                     playbackSpeed = player.playbackParameters.speed,
                     noticeMessage = if (player.isPlaying) _state.value.noticeMessage else null,
+                    hasStartedPlayback = _state.value.hasStartedPlayback || player.isPlaying,
                 )
         }
 

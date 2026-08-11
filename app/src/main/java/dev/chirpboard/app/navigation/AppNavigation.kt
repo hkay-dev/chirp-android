@@ -265,6 +265,7 @@ internal fun RecordingPlaybackState.toVisibilityProjection(): RecordingPlaybackS
         recordingId = recordingId,
         isLoading = isLoading,
         errorMessage = errorMessage,
+        hasStartedPlayback = hasStartedPlayback,
     )
 
 /**

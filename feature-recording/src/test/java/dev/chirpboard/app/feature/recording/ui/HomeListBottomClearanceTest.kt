@@ -40,9 +40,20 @@ class HomeListBottomClearanceTest {
 
     @Test
     fun impliesGlobalMiniPlayer_trueForActiveLoadingAndError() {
-        // Mirrors shouldShowGlobalMiniPlayer's predicate: active OR loading OR error.
-        assertTrue(RecordingPlaybackRowState(recordingId = UUID.randomUUID()).impliesGlobalMiniPlayer())
-        assertTrue(RecordingPlaybackRowState(isLoading = true).impliesGlobalMiniPlayer())
+        // Mirrors shouldShowGlobalMiniPlayer's predicate: (active OR loading OR error)
+        // AND (playback actually started OR error).
+        assertTrue(
+            RecordingPlaybackRowState(
+                recordingId = UUID.randomUUID(),
+                hasStartedPlayback = true,
+            ).impliesGlobalMiniPlayer(),
+        )
+        assertTrue(RecordingPlaybackRowState(isLoading = true, hasStartedPlayback = true).impliesGlobalMiniPlayer())
         assertTrue(RecordingPlaybackRowState(errorMessage = "boom").impliesGlobalMiniPlayer())
+    }
+
+    @Test
+    fun impliesGlobalMiniPlayer_falseForAPreparedButNeverPlayedSession() {
+        assertFalse(RecordingPlaybackRowState(recordingId = UUID.randomUUID()).impliesGlobalMiniPlayer())
     }
 }

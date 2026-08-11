@@ -15,6 +15,12 @@ data class RecordingPlaybackState(
     val playbackSpeed: Float = 1f,
     /** Transient non-error hint (for example "media volume is muted"). */
     val noticeMessage: String? = null,
+    /**
+     * True once the user actually asked this session to play. A Studio visit prepares
+     * playback without playing; surfaces like the global mini player must not treat
+     * that as an active session (a "now playing" bar for audio never played).
+     */
+    val hasStartedPlayback: Boolean = false,
 ) {
     val isActive: Boolean
         get() = recordingId != null && errorMessage == null

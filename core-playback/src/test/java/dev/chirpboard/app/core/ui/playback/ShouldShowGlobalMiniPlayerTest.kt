@@ -13,7 +13,7 @@ import org.junit.Test
  */
 class ShouldShowGlobalMiniPlayerTest {
     private val recordingId = UUID.randomUUID()
-    private val activeState = RecordingPlaybackState(recordingId = recordingId)
+    private val activeState = RecordingPlaybackState(recordingId = recordingId, hasStartedPlayback = true)
     private val recordRoute = "record?autoStart={autoStart}&profileId={profileId}"
     private val studioRoute = "processing_studio/{recordingId}"
 
@@ -40,10 +40,23 @@ class ShouldShowGlobalMiniPlayerTest {
     }
 
     @Test
-    fun shown_whileLoading() {
+    fun shown_whileLoadingAfterAPlayRequest() {
         assertTrue(
             shouldShowGlobalMiniPlayer(
-                playbackState = RecordingPlaybackState(isLoading = true),
+                playbackState = RecordingPlaybackState(isLoading = true, hasStartedPlayback = true),
+                currentRoute = "home",
+                studioRecordingId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun hidden_forASessionThatWasOnlyPrepared() {
+        // Opening a Studio prepares playback without playing; navigating away must not
+        // leave a "now playing" bar for audio the user never started.
+        assertFalse(
+            shouldShowGlobalMiniPlayer(
+                playbackState = RecordingPlaybackState(recordingId = recordingId),
                 currentRoute = "home",
                 studioRecordingId = null,
             ),

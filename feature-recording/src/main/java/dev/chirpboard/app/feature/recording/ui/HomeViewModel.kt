@@ -138,6 +138,7 @@ data class RecordingPlaybackRowState(
     val isPlaying: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
+    val hasStartedPlayback: Boolean = false,
 ) {
     fun isForRecording(recordingId: UUID): Boolean = this.recordingId == recordingId
 }
@@ -148,6 +149,7 @@ internal fun RecordingPlaybackState.toHomeRowState(): RecordingPlaybackRowState 
         isPlaying = isPlaying,
         isLoading = isLoading,
         errorMessage = errorMessage,
+        hasStartedPlayback = hasStartedPlayback,
     )
 
 @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)

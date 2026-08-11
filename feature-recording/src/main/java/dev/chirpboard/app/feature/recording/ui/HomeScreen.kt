@@ -1034,11 +1034,12 @@ internal fun homeListBottomClearance(
 
 /**
  * Mirrors [dev.chirpboard.app.core.ui.playback.shouldShowGlobalMiniPlayer]'s state predicate
- * (active OR loading OR error) from the home row projection, so the list reserves clearance
- * exactly when the bar is on screen.
+ * ((active OR loading OR error) AND (playback started OR error)) from the home row
+ * projection, so the list reserves clearance exactly when the bar is on screen.
  */
 internal fun RecordingPlaybackRowState.impliesGlobalMiniPlayer(): Boolean =
-    recordingId != null || isLoading || errorMessage != null
+    (recordingId != null || isLoading || errorMessage != null) &&
+        (hasStartedPlayback || errorMessage != null)
 
 /** Number of shimmer placeholder rows shown in the first-load skeleton (LOAD-3). */
 private const val HOME_SKELETON_ROW_COUNT = 4
