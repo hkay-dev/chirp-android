@@ -288,6 +288,9 @@ class AppKeyboardInlineCapturePersistence
         private val audioEncoder: AudioEncoder,
         private val terminalNotificationDelivery: dagger.Lazy<TerminalRecordingNotificationDelivery>,
     ) : InlineCapturePersistence {
+        // Written from the IME thread and read-and-cleared from IO/NonCancellable coroutines,
+        // so every access holds checkpointLock; an unguarded take could hand the same source
+        // to two persists or drop one entirely.
         private var pendingAudioSource: InlineAudioSource? = null
         private val checkpointLock = Any()
         private val terminalCheckpointPaths = linkedSetOf<String>()
@@ -433,13 +436,17 @@ class AppKeyboardInlineCapturePersistence
 
         override fun prepareAudioSource(audioSource: InlineAudioSource) {
             discardSamples()
-            pendingAudioSource = audioSource
+            synchronized(checkpointLock) {
+                pendingAudioSource = audioSource
+            }
         }
 
         override fun releasePendingAudioSource() {
             // Ownership handoff only: the detached pipeline persists or discards the
             // source itself, so the backing temp file must survive this call.
-            pendingAudioSource = null
+            synchronized(checkpointLock) {
+                pendingAudioSource = null
+            }
         }
 
         override suspend fun persist(
@@ -465,10 +472,14 @@ class AppKeyboardInlineCapturePersistence
             errorMessage: String?,
             reason: InlineCapturePersistReason,
         ) {
-            val source = audioSource ?: pendingAudioSource ?: return
-            if (audioSource == null || pendingAudioSource == source) {
-                pendingAudioSource = null
-            }
+            val source =
+                synchronized(checkpointLock) {
+                    val chosen = audioSource ?: pendingAudioSource ?: return
+                    if (audioSource == null || pendingAudioSource == chosen) {
+                        pendingAudioSource = null
+                    }
+                    chosen
+                }
 
             withContext(NonCancellable + Dispatchers.IO) {
                 var sourceHandled = false
@@ -539,16 +550,21 @@ class AppKeyboardInlineCapturePersistence
         }
 
         override fun discardSamples() {
-            pendingAudioSource?.let { source ->
-                discardCheckpointSynchronously(source)
-                source.discardTemporaryFile()
+            val source =
+                synchronized(checkpointLock) {
+                    pendingAudioSource.also { pendingAudioSource = null }
+                }
+            source?.let {
+                discardCheckpointSynchronously(it)
+                it.discardTemporaryFile()
             }
-            pendingAudioSource = null
         }
 
         override fun discardAudioSource(audioSource: InlineAudioSource) {
-            if (pendingAudioSource == audioSource) {
-                pendingAudioSource = null
+            synchronized(checkpointLock) {
+                if (pendingAudioSource == audioSource) {
+                    pendingAudioSource = null
+                }
             }
             discardCheckpointSynchronously(audioSource)
             audioSource.discardTemporaryFile()
