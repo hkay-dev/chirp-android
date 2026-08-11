@@ -301,9 +301,13 @@ private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
                 // Prior-segment time comes from the state itself, so a row that composes
                 // fresh mid-session (scrolled back, screen re-entered) shows the true total.
                 while (true) {
-                    elapsedMs =
+                    val rawMs =
                         state.accumulatedBeforeSegmentMs +
                             (System.currentTimeMillis() - state.startTimeMs)
+                    // The pill renders whole seconds; snapping keeps 9 of every 10 ticks
+                    // an equal-value write, which Compose skips instead of re-laying out
+                    // the metadata row at 10 Hz for the whole capture.
+                    elapsedMs = rawMs - (rawMs % 1000L)
                     delay(ChirpMotion.TIMER_TICK_MS)
                 }
             }
@@ -443,6 +447,7 @@ private fun CompactTagChip(
             style = MaterialTheme.typography.labelSmall,
             color = tagColor,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
