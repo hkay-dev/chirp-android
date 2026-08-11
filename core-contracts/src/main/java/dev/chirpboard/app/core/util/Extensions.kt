@@ -1,39 +1,31 @@
 package dev.chirpboard.app.core.util
 
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Date
+import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
-private val nowCalendar = object : ThreadLocal<Calendar>() {
-    override fun initialValue() = Calendar.getInstance()
-}
-private val thenCalendar = object : ThreadLocal<Calendar>() {
-    override fun initialValue() = Calendar.getInstance()
-}
-private val yesterdayCalendar = object : ThreadLocal<Calendar>() {
-    override fun initialValue() = Calendar.getInstance()
-}
-private val monthDayFormat = object : ThreadLocal<SimpleDateFormat>() {
-    override fun initialValue() = SimpleDateFormat("MMM d", Locale.getDefault())
-}
-private val monthDayYearFormat = object : ThreadLocal<SimpleDateFormat>() {
-    override fun initialValue() = SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
-}
-
 /**
  * Format duration as "MM:SS" or "HH:MM:SS" for longer durations.
+ *
+ * Locale.US, not the default: these are digit-only timers rendered next to the app's
+ * own numerals, and the default locale would switch them to Arabic-Indic digits on
+ * their own while the surrounding UI kept Latin ones.
  */
 fun Duration.formatDuration(): String {
     val totalSeconds = inWholeSeconds
     val hours = totalSeconds / 3600
     val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    
+
     return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
     } else {
-        String.format("%d:%02d", minutes, seconds)
+        String.format(Locale.US, "%d:%02d", minutes, seconds)
     }
 }
 
@@ -53,30 +45,36 @@ fun Date.formatRelative(
     today: String = "Today",
     yesterday: String = "Yesterday",
 ): String {
-    val now = nowCalendar.get()!!.apply { timeInMillis = System.currentTimeMillis() }
-    val then = thenCalendar.get()!!.apply { time = this@formatRelative }
+    // Zone and locale are read per call. The previous ThreadLocal Calendar/SimpleDateFormat
+    // pair captured both at first use, so flying across a timezone or changing the device
+    // language mislabelled the date on every recording card until the process restarted.
+    val formatters = localizedFormatters()
+    val thenDate = Instant.ofEpochMilli(time).atZone(formatters.zone).toLocalDate()
+    val nowDate = LocalDate.now(formatters.zone)
 
     return when {
-        isSameDay(now, then) -> today
-        isYesterday(now, then) -> yesterday
-        isSameYear(now, then) -> monthDayFormat.get()!!.format(this)
-        else -> monthDayYearFormat.get()!!.format(this)
+        thenDate == nowDate -> today
+        thenDate == nowDate.minusDays(1) -> yesterday
+        thenDate.year == nowDate.year -> formatters.monthDay.format(thenDate)
+        else -> formatters.monthDayYear.format(thenDate)
     }
 }
 
-private fun isSameDay(cal1: Calendar, cal2: Calendar): Boolean {
-    return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
-           cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
+/** Pattern parsing is not free and this runs per recording card, so it is cached per zone/locale. */
+private class LocalizedFormatters(val zone: ZoneId, val locale: Locale) {
+    val monthDay: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", locale)
+    val monthDayYear: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy", locale)
 }
 
-private fun isYesterday(now: Calendar, then: Calendar): Boolean {
-    val yesterday = yesterdayCalendar.get()!!.apply {
-        timeInMillis = now.timeInMillis
-        add(Calendar.DAY_OF_YEAR, -1)
+@Volatile
+private var cachedFormatters: LocalizedFormatters? = null
+
+private fun localizedFormatters(): LocalizedFormatters {
+    val zone = ZoneId.systemDefault()
+    val locale = Locale.getDefault()
+    val cached = cachedFormatters
+    if (cached != null && cached.zone == zone && cached.locale == locale) {
+        return cached
     }
-    return isSameDay(yesterday, then)
-}
-
-private fun isSameYear(cal1: Calendar, cal2: Calendar): Boolean {
-    return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR)
+    return LocalizedFormatters(zone, locale).also { cachedFormatters = it }
 }
