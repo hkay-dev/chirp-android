@@ -101,6 +101,7 @@ class TranscriptionWorkerTest {
     private lateinit var workScheduler: FakeTranscriptionWorkScheduler
     private lateinit var completionExporter: TranscriptionCompletionExporter
     private lateinit var terminalNotificationDelivery: TerminalRecordingNotificationDelivery
+    private lateinit var chunkCheckpointStore: ChunkTranscriptionCheckpointStore
     private lateinit var foregroundUpdater: ForegroundUpdater
 
     private val recordingId: UUID = UUID.randomUUID()
@@ -138,6 +139,9 @@ class TranscriptionWorkerTest {
         workScheduler = FakeTranscriptionWorkScheduler()
         completionExporter = mockk(relaxed = true)
         terminalNotificationDelivery = mockk(relaxed = true)
+        // Real checkpoint store over the temp folder so resume behavior is pinned end-to-end.
+        every { context.filesDir } returns temporaryFolder.root
+        chunkCheckpointStore = ChunkTranscriptionCheckpointStore(context)
         coEvery { recordingRepository.failTranscriptionExecution(any(), any(), any(), any()) } returns true
 
         audioPath = temporaryFolder.newFile("capture.m4a").absolutePath
@@ -1018,6 +1022,86 @@ class TranscriptionWorkerTest {
             assertEquals(2, receivedSizes.size)
         }
 
+    @Test
+    fun `worker retry reuses checkpointed chunks and only re-transcribes the failed tail`() =
+        runTest {
+            stubOwnedRecording()
+            // ~62.5s of PCM at 16kHz: two full 30s chunks (28s step) plus a final partial chunk.
+            every { audioDecoder.decodeAsFlow(audioPath) } returns flowOf(FloatArray(1_000_000))
+            var firstRunCalls = 0
+            coEvery { transcriberProvider.transcribe(any(), any()) } answers {
+                when (firstRunCalls++) {
+                    0 -> TranscriptionOutcome.Success("alpha")
+                    else -> TranscriptionOutcome.EngineError("engine hiccup", retryable = true)
+                }
+            }
+
+            val firstResult = worker().doWork()
+
+            assertTrue(firstResult is ListenableWorker.Result.Retry)
+            assertEquals(2, firstRunCalls)
+
+            // Retry attempt: same execution token, same audio file. Chunk 0 must come from
+            // the checkpoint; only chunks 1 and 2 hit the engine.
+            var secondRunCalls = 0
+            coEvery { transcriberProvider.transcribe(any(), any()) } answers {
+                secondRunCalls++
+                TranscriptionOutcome.Success(if (secondRunCalls == 1) "beta" else "gamma")
+            }
+            val transcriptSlot = slot<Transcript>()
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = capture(transcriptSlot),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+
+            val secondResult = worker().doWork()
+
+            assertTrue(secondResult is ListenableWorker.Result.Success)
+            assertEquals(2, secondRunCalls)
+            assertEquals("alpha beta gamma", transcriptSlot.captured.rawText)
+        }
+
+    @Test
+    fun `successful chunked run clears its checkpoint files`() =
+        runTest {
+            stubOwnedRecording()
+            every { audioDecoder.decodeAsFlow(audioPath) } returns flowOf(FloatArray(1_000_000))
+            coEvery { transcriberProvider.transcribe(any(), any()) } returns
+                TranscriptionOutcome.Success("hello")
+            coEvery {
+                recordingRepository.commitTranscriptionResult(any(), any(), any(), any(), any())
+            } returns true
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            assertFalse(File(temporaryFolder.root, "transcription-chunk-checkpoints/$recordingId").exists())
+        }
+
+    @Test
+    fun `terminal failure clears checkpoints so a later retranscribe starts clean`() =
+        runTest {
+            stubOwnedRecording()
+            every { audioDecoder.decodeAsFlow(audioPath) } returns flowOf(FloatArray(1_000_000))
+            var calls = 0
+            coEvery { transcriberProvider.transcribe(any(), any()) } answers {
+                when (calls++) {
+                    0 -> TranscriptionOutcome.Success("alpha")
+                    else -> TranscriptionOutcome.EngineError("engine dead", retryable = false)
+                }
+            }
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Failure)
+            assertFalse(File(temporaryFolder.root, "transcription-chunk-checkpoints/$recordingId").exists())
+        }
+
     private fun worker(
         scheduler: TranscriptionWorkScheduler = workScheduler,
         provider: TranscriberProvider = transcriberProvider,
@@ -1039,6 +1123,7 @@ class TranscriptionWorkerTest {
             workScheduler = scheduler,
             completionExporter = completionExporter,
             terminalNotificationDelivery = terminalNotificationDelivery,
+            chunkCheckpointStore = chunkCheckpointStore,
         )
 
     private fun stubRecording(

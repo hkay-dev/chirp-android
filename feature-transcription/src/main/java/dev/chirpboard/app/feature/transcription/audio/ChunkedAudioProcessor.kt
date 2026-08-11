@@ -73,7 +73,7 @@ class ChunkedAudioProcessor(
         audioSource: Flow<FloatArray>,
         transcribe: suspend (FloatArray) -> String,
     ): Flow<String> = flow {
-        consumeChunks(audioSource) { chunk, _ ->
+        consumeChunks(audioSource) { chunk, _, _ ->
             val partialTranscript = transcribe(chunk)
             if (partialTranscript.isNotBlank()) {
                 emit(partialTranscript)
@@ -125,7 +125,7 @@ class ChunkedAudioProcessor(
         }
 
         try {
-            consumeChunks(audioSource) { chunk, _ ->
+            consumeChunks(audioSource) { chunk, _, _ ->
                 pending += chunk
                 if (pending.size == batchSize) flush()
                 if (failed) throw BatchedRecoveryFailed()
@@ -140,15 +140,19 @@ class ChunkedAudioProcessor(
     /**
      * Process and join all chunks into a single transcript with recording-relative timing.
      * Returns null timing when any chunk is untimed or the combined result fails integrity checks.
+     *
+     * [transcribe] receives the zero-based chunk index alongside the samples. Chunk indices
+     * are deterministic for a given audio stream and chunk configuration, which lets callers
+     * checkpoint per-chunk results and reuse them on a retry over the same audio.
      */
     internal suspend fun processAndJoinDetailed(
         audioSource: Flow<FloatArray>,
-        transcribe: suspend (FloatArray) -> ChunkTranscription,
+        transcribe: suspend (chunkIndex: Int, samples: FloatArray) -> ChunkTranscription,
     ): JoinedChunkTranscription {
         val parts = mutableListOf<ChunkTranscription>()
 
-        consumeChunks(audioSource) { chunk, startSampleIndex ->
-            val partial = transcribe(chunk)
+        consumeChunks(audioSource) { chunk, startSampleIndex, chunkIndex ->
+            val partial = transcribe(chunkIndex, chunk)
             if (partial.text.isNotBlank()) {
                 val chunkOffsetMs = sampleIndexToMillis(startSampleIndex)
                 parts += partial.withRecordingOffset(chunkOffsetMs)
@@ -227,7 +231,7 @@ class ChunkedAudioProcessor(
 
     private suspend fun consumeChunks(
         audioSource: Flow<FloatArray>,
-        onChunk: suspend (chunk: FloatArray, startSampleIndex: Long) -> Unit,
+        onChunk: suspend (chunk: FloatArray, startSampleIndex: Long, chunkIndex: Int) -> Unit,
     ) {
         var buffer = FloatArray(chunkSize * 2)
         var bufferSize = 0
@@ -250,7 +254,7 @@ class ChunkedAudioProcessor(
                 chunksProcessed++
                 Log.d(TAG, "Processing chunk $chunksProcessed (${chunkSize} samples)")
 
-                onChunk(chunk, bufferStartSampleIndex)
+                onChunk(chunk, bufferStartSampleIndex, chunksProcessed - 1)
 
                 val toRemove = chunkSize - overlapSize
                 val remaining = bufferSize - toRemove
@@ -265,7 +269,7 @@ class ChunkedAudioProcessor(
             System.arraycopy(buffer, 0, remaining, 0, bufferSize)
 
             Log.d(TAG, "Processing final chunk (${remaining.size} samples)")
-            onChunk(remaining, bufferStartSampleIndex)
+            onChunk(remaining, bufferStartSampleIndex, chunksProcessed)
         }
 
         Log.d(TAG, "Completed processing: $chunksProcessed full chunks + 1 final chunk")

@@ -55,11 +55,11 @@ import java.util.UUID
  *
  * Long-audio execution (PIPE-01): the worker promotes itself to dataSync foreground work
  * so multi-hour decodes are not killed at the ~10-minute background job window. When the
- * platform refuses the foreground start the run continues in the background; if it is then
- * stopped at the window, decoding restarts from sample 0 on the next attempt (resume
- * design note: per-chunk transcript checkpointing keyed on the execution token would allow
- * a restart to resume mid-recording — the chunked processor already exposes chunk start
- * offsets — but is deliberately not implemented yet to keep the commit path single-shot).
+ * platform refuses the foreground start the run continues in the background. On the
+ * chunked local path, per-chunk results are checkpointed through
+ * [ChunkTranscriptionCheckpointStore] keyed on the execution token, so a retry after a
+ * mid-recording failure re-decodes the audio but only re-transcribes the chunks that
+ * never completed.
  */
 @HiltWorker
 class TranscriptionWorker
@@ -81,6 +81,7 @@ class TranscriptionWorker
         private val workScheduler: TranscriptionWorkScheduler,
         private val completionExporter: TranscriptionCompletionExporter,
         private val terminalNotificationDelivery: TerminalRecordingNotificationDelivery,
+        private val chunkCheckpointStore: ChunkTranscriptionCheckpointStore,
     ) : CoroutineWorker(appContext, workerParams) {
         companion object {
             private const val TAG = "TranscriptionWorker"
@@ -90,6 +91,8 @@ class TranscriptionWorker
             private const val RAW_PCM_EXTENSION = "f32pcm"
             private const val CONTINUOUS_HEAP_RESERVE_BYTES = 64L * 1024L * 1024L
             private const val MAX_CONTINUOUS_GGUF_AUDIO_MS = 5L * 60L * 1_000L
+            private const val CHUNK_DURATION_MS = 30_000L
+            private const val CHUNK_OVERLAP_MS = 2_000L
         }
 
         override suspend fun doWork(): Result {
@@ -283,6 +286,7 @@ class TranscriptionWorker
                             transcribeLocally(
                                 recordingId = recordingId,
                                 correlationId = correlationId,
+                                executionToken = executionToken,
                                 audioPath = ownedRecording.audioPath,
                                 durationMs = ownedRecording.durationMs,
                             )
@@ -299,6 +303,7 @@ class TranscriptionWorker
                     }
             } catch (e: OutOfMemoryError) {
                 Log.e(TAG, "Out of memory during transcription", e)
+                chunkCheckpointStore.clear(recordingId)
                 val updated =
                     recordingRepository.failTranscriptionExecution(
                         recordingId,
@@ -397,6 +402,7 @@ class TranscriptionWorker
         private suspend fun transcribeLocally(
             recordingId: UUID,
             correlationId: String,
+            executionToken: String,
             audioPath: String,
             durationMs: Long,
         ): JoinedChunkTranscription {
@@ -418,7 +424,7 @@ class TranscriptionWorker
                     Log.w(TAG, "Continuous decode could not reserve PCM; using lossless chunk recovery", error)
                 }
             }
-            return transcribeLocallyChunked(recordingId, correlationId, audioPath, durationMs)
+            return transcribeLocallyChunked(recordingId, correlationId, executionToken, audioPath, durationMs)
         }
 
         private suspend fun transcribeContinuous(
@@ -461,27 +467,47 @@ class TranscriptionWorker
         private suspend fun transcribeLocallyChunked(
             recordingId: UUID,
             correlationId: String,
+            executionToken: String,
             audioPath: String,
             durationMs: Long,
         ): JoinedChunkTranscription {
             val processor =
                 ChunkedAudioProcessor(
-                    chunkDurationMs = 30_000,
-                    overlapDurationMs = 2_000,
+                    chunkDurationMs = CHUNK_DURATION_MS,
+                    overlapDurationMs = CHUNK_OVERLAP_MS,
                     sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
                 )
-            val audioFlow = localAudioFlow(audioPath)
-            return processor.processAndJoinDetailed(audioFlow) { samples ->
-                if (recordingStateManager.state.value.isActive) {
-                    waitForInactiveRecording(recordingId, correlationId, durationMs)
-                }
-                if (!transcriberProvider.isReady() && !transcriberProvider.initialize()) {
-                    throw RetryableTranscriptionException("Failed to re-initialize speech recognition model")
-                }
-                mapOutcomeForChunkTranscription(
-                    transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE),
+            // A retry attempt re-decodes the audio but reuses every chunk that already
+            // finished on a previous attempt of this same execution; only chunks the
+            // failure interrupted are transcribed again (ChunkTranscriptionCheckpointStore).
+            val fingerprint =
+                chunkCheckpointStore.fingerprint(
+                    executionToken = executionToken,
+                    audioFile = File(audioPath),
+                    chunkDurationMs = CHUNK_DURATION_MS,
+                    overlapDurationMs = CHUNK_OVERLAP_MS,
+                    sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
                 )
-            }
+            val checkpointedChunks = chunkCheckpointStore.load(recordingId, fingerprint)
+            val audioFlow = localAudioFlow(audioPath)
+            val joined =
+                processor.processAndJoinDetailed(audioFlow) { chunkIndex, samples ->
+                    checkpointedChunks[chunkIndex] ?: run {
+                        if (recordingStateManager.state.value.isActive) {
+                            waitForInactiveRecording(recordingId, correlationId, durationMs)
+                        }
+                        if (!transcriberProvider.isReady() && !transcriberProvider.initialize()) {
+                            throw RetryableTranscriptionException("Failed to re-initialize speech recognition model")
+                        }
+                        mapOutcomeForChunkTranscription(
+                            transcriberProvider.transcribe(samples, AudioDecoder.TARGET_SAMPLE_RATE),
+                        ).also { chunk ->
+                            chunkCheckpointStore.append(recordingId, fingerprint, chunkIndex, chunk)
+                        }
+                    }
+                }
+            chunkCheckpointStore.clear(recordingId)
+            return joined
         }
 
         private suspend fun collectContinuousSamples(
@@ -808,6 +834,9 @@ class TranscriptionWorker
             return if (disposition.retry) {
                 Result.retry()
             } else {
+                // Terminal failure: no further attempt of this execution will run, so any
+                // per-chunk checkpoints from earlier attempts are dead weight.
+                chunkCheckpointStore.clear(recordingId)
                 if (updated) {
                     val notificationRequested =
                         recordingRepository.getRecording(recordingId)?.terminalNotificationPending == true

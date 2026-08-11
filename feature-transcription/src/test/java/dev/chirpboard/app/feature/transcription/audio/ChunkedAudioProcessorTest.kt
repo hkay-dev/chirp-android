@@ -208,7 +208,7 @@ class ChunkedAudioProcessorTest {
         val flowSource = flowOf(sourceSamples)
 
         var callCount = 0
-        val joined = processor.processAndJoinDetailed(flowSource) {
+        val joined = processor.processAndJoinDetailed(flowSource) { _, _ ->
             callCount++
             when (callCount) {
                 1 -> ChunkTranscription(
@@ -258,7 +258,7 @@ class ChunkedAudioProcessorTest {
         val flowSource = flowOf(sourceSamples)
 
         var callCount = 0
-        val joined = processor.processAndJoinDetailed(flowSource) {
+        val joined = processor.processAndJoinDetailed(flowSource) { _, _ ->
             callCount++
             when (callCount) {
                 1 -> ChunkTranscription(
@@ -274,6 +274,26 @@ class ChunkedAudioProcessorTest {
 
         assertEquals("hello there world", joined.text)
         assertNull(joined.wordTimings)
+    }
+
+    @Test
+    fun `processAndJoinDetailed passes sequential zero based chunk indices`() = runTest {
+        val processor = ChunkedAudioProcessor(
+            chunkDurationMs = 2000,
+            overlapDurationMs = 1000,
+            sampleRate = 10,
+        )
+        // 35 samples at chunkSize=20/step=10 yields two full chunks plus a final partial one.
+        val flowSource = flowOf(FloatArray(35) { it.toFloat() })
+
+        val seenIndices = mutableListOf<Int>()
+        processor.processAndJoinDetailed(flowSource) { chunkIndex, _ ->
+            seenIndices += chunkIndex
+            ChunkTranscription(text = "chunk $chunkIndex")
+        }
+
+        // Checkpoint resume relies on indices being deterministic and gap-free.
+        assertEquals(listOf(0, 1, 2), seenIndices)
     }
 
     @Test(expected = IllegalArgumentException::class)
