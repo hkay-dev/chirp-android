@@ -533,7 +533,9 @@ class TranscriptionQueueManager
                     .value
             val pendingById = pending.associateBy { it.id }
 
-            return (pending.map { it.id } + enhancing.map { it.id }).count { id ->
+            // A recording can transition between the two queries and land in both lists;
+            // distinct() keeps the second pass from re-running an already-attempted recovery.
+            return (pending.map { it.id } + enhancing.map { it.id }).distinct().count { id ->
                 when (pendingById[id]?.status) {
                     RecordingStatus.PENDING_TRANSCRIPTION -> {
                         recoverPendingTranscription(id) == ManualRecoveryResult.ENQUEUED
