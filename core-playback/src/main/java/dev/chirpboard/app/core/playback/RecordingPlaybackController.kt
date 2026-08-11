@@ -490,7 +490,16 @@ class RecordingPlaybackController
             positionJob?.cancel()
             positionJob =
                 scope.launch {
+                    var tick = 0
                     while (isActive) {
+                        // Re-check the muted hint at 1 Hz so it appears/clears as the user
+                        // moves the volume mid-playback instead of freezing at its value
+                        // from the moment playback started (refresh before sync so sync
+                        // carries the fresh notice forward).
+                        if (tick % MUTED_NOTICE_TICK_INTERVAL == 0) {
+                            refreshMutedVolumeNotice()
+                        }
+                        tick++
                         syncFromPlayer()
                         delay(POSITION_TICK_MS)
                     }
@@ -501,6 +510,7 @@ class RecordingPlaybackController
             private const val TAG = "RecordingPlayback"
             private const val SKIP_MS = 10_000L
             private const val POSITION_TICK_MS = 100L
+        private const val MUTED_NOTICE_TICK_INTERVAL = 10
             private val IO_ERROR_CODE_RANGE = 2000..2999
             private val PARSING_ERROR_CODE_RANGE = 3000..3999
             private val DECODING_ERROR_CODE_RANGE = 4000..4999
