@@ -14,6 +14,9 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// Compiled once; parseSimpleJsonObject runs for every journal line during recovery scans.
+private val SIMPLE_JSON_FIELD_REGEX = """"([^"]+)":"((?:\\.|[^"\\])*)"|"([^"]+)":(-?\d+)""".toRegex()
+
 enum class SessionJournalState {
     ACTIVE,
     STOPPING,
@@ -591,8 +594,7 @@ class RecordingSessionJournal
             val body = raw.trim().removePrefix("{").removeSuffix("}")
             if (body.isBlank()) return emptyMap()
             val result = linkedMapOf<String, String>()
-            val regex = """"([^"]+)":"((?:\\.|[^"\\])*)"|"([^"]+)":(-?\d+)""".toRegex()
-            regex.findAll(body).forEach { match ->
+            SIMPLE_JSON_FIELD_REGEX.findAll(body).forEach { match ->
                 val stringKey = match.groupValues[1]
                 val stringValue = match.groupValues[2]
                 val numberKey = match.groupValues[3]

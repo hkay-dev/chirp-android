@@ -64,7 +64,6 @@ class OrphanedAudioCleaner
                     var deletedCount = 0
                     for (file in files) {
                         if (file.extension !in ORPHAN_EXTENSIONS) continue
-                        if (file.parentFile?.name == ".capture") continue
 
                         val absolutePath = file.absolutePath
                         if (validPaths.contains(absolutePath)) continue

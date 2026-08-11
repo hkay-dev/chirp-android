@@ -80,7 +80,6 @@ fun AudioWaveform(
                     val barWidthPx = 5.dp.toPx()
                     val barSpacingPx = 5.dp.toPx()
                     val stepPx = barWidthPx + barSpacingPx
-                    val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 8.dp.toPx()), 0f)
 
                     val canvasWidth = size.width
                     val centerY = size.height / 2f
@@ -89,6 +88,10 @@ fun AudioWaveform(
                     val scrollSampleCount = sampleCount.toFloat()
 
                     if (showIdlePlaceholder && activeAlphaValue < 1f) {
+                        // Allocated only on placeholder frames; this lambda runs on every
+                        // amplitude redraw while recording.
+                        val dashEffect =
+                            PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 8.dp.toPx()), 0f)
                         val dottedAlpha = (1f - activeAlphaValue) * 0.3f
                         drawLine(
                             color = colorValue.copy(alpha = dottedAlpha),
