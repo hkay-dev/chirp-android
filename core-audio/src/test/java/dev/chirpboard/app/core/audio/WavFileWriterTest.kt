@@ -27,6 +27,17 @@ class WavFileWriterTest {
     }
 
     @Test
+    fun `init creates a missing parent directory before opening the file`() {
+        val file = File(temporaryFolder.root, "missing/nested/capture.wav")
+
+        WavFileWriter(file, sampleRate = 16_000).use { writer ->
+            writer.appendPcm16(ByteArray(2048) { 1 }, 2048)
+        }
+
+        assertTrue(WavFileWriter.hasAccurateHeader(file))
+    }
+
+    @Test
     fun `close finalizes header to match actual data size`() {
         val file = File(temporaryFolder.root, "closed.wav")
         WavFileWriter(file, sampleRate = 44_100).use { writer ->

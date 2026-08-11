@@ -17,11 +17,14 @@ class WavFileWriter(
     private val file: File,
     private val sampleRate: Int,
 ) : AutoCloseable {
-    private val randomAccessFile = RandomAccessFile(file, "rw")
+    private val randomAccessFile: RandomAccessFile
     private var dataBytesWritten = 0L
 
     init {
+        // Directory creation must precede the RandomAccessFile open, which fails on a
+        // missing parent; a property initializer would run first and defeat the mkdirs.
         file.parentFile?.mkdirs()
+        randomAccessFile = RandomAccessFile(file, "rw")
         randomAccessFile.setLength(0)
         writeCanonicalHeader(randomAccessFile, sampleRate, dataBytes = 0L)
     }
