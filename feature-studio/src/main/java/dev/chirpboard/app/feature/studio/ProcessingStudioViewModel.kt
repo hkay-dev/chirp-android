@@ -156,8 +156,13 @@ class ProcessingStudioViewModel
          * edit mode returns with the draft instead of silently dropping both.
          */
         private fun prepareDraftRestoration() {
-            val restoration = readDraftRestoration() ?: return
-            if (!restoration.transcriptDraftInFile) {
+            val restoration = readDraftRestoration()
+            if (restoration?.transcriptDraftInFile != true) {
+                // No file-backed draft to restore: remove any stale side file left behind by an
+                // earlier process death, so a full transcript never lingers in filesDir.
+                viewModelScope.launch(draftFileDispatcher) {
+                    runCatching { oversizedDraftFile()?.delete() }
+                }
                 pendingDraftRestoration = restoration
                 return
             }
@@ -166,6 +171,13 @@ class ProcessingStudioViewModel
                     withContext(draftFileDispatcher) {
                         runCatching { oversizedDraftFile()?.takeIf(File::exists)?.readText() }.getOrNull()
                     }
+                if (draft == null) {
+                    // The process died before the debounced side-file write landed. Reopening in
+                    // edit mode on the saved base text (applyDraftRestoration falls back to the
+                    // effective transcript) beats silently returning to read mode, and the
+                    // message keeps the loss honest.
+                    _message.value = context.getString(R.string.rec_msg_transcript_draft_lost)
+                }
                 offerDraftRestoration(
                     if (draft != null) restoration.copy(transcriptDraft = draft) else restoration,
                 )
@@ -200,6 +212,7 @@ class ProcessingStudioViewModel
             isEditing: Boolean,
             draft: String?,
         ) {
+            val wasOversized = savedStateHandle.get<Boolean>(KEY_TRANSCRIPT_DRAFT_IN_FILE) ?: false
             savedStateHandle[KEY_IS_EDITING_TRANSCRIPT] = isEditing
             // Bundles have a hard size budget; very large drafts go to a side file (debounced)
             // instead of risking a TransactionTooLargeException on every lifecycle save.
@@ -212,7 +225,10 @@ class ProcessingStudioViewModel
                 oversized && draft != null ->
                     oversizedDraftPersistJob =
                         viewModelScope.launch {
-                            delay(OVERSIZED_DRAFT_PERSIST_DEBOUNCE_MS)
+                            // The first oversize transition writes immediately: from this point the
+                            // bundle carries no draft, so until the file exists a process death
+                            // loses everything. Later keystrokes debounce as usual.
+                            if (wasOversized) delay(OVERSIZED_DRAFT_PERSIST_DEBOUNCE_MS)
                             withContext(draftFileDispatcher) { runCatching { writeOversizedDraft(draft) } }
                         }
 
@@ -732,7 +748,11 @@ class ProcessingStudioViewModel
         }
 
         fun draftStructuredOutcomeQuestion(item: StructuredOutcomeItemUi) {
-            _uiState.value = _uiState.value.copy(chatDraft = buildStructuredOutcomeAskAiDraft(item))
+            // Route through updateChatDraft so the generated question survives process death
+            // like a hand-typed one, and never silently clobber text already in the box.
+            val existing = _uiState.value.chatDraft
+            val generated = buildStructuredOutcomeAskAiDraft(item)
+            updateChatDraft(if (existing.isBlank()) generated else "$existing\n\n$generated")
         }
 
         fun onStructuredOutcomeCopied() {
@@ -923,21 +943,21 @@ class ProcessingStudioViewModel
         }
 
         fun promoteTranscriptCorrection() {
+            // The prompt already carries the original/replacement computed at save time.
+            // Re-deriving from currentTranscript raced the Room re-emission: a fast tap on
+            // the snackbar action saw a stale in-memory transcript and failed spuriously.
+            // Captured before launching so the caller's clearPromotionPrompt() cannot race it.
+            val prompt = _promotionPrompt.value
+            if (prompt == null) {
+                _message.value = context.getString(R.string.rec_msg_promotion_unavailable)
+                return
+            }
+            val promotion =
+                TranscriptCorrectionPromotion(
+                    original = prompt.original,
+                    replacement = prompt.replacement,
+                )
             viewModelScope.launch {
-                val transcript = currentTranscript
-                val sourceText = transcript?.manualCorrectionSourceText
-                val correctedText = transcript?.manualCorrectionText
-                if (sourceText.isNullOrBlank() || correctedText.isNullOrBlank()) {
-                    _message.value = context.getString(R.string.rec_msg_promotion_unavailable)
-                    return@launch
-                }
-
-                val promotion = analyzeTranscriptCorrectionPromotion(sourceText, correctedText)
-                if (promotion == null) {
-                    _message.value = context.getString(R.string.rec_msg_promotion_unavailable)
-                    return@launch
-                }
-
                 // ERR-18: one-shot Room writes throw on a full disk; surface instead of crashing.
                 try {
                     val existing =
@@ -1198,6 +1218,9 @@ class ProcessingStudioViewModel
                             if (file.exists() && !file.delete()) {
                                 Log.w("ProcessingStudioVM", "Failed to delete audio file: ${rec.audioPath}")
                             }
+                            // The oversized-draft side file holds the full transcript text; it
+                            // must not outlive the recording it belongs to.
+                            oversizedDraftFile()?.delete()
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             Log.w("ProcessingStudioVM", "Error deleting audio file: ${rec.audioPath}", e)
@@ -1453,11 +1476,13 @@ internal data class StudioDraftRestoration(
 
 internal fun ProcessingStudioState.applyDraftRestoration(restoration: StudioDraftRestoration): ProcessingStudioState {
     var state = this
-    if (restoration.isEditingTranscript && restoration.transcriptDraft != null) {
+    if (restoration.isEditingTranscript) {
+        // A missing draft (side-file write never landed before process death) still reopens
+        // edit mode on the saved transcript instead of silently dropping back to read mode.
         state =
             state.copy(
                 isEditingTranscript = true,
-                transcriptDraft = restoration.transcriptDraft,
+                transcriptDraft = restoration.transcriptDraft ?: state.effectiveTranscriptText,
             )
     }
     if (restoration.isEditingTitle) {

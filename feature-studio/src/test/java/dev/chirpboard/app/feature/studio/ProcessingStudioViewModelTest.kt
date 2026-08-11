@@ -647,6 +647,46 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `missing side file still reopens edit mode and reports the lost draft`() =
+        runTest {
+            // The process died before the debounced side-file write landed: the draft is gone,
+            // but the screen must reopen in edit mode on the saved transcript and say so —
+            // not silently drop back to read mode.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            every { context.getString(R.string.rec_msg_transcript_draft_lost) } returns
+                "Your unsaved transcript edits could not be recovered"
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+            val filesDir = java.nio.file.Files.createTempDirectory("studio-draft-test").toFile()
+            every { context.filesDir } returns filesDir
+
+            val restoredHandle =
+                SavedStateHandle(
+                    mapOf(
+                        "recordingId" to recordingId.toString(),
+                        "studio.isEditingTranscript" to true,
+                        "studio.transcriptDraftInFile" to true,
+                    ),
+                )
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = restoredHandle)
+            viewModel.draftFileDispatcher = dispatcher
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isEditingTranscript)
+            assertEquals("original text", viewModel.uiState.value.transcriptDraft)
+            assertEquals(
+                "Your unsaved transcript edits could not be recovered",
+                viewModel.message.value,
+            )
+            filesDir.deleteRecursively()
+        }
+
+    @Test
     fun `oversized transcript draft mirrors to a side file and marks the bundle`() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)
