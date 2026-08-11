@@ -203,18 +203,12 @@ class LlmRecordingTextEnhancementPort
             fallbackProcessingModeId: String,
         ): Result<String> {
             if (context.providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
-                vertexAvailabilityFailure()?.let { return Result.failure(it) }
                 val resolvedPrompt =
                     prompt ?: run {
                         val mode = modeRepository.resolveMode(fallbackProcessingModeId)
                         textProcessor.resolvePromptForSnapshot(context.text, mode)
                     } ?: return Result.failure(IllegalStateException("Processing prompt is unavailable"))
-                return vertexTextGenerationClient.generate(
-                    text = context.text,
-                    prompt = resolvedPrompt,
-                    model = context.modelId,
-                    recordingId = context.recordingId,
-                )
+                return vertexGenerate(context, resolvedPrompt)
             }
             val transcriptContext =
                 TranscriptLlmContext(context.text, context.providerId, context.modelId)
@@ -234,13 +228,7 @@ class LlmRecordingTextEnhancementPort
 
         override suspend fun generateTitle(context: RecordingTextEnhancementContext): Result<String> {
             if (context.providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
-                vertexAvailabilityFailure()?.let { return Result.failure(it) }
-                return vertexTextGenerationClient.generate(
-                    text = context.text,
-                    prompt = VERTEX_TITLE_PROMPT,
-                    model = context.modelId,
-                    recordingId = context.recordingId,
-                )
+                return vertexGenerate(context, VERTEX_TITLE_PROMPT)
             }
             return llmClient.generateTitle(
                 TranscriptLlmContext(context.text, context.providerId, context.modelId),
@@ -249,16 +237,23 @@ class LlmRecordingTextEnhancementPort
 
         override suspend fun generateSummary(context: RecordingTextEnhancementContext): Result<String> {
             if (context.providerId == GOOGLE_CLOUD_VERTEX_PROVIDER_ID) {
-                vertexAvailabilityFailure()?.let { return Result.failure(it) }
-                return vertexTextGenerationClient.generate(
-                    text = context.text,
-                    prompt = VERTEX_SUMMARY_PROMPT,
-                    model = context.modelId,
-                    recordingId = context.recordingId,
-                )
+                return vertexGenerate(context, VERTEX_SUMMARY_PROMPT)
             }
             return llmClient.generateSummary(
                 TranscriptLlmContext(context.text, context.providerId, context.modelId),
+            )
+        }
+
+        private suspend fun vertexGenerate(
+            context: RecordingTextEnhancementContext,
+            prompt: String,
+        ): Result<String> {
+            vertexAvailabilityFailure()?.let { return Result.failure(it) }
+            return vertexTextGenerationClient.generate(
+                text = context.text,
+                prompt = prompt,
+                model = context.modelId,
+                recordingId = context.recordingId,
             )
         }
 
