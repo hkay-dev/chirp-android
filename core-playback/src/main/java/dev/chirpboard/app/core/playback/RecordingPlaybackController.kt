@@ -308,6 +308,13 @@ class RecordingPlaybackController
                         release()
                     }
                     controller = null
+                    // A play/prepare that was already inside the lock when the user
+                    // dismissed writes its own state after the synchronous reset above,
+                    // which brought the dismissed bar back stuck at isLoading with no
+                    // controller behind it. Re-assert idle once the teardown is done; the
+                    // mutex is FIFO, so a genuinely newer command still lands after this.
+                    positionJob?.cancel()
+                    _state.value = RecordingPlaybackState(playbackSpeed = _state.value.playbackSpeed)
                 }
             }
         }
