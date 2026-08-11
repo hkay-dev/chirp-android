@@ -25,6 +25,7 @@
     <string name="rec_note_field_desc">Note text</string>
     <string name="rec_note_placeholder">What’s this recording about?</string>
     <string name="rec_msg_note_save_failed">Couldn’t save the note. Try again.</string>
+    <string name="rec_msg_recording_load_failed">Couldn’t load some recording data. Retrying…</string>
     <string name="desc_expand_note">Expand note</string>
     <string name="desc_collapse_note">Collapse note</string>
     <string name="rec_no_speech_title">No speech detected in this recording</string>

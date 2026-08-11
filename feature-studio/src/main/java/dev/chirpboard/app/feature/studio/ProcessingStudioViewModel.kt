@@ -62,6 +62,10 @@ class ProcessingStudioViewModel
         private var currentTranscript: Transcript? = null
         private var recordingObservationJob: Job? = null
         private var missingRecordingJob: Job? = null
+
+        // Suppresses the NotFound transition between repository.delete() and the deferred
+        // onDeleted() navigation, so a confirmed delete never flashes the error screen.
+        private var isDeleting = false
         private var recoveryDiagnosticsJob: Job? = null
         private var lastScheduledRecoveryKey: RecoveryDiagnosticsRefreshKey? = null
         private var playbackRevealJob: Job? = null
@@ -231,6 +235,7 @@ class ProcessingStudioViewModel
 
         private fun loadRecording(id: UUID) {
             cancelRecordingObservation()
+            isDeleting = false
             playbackController.pauseIfDifferentRecording(id)
             recordingObservationJob =
                 viewModelScope.launch {
@@ -254,18 +259,26 @@ class ProcessingStudioViewModel
                     repository.getStructuredOutcomeSnapshotFlow(id),
                     structuredOutcomeGenerationInFlight,
                 ) { recordingState, transcriptState, timingsState, snapshotState, isStructuredOutcomeGenerating ->
-                    listOfNotNull(
-                        recordingState.errorMessage,
-                        transcriptState.errorMessage,
-                        timingsState.errorMessage,
-                        snapshotState.errorMessage,
-                    ).firstOrNull()?.let { _message.value = it }
+                    val anyLoadError =
+                        listOfNotNull(
+                            recordingState.errorMessage,
+                            transcriptState.errorMessage,
+                            timingsState.errorMessage,
+                            snapshotState.errorMessage,
+                        ).isNotEmpty()
+                    if (anyLoadError) {
+                        // Raw exception text is a developer diagnostic (I18N-05); the user gets
+                        // localized copy. _message is a StateFlow, so the fixed string also stops
+                        // the retry-backoff loop from re-posting a snackbar per failed emission.
+                        _message.value = context.getString(R.string.rec_msg_recording_load_failed)
+                    }
                     StudioRecordingLoadState(
                         recording = recordingState.value,
                         transcript = transcriptState.value,
                         timings = timingsState.value,
                         structuredOutcomeSnapshot = snapshotState.value,
                         isStructuredOutcomeGenerating = isStructuredOutcomeGenerating,
+                        recordingLoadFailed = recordingState.errorMessage != null,
                     )
                 }.distinctUntilChanged().collectLatest { loadState ->
                     if (_uiState.value.loadState == ProcessingStudioLoadState.NotFound) {
@@ -280,9 +293,19 @@ class ProcessingStudioViewModel
                         missingRecordingJob?.cancel()
                         missingRecordingJob = null
                         sawRecording = true
-                        val currentState = _uiState.value
                         currentTranscript = transcript
                         val effectiveTranscriptText = transcript?.effectiveText.orEmpty()
+                        // Built BEFORE the state snapshot below: this call suspends (it hops to a
+                        // background dispatcher when the transcript changed), and user input
+                        // handlers write _uiState during that hop. A snapshot taken before the
+                        // suspension would clobber those writes at the copy() further down,
+                        // eating keystrokes typed while an enhancement result lands.
+                        val transcriptState =
+                            buildTimedTranscript(
+                                rawText = effectiveTranscriptText,
+                                timings = timings,
+                            )
+                        val currentState = _uiState.value
                         val wasEditingTranscript = currentState.isEditingTranscript
                         val transcriptChanged = effectiveTranscriptText != currentState.effectiveTranscriptText
                         // A pipeline write landing mid-edit (enhancement finishing, correction
@@ -293,11 +316,6 @@ class ProcessingStudioViewModel
                             _message.value = context.getString(R.string.rec_msg_transcript_updated_while_editing)
                         }
                         val isEditingTranscript = wasEditingTranscript
-                        val transcriptState =
-                            buildTimedTranscript(
-                                rawText = effectiveTranscriptText,
-                                timings = timings,
-                            )
                         val renderedTranscriptText = transcriptState.renderedText()
                         val renderedTranscriptChanged = renderedTranscriptText != currentState.renderedTranscriptText
                         val promotionCandidate =
@@ -387,10 +405,15 @@ class ProcessingStudioViewModel
                             )
                         }
                     } else {
-                        if (sawRecording) {
-                            markRecordingNotFound()
-                        } else {
-                            scheduleMissingRecordingCheck(id)
+                        when {
+                            // The repository emits value=null with an error message when the Room
+                            // flow throws, then retries with backoff. That null is a read failure,
+                            // not a deletion: tearing the screen down to "Recording not found"
+                            // here would also cancel the very collector that heals on retry.
+                            loadState.recordingLoadFailed -> Unit
+                            isDeleting -> Unit
+                            sawRecording -> markRecordingNotFound()
+                            else -> scheduleMissingRecordingCheck(id)
                         }
                     }
                 }
@@ -1027,6 +1050,7 @@ class ProcessingStudioViewModel
                 // not keep transcribing against a deleted row and file.
                 transcriptionRecovery.cancelProcessing(id)
                 try {
+                    isDeleting = true
                     repository.delete(rec)
                     withContext(Dispatchers.IO) {
                         try {
@@ -1041,6 +1065,7 @@ class ProcessingStudioViewModel
                     }
                     onDeleted()
                 } catch (e: Exception) {
+                    isDeleting = false
                     if (e is kotlinx.coroutines.CancellationException) throw e
                     Log.e("ProcessingStudioVM", "Failed to delete recording: $id", e)
                     _message.value = context.getString(CoreUiR.string.rec_msg_delete_failed)
@@ -1217,6 +1242,7 @@ private data class StudioRecordingLoadState(
     val timings: List<dev.chirpboard.app.data.entity.TranscriptTiming>,
     val structuredOutcomeSnapshot: dev.chirpboard.app.data.model.StructuredOutcomeSnapshot?,
     val isStructuredOutcomeGenerating: Boolean,
+    val recordingLoadFailed: Boolean,
  )
 
 private data class RecoveryDiagnosticsRefreshKey(
