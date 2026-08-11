@@ -70,6 +70,12 @@ class RecordingSegmentRotator
                     return@withLock null
                 }
 
+                // Advisory only: the engine has already switched to nextSegment, so the
+                // journal and state MUST record the switch no matter what the completed
+                // file looks like. Bailing out here used to leave the journal on the old
+                // segment; the next tick then recomputed the same segment index and the
+                // engine's rotation into that same file truncated the audio it was
+                // actively writing, capping the recording at the first segment forever.
                 val completedValidation = fileValidator.validateForRecovery(completedFile)
                 if (!completedValidation.isRecoverableStub) {
                     Log.w(
@@ -77,7 +83,6 @@ class RecordingSegmentRotator
                         "Gapless segment rotation produced invalid segment: ${completedValidation.failureReason}",
                     )
                     rotationLog.failure("segment_rotation_invalid", message = completedValidation.failureReason)
-                    return@withLock null
                 }
 
                 sessionJournal.appendCompletedSegment(
