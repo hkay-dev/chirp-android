@@ -8,7 +8,7 @@ import dev.chirpboard.app.core.recording.RecordingStateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,12 +31,24 @@ class WidgetStateObserver @Inject constructor(
     @VisibleForTesting
     internal var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    private var collectJob: Job? = null
+
+    /**
+     * Idempotent: a second call would otherwise leave two collectors rendering every
+     * transition twice for the lifetime of the process.
+     */
     fun startObserving() {
-        scope.launch {
-            recordingStateManager.state.collectLatest { state ->
-                renderWidgets(state)
-            }
+        if (collectJob?.isActive == true) {
+            return
         }
+        collectJob =
+            scope.launch {
+                // collect, not collectLatest: renderWidgets never suspends, so there is
+                // nothing for the cancel-and-restart semantics to cancel.
+                recordingStateManager.state.collect { state ->
+                    renderWidgets(state)
+                }
+            }
     }
 
     private fun renderWidgets(state: RecordingState) {
