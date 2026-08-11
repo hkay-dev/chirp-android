@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
@@ -64,6 +65,9 @@ fun AudioWaveform(
         animationSpec = tween(300, easing = EaseInOut),
         label = "activeAlpha",
     )
+    // Reused draw-phase scratch buffer: one snapshotInto per frame replaces a
+    // per-bar synchronized get() that contended with the capture thread.
+    val amplitudeSnapshot = remember(waveformBuffer) { FloatArray(waveformBuffer.capacity) }
 
     Spacer(
         modifier =
@@ -105,7 +109,7 @@ fun AudioWaveform(
 
                     if (activeAlphaValue <= 0f) return@drawBehind
 
-                    val totalSamples = waveformBuffer.count
+                    val totalSamples = waveformBuffer.snapshotInto(amplitudeSnapshot)
                     if (totalSamples == 0) return@drawBehind
 
                     val firstSampleIndex = sampleCount - totalSamples
@@ -127,7 +131,7 @@ fun AudioWaveform(
                             continue
                         }
 
-                        val amp = waveformBuffer.get(i)
+                        val amp = amplitudeSnapshot[i]
                         val scaledAmplitude = amp * activeAlphaValue
                         val boostedAmplitude = (scaledAmplitude.pow(0.7f) * 1.5f)
                         val barHeight =
