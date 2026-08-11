@@ -177,6 +177,17 @@ fun ProcessingStudioScreen(
     // NOTES: collapsed/expanded display state for the note card survives rotation.
     var isNotesExpanded by rememberSaveable { mutableStateOf(false) }
 
+    // Every path into retranscription must confirm first when a manual correction exists:
+    // a successful commit clears the correction, so an unconfirmed tap on Retry or Start
+    // transcription would silently destroy the user's hand-edited text.
+    fun requestRetranscribe() {
+        if (state.hasManualCorrection) {
+            showRetranscribeConfirmation = true
+        } else {
+            viewModel.retranscribe()
+        }
+    }
+
     fun requestCloseTranscriptEdit() {
         if (state.transcriptDraft != state.effectiveTranscriptText) {
             showDiscardEditDialog = true
@@ -375,13 +386,7 @@ fun ProcessingStudioScreen(
                             }
                         }
                             IconButton(
-                                onClick = {
-                                    if (state.hasManualCorrection) {
-                                        showRetranscribeConfirmation = true
-                                    } else {
-                                        viewModel.retranscribe()
-                                    }
-                                },
+                                onClick = { requestRetranscribe() },
                                 enabled = canRetranscribe,
                             ) {
                                 Icon(
@@ -767,13 +772,13 @@ fun ProcessingStudioScreen(
                             },
                             onStartTranscription =
                                 if (state.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) {
-                                    { viewModel.retranscribe() }
+                                    { requestRetranscribe() }
                                 } else {
                                     null
                                 },
                             // sweep-04: a completed-but-empty (silence-only) transcript offers a
                             // retry instead of a dead end.
-                            onRetryTranscription = { viewModel.retranscribe() },
+                            onRetryTranscription = { requestRetranscribe() },
                             onSegmentClicked = if (state.canUseTranscriptInteractions()) viewModel::onWordClicked else null,
                             onTranscriptDraftChange = viewModel::updateTranscriptDraft,
                             onCopyTranscript = {
