@@ -3,11 +3,15 @@ package dev.chirpboard.app.feature.llm.settings
 /** Stable default for Google AI Studio generateContent calls. */
 const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
+// Targets must be ids present in the catalog below; resolveModelId silently falls
+// back to the provider default for anything unknown, which turns a migration typo
+// into an invisible model downgrade.
 private val deprecatedGeminiModels =
     mapOf(
         "gemini-3.1-flash-lite-preview" to "gemini-3.1-flash-lite",
         "gemini-3-flash-preview" to "gemini-3.5-flash",
-        "gemini-3-pro-preview" to "gemini-3.1-pro-preview",
+        "gemini-3-pro-preview" to "gemini-3.6-flash",
+        "gemini-3.1-pro-preview" to "gemini-3.6-flash",
     )
 
 private val catalog: Map<LlmProvider, List<LlmModelOption>> =

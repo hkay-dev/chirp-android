@@ -21,6 +21,23 @@ class LlmModelCatalogTest {
     }
 
     @Test
+    fun `deprecated Gemini ids resolve to catalog entries, not the default fallback`() {
+        val knownIds = modelsFor(LlmProvider.GEMINI).map { it.id }.toSet()
+        listOf(
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3-flash-preview",
+            "gemini-3-pro-preview",
+            "gemini-3.1-pro-preview",
+        ).forEach { deprecated ->
+            val resolved = resolveModelId(LlmProvider.GEMINI, deprecated)
+            assert(resolved in knownIds) { "$deprecated resolved to unknown id $resolved" }
+            assert(resolved != DEFAULT_GEMINI_MODEL || deprecated.contains("flash-lite")) {
+                "$deprecated silently downgraded to the default model"
+            }
+        }
+    }
+
+    @Test
     fun `resolveModelId keeps known model ids`() {
         assertEquals("claude-sonnet-4-6", resolveModelId(LlmProvider.ANTHROPIC, "claude-sonnet-4-6"))
     }
