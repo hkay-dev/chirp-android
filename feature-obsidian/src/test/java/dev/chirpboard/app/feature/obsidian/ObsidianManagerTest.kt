@@ -305,6 +305,24 @@ class ObsidianManagerTest {
     }
 
     @Test
+    fun `the sweep keeps the in-flight temp file when the provider renamed it`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename =
+            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
+        // ExternalStorageProvider appends the mime extension to the requested display name, so
+        // the created document no longer matches the name the export asked for — only its uri.
+        every { harness.tempFile.name } returns "$expectedFilename.tmp.deadbeef.md"
+        every { harness.tempFile.delete() } returns true
+        every { harness.vaultDir.listFiles() } returns arrayOf(harness.tempFile)
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 0) { harness.tempFile.delete() }
+        assertTrue(harness.writtenContent().contains("transcript"))
+    }
+
+    @Test
     fun `a vault that refuses to create files fails as an access error`() = runTest {
         val harness = successExportHarness()
         every { harness.vaultDir.createFile("text/markdown", any()) } returns null

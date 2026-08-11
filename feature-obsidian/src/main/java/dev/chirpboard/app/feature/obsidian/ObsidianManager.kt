@@ -7,6 +7,8 @@ import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.export.TranscriptExportRecording
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.FileOutputStream
 import java.io.IOException
@@ -31,6 +33,14 @@ class ObsidianManager
         companion object {
             private const val TAG = "ObsidianManager"
         }
+
+        /**
+         * Serializes vault writes. Auto-export on transcription completion and a user-triggered
+         * re-export can target the same note at once; their temp documents share the
+         * `$filename.tmp.` prefix, so each one's leftover sweep would delete the other's
+         * in-flight file. Exports are infrequent and IO-bound, so queueing them costs nothing.
+         */
+        private val writeMutex = Mutex()
 
         /**
          * Export recording transcript to Obsidian vault as Markdown.
@@ -91,7 +101,7 @@ class ObsidianManager
                         )
 
                     // Write atomically to prevent data loss on crash
-                    writeAtomically(vaultDir, filename, content)
+                    writeMutex.withLock { writeAtomically(vaultDir, filename, content) }
                 }
             }
 
@@ -219,7 +229,7 @@ class ObsidianManager
                     }
                 } ?: throw IOException("Failed to open temp file for writing")
 
-                val existing = findExistingAndSweepLeftovers(vaultDir, filename, tempFilename)
+                val existing = findExistingAndSweepLeftovers(vaultDir, filename, tempFile.uri)
                 return replaceExisting(vaultDir, tempFile, existing, filename, uniqueSuffix)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -238,18 +248,24 @@ class ObsidianManager
          * temp/backup leftovers from earlier crashed exports of the same file. Leftovers
          * are matched by the `$filename.tmp.` / `$filename.bak.` prefixes, so in-flight
          * exports of other recordings are never touched.
+         *
+         * The in-flight temp document is skipped by uri, not by the name that was requested:
+         * SAF providers are free to alter the display name they assign (ExternalStorageProvider
+         * appends the mime extension, and collisions get a " (1)" suffix), and a name-based
+         * skip would then fall through to the prefix branch and delete the file this export
+         * just wrote.
          */
         private fun findExistingAndSweepLeftovers(
             vaultDir: DocumentFile,
             filename: String,
-            currentTempFilename: String,
+            currentTempUri: Uri,
         ): DocumentFile? {
             var existing: DocumentFile? = null
             for (child in vaultDir.listFiles()) {
+                if (child.uri == currentTempUri) continue
                 val name = child.name ?: continue
                 when {
                     name == filename -> existing = child
-                    name == currentTempFilename -> Unit
                     name.startsWith("$filename.tmp.") || name.startsWith("$filename.bak.") ->
                         deleteQuietly(child, "stale export leftover $name")
                 }
