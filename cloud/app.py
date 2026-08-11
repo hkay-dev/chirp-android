@@ -1489,7 +1489,17 @@ def create_app(config: dict | None = None, services: dict | None = None) -> Flas
             job = start_transcription(job)
             return jsonify({"job": public_job(job), "upload": None}), 202
         if info is not None:
-            services["storage"].delete_job_objects(job)
+            try:
+                services["storage"].delete_job_objects(job)
+            except Exception as error:
+                app.logger.warning(
+                    "Stale audio deletion failed for %s [%s]",
+                    job["id"],
+                    type(error).__name__,
+                )
+                return error_response(
+                    "storage_unavailable", "Cloud storage is unavailable. Try again.", 503
+                )
         job, session_url, session_error = ensure_upload_session(job, force_new=True)
         if session_error:
             return session_error

@@ -127,6 +127,7 @@ class FakeStorage:
         self.sessions = []
         self.cancelled_sessions = []
         self.deleted = []
+        self.delete_error = False
 
     def create_upload_session(self, job):
         url = f"https://upload.test/{job['id']}/{len(self.sessions)}"
@@ -147,6 +148,8 @@ class FakeStorage:
         }
 
     def delete_job_objects(self, job):
+        if self.delete_error:
+            raise RuntimeError("storage unavailable")
         self.objects.pop(job["objectName"], None)
         self.deleted.append(job["id"])
 
@@ -864,6 +867,27 @@ class CloudApiTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"]["code"], "invalid_model")
         self.assertEqual(self.gemini.calls, [])
+
+    def test_retry_reports_storage_unavailable_when_stale_audio_cannot_be_deleted(self):
+        job = self.created_job()
+        self.storage.objects[job["objectName"]] = {
+            "size": job["byteLength"] + 1,
+            "crc32c": job["crc32c"],
+            "contentType": job["contentType"],
+        }
+        self.jobs.patch(
+            job["id"],
+            {"state": "FAILED", "error": {"code": "upload_invalid", "retryable": True}},
+        )
+        self.storage.delete_error = True
+
+        response = self.client.post(
+            f"/v1/dictations/{job['id']}/retry", headers=AUTH
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["error"]["code"], "storage_unavailable")
+        self.assertEqual(self.speech.submissions, [])
 
     def test_retry_cannot_overwrite_a_racing_delete_tombstone(self):
         job = self.created_job()
