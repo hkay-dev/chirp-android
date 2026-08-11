@@ -1,14 +1,12 @@
 package dev.chirpboard.app.feature.recording.session
 
 import android.content.Context
-import android.system.Os
-import android.system.OsConstants
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.recording.RecordingOrigin
+import dev.chirpboard.app.core.util.DurableFiles
 import dev.chirpboard.app.feature.recording.session.validation.RecordingFileValidator
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
@@ -426,7 +424,7 @@ class RecordingSessionJournal
                 if (!deleted) {
                     Log.w(TAG, "Failed to delete session journal for $sessionId")
                 } else {
-                    syncSessionsDirectory()
+                    DurableFiles.syncDirectory(sessionsDir)
                 }
             }
         }
@@ -453,7 +451,7 @@ class RecordingSessionJournal
                 }
                 val quarantined = File(file.parentFile, "${file.name}$CORRUPT_SUFFIX")
                 if (file.renameTo(quarantined)) {
-                    syncSessionsDirectory()
+                    DurableFiles.syncDirectory(sessionsDir)
                     // Stamp the quarantine time so pruneCorruptEntries retention starts now.
                     quarantined.setLastModified(System.currentTimeMillis())
                     Log.w(TAG, "Quarantined unparseable session journal ${file.name}", error)
@@ -521,39 +519,7 @@ class RecordingSessionJournal
                     entry.correlationId?.let { add(""""correlationId":"${escapeJson(it)}"""") }
                 }
             val payload = "{${fields.joinToString(",")}}"
-            val target = sessionFile(entry.sessionId)
-            val temp = File(target.parentFile, "${target.name}.tmp")
-            try {
-                FileOutputStream(temp).use { output ->
-                    output.write(payload.toByteArray(Charsets.UTF_8))
-                    output.flush()
-                    output.fd.sync()
-                }
-                if (!temp.renameTo(target)) {
-                    throw IOException("Failed to atomically replace session journal ${target.name}")
-                }
-                // The file sync protects the payload. The directory sync protects the
-                // rename itself, so a sudden reboot cannot roll the journal name back.
-                syncSessionsDirectory()
-            } finally {
-                if (temp.exists() && !temp.delete()) {
-                    Log.w(TAG, "Failed to clean temporary session journal ${temp.name}")
-                }
-            }
-        }
-
-        private fun syncSessionsDirectory() {
-            val descriptor =
-                runCatching { Os.open(sessionsDir.absolutePath, OsConstants.O_RDONLY, 0) }.getOrNull()
-                    ?: return
-            try {
-                Os.fsync(descriptor)
-            } catch (_: Exception) {
-                // Some test and vendor filesystems do not support directory fsync. The
-                // journal payload itself was still synced before the atomic rename.
-            } finally {
-                runCatching { Os.close(descriptor) }
-            }
+            DurableFiles.writeTextAtomically(sessionFile(entry.sessionId), payload)
         }
 
         private fun readEntry(file: File): RecordingSessionEntry {

@@ -1,7 +1,6 @@
 package dev.chirpboard.app.core.audio
 
-import android.system.Os
-import android.system.OsConstants
+import dev.chirpboard.app.core.util.DurableFiles
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -59,7 +58,7 @@ class WavFileWriter(
             randomAccessFile.fd.sync()
         } finally {
             randomAccessFile.close()
-            syncParentDirectory(file)
+            file.parentFile?.let(DurableFiles::syncDirectory)
         }
     }
 
@@ -105,21 +104,6 @@ class WavFileWriter(
         private const val MAX_PLAUSIBLE_SAMPLE_RATE = 192_000
         private const val UINT_MASK = 0xFFFFFFFFL
         private val PRINTABLE_ASCII_RANGE = 0x20..0x7E
-
-        /** Makes a newly created filename durable before another store points at it. */
-        private fun syncParentDirectory(file: File) {
-            val directory = file.parentFile ?: return
-            val descriptor = runCatching { Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0) }.getOrNull()
-                ?: return
-            try {
-                Os.fsync(descriptor)
-            } catch (_: Exception) {
-                // The file itself is already synced. A directory fsync can be unavailable on a
-                // test filesystem, so callers still get the strongest guarantee it can offer.
-            } finally {
-                runCatching { Os.close(descriptor) }
-            }
-        }
 
         fun floatToPcm16(samples: FloatArray): ByteArray {
             val buffer = ByteBuffer.allocate(samples.size * BYTES_PER_SAMPLE).order(ByteOrder.LITTLE_ENDIAN)

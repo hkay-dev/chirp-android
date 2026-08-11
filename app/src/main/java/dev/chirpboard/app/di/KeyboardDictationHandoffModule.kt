@@ -1,8 +1,6 @@
 package dev.chirpboard.app.di
 
 import android.content.Context
-import android.system.Os
-import android.system.OsConstants
 import android.util.Log
 import androidx.annotation.Keep
 import com.google.gson.Gson
@@ -20,6 +18,7 @@ import dev.chirpboard.app.core.transcription.KeyboardDictationHandoffResult
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
+import dev.chirpboard.app.core.util.DurableFiles
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
@@ -133,7 +132,7 @@ class AppKeyboardDictationHandoff
                     val partialDeleted =
                         !File(directory, "${marker.name}.partial").exists() ||
                             File(directory, "${marker.name}.partial").delete()
-                    syncDirectory(directory)
+                    DurableFiles.syncDirectory(directory)
                     if (!audioDeleted || !markerDeleted || !partialDeleted) {
                         throw IOException("Could not discard the live keyboard capture")
                     }
@@ -156,7 +155,7 @@ class AppKeyboardDictationHandoff
                     val partial = File(directory, "${marker.name}.partial")
                     val markerDeleted = !marker.exists() || marker.delete()
                     val partialDeleted = !partial.exists() || partial.delete()
-                    syncDirectory(directory)
+                    DurableFiles.syncDirectory(directory)
                     if (!markerDeleted || !partialDeleted) {
                         throw IOException("Could not release the live keyboard capture")
                     }
@@ -378,7 +377,7 @@ class AppKeyboardDictationHandoff
                             audioDeleted = false
                             Log.e(TAG, "Could not delete cancelled keyboard dictation audio: $audioPath")
                         } else {
-                            audio.parentFile?.let(::syncDirectory)
+                            audio.parentFile?.let(DurableFiles::syncDirectory)
                         }
                     }
                     audioDeleted
@@ -525,7 +524,7 @@ class AppKeyboardDictationHandoff
                         if (!staging.delete()) {
                             Log.w(TAG, "Could not delete a stale partial marker ${staging.name}")
                         } else {
-                            syncDirectory(directory)
+                            DurableFiles.syncDirectory(directory)
                         }
                         return@forEach
                     }
@@ -554,7 +553,7 @@ class AppKeyboardDictationHandoff
                         } catch (_: AtomicMoveNotSupportedException) {
                             Files.move(staging.toPath(), marker.toPath())
                         }
-                        syncDirectory(directory)
+                        DurableFiles.syncDirectory(directory)
                     } catch (e: Exception) {
                         Log.e(TAG, "Could not promote partial keyboard marker ${staging.name}", e)
                     }
@@ -660,32 +659,9 @@ class AppKeyboardDictationHandoff
             marker: File,
             json: String,
         ): File {
-            val directory = checkNotNull(marker.parentFile)
-            val staging = File(directory, "${marker.name}.partial")
-            try {
-                FileOutputStream(staging).use { output ->
-                    output.write(json.toByteArray(Charsets.UTF_8))
-                    output.fd.sync()
-                }
-                try {
-                    Files.move(
-                        staging.toPath(),
-                        marker.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING,
-                    )
-                } catch (_: AtomicMoveNotSupportedException) {
-                    Files.move(
-                        staging.toPath(),
-                        marker.toPath(),
-                        StandardCopyOption.REPLACE_EXISTING,
-                    )
-                }
-                syncDirectory(directory)
-            } catch (e: Exception) {
-                runCatching { staging.delete() }
-                throw e
-            }
+            // The .partial staging suffix is part of the crash-recovery contract:
+            // OrphanedAudioCleaner treats it as a live reference to the capture audio.
+            DurableFiles.writeTextAtomically(marker, json, stagingSuffix = ".partial")
             return marker
         }
 
@@ -769,7 +745,7 @@ class AppKeyboardDictationHandoff
             if (marker.exists() && !marker.delete()) {
                 Log.w(TAG, "Could not delete keyboard handoff marker ${marker.name}")
             } else {
-                marker.parentFile?.let(::syncDirectory)
+                marker.parentFile?.let(DurableFiles::syncDirectory)
             }
         }
 
@@ -908,7 +884,7 @@ internal fun moveCaptureToDurableStorage(
 
     try {
         Files.move(source.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
-        destination.parentFile?.let(::syncDirectory)
+        destination.parentFile?.let(DurableFiles::syncDirectory)
         return
     } catch (_: AtomicMoveNotSupportedException) {
         // Same-device app storage normally supports the atomic rename. Keep a crash-safe copy
@@ -929,7 +905,7 @@ internal fun moveCaptureToDurableStorage(
         } catch (_: AtomicMoveNotSupportedException) {
             Files.move(staging.toPath(), destination.toPath())
         }
-        destination.parentFile?.let(::syncDirectory)
+        destination.parentFile?.let(DurableFiles::syncDirectory)
         if (!source.delete()) {
             Log.w("KeyboardHandoff", "Durable copy succeeded, but the old cache file remains")
         }
@@ -939,20 +915,3 @@ internal fun moveCaptureToDurableStorage(
     }
 }
 
-/** Best-effort directory sync for rename durability on Android/Linux filesystems. */
-internal fun syncDirectory(directory: File) {
-    val descriptor =
-        try {
-            Os.open(directory.absolutePath, OsConstants.O_RDONLY, 0)
-        } catch (e: Exception) {
-            Log.w("KeyboardHandoff", "Could not open directory for sync: ${directory.absolutePath}", e)
-            return
-        }
-    try {
-        Os.fsync(descriptor)
-    } catch (e: Exception) {
-        Log.w("KeyboardHandoff", "Could not sync directory: ${directory.absolutePath}", e)
-    } finally {
-        runCatching { Os.close(descriptor) }
-    }
-}

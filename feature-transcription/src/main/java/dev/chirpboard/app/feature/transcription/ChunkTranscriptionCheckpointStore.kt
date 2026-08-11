@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.annotation.VisibleForTesting
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.core.transcription.RecognizedWordTiming
+import dev.chirpboard.app.core.util.DurableFiles
 import java.io.File
 import java.util.Base64
 import java.util.UUID
@@ -185,17 +186,8 @@ class ChunkTranscriptionCheckpointStore @Inject constructor(
         }.getOrNull()
 
     private fun writeAtomically(target: File, payload: String) {
-        val temp = File(target.parentFile, "${target.name}.tmp")
-        try {
-            temp.writeText(payload)
-            if (!temp.renameTo(target)) {
-                Log.w(TAG, "Failed to atomically replace checkpoint file ${target.name}")
-            }
-        } finally {
-            if (temp.exists() && !temp.delete()) {
-                Log.w(TAG, "Failed to clean temporary checkpoint file ${temp.name}")
-            }
-        }
+        runCatching { DurableFiles.writeTextAtomically(target, payload) }
+            .onFailure { Log.w(TAG, "Failed to replace checkpoint file ${target.name}", it) }
     }
 
     private fun encodeText(value: String): String =

@@ -18,6 +18,7 @@ import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.transcription.RecoveryDiagnostics
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
+import dev.chirpboard.app.core.util.DurableFiles
 import java.io.IOException
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.R as CoreUiR
@@ -187,12 +188,7 @@ class ProcessingStudioViewModel
 
         private fun writeOversizedDraft(draft: String) {
             val file = oversizedDraftFile() ?: return
-            val tmp = File(file.parentFile, "${file.name}.tmp")
-            tmp.writeText(draft)
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                tmp.renameTo(file)
-            }
+            DurableFiles.writeTextAtomically(file, draft)
         }
 
         private var oversizedDraftPersistJob: Job? = null

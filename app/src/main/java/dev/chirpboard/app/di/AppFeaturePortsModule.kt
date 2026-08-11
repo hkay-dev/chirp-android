@@ -31,6 +31,7 @@ import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
+import dev.chirpboard.app.core.util.DurableFiles
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.cloud.VertexTextGenerationClient
@@ -53,11 +54,7 @@ import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDel
 import dev.chirpboard.app.feature.transcription.inline.shouldPersistCaptures
 import dev.chirpboard.app.feature.transcription.audio.discardTemporaryFile
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.StandardCopyOption
 import java.util.Properties
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -312,7 +309,6 @@ class AppKeyboardInlineCapturePersistence
                         val checkpoint = checkpointFile(fileSource)
                         val directory = checkNotNull(checkpoint.parentFile)
                         directory.mkdirs()
-                        val partial = File(directory, "${checkpoint.name}.partial")
                         val properties =
                             Properties().apply {
                                 setProperty("version", CHECKPOINT_VERSION)
@@ -323,25 +319,9 @@ class AppKeyboardInlineCapturePersistence
                                 setProperty("partialTranscript", partialTranscript.orEmpty())
                                 setProperty("updatedAtEpochMs", System.currentTimeMillis().toString())
                             }
-                        FileOutputStream(partial).use { output ->
+                        DurableFiles.writeAtomically(checkpoint, stagingSuffix = ".partial") { output ->
                             properties.store(output, null)
-                            output.fd.sync()
                         }
-                        try {
-                            Files.move(
-                                partial.toPath(),
-                                checkpoint.toPath(),
-                                StandardCopyOption.ATOMIC_MOVE,
-                                StandardCopyOption.REPLACE_EXISTING,
-                            )
-                        } catch (_: AtomicMoveNotSupportedException) {
-                            Files.move(
-                                partial.toPath(),
-                                checkpoint.toPath(),
-                                StandardCopyOption.REPLACE_EXISTING,
-                            )
-                        }
-                        syncDirectory(directory)
                         true
                     }.onFailure { error ->
                         Log.e(TAG, "Could not write keyboard capture checkpoint", error)
