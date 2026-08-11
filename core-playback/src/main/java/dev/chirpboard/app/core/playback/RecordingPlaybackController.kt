@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 @Singleton
 class RecordingPlaybackController
@@ -369,6 +371,15 @@ class RecordingPlaybackController
                     val player = controller ?: createController().also { controller = it }
                     block(player)
                 }
+            } catch (error: TimeoutCancellationException) {
+                // Caught ahead of CancellationException: rethrowing this one would leave the
+                // transport stuck on the isLoading the command had already written.
+                Log.e(TAG, "Timed out connecting playback controller", error)
+                _state.value =
+                    _state.value.copy(
+                        isLoading = false,
+                        errorMessage = context.getString(R.string.playback_error_generic),
+                    )
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -389,11 +400,17 @@ class RecordingPlaybackController
                     context,
                     ComponentName(context, RecordingPlaybackService::class.java),
                 )
+            val future = MediaController.Builder(context, sessionToken).buildAsync()
             val controller =
-                MediaController.Builder(context, sessionToken)
-                    .buildAsync()
-                    .await()
-                    .also { it.addListener(playerListener) }
+                try {
+                    withTimeout(CONNECT_TIMEOUT_MS) { future.await() }
+                } catch (error: TimeoutCancellationException) {
+                    // Abandoning the future would leak the service binding if the connect
+                    // lands after the timeout.
+                    MediaController.releaseFuture(future)
+                    throw error
+                }
+            controller.addListener(playerListener)
             // Apply the current speed before anything plays (restored at startup, kept
             // up to date by setPlaybackSpeed).
             runCatching { controller.setPlaybackSpeed(_state.value.playbackSpeed) }
@@ -523,7 +540,15 @@ class RecordingPlaybackController
             private const val TAG = "RecordingPlayback"
             private const val SKIP_MS = 10_000L
             private const val POSITION_TICK_MS = 100L
-        private const val MUTED_NOTICE_TICK_INTERVAL = 10
+            private const val MUTED_NOTICE_TICK_INTERVAL = 10
+
+            /**
+             * Binding the playback service normally takes milliseconds. The bound is here
+             * because the connect happens under [connectMutex] and stop() needs that same
+             * lock: a bind that never completes would otherwise hold the transport frozen
+             * at "loading" with no way to dismiss it for the rest of the process.
+             */
+            private const val CONNECT_TIMEOUT_MS = 10_000L
             private val IO_ERROR_CODE_RANGE = 2000..2999
             private val PARSING_ERROR_CODE_RANGE = 3000..3999
             private val DECODING_ERROR_CODE_RANGE = 4000..4999
