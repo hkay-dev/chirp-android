@@ -1,6 +1,7 @@
 package dev.chirpboard.app.core.ui.components
 
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -53,20 +54,18 @@ fun ThinkingDots(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(3) { index ->
-            val delay = index * 200
-
             val offsetY =
                 infiniteTransition?.animateFloat(
                     initialValue = 0f,
                     targetValue = -bounceHeightPx,
                     animationSpec =
+                        // Stagger via StartOffset: a delayMillis inside infiniteRepeatable
+                        // re-applies every iteration, giving the dots different cycle
+                        // lengths so they drift out of phase.
                         infiniteRepeatable(
-                            animation =
-                                tween(
-                                    durationMillis = 400,
-                                    delayMillis = delay,
-                                ),
+                            animation = tween(durationMillis = 400),
                             repeatMode = RepeatMode.Reverse,
+                            initialStartOffset = StartOffset(index * 200),
                         ),
                     label = "dot_bounce_$index",
                 )
