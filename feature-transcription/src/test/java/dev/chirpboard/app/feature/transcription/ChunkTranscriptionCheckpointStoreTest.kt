@@ -116,6 +116,23 @@ class ChunkTranscriptionCheckpointStoreTest {
     }
 
     @Test
+    fun load_skipsAChunkFileTruncatedMidWriteAndAChunkWithABrokenTimingLine() {
+        store.append(recordingId, fingerprint, chunkIndex = 0, chunk = ChunkTranscription(text = "good"))
+        store.append(recordingId, fingerprint, chunkIndex = 1, chunk = ChunkTranscription(text = "truncated"))
+        store.append(recordingId, fingerprint, chunkIndex = 2, chunk = ChunkTranscription(text = "half-timed"))
+        val dir = File(temporaryFolder.root, "transcription-chunk-checkpoints/$recordingId")
+        // Process death after the version line landed but before the payload did.
+        File(dir, "chunk-1").writeText("v1\n")
+        // A timing line missing its end timestamp must not be silently dropped from the chunk:
+        // stitched-in words with the wrong spans are worse than transcribing the chunk again.
+        File(dir, "chunk-2").writeText("v1\n${base64("hi")}\ntimed\n${base64("hi")}\t0")
+
+        val loaded = store.load(recordingId, fingerprint)
+
+        assertEquals(setOf(0), loaded.keys)
+    }
+
+    @Test
     fun clear_removesTheRecordingDirectory() {
         store.append(recordingId, fingerprint, chunkIndex = 0, chunk = ChunkTranscription(text = "done"))
 
@@ -145,4 +162,7 @@ class ChunkTranscriptionCheckpointStoreTest {
         assertEquals("fresh", loaded.getValue(0).text)
         assertFalse(File(temporaryFolder.root, "transcription-chunk-checkpoints/$abandonedRecordingId").exists())
     }
+
+    private fun base64(value: String): String =
+        java.util.Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))
 }

@@ -161,29 +161,44 @@ class ChunkTranscriptionCheckpointStore @Inject constructor(
             }
         }
 
-    private fun parseChunkFile(file: File): ChunkTranscription? =
-        runCatching {
-            val lines = file.readLines()
-            if (lines.getOrNull(0) != FORMAT_VERSION) return@runCatching null
-            val text = decodeText(lines[1])
-            when (lines[2]) {
-                UNTIMED_MARKER -> ChunkTranscription(text = text, wordTimings = null)
-                TIMED_MARKER ->
-                    ChunkTranscription(
-                        text = text,
-                        wordTimings =
-                            lines.drop(3).map { line ->
-                                val fields = line.split('\t')
-                                RecognizedWordTiming(
-                                    text = decodeText(fields[0]),
-                                    startTimestampMs = fields[1].toLong(),
-                                    endTimestampMs = fields[2].toLong(),
-                                )
-                            },
-                    )
-                else -> null
+    /**
+     * A malformed chunk file yields null and the chunk is transcribed again, so every parse
+     * failure is recoverable. Each field is still checked explicitly rather than left to a
+     * blanket catch: a truncated file (process death mid-write on a filesystem that lost the
+     * rename) differs from a corrupt payload, and the log line says which one happened.
+     */
+    private fun parseChunkFile(file: File): ChunkTranscription? {
+        val lines = runCatching { file.readLines() }.getOrNull() ?: return discard(file, "unreadable")
+        if (lines.size < MIN_CHUNK_FILE_LINES || lines[0] != FORMAT_VERSION) {
+            return discard(file, "truncated or unknown format")
+        }
+        val text = decodeText(lines[1]) ?: return discard(file, "undecodable text")
+        return when (lines[2]) {
+            UNTIMED_MARKER -> ChunkTranscription(text = text, wordTimings = null)
+            TIMED_MARKER -> {
+                val timings =
+                    lines.drop(3).map { line ->
+                        parseWordTiming(line) ?: return discard(file, "malformed word timing")
+                    }
+                ChunkTranscription(text = text, wordTimings = timings)
             }
-        }.getOrNull()
+            else -> discard(file, "unknown timing marker")
+        }
+    }
+
+    private fun parseWordTiming(line: String): RecognizedWordTiming? {
+        val fields = line.split('\t')
+        if (fields.size != WORD_TIMING_FIELD_COUNT) return null
+        val text = decodeText(fields[0]) ?: return null
+        val start = fields[1].toLongOrNull() ?: return null
+        val end = fields[2].toLongOrNull() ?: return null
+        return RecognizedWordTiming(text = text, startTimestampMs = start, endTimestampMs = end)
+    }
+
+    private fun discard(file: File, reason: String): ChunkTranscription? {
+        Log.w(TAG, "Discarding checkpoint ${file.name}: $reason")
+        return null
+    }
 
     private fun writeAtomically(target: File, payload: String) {
         runCatching { DurableFiles.writeTextAtomically(target, payload) }
@@ -193,8 +208,8 @@ class ChunkTranscriptionCheckpointStore @Inject constructor(
     private fun encodeText(value: String): String =
         Base64.getEncoder().encodeToString(value.toByteArray(Charsets.UTF_8))
 
-    private fun decodeText(value: String): String =
-        String(Base64.getDecoder().decode(value), Charsets.UTF_8)
+    private fun decodeText(value: String): String? =
+        runCatching { String(Base64.getDecoder().decode(value), Charsets.UTF_8) }.getOrNull()
 
     companion object {
         private const val TAG = "ChunkCheckpointStore"
@@ -204,6 +219,10 @@ class ChunkTranscriptionCheckpointStore @Inject constructor(
         private const val FORMAT_VERSION = "v1"
         private const val TIMED_MARKER = "timed"
         private const val UNTIMED_MARKER = "untimed"
+
+        /** Version line, base64 text, timing marker. Word-timing lines are optional. */
+        private const val MIN_CHUNK_FILE_LINES = 3
+        private const val WORD_TIMING_FIELD_COUNT = 3
 
         @VisibleForTesting
         internal const val MAX_CHECKPOINT_AGE_MS = 7L * 24 * 60 * 60 * 1000
