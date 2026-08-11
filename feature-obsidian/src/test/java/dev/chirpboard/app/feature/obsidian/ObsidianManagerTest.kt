@@ -361,6 +361,29 @@ class ObsidianManagerTest {
     }
 
     @Test
+    fun `a failed in-place overwrite keeps the temp file as the surviving copy`() = runTest {
+        // Provider supports neither rename, so the previous note is overwritten in place with
+        // mode "wt" — which truncates it before anything is copied.
+        val harness = successExportHarness(renameSucceeds = false)
+        val previousExport = mockk<DocumentFile>()
+        val previousUri = mockk<Uri>()
+        val expectedFilename =
+            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
+        every { previousExport.name } returns expectedFilename
+        every { previousExport.uri } returns previousUri
+        every { previousExport.renameTo(any()) } returns false
+        every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
+        every { contentResolver.openOutputStream(previousUri, "wt") } returns null
+        every { harness.tempFile.delete() } returns true
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isFailure)
+        // Deleting the temp here would leave the truncated note as the only copy.
+        verify(exactly = 0) { harness.tempFile.delete() }
+    }
+
+    @Test
     fun `a failed fallback copy removes the half-written final file`() = runTest {
         val harness = successExportHarness(renameSucceeds = false)
         val finalFile = mockk<DocumentFile>()

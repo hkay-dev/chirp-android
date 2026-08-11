@@ -233,6 +233,15 @@ class ObsidianManager
                 return replaceExisting(vaultDir, tempFile, existing, filename, uniqueSuffix)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                if (e is InPlaceOverwriteFailure) {
+                    // The previous note was being overwritten in place and the write did not
+                    // finish, so it is now truncated or half-written. The temp document is the
+                    // only intact copy of the content — keeping it turns total loss into a
+                    // recoverable file the user can rename, and the next successful export of
+                    // this note sweeps it away.
+                    Log.e(TAG, "In-place overwrite failed; keeping ${tempFile?.name} as the surviving copy", e.cause)
+                    throw checkNotNull(e.cause)
+                }
                 // Clean up temp file on any failure
                 try {
                     tempFile?.delete()
@@ -242,6 +251,11 @@ class ObsidianManager
                 throw e
             }
         }
+
+        /** Marks the one failure path where deleting the temp document would lose the content. */
+        private class InPlaceOverwriteFailure(
+            override val cause: Exception,
+        ) : Exception(cause)
 
         /**
          * One directory scan that both locates this file's previous export and deletes
@@ -289,8 +303,16 @@ class ObsidianManager
 
             if (!existing.renameTo("$filename.bak.$uniqueSuffix")) {
                 // Provider can't rename the old note aside; last resort is overwriting it
-                // in place with the already-durable temp content.
-                copyDocument(from = tempFile.uri, to = existing.uri)
+                // in place with the already-durable temp content. This opens the existing note
+                // "wt", which truncates it before a single byte is copied, so a failure here is
+                // the one case where the temp document must outlive the export.
+                try {
+                    copyDocument(from = tempFile.uri, to = existing.uri)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    throw InPlaceOverwriteFailure(e)
+                }
                 deleteQuietly(tempFile, "temp file")
                 return existing.uri
             }
