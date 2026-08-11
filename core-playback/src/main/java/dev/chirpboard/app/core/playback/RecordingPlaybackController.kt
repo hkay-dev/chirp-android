@@ -31,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.guava.await
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -537,6 +538,11 @@ class RecordingPlaybackController
                 scope.launch {
                     var tick = 0
                     while (isActive) {
+                        // Nobody is looking: Compose collectors stop with the lifecycle, so
+                        // a recording played with the screen off was driving a 10 Hz state
+                        // rewrite plus a 1 Hz AudioManager query into an empty room. Wait
+                        // for a collector instead; the first tick after resume is 100ms out.
+                        _state.subscriptionCount.first { it > 0 }
                         // Re-check the muted hint at 1 Hz so it appears/clears as the user
                         // moves the volume mid-playback instead of freezing at its value
                         // from the moment playback started (refresh before sync so sync
