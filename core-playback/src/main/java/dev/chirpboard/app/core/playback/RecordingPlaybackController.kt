@@ -122,7 +122,7 @@ class RecordingPlaybackController
             initialSeekMs: Long? = null,
         ) {
             scope.launch {
-                if (!validateAudioFile(audioPath, recordingId)) return@launch
+                if (!validateAudioFile(audioPath, recordingId, startedByUser = false)) return@launch
                 withConnectedController { player ->
                     val currentId = activeRecordingId(player)
                     if (currentId == recordingId && player.playerError == null) {
@@ -163,7 +163,7 @@ class RecordingPlaybackController
                 return
             }
             scope.launch {
-                if (!validateAudioFile(audioPath, recordingId)) return@launch
+                if (!validateAudioFile(audioPath, recordingId, startedByUser = true)) return@launch
                 withConnectedController { player ->
                     // Re-check after the file-validate IO hop: a capture started in that
                     // window must not receive our focus request (it treats the loss as
@@ -222,6 +222,7 @@ class RecordingPlaybackController
                     audioPath = audioPath,
                     errorMessage = context.getString(R.string.playback_blocked_while_recording),
                     playbackSpeed = _state.value.playbackSpeed,
+                    hasStartedPlayback = true,
                 )
         }
 
@@ -327,6 +328,7 @@ class RecordingPlaybackController
         private suspend fun validateAudioFile(
             audioPath: String,
             recordingId: UUID,
+            startedByUser: Boolean,
         ): Boolean {
             val readable =
                 withContext(ioDispatcher) {
@@ -346,6 +348,9 @@ class RecordingPlaybackController
                         audioPath = audioPath,
                         errorMessage = context.getString(R.string.playback_error_file_missing),
                         playbackSpeed = _state.value.playbackSpeed,
+                        // A failure the user asked for gets a bar on every route; a Studio
+                        // prepare they never played must not follow them around the app.
+                        hasStartedPlayback = startedByUser,
                     )
                 return false
             }

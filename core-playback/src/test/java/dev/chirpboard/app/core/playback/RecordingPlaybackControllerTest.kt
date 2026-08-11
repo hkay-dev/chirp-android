@@ -88,6 +88,18 @@ class RecordingPlaybackControllerTest {
     }
 
     @Test
+    fun missingFile_marksTheSessionStartedOnlyWhenTheUserAskedToPlay() {
+        val controller = controller(testContext())
+
+        controller.prepare(UUID.randomUUID(), "Missing clip", "/does/not/exist.m4a")
+        // A Studio prepare the user never played must not earn a global error bar.
+        assertFalse(controller.state.value.hasStartedPlayback)
+
+        controller.play(UUID.randomUUID(), "Missing clip", "/does/not/exist.m4a")
+        assertTrue(controller.state.value.hasStartedPlayback)
+    }
+
+    @Test
     fun pauseIfDifferentRecording_noOpWhenIdle() {
         val controller = controller(testContext())
         controller.pauseIfDifferentRecording(UUID.randomUUID())

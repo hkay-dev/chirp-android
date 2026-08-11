@@ -130,7 +130,11 @@ fun shouldShowGlobalMiniPlayer(
     if (!playbackState.isActive && !playbackState.isLoading && playbackState.errorMessage == null) return false
     // Opening a Studio prepares playback without playing; a session the user never
     // started must not put a "now playing" bar on every other screen.
-    if (!playbackState.hasStartedPlayback && playbackState.errorMessage == null) return false
+    // Errors are no exception: a prepare that failed because the file is gone used to pin an
+    // error bar to every route for a session the user never started (and the Studio screen
+    // that triggered it already shows the message). The play/refusal paths set the flag on
+    // their own error states, so a failure the user asked for still gets its bar.
+    if (!playbackState.hasStartedPlayback) return false
     // Capture and playback UIs never co-exist: the Record screen owns the bottom edge
     // (action row + auto-started capture) and the controller refuses play() during a live
     // recording anyway (AUD-10), so the global bar hides for the whole record route. Any

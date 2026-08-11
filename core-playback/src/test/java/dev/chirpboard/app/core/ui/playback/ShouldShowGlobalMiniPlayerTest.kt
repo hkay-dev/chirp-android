@@ -67,6 +67,24 @@ class ShouldShowGlobalMiniPlayerTest {
     fun shown_forErrorStateUntilDismissed() {
         assertTrue(
             shouldShowGlobalMiniPlayer(
+                playbackState =
+                    RecordingPlaybackState(
+                        recordingId = recordingId,
+                        errorMessage = "boom",
+                        hasStartedPlayback = true,
+                    ),
+                currentRoute = "home",
+                studioRecordingId = null,
+            ),
+        )
+    }
+
+    @Test
+    fun hidden_forErrorFromAStudioPrepareTheUserNeverPlayed() {
+        // Opening a Studio for a recording whose file is gone must not pin an error bar to
+        // every other route; the Studio screen that triggered the prepare shows the message.
+        assertFalse(
+            shouldShowGlobalMiniPlayer(
                 playbackState = RecordingPlaybackState(recordingId = recordingId, errorMessage = "boom"),
                 currentRoute = "home",
                 studioRecordingId = null,
@@ -91,7 +109,12 @@ class ShouldShowGlobalMiniPlayerTest {
         // not wedge under its action row either. It re-surfaces on navigating back.
         assertFalse(
             shouldShowGlobalMiniPlayer(
-                playbackState = RecordingPlaybackState(recordingId = recordingId, errorMessage = "boom"),
+                playbackState =
+                    RecordingPlaybackState(
+                        recordingId = recordingId,
+                        errorMessage = "boom",
+                        hasStartedPlayback = true,
+                    ),
                 currentRoute = recordRoute,
                 studioRecordingId = null,
             ),
