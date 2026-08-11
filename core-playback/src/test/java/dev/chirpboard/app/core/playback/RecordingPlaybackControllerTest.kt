@@ -227,6 +227,8 @@ class RecordingPlaybackControllerTest {
 
     private fun controller(context: Context): RecordingPlaybackController =
         RecordingPlaybackController(context, recordingStateManager, audioSettingsStore)
+            // Unconfined so the file-validation hop resolves before the test asserts.
+            .apply { ioDispatcher = UnconfinedTestDispatcher() }
 
     private fun testContext(): Context {
         val context = mockk<Context>(relaxed = true)

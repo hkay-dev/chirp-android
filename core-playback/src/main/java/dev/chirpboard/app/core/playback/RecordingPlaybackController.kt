@@ -9,6 +9,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.annotation.VisibleForTesting
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -19,6 +20,7 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,6 +34,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 @Singleton
 class RecordingPlaybackController
@@ -42,6 +45,9 @@ class RecordingPlaybackController
         private val audioSettingsStore: AudioSettingsStore,
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+        @VisibleForTesting
+        internal var ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 
         private val _state = MutableStateFlow(RecordingPlaybackState())
         val state: StateFlow<RecordingPlaybackState> = _state.asStateFlow()
@@ -95,25 +101,27 @@ class RecordingPlaybackController
             title: String,
             audioPath: String,
         ) {
-            if (!validateAudioFile(audioPath, recordingId)) return
-            runWithController { player ->
-                val currentId = activeRecordingId(player)
-                if (currentId == recordingId && player.playerError == null) {
+            scope.launch {
+                if (!validateAudioFile(audioPath, recordingId)) return@launch
+                withConnectedController { player ->
+                    val currentId = activeRecordingId(player)
+                    if (currentId == recordingId && player.playerError == null) {
+                        syncFromPlayer()
+                        return@withConnectedController
+                    }
+                    _state.value =
+                        RecordingPlaybackState(
+                            recordingId = recordingId,
+                            title = title,
+                            audioPath = audioPath,
+                            isLoading = true,
+                            playbackSpeed = _state.value.playbackSpeed,
+                        )
+                    player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
+                    player.prepare()
+                    player.playWhenReady = false
                     syncFromPlayer()
-                    return@runWithController
                 }
-                _state.value =
-                    RecordingPlaybackState(
-                        recordingId = recordingId,
-                        title = title,
-                        audioPath = audioPath,
-                        isLoading = true,
-                        playbackSpeed = _state.value.playbackSpeed,
-                    )
-                player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
-                player.prepare()
-                player.playWhenReady = false
-                syncFromPlayer()
             }
         }
 
@@ -136,39 +144,41 @@ class RecordingPlaybackController
                     )
                 return
             }
-            if (!validateAudioFile(audioPath, recordingId)) return
-            runWithController { player ->
-                val currentId = activeRecordingId(player)
-                if (currentId == recordingId) {
-                    when {
-                        player.playerError != null -> {
-                            // Retry after an error: a play() on an errored player is a
-                            // no-op, so rebuild the item and prepare again.
-                            _state.value =
-                                _state.value.copy(isLoading = true, errorMessage = null)
-                            player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
-                            player.prepare()
-                            player.play()
+            scope.launch {
+                if (!validateAudioFile(audioPath, recordingId)) return@launch
+                withConnectedController { player ->
+                    val currentId = activeRecordingId(player)
+                    if (currentId == recordingId) {
+                        when {
+                            player.playerError != null -> {
+                                // Retry after an error: a play() on an errored player is a
+                                // no-op, so rebuild the item and prepare again.
+                                _state.value =
+                                    _state.value.copy(isLoading = true, errorMessage = null)
+                                player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
+                                player.prepare()
+                                player.play()
+                            }
+                            player.isPlaying -> player.pause()
+                            else -> player.play()
                         }
-                        player.isPlaying -> player.pause()
-                        else -> player.play()
+                        syncFromPlayer()
+                        return@withConnectedController
                     }
-                    syncFromPlayer()
-                    return@runWithController
-                }
 
-                _state.value =
-                    RecordingPlaybackState(
-                        recordingId = recordingId,
-                        title = title,
-                        audioPath = audioPath,
-                        isLoading = true,
-                        playbackSpeed = _state.value.playbackSpeed,
-                    )
-                player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
-                player.prepare()
-                player.play()
-                syncFromPlayer()
+                    _state.value =
+                        RecordingPlaybackState(
+                            recordingId = recordingId,
+                            title = title,
+                            audioPath = audioPath,
+                            isLoading = true,
+                            playbackSpeed = _state.value.playbackSpeed,
+                        )
+                    player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
+                    player.prepare()
+                    player.play()
+                    syncFromPlayer()
+                }
             }
         }
 
@@ -265,12 +275,18 @@ class RecordingPlaybackController
             }
         }
 
-        private fun validateAudioFile(
+        // Suspends for the file stats: exists()/canRead() hit disk, and every caller is
+        // a tap handler on the main thread. Runs inside runWithController's coroutine.
+        private suspend fun validateAudioFile(
             audioPath: String,
             recordingId: UUID,
         ): Boolean {
-            val file = File(audioPath)
-            if (!file.exists() || !file.canRead()) {
+            val readable =
+                withContext(ioDispatcher) {
+                    val file = File(audioPath)
+                    file.exists() && file.canRead()
+                }
+            if (!readable) {
                 _state.value =
                     RecordingPlaybackState(
                         recordingId = recordingId,
@@ -283,22 +299,24 @@ class RecordingPlaybackController
             return true
         }
 
-        private fun runWithController(block: (MediaController) -> Unit) {
-            scope.launch {
-                try {
-                    val player =
-                        connectMutex.withLock {
-                            controller ?: createController().also { controller = it }
-                        }
-                    block(player)
-                } catch (error: Exception) {
-                    Log.e(TAG, "Failed to connect playback controller", error)
-                    _state.value =
-                        _state.value.copy(
-                            isLoading = false,
-                            errorMessage = context.getString(R.string.playback_error_generic),
-                        )
-                }
+        private fun runWithController(block: suspend (MediaController) -> Unit) {
+            scope.launch { withConnectedController(block) }
+        }
+
+        private suspend fun withConnectedController(block: suspend (MediaController) -> Unit) {
+            try {
+                val player =
+                    connectMutex.withLock {
+                        controller ?: createController().also { controller = it }
+                    }
+                block(player)
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to connect playback controller", error)
+                _state.value =
+                    _state.value.copy(
+                        isLoading = false,
+                        errorMessage = context.getString(R.string.playback_error_generic),
+                    )
             }
         }
 
