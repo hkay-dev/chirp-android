@@ -117,12 +117,14 @@ class RecordingPlaybackController
             recordingId: UUID,
             title: String,
             audioPath: String,
+            initialSeekMs: Long? = null,
         ) {
             scope.launch {
                 if (!validateAudioFile(audioPath, recordingId)) return@launch
                 withConnectedController { player ->
                     val currentId = activeRecordingId(player)
                     if (currentId == recordingId && player.playerError == null) {
+                        initialSeekMs?.let { player.seekTo(it.coerceAtLeast(0L)) }
                         syncFromPlayer()
                         return@withConnectedController
                     }
@@ -137,6 +139,10 @@ class RecordingPlaybackController
                     player.setMediaItem(buildMediaItem(recordingId, title, audioPath))
                     player.prepare()
                     player.playWhenReady = false
+                    // The seek rides the same command sequence: callers that hand off a
+                    // scrub position while a different recording occupies the controller
+                    // must not seek the old item (the audible one) by mistake.
+                    initialSeekMs?.let { player.seekTo(it.coerceAtLeast(0L)) }
                     syncFromPlayer()
                 }
             }

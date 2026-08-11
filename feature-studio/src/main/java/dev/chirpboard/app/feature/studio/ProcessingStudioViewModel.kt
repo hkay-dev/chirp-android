@@ -571,20 +571,34 @@ class ProcessingStudioViewModel
             if (!screen.isAudioReady) return
             val playback = playbackController.state.value
             if (playback.recordingId != recordingId) {
-                playbackController.prepare(recordingId, screen.title, screen.audioPath)
+                // The controller may hold (and be playing) a different recording; a bare
+                // seekTo would scrub that one audibly. Hand the position to prepare so the
+                // seek lands on this recording once it is loaded.
+                playbackController.prepare(recordingId, screen.title, screen.audioPath, positionMs)
+            } else {
+                playbackController.seekTo(positionMs)
             }
-            playbackController.seekTo(positionMs)
             updatePlaybackPosition(positionMs)
         }
 
-        fun skipForward() {
-            if (!_uiState.value.isAudioReady) return
-            playbackController.skipForward()
-        }
+        fun skipForward() = skipBy(STUDIO_SKIP_MS)
 
-        fun skipBackward() {
-            if (!_uiState.value.isAudioReady) return
-            playbackController.skipBackward()
+        fun skipBackward() = skipBy(-STUDIO_SKIP_MS)
+
+        private fun skipBy(deltaMs: Long) {
+            val recordingId = currentRecordingId ?: return
+            val screen = _uiState.value
+            if (!screen.isAudioReady) return
+            val playback = playbackController.state.value
+            if (playback.recordingId == recordingId) {
+                if (deltaMs >= 0) playbackController.skipForward(deltaMs) else playbackController.skipBackward(-deltaMs)
+            } else {
+                // Same wrong-recording hazard as seekTo: skip within this recording from
+                // its local position instead of nudging whatever the controller holds.
+                val target = (_playbackTick.value.currentPositionMs + deltaMs).coerceAtLeast(0L)
+                playbackController.prepare(recordingId, screen.title, screen.audioPath, target)
+                updatePlaybackPosition(target)
+            }
         }
 
         private fun updatePlaybackPosition(positionMs: Long) {
@@ -1450,6 +1464,7 @@ private data class TranscriptBuildInputs(
 )
 
 /** LIF-05: SavedStateHandle keys for mid-edit state that must survive process death. */
+private const val STUDIO_SKIP_MS = 10_000L
 private const val KEY_IS_EDITING_TRANSCRIPT = "studio.isEditingTranscript"
 private const val KEY_TRANSCRIPT_DRAFT = "studio.transcriptDraft"
 private const val KEY_TRANSCRIPT_DRAFT_IN_FILE = "studio.transcriptDraftInFile"
