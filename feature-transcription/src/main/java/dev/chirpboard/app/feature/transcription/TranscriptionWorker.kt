@@ -357,7 +357,7 @@ class TranscriptionWorker
                     }.orEmpty()
             val enhancementIntent = resolveEnhancementIntent(recordingId, ownedRecording, processedText, correlationId)
             val enhancementExecutionToken = enhancementIntent?.let { UUID.randomUUID().toString() }
-            val (committed, enhancementQueued) =
+            val (committed, enhancementPending) =
                 withSerializedQueueScheduling {
                     val resultCommitted =
                         recordingRepository.commitTranscriptionResult(
@@ -367,19 +367,19 @@ class TranscriptionWorker
                             expectedExecutionToken = executionToken,
                             enhancementExecutionToken = enhancementExecutionToken,
                         )
-                    val resultQueued =
+                    val resultPending =
                         resultCommitted &&
                             enhancementIntent != null &&
                             enhancementExecutionToken != null &&
-                            enqueueEnhancement(recordingId, enhancementExecutionToken, correlationId)
-                    resultCommitted to resultQueued
+                            enqueueOrParkEnhancement(recordingId, enhancementExecutionToken, correlationId)
+                    resultCommitted to resultPending
                 }
             if (!committed) {
                 logStaleTranscription(recordingId, correlationId, "transcription_commit_stale")
                 return androidx.work.ListenableWorker.Result.success()
             }
             transcriptionLog.success(
-                if (enhancementQueued) {
+                if (enhancementPending) {
                     "worker_completed_pending_enhancement"
                 } else {
                     "worker_completed"
@@ -743,7 +743,12 @@ class TranscriptionWorker
             )
         }
 
-        private suspend fun enqueueEnhancement(
+        /**
+         * Returns true when enhancement work remains pending for the recording — either
+         * enqueued with WorkManager, or parked in PENDING_ENHANCEMENT for startup recovery
+         * when the enqueue itself fails (that path also logs enhancement_enqueue_failed).
+         */
+        private suspend fun enqueueOrParkEnhancement(
             recordingId: UUID,
             executionToken: String,
             correlationId: String,
