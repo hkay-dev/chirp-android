@@ -189,6 +189,26 @@ class RecordingEnhancementWorker
             var summaryStatus: EnhancementSubworkStatus? = null
             var summaryError: String? = null
 
+            // Output already produced this attempt. Persisted alongside a retry repark so a
+            // later transient failure never throws away a finished (possibly minutes-long)
+            // generation; the next attempt resumes from the persisted subwork statuses.
+            fun partialResultSoFar(): RecordingEnhancementResult? {
+                val anySucceeded =
+                    processingStatus == EnhancementSubworkStatus.SUCCEEDED ||
+                        titleStatus == EnhancementSubworkStatus.SUCCEEDED
+                if (!anySucceeded) return null
+                return RecordingEnhancementResult(
+                    processedText = transformedText,
+                    processingMode = transformedMode,
+                    title = generatedTitle,
+                    summary = null,
+                    processingModeStatus = processingStatus,
+                    processingModeError = processingError,
+                    titleStatus = titleStatus,
+                    titleError = titleError,
+                )
+            }
+
             execution.processingModeId?.takeIf { execution.processingMode.shouldRun() }?.let { modeId ->
                 val transformResult =
                     textEnhancement.processResolved(
@@ -244,6 +264,9 @@ class RecordingEnhancementWorker
                         correlationId = correlationId,
                         executionToken = executionToken,
                         exception = titleResult.exceptionOrNull(),
+                        partialResult = partialResultSoFar(),
+                        sourceTranscriptRevision = execution.sourceTranscriptRevision,
+                        sourceTitle = snapshot.recording.title,
                     )?.let { return it }
                     val message = titleResult.exceptionOrNull()?.message ?: "Title generation failed"
                     titleStatus = EnhancementSubworkStatus.FAILED
@@ -271,6 +294,9 @@ class RecordingEnhancementWorker
                         correlationId = correlationId,
                         executionToken = executionToken,
                         exception = summaryResult.exceptionOrNull(),
+                        partialResult = partialResultSoFar(),
+                        sourceTranscriptRevision = execution.sourceTranscriptRevision,
+                        sourceTitle = snapshot.recording.title,
                     )?.let { return it }
                     val message = summaryResult.exceptionOrNull()?.message ?: "Summary generation failed"
                     summaryStatus = EnhancementSubworkStatus.FAILED
@@ -329,10 +355,21 @@ class RecordingEnhancementWorker
             correlationId: String,
             executionToken: String,
             exception: Throwable?,
+            partialResult: RecordingEnhancementResult? = null,
+            sourceTranscriptRevision: String? = null,
+            sourceTitle: String? = null,
         ): Result? {
             if (exception is CancellationException) throw exception
             return (exception as? IOException)?.let {
-                handleError(recordingId, correlationId, executionToken, it)
+                handleError(
+                    recordingId,
+                    correlationId,
+                    executionToken,
+                    it,
+                    partialResult,
+                    sourceTranscriptRevision,
+                    sourceTitle,
+                )
             }
         }
 
@@ -341,6 +378,9 @@ class RecordingEnhancementWorker
             correlationId: String,
             executionToken: String,
             exception: Exception,
+            partialResult: RecordingEnhancementResult? = null,
+            sourceTranscriptRevision: String? = null,
+            sourceTitle: String? = null,
         ): Result {
             val errorMessage = exception.message ?: "Unknown enhancement error"
             val enhancementLog =
@@ -356,6 +396,9 @@ class RecordingEnhancementWorker
                             recordingId = recordingId,
                             executionToken = executionToken,
                             errorMessage = errorMessage,
+                            partialResult = partialResult,
+                            sourceTranscriptRevision = sourceTranscriptRevision,
+                            sourceTitle = sourceTitle,
                         )
                     } catch (e: CancellationException) {
                         throw e

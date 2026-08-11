@@ -157,11 +157,7 @@ class RecordingEnhancementWorkerTest {
             every { workerParams.inputData } returns inputData(recordingId)
             coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
             coEvery {
-                recordingRepository.reparkEnhancementExecution(
-                    recordingId,
-                    EXECUTION_TOKEN,
-                    "Vertex generation is temporarily unavailable",
-                )
+                recordingRepository.reparkEnhancementExecution(any(), any(), any(), any(), any(), any())
             } returns true
             textEnhancement.available = true
             textEnhancement.titleResult = Result.failure(IOException("Vertex generation is temporarily unavailable"))
@@ -174,11 +170,45 @@ class RecordingEnhancementWorkerTest {
                     recordingId,
                     EXECUTION_TOKEN,
                     "Vertex generation is temporarily unavailable",
+                    null,
+                    "raw transcript||",
+                    "Original title",
                 )
             }
             coVerify(exactly = 0) { recordingRepository.failEnhancement(any(), any(), any()) }
             coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any(), any()) }
             assertEquals(0, textEnhancement.summaryCalls)
+        }
+
+    @Test
+    fun `temporary summary failure reparks with the finished title persisted`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            coEvery {
+                recordingRepository.reparkEnhancementExecution(any(), any(), any(), any(), any(), any())
+            } returns true
+            textEnhancement.available = true
+            textEnhancement.summaryResult = Result.failure(IOException("summary backend unavailable"))
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Retry)
+            val partial = slot<RecordingEnhancementResult>()
+            coVerify(exactly = 1) {
+                recordingRepository.reparkEnhancementExecution(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "summary backend unavailable",
+                    capture(partial),
+                    "raw transcript||",
+                    "Original title",
+                )
+            }
+            assertEquals("title", partial.captured.title)
+            assertEquals(EnhancementSubworkStatus.SUCCEEDED, partial.captured.titleStatus)
+            coVerify(exactly = 0) { recordingRepository.completeEnhancement(any(), any(), any(), any(), any()) }
         }
 
     @Test

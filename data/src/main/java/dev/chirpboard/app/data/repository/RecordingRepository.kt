@@ -813,6 +813,9 @@ class RecordingRepository
             recordingId: UUID,
             executionToken: String,
             errorMessage: String,
+            partialResult: RecordingEnhancementResult? = null,
+            sourceTranscriptRevision: String? = null,
+            sourceTitle: String? = null,
         ): Boolean =
             database.withTransaction {
                 val snapshot = enhancementSnapshotDao.getSnapshot(recordingId) ?: return@withTransaction false
@@ -829,7 +832,36 @@ class RecordingRepository
                 if (transition != RecordingStatusTransitionResult.TransitionApplied) {
                     return@withTransaction false
                 }
-                enhancementSnapshotDao.upsert(snapshot.copy(lastErrorMessage = errorMessage))
+                // Subwork output that already succeeded this attempt (an on-device transform
+                // can take minutes) is persisted before the retry so the next attempt resumes
+                // instead of regenerating it. Same transcript/title guards as the final commit.
+                var reparked = snapshot
+                if (partialResult != null) {
+                    val now = Date()
+                    val transcript = transcriptDao.getTranscript(recordingId)
+                    val transcriptCurrent =
+                        transcript != null &&
+                            (sourceTranscriptRevision == null || transcript.sourceRevision() == sourceTranscriptRevision)
+                    if (transcriptCurrent && (partialResult.processedText != null || partialResult.summary != null)) {
+                        transcriptDao.insert(
+                            transcript!!.copy(
+                                processedText = partialResult.processedText ?: transcript.processedText,
+                                processingMode = partialResult.processingMode ?: transcript.processingMode,
+                                summary = partialResult.summary ?: transcript.summary,
+                                updatedAt = now,
+                            ),
+                        )
+                    }
+                    partialResult.title?.let { title ->
+                        if (sourceTitle == null) {
+                            recordingDao.updateTitle(recordingId, title)
+                        } else {
+                            recordingDao.updateTitleIfCurrent(recordingId, title, expectedTitle = sourceTitle)
+                        }
+                    }
+                    reparked = snapshot.applyResult(partialResult, now)
+                }
+                enhancementSnapshotDao.upsert(reparked.copy(lastErrorMessage = errorMessage))
                 true
             }
 
