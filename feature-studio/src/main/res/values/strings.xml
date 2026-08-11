@@ -12,6 +12,7 @@
     <string name="rec_edit_transcript">Edit Transcript</string>
     <string name="rec_manual_correction_banner">Showing your saved manual correction.</string>
     <string name="rec_studio_loading_title">Loading recording…</string>
+    <string name="rec_untitled_recording">Untitled recording</string>
     <string name="rec_studio_invalid_recording_title">Recording Unavailable</string>
     <string name="rec_studio_invalid_recording_message">This link doesn’t point to a valid recording. Go back and open a recording from your library.</string>
     <string name="rec_studio_recording_not_found_title">Recording Not Found</string>

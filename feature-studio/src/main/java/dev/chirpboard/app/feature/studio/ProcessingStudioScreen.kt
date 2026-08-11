@@ -152,10 +152,10 @@ fun ProcessingStudioScreen(
             )
         }
 
+    // Only actual loading shows the skeleton: a loaded recording with a blank title must
+    // render its real metadata pills, not shimmer forever.
     val showMetadataSkeleton =
-        state.loadState == ProcessingStudioLoadState.Loading ||
-            state.isLoading ||
-            state.title.isBlank()
+        state.loadState == ProcessingStudioLoadState.Loading || state.isLoading
 
     val tabs = listOf(stringResource(R.string.rec_transcript), stringResource(R.string.rec_summary), stringResource(R.string.rec_chat))
     val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -553,7 +553,7 @@ fun ProcessingStudioScreen(
 
                         else -> {
                             Text(
-                                text = title,
+                                text = title.ifBlank { stringResource(R.string.rec_untitled_recording) },
                                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface,
                             )
