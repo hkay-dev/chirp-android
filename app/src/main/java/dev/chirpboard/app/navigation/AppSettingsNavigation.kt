@@ -1,19 +1,15 @@
 package dev.chirpboard.app.navigation
 
 import android.widget.Toast
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
-import dagger.hilt.android.EntryPointAccessors
 import dev.chirpboard.app.R
 import dev.chirpboard.app.debug.DevMenuScreen
-import dev.chirpboard.app.di.ProfileShortcutEntryPoint
-import kotlinx.coroutines.launch
 import dev.chirpboard.app.feature.llm.settings.LlmSettingsScreen
 import dev.chirpboard.app.feature.llm.settings.ProcessingPromptEditorScreen
 import dev.chirpboard.app.feature.llm.settings.ProcessingPromptEditorViewModel
@@ -24,6 +20,7 @@ import dev.chirpboard.app.feature.recording.ui.profile.ProfileListScreen
 import dev.chirpboard.app.feature.recording.ui.replacement.WordReplacementsScreen
 import dev.chirpboard.app.feature.recording.ui.tag.TagManagementScreen
 import dev.chirpboard.app.feature.transcription.settings.TranscriptionSettingsScreen
+import dev.chirpboard.app.shortcut.ProfilePinShortcutViewModel
 import dev.chirpboard.app.ui.settings.AboutScreen
 import dev.chirpboard.app.ui.settings.AudioSettingsScreen
 import dev.chirpboard.app.ui.settings.BackupRestoreScreen
@@ -126,14 +123,7 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
 
     composable(Screen.Profiles.route) {
         val context = LocalContext.current
-        val coroutineScope = rememberCoroutineScope()
-        val shortcutEntryPoint =
-            remember {
-                EntryPointAccessors.fromApplication(
-                    context.applicationContext,
-                    ProfileShortcutEntryPoint::class.java,
-                )
-            }
+        val pinShortcutViewModel: ProfilePinShortcutViewModel = hiltViewModel()
         ProfileListScreen(
             onProfileClick = { profileId ->
                 navController.navigate(Screen.ProfileEditor.createRoute(profileId.toString()))
@@ -143,23 +133,14 @@ internal fun NavGraphBuilder.appSettingsNavigation(navController: NavHostControl
             },
             onNavigateBack = { navController.popBackStack() },
             onAddToHomeScreen = { profileId ->
-                val shortcutManager = shortcutEntryPoint.profileShortcutManager()
-                if (!shortcutManager.isRequestPinShortcutSupported()) {
+                if (pinShortcutViewModel.isRequestPinShortcutSupported()) {
+                    pinShortcutViewModel.requestPinShortcut(profileId)
+                } else {
                     Toast.makeText(
                         context,
                         R.string.add_to_home_unsupported,
                         Toast.LENGTH_SHORT,
                     ).show()
-                    return@ProfileListScreen
-                }
-                coroutineScope.launch {
-                    // Pin requests need the full profile (name for the label); the Room read is a
-                    // suspend query that runs on its own executor, then we hand the system the
-                    // pin-shortcut dialog.
-                    val profile = shortcutEntryPoint.profileRepository().getProfile(profileId)
-                    if (profile != null) {
-                        shortcutManager.requestPinShortcut(profile)
-                    }
                 }
             },
         )
