@@ -317,6 +317,10 @@ internal class GgufRecognizer(
                     error = if (value == null) engine.lastError() else "",
                 )
             },
+            // telemetry.aborted is the authoritative "the cancel actually took effect"
+            // signal; a decode that finished with a real value beat the watchdog's
+            // cancel request and its transcript is kept.
+            wasAborted = { it.value == null || it.telemetry?.aborted == true },
             onNativeFinished = { result, timedOut, elapsedMs ->
                 val nativeResult = result.getOrNull()
                 val resultKind =

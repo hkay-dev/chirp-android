@@ -74,6 +74,7 @@ internal class GgufDecodeWatchdog(
         beginDecode: () -> Long,
         cancelDecode: (Long) -> Boolean,
         operation: (Long) -> T,
+        wasAborted: (T) -> Boolean = { false },
         onNativeFinished: (result: Result<T>, timedOut: Boolean, elapsedMs: Long) -> Unit = { _, _, _ -> },
     ): GgufWatchdogResult<T> =
         suspendCancellableCoroutine { continuation ->
@@ -109,16 +110,28 @@ internal class GgufDecodeWatchdog(
             val result = runCatching { operation(operationId) }
             timeoutTask.cancel()
             val elapsedMs = (nowMs() - startedAtMs).coerceAtLeast(0L)
-            runCatching { onNativeFinished(result, timedOut.get(), elapsedMs) }
+            // The flag only records that cancellation was REQUESTED. The native abort takes
+            // effect between decode steps, so a decode on its final step can complete
+            // normally after the deadline; that finished result must win over the stale
+            // flag or a whole transcript gets discarded and re-decoded from scratch.
             val outcome =
-                if (timedOut.get()) {
-                    GgufWatchdogResult.TimedOut(elapsedMs)
-                } else {
-                    result.fold(
-                        onSuccess = { value -> GgufWatchdogResult.Completed(value, elapsedMs) },
-                        onFailure = { error -> GgufWatchdogResult.Failed(error, elapsedMs) },
-                    )
-                }
+                result.fold(
+                    onSuccess = { value ->
+                        if (timedOut.get() && wasAborted(value)) {
+                            GgufWatchdogResult.TimedOut(elapsedMs)
+                        } else {
+                            GgufWatchdogResult.Completed(value, elapsedMs)
+                        }
+                    },
+                    onFailure = { error ->
+                        if (timedOut.get()) {
+                            GgufWatchdogResult.TimedOut(elapsedMs)
+                        } else {
+                            GgufWatchdogResult.Failed(error, elapsedMs)
+                        }
+                    },
+                )
+            runCatching { onNativeFinished(result, outcome is GgufWatchdogResult.TimedOut, elapsedMs) }
             continuation.resume(outcome)
         }
 }

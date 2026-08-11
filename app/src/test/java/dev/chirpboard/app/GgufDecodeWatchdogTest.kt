@@ -22,11 +22,14 @@ class GgufDecodeWatchdogTest {
     }
 
     @Test
-    fun `timeout cancels only its native operation and reports late completion`() = runTest {
+    fun `a decode that finishes with a result after the deadline is kept, not discarded`() = runTest {
+        // The timer only REQUESTS cancellation; the native abort fires between decode
+        // steps. A decode on its final step completes normally with the full transcript,
+        // and that result must win over the stale timed-out flag.
         val scheduler = ManualWatchdogScheduler()
         var nowMs = 100L
         var cancelledOperation = 0L
-        var lateCompletionTimedOut = false
+        var reportedTimedOut = true
         val watchdog =
             GgufDecodeWatchdog(
                 policy = GgufDecodeWatchdogPolicy(minimumTimeoutMs = 10, graceMs = 0, audioMultiplier = 1.0),
@@ -45,14 +48,43 @@ class GgufDecodeWatchdogTest {
                 operation = {
                     nowMs = 110L
                     scheduler.fire()
-                    "late"
+                    "full transcript"
                 },
-                onNativeFinished = { _, timedOut, _ -> lateCompletionTimedOut = timedOut },
+                wasAborted = { false },
+                onNativeFinished = { _, timedOut, _ -> reportedTimedOut = timedOut },
+            )
+
+        assertEquals("full transcript", (result as GgufWatchdogResult.Completed).value)
+        assertEquals(42L, cancelledOperation)
+        assertTrue(!reportedTimedOut)
+    }
+
+    @Test
+    fun `a decode the cancel actually aborted reports timed out`() = runTest {
+        val scheduler = ManualWatchdogScheduler()
+        var reportedTimedOut = false
+        val watchdog =
+            GgufDecodeWatchdog(
+                policy = GgufDecodeWatchdogPolicy(minimumTimeoutMs = 10, graceMs = 0, audioMultiplier = 1.0),
+                scheduler = scheduler,
+                nowMs = { 0L },
+            )
+
+        val result =
+            watchdog.run(
+                audioDurationMs = 10,
+                beginDecode = { 42L },
+                cancelDecode = { true },
+                operation = {
+                    scheduler.fire()
+                    null
+                },
+                wasAborted = { it == null },
+                onNativeFinished = { _, timedOut, _ -> reportedTimedOut = timedOut },
             )
 
         assertTrue(result is GgufWatchdogResult.TimedOut)
-        assertEquals(42L, cancelledOperation)
-        assertTrue(lateCompletionTimedOut)
+        assertTrue(reportedTimedOut)
     }
 
     @Test
