@@ -27,6 +27,10 @@ object ChirpColorScheme {
         onError = Color(0xFFFFFFFF),
         errorContainer = Color(0xFFF9DEDC),
         onErrorContainer = Color(0xFF410E0B),
+        // background must track surface: scaffold bodies paint colorScheme.background
+        // while app bars and cards paint surface, and the M3 defaults differ slightly.
+        background = Color(0xFFFFFBFE),
+        onBackground = Color(0xFF1C1B1F),
         surface = Color(0xFFFFFBFE),
         onSurface = Color(0xFF1C1B1F),
         surfaceVariant = Color(0xFFE7E0EC),
@@ -57,6 +61,8 @@ object ChirpColorScheme {
         onError = Color(0xFF601410),
         errorContainer = Color(0xFF8C1D18),
         onErrorContainer = Color(0xFFF9DEDC),
+        background = Color(0xFF1C1B1F),
+        onBackground = Color(0xFFE6E1E5),
         surface = Color(0xFF1C1B1F),
         onSurface = Color(0xFFE6E1E5),
         surfaceVariant = Color(0xFF49454F),
