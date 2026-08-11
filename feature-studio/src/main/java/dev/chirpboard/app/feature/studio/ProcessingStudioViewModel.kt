@@ -747,66 +747,80 @@ class ProcessingStudioViewModel
             }
         }
 
+        // Guards the ✓ button: two taps before the Room write returns would save the same
+        // correction twice and offer two promotion prompts.
+        private var correctionSaveInFlight = false
+
         fun saveTranscriptCorrection() {
+            if (correctionSaveInFlight) return
+            correctionSaveInFlight = true
             viewModelScope.launch {
-                val recordingId = currentRecordingId ?: return@launch
-                val transcript = currentTranscript ?: return@launch
-                val correctedText = _uiState.value.transcriptDraft.trim()
-                if (correctedText.isBlank()) {
-                    _message.value = context.getString(R.string.rec_msg_transcript_empty)
-                    return@launch
-                }
-
-                val sourceText = transcript.effectiveText
-                if (correctedText == sourceText) {
-                    mirrorTranscriptEditState(isEditing = false, draft = null)
-                    _uiState.value = refreshTranscriptInteractionState(_uiState.value.exitTranscriptEditMode())
-                    return@launch
-                }
-
-                // ERR-18: one-shot Room writes throw on a full disk; surface instead of crashing.
                 try {
-                    if (correctedText == transcript.pipelineText) {
-                        repository.clearManualCorrection(recordingId)
-                        _message.value = context.getString(R.string.rec_msg_correction_cleared)
-                    } else {
-                        repository.saveManualCorrection(
-                            recordingId = recordingId,
-                            correctedText = correctedText,
-                            sourceText = sourceText,
-                        )
-                        _message.value = context.getString(R.string.rec_msg_correction_saved)
-                        // PLH-7: a single-word/phrase correction can be promoted to a global
-                        // Word Replacement; offer it via an actionable snackbar. Large contiguous
-                        // rewrites also produce a "diff", but they are not word replacements, so
-                        // the offer is capped to short phrases.
-                        analyzeTranscriptCorrectionPromotion(
-                            sourceText = sourceText,
-                            correctedText = correctedText,
-                        )?.takeIf(::isPromotableAsWordReplacement)?.let { promotion ->
-                            _promotionPrompt.value =
-                                TranscriptCorrectionPromotionPrompt(
-                                    original = promotion.original,
-                                    replacement = promotion.replacement,
-                                )
-                        }
-                    }
-                } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
-                    Log.e("ProcessingStudioVM", "Failed to save transcript correction", e)
-                    _message.value = context.getString(R.string.rec_msg_correction_save_failed)
-                    return@launch
+                    saveTranscriptCorrectionNow()
+                } finally {
+                    correctionSaveInFlight = false
                 }
-
-                mirrorTranscriptEditState(isEditing = false, draft = null)
-                _uiState.value =
-                    refreshTranscriptInteractionState(
-                        _uiState.value.copy(
-                            isEditingTranscript = false,
-                            transcriptDraft = correctedText,
-                        ),
-                    )
             }
+        }
+
+        private suspend fun saveTranscriptCorrectionNow() {
+            val recordingId = currentRecordingId ?: return
+            val transcript = currentTranscript ?: return
+            val correctedText = _uiState.value.transcriptDraft.trim()
+            if (correctedText.isBlank()) {
+                _message.value = context.getString(R.string.rec_msg_transcript_empty)
+                return
+            }
+
+            val sourceText = transcript.effectiveText
+            if (correctedText == sourceText) {
+                mirrorTranscriptEditState(isEditing = false, draft = null)
+                _uiState.value = refreshTranscriptInteractionState(_uiState.value.exitTranscriptEditMode())
+                return
+            }
+
+            // ERR-18: one-shot Room writes throw on a full disk; surface instead of crashing.
+            try {
+                if (correctedText == transcript.pipelineText) {
+                    repository.clearManualCorrection(recordingId)
+                    _message.value = context.getString(R.string.rec_msg_correction_cleared)
+                } else {
+                    repository.saveManualCorrection(
+                        recordingId = recordingId,
+                        correctedText = correctedText,
+                        sourceText = sourceText,
+                    )
+                    _message.value = context.getString(R.string.rec_msg_correction_saved)
+                    // PLH-7: a single-word/phrase correction can be promoted to a global
+                    // Word Replacement; offer it via an actionable snackbar. Large contiguous
+                    // rewrites also produce a "diff", but they are not word replacements, so
+                    // the offer is capped to short phrases.
+                    analyzeTranscriptCorrectionPromotion(
+                        sourceText = sourceText,
+                        correctedText = correctedText,
+                    )?.takeIf(::isPromotableAsWordReplacement)?.let { promotion ->
+                        _promotionPrompt.value =
+                            TranscriptCorrectionPromotionPrompt(
+                                original = promotion.original,
+                                replacement = promotion.replacement,
+                            )
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                Log.e("ProcessingStudioVM", "Failed to save transcript correction", e)
+                _message.value = context.getString(R.string.rec_msg_correction_save_failed)
+                return
+            }
+
+            mirrorTranscriptEditState(isEditing = false, draft = null)
+            _uiState.value =
+                refreshTranscriptInteractionState(
+                    _uiState.value.copy(
+                        isEditingTranscript = false,
+                        transcriptDraft = correctedText,
+                    ),
+                )
         }
 
         fun promoteTranscriptCorrection() {
@@ -875,8 +889,8 @@ class ProcessingStudioViewModel
                 return
             }
 
-            viewModelScope.launch {
-                val recordingId = currentRecordingId ?: return@launch
+            launchRecoveryAction {
+                val recordingId = currentRecordingId ?: return@launchRecoveryAction
                 val result = transcriptionRecovery.retranscribe(recordingId)
                 refreshRecoveryForCurrentRecording()
                 _message.value = result.toUserMessage(context, context.getString(CoreUiR.string.rec_msg_requeued_transcription))
@@ -884,8 +898,8 @@ class ProcessingStudioViewModel
         }
 
         fun recoverPendingTranscription() {
-            viewModelScope.launch {
-                val recordingId = currentRecordingId ?: return@launch
+            launchRecoveryAction {
+                val recordingId = currentRecordingId ?: return@launchRecoveryAction
                 val result = transcriptionRecovery.recoverPendingTranscription(recordingId)
                 _message.value = result.toUserMessage(context, context.getString(R.string.rec_msg_pending_recovered))
                 refreshRecoveryForCurrentRecording()
@@ -893,8 +907,8 @@ class ProcessingStudioViewModel
         }
 
         fun recoverEnhancing() {
-            viewModelScope.launch {
-                val recordingId = currentRecordingId ?: return@launch
+            launchRecoveryAction {
+                val recordingId = currentRecordingId ?: return@launchRecoveryAction
                 val result =
                     if (_uiState.value.status == RecordingStatus.PENDING_ENHANCEMENT) {
                         transcriptionRecovery.recoverPendingEnhancement(recordingId)
@@ -907,8 +921,8 @@ class ProcessingStudioViewModel
         }
 
         fun retranscribeFromEnhancing() {
-            viewModelScope.launch {
-                val recordingId = currentRecordingId ?: return@launch
+            launchRecoveryAction {
+                val recordingId = currentRecordingId ?: return@launchRecoveryAction
                 val result = transcriptionRecovery.retranscribeFromEnhancing(recordingId)
                 _message.value = result.toUserMessage(context, context.getString(R.string.rec_msg_retranscription_queued))
                 refreshRecoveryForCurrentRecording()
@@ -916,11 +930,30 @@ class ProcessingStudioViewModel
         }
 
         fun retryTranscription() {
-            viewModelScope.launch {
-                val recordingId = currentRecordingId ?: return@launch
+            launchRecoveryAction {
+                val recordingId = currentRecordingId ?: return@launchRecoveryAction
                 val result = transcriptionRecovery.retry(recordingId)
                 _message.value = result.toUserMessage(context, context.getString(CoreUiR.string.rec_msg_requeued_transcription))
                 refreshRecoveryForCurrentRecording()
+            }
+        }
+
+        // The recovery buttons stay enabled until a DB round trip updates the status, so a
+        // double tap within that window would enqueue the same recovery twice and post two
+        // snackbars. One flag covers all five actions; they are mutually exclusive operations
+        // on the same recording. viewModelScope is Main.immediate, so plain field access is
+        // race-free.
+        private var recoveryActionInFlight = false
+
+        private fun launchRecoveryAction(block: suspend () -> Unit) {
+            if (recoveryActionInFlight) return
+            recoveryActionInFlight = true
+            viewModelScope.launch {
+                try {
+                    block()
+                } finally {
+                    recoveryActionInFlight = false
+                }
             }
         }
 
