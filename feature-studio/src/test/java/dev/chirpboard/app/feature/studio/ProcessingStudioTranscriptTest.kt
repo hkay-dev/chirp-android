@@ -30,6 +30,23 @@ class ProcessingStudioTranscriptTest {
     }
 
     @Test
+    fun `gaps between words hold the last started word instead of dropping the highlight`() {
+        val transcript =
+            buildProcessingStudioTranscript(
+                rawText = "hello world",
+                timings =
+                    listOf(
+                        TranscriptTiming(recordingId, 0, "hello", 100L, 200L),
+                        TranscriptTiming(recordingId, 1, "world", 500L, 600L),
+                    ),
+            ) as ProcessingStudioTranscript.Timed
+
+        assertEquals(0, findActiveTranscriptSegmentIndex(transcript, 350L))
+        assertEquals(1, findActiveTranscriptSegmentIndex(transcript, 700L))
+        assertEquals(-1, findActiveTranscriptSegmentIndex(transcript, 50L))
+    }
+
+    @Test
     fun `missing timing rows build untimed transcript`() {
         val transcript = buildProcessingStudioTranscript(rawText = "hello world", timings = emptyList())
 

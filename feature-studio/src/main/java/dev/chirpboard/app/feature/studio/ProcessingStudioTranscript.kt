@@ -100,5 +100,9 @@ internal fun findActiveTranscriptSegmentIndex(
         }
     }
 
-    return -1
+    // Word timings have gaps (silences between words and sentences), and the position
+    // ticker samples at 10 Hz, so playback regularly lands between segments. Hold the
+    // last started word through the gap instead of blinking the highlight off; before
+    // the first word there is genuinely nothing to highlight.
+    return high
 }

@@ -153,8 +153,12 @@ fun TranscriptTab(
                 // plus the three AI passage actions.
                 isSelectingTranscript && !isEditingTranscript -> TranscriptBodyMode.Selecting
                 // PLH-4: a deliberately skipped recording is not "processing"; it waits for an
-                // explicit start instead of showing an endless skeleton.
-                isAwaitingManual && !isEditingTranscript -> TranscriptBodyMode.AwaitingManual
+                // explicit start instead of showing an endless skeleton. Only when there is no
+                // transcript, though: cancelling a re-transcription also lands on
+                // AWAITING_MANUAL_TRANSCRIPTION with the previous transcript intact, and that
+                // text must stay visible rather than an "empty" call to action.
+                isAwaitingManual && !hasTranscriptContent && !isEditingTranscript ->
+                    TranscriptBodyMode.AwaitingManual
                 isProcessing && !isEditingTranscript -> TranscriptBodyMode.Processing
                 showTranscriptChrome -> TranscriptBodyMode.Chrome
                 showEmptyCompleted -> TranscriptBodyMode.EmptyCompleted
