@@ -11,7 +11,6 @@ import dev.chirpboard.app.core.transcription.CloudTranscriptionConfigurationStat
 import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivationResult
-import dev.chirpboard.app.core.transcription.LocalSpeechBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackend
 import dev.chirpboard.app.core.transcription.LocalSpeechComputeBackendActivationResult
 import dev.chirpboard.app.core.transcription.LocalSpeechModelId
@@ -240,9 +239,6 @@ class TranscriptionSettingsViewModel
                 }
             }
         }
-
-        fun managedModelUsesGguf(): Boolean =
-            modelManager.modelInfo(_uiState.value.managedLocalModel).backend == LocalSpeechBackend.TRANSCRIBE_GGUF
 
         fun refreshCloudConfiguration() {
             viewModelScope.launch {

@@ -1,7 +1,6 @@
 package dev.chirpboard.app.feature.transcription
 
 import dev.chirpboard.app.data.entity.Profile
-import dev.chirpboard.app.data.model.RecordingEnhancementIntent
 
 internal data class RecordingEnhancementPolicy(
     val processingModeId: String?,
@@ -29,15 +28,4 @@ internal fun resolveRecordingEnhancementPolicy(
             autoTitle = globalAutoTitle,
             autoSummary = globalAutoSummary,
         )
-    }
-
-internal fun RecordingEnhancementPolicy.toIntent(): RecordingEnhancementIntent? =
-    if (hasRequestedWork) {
-        RecordingEnhancementIntent(
-            processingModeId = processingModeId,
-            autoTitle = autoTitle,
-            autoSummary = autoSummary,
-        )
-    } else {
-        null
     }
