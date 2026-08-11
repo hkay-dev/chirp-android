@@ -240,7 +240,16 @@ class RecordingPlaybackController
         }
 
         fun pause() {
-            controller?.pause()
+            val player = controller
+            if (player == null || !player.isConnected) {
+                // A killed playback service leaves a disconnected controller behind: pause()
+                // on it is a silent no-op, so the transport kept showing a pause button for
+                // audio that had already stopped. Reconcile instead; the next play()
+                // rebuilds the controller through withConnectedController.
+                _state.value = _state.value.copy(isPlaying = false, isLoading = false)
+                return
+            }
+            player.pause()
             syncFromPlayer()
         }
 
