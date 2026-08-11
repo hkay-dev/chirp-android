@@ -5,9 +5,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Schedule
@@ -61,97 +63,96 @@ fun StatsPillRow(
     processingFilterActive: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    LazyRow(
+    // A plain scrollable Row: only three pills ever render, so lazy composition bought
+    // nothing. horizontalScroll before padding keeps the LazyRow contentPadding behavior
+    // (content scrolls under the screen-edge inset instead of clipping at it).
+    Row(
         horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Medium),
         // VIS-5: the clickable processing pill measures 48dp tall (Material3's
         // minimumInteractiveComponentSize on Surface(onClick)) while the display-only pills
-        // measure their ~30dp content. LazyRow defaults to Alignment.Top, which top-aligned the
+        // measure their ~30dp content. A Row defaults to Alignment.Top, which top-aligned the
         // short pills against the 48dp interactive box and left the processing capsule (centered
         // inside its touch target) riding ~9dp lower. Center-align the cross axis so all three
         // capsules share one visual baseline while keeping the 48dp touch target.
         verticalAlignment = Alignment.CenterVertically,
-        contentPadding = PaddingValues(horizontal = ChirpSpacing.ScreenHorizontal),
-        modifier = modifier,
+        modifier =
+            modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = ChirpSpacing.ScreenHorizontal),
     ) {
         // Recording count pill (display-only)
-        item {
-            ChirpPill(
-                label = recordingCount.toString(),
-                icon = Icons.Filled.AudioFile,
-                contentDescription = stringResource(R.string.desc_recordings),
-            )
-        }
+        ChirpPill(
+            label = recordingCount.toString(),
+            icon = Icons.Filled.AudioFile,
+            contentDescription = stringResource(R.string.desc_recordings),
+        )
 
         // Total duration pill (display-only)
-        item {
-            ChirpPill(
-                label = totalDurationMs.formatAsDuration(),
-                icon = Icons.Filled.Schedule,
-                contentDescription = stringResource(R.string.desc_total_duration),
-            )
-        }
+        ChirpPill(
+            label = totalDurationMs.formatAsDuration(),
+            icon = Icons.Filled.Schedule,
+            contentDescription = stringResource(R.string.desc_total_duration),
+        )
 
         // Processing count pill (interactive; pulse animation when > 0)
-        item {
-            val isProcessing = processingCount > 0
-            // Keep the animation as State and read .value inside graphicsLayer so the pulse
-            // invalidates only the draw/layer phase, not this pill's composition each vsync.
-            // Reduced-motion: the pulse is decorative (the count + tint carry the meaning),
-            // so skip it entirely when animations are disabled system-wide.
-            val pulseAlpha =
-                if (isProcessing && !reducedMotionEnabled()) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "processing_pulse")
-                    infiniteTransition.animateFloat(
-                        initialValue = 0.6f,
-                        targetValue = 1f,
-                        animationSpec =
-                            infiniteRepeatable(
-                                animation = tween(durationMillis = 800),
-                                repeatMode = RepeatMode.Reverse,
-                            ),
-                        label = "pulse_alpha",
-                    )
+        val isProcessing = processingCount > 0
+        // Keep the animation as State and read .value inside graphicsLayer so the pulse
+        // invalidates only the draw/layer phase, not this pill's composition each vsync.
+        // Reduced-motion: the pulse is decorative (the count + tint carry the meaning),
+        // so skip it entirely when animations are disabled system-wide.
+        val pulseAlpha =
+            if (isProcessing && !reducedMotionEnabled()) {
+                val infiniteTransition = rememberInfiniteTransition(label = "processing_pulse")
+                infiniteTransition.animateFloat(
+                    initialValue = 0.6f,
+                    targetValue = 1f,
+                    animationSpec =
+                        infiniteRepeatable(
+                            animation = tween(durationMillis = 800),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                    label = "pulse_alpha",
+                )
+            } else {
+                null
+            }
+        val showActiveFilter = processingPillHighlighted(processingCount, processingFilterActive)
+        // A11Y: the pill is a filter toggle whose active state was only a color change;
+        // expose selected + a state description so TalkBack announces on/off.
+        val filterStateDescription =
+            if (processingFilterActive) {
+                stringResource(R.string.desc_processing_filter_on)
+            } else {
+                stringResource(R.string.desc_processing_filter_off)
+            }
+        ChirpPill(
+            label = processingCount.toString(),
+            icon = Icons.Filled.Sync,
+            onClick = onProcessingClick,
+            containerColor =
+                if (showActiveFilter) {
+                    MaterialTheme.colorScheme.tertiaryContainer
                 } else {
-                    null
-                }
-            val showActiveFilter = processingPillHighlighted(processingCount, processingFilterActive)
-            // A11Y: the pill is a filter toggle whose active state was only a color change;
-            // expose selected + a state description so TalkBack announces on/off.
-            val filterStateDescription =
-                if (processingFilterActive) {
-                    stringResource(R.string.desc_processing_filter_on)
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+            contentColor =
+                if (showActiveFilter) {
+                    MaterialTheme.colorScheme.onTertiaryContainer
                 } else {
-                    stringResource(R.string.desc_processing_filter_off)
-                }
-            ChirpPill(
-                label = processingCount.toString(),
-                icon = Icons.Filled.Sync,
-                onClick = onProcessingClick,
-                containerColor =
-                    if (showActiveFilter) {
-                        MaterialTheme.colorScheme.tertiaryContainer
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            contentDescription = stringResource(R.string.desc_processing),
+            modifier =
+                (
+                    if (pulseAlpha != null) {
+                        Modifier.graphicsLayer { alpha = pulseAlpha.value }
                     } else {
-                        MaterialTheme.colorScheme.surfaceContainerHigh
-                    },
-                contentColor =
-                    if (showActiveFilter) {
-                        MaterialTheme.colorScheme.onTertiaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                contentDescription = stringResource(R.string.desc_processing),
-                modifier =
-                    (
-                        if (pulseAlpha != null) {
-                            Modifier.graphicsLayer { alpha = pulseAlpha.value }
-                        } else {
-                            Modifier
-                        }
-                    ).semantics {
-                        selected = processingFilterActive
-                        stateDescription = filterStateDescription
-                    },
-            )
-        }
+                        Modifier
+                    }
+                ).semantics {
+                    selected = processingFilterActive
+                    stateDescription = filterStateDescription
+                },
+        )
     }
 }

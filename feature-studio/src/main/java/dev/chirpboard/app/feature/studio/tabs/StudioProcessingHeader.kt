@@ -1,6 +1,5 @@
 package dev.chirpboard.app.feature.studio.tabs
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -9,7 +8,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressCopy
@@ -31,17 +29,13 @@ internal fun StudioProcessingHeader(
         PushDownReveal(visible = progressCopy != null && progressKind != null) {
             val copy = progressCopy ?: return@PushDownReveal
             val kind = progressKind ?: return@PushDownReveal
-            AnimatedContent(
-                targetState = kind,
-                transitionSpec = { ChirpMotion.studioContentCrossfade },
-                label = "studio_progress_phase",
-            ) {
-                TranscriptionProgressBanner(
-                    copy = copy,
-                    kind = it,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-            }
+            // The banner already crossfades its icon on kind and its copy on text change;
+            // wrapping it in another AnimatedContent double-animated every phase switch.
+            TranscriptionProgressBanner(
+                copy = copy,
+                kind = kind,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
 
         PushDownReveal(visible = showPlayer) {
