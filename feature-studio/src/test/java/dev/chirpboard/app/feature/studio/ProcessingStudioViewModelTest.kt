@@ -471,7 +471,6 @@ class ProcessingStudioViewModelTest {
 
             assertEquals(150L, viewModel.playbackTick.value.currentPositionMs)
             assertEquals(1, viewModel.playbackTick.value.activeTranscriptSegmentIndex)
-            assertTrue(viewModel.uiState.value.isPlaying)
         }
 
     @Test

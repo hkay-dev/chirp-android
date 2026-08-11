@@ -32,7 +32,6 @@ data class ProcessingStudioState(
     val structuredOutcomeSection: StructuredOutcomeSectionState = StructuredOutcomeSectionState(),
     val chatMessages: ImmutableList<ChatMessage> = persistentListOf(),
     val chatDraft: String = "",
-    val isPlaying: Boolean = false,
     val durationMs: Long = 0L,
     val isTyping: Boolean = false,
     val playerRevealReady: Boolean = false,

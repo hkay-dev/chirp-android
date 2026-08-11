@@ -270,22 +270,17 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 playbackController.state.collect { playback ->
                     val screenRecordingId = currentRecordingId ?: return@collect
-                    val current = _uiState.value
                     if (playback.recordingId == screenRecordingId) {
                         // Single uiState write per tick: position + active segment are hoisted into
                         // the separate playbackTick flow, so a 10 Hz ticker no longer revs the
-                        // screen-wide state object. isPlaying/duration change at transition
-                        // frequency only and copy() dedups identical values.
-                        val nextIsPlaying = playback.isPlaying
+                        // screen-wide state object. Play/pause state is read straight from
+                        // playbackController.state by the UI; only the duration is mirrored here.
+                        val current = _uiState.value
                         val nextDurationMs = if (playback.durationMs > 0) playback.durationMs else current.durationMs
-                        if (current.isPlaying != nextIsPlaying || current.durationMs != nextDurationMs) {
-                            _uiState.value = current.copy(isPlaying = nextIsPlaying, durationMs = nextDurationMs)
+                        if (current.durationMs != nextDurationMs) {
+                            _uiState.value = current.copy(durationMs = nextDurationMs)
                         }
                         updatePlaybackPosition(playback.positionMs)
-                    } else if (playback.isPlaying && playback.recordingId != screenRecordingId) {
-                        if (current.isPlaying) {
-                            _uiState.value = current.copy(isPlaying = false)
-                        }
                     }
                 }
             }

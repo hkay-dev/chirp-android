@@ -585,10 +585,8 @@ private fun TimedTranscriptContent(
     modifier: Modifier,
 ) {
     val chunks = remember(transcript.segments) { transcript.segments.chunked(TIMED_SEGMENTS_PER_CHUNK) }
-    val activeChunkIndex =
-        remember(activeSegmentIndex) {
-            if (activeSegmentIndex < 0) -1 else activeSegmentIndex / TIMED_SEGMENTS_PER_CHUNK
-        }
+    // Plain math: a remember cache costs more than the division it would skip.
+    val activeChunkIndex = if (activeSegmentIndex < 0) -1 else activeSegmentIndex / TIMED_SEGMENTS_PER_CHUNK
 
     val listState = rememberLazyListState()
     LaunchedEffect(Unit) {
