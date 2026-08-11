@@ -210,6 +210,48 @@ class RecordingStateManagerTest {
 
 
     @Test
+    fun stoppingTimeout_doesNotErrorANewerStoppingSessionStartedWhileTheHandlerRan() =
+        runTest {
+            manager.timeoutScopeOverrideForTest = this
+            manager.stoppingTimeoutMsOverrideForTest = 10L
+            // The rescue handler does journal/DB work that can outlive its own session: model
+            // that by completing the original session and starting a new one from inside it.
+            manager.setStoppingTimeoutHandler(RecordingOrigin.APP) {
+                manager.onRecordingCompleted()
+                manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+                manager.onRecordingStarted(audioFilePath = "second")
+                manager.transitionToStopping()
+            }
+            manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+            manager.onRecordingStarted(audioFilePath = "first")
+            manager.transitionToStopping()
+            manager.startStoppingTimeout(fileSizeBytes = 0L)
+
+            advanceTimeBy(11L)
+            runCurrent()
+
+            // The newer session is mid-stop and healthy; the stale timeout must leave it alone.
+            assertTrue(manager.state.value is RecordingState.Stopping)
+            assertFalse(manager.canStartRecording())
+        }
+
+    @Test
+    fun idLessCompletion_doesNotClearAPublishedCompletedRecordingId() {
+        val recordingId = UUID.randomUUID()
+        manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "path", recordingId = recordingId)
+        manager.onCaptureStopHandoff(recordingId)
+
+        // A keyboard/recognition session finishing right after must not swallow the
+        // navigation target the app recording just published.
+        manager.tryStartRecording(origin = RecordingOrigin.KEYBOARD, profileId = null)
+        manager.onRecordingStarted(audioFilePath = "keyboard")
+        manager.onRecordingCompleted()
+
+        assertEquals(recordingId, manager.lastCompletedRecordingId.value)
+    }
+
+    @Test
     fun onRecordingCompleted_returnsToIdle() {
         manager.tryStartRecording(origin = RecordingOrigin.APP, profileId = null)
         manager.transitionToStopping()

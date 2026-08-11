@@ -361,11 +361,15 @@ class RecordingStateManager @Inject constructor() {
                 }
                 var timedOut = false
                 _state.update { current ->
-                    if (current is RecordingState.Stopping) {
+                    // Identity, not `is Stopping`: the rescue handler above does journal and
+                    // DB work that can take seconds, during which the original session may
+                    // finish, release the lock, and a new session reach Stopping of its own.
+                    // Forcing that newer session to Error would abort a healthy stop.
+                    if (current === stoppingState) {
                         timedOut = true
                         Log.w(TAG, "Stopping state timed out after ${timeoutMs}ms, forcing to Error")
                         RecordingState.Error(
-                            current.activeOrigin ?: RecordingOrigin.APP,
+                            stoppingState.origin,
                             "Failed to stop recording",
                         )
                     } else {
@@ -427,7 +431,7 @@ class RecordingStateManager @Inject constructor() {
         }
         if (handoffAccepted) {
             timeoutJob?.cancel()
-            _lastCompletedRecordingId.value = recordingId
+            publishCompletedRecordingId(recordingId)
             recordingLock.set(false)
             clearAmplitude()
         }
@@ -479,12 +483,23 @@ class RecordingStateManager @Inject constructor() {
         }
         if (completionAccepted) {
             timeoutJob?.cancel()
-            _lastCompletedRecordingId.value = recordingId
+            publishCompletedRecordingId(recordingId)
             recordingLock.set(false)
             clearAmplitude()
         }
     }
     
+    /**
+     * Keyboard, quick-capture and recognition sessions complete without a recording id, so an
+     * id-less completion has nothing to navigate to. Overwriting with null would swallow the
+     * pending target an app recording just published, and the Record screen would never open it.
+     */
+    private fun publishCompletedRecordingId(recordingId: UUID?) {
+        if (recordingId != null) {
+            _lastCompletedRecordingId.value = recordingId
+        }
+    }
+
     /**
      * Clear the last completed recording ID.
      * Call after navigating to the recording detail screen to avoid re-triggering.
