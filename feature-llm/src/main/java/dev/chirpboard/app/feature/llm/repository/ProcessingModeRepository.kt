@@ -238,18 +238,23 @@ class ProcessingModeRepository
         private fun buildMode(
             modeId: String,
             preferences: Preferences,
-        ): ProcessingMode =
-            when {
+        ): ProcessingMode {
+            // Decode the stored JSON blobs once; readCustomPresets/readOverrides parse on
+            // every call, and this runs on each DataStore emission.
+            val customPresets = readCustomPresets(preferences)
+            val overrides = readOverrides(preferences)
+            val customPreset = customPresets.find { it.id == modeId }
+            return when {
                 modeId == "smart" -> ProcessingMode.Smart
-                modeId == "custom" -> ProcessingMode.Custom(resolvePrompt("custom", preferences).orEmpty())
-                readCustomPresets(preferences).any { it.id == modeId } -> {
-                    val preset = readCustomPresets(preferences).first { it.id == modeId }
+                modeId == "custom" ->
+                    ProcessingMode.Custom(resolvePrompt("custom", preferences, customPresets, overrides).orEmpty())
+
+                customPreset != null ->
                     ProcessingMode.UserPreset(
-                        presetId = preset.id,
-                        name = preset.name,
-                        promptText = resolvePrompt(modeId, preferences).orEmpty(),
+                        presetId = customPreset.id,
+                        name = customPreset.name,
+                        promptText = resolvePrompt(modeId, preferences, customPresets, overrides).orEmpty(),
                     )
-                }
 
                 else -> {
                     val base = ProcessingMode.fromId(modeId)
@@ -259,18 +264,21 @@ class ProcessingModeRepository
                         ProcessingMode.UserPreset(
                             presetId = base.id,
                             name = base.displayName,
-                            promptText = resolvePrompt(modeId, preferences).orEmpty(),
+                            promptText = resolvePrompt(modeId, preferences, customPresets, overrides).orEmpty(),
                         )
                     }
                 }
             }
+        }
 
         private fun buildPromptPresets(preferences: Preferences): List<ProcessingPromptPreset> {
+            // One decode of each blob per emission instead of one per resolvePrompt call.
             val overrides = readOverrides(preferences)
+            val customPresets = readCustomPresets(preferences)
             val builtIn =
                 ProcessingModeDefaults.builtInSelectableIds.map { modeId ->
                     val originalPrompt = ProcessingModeDefaults.defaultPrompt(modeId)
-                    val effectivePrompt = resolvePrompt(modeId, preferences)
+                    val effectivePrompt = resolvePrompt(modeId, preferences, customPresets, overrides)
                     ProcessingPromptPreset(
                         id = modeId,
                         name = ProcessingModeDefaults.displayName(modeId),
@@ -288,8 +296,8 @@ class ProcessingModeRepository
                 }
 
             val custom =
-                readCustomPresets(preferences).map { preset ->
-                    val effectivePrompt = resolvePrompt(preset.id, preferences)
+                customPresets.map { preset ->
+                    val effectivePrompt = resolvePrompt(preset.id, preferences, customPresets, overrides)
                     ProcessingPromptPreset(
                         id = preset.id,
                         name = preset.name,
@@ -322,21 +330,23 @@ class ProcessingModeRepository
         private fun resolvePrompt(
             modeId: String,
             preferences: Preferences,
+            customPresets: List<StoredCustomPreset> = readCustomPresets(preferences),
+            overrides: Map<String, String> = readOverrides(preferences),
         ): String? {
             if (modeId == "smart") return null
 
-            readCustomPresets(preferences).find { it.id == modeId }?.let { preset ->
-                return readOverrides(preferences)[modeId] ?: preset.prompt
+            customPresets.find { it.id == modeId }?.let { preset ->
+                return overrides[modeId] ?: preset.prompt
             }
 
             if (modeId == "custom") {
-                return readOverrides(preferences)["custom"]
+                return overrides["custom"]
                     ?: preferences[KEY_CUSTOM_PROMPT]
                     ?: ""
             }
 
             val defaultPrompt = ProcessingModeDefaults.defaultPrompt(modeId) ?: return null
-            return readOverrides(preferences)[modeId] ?: defaultPrompt
+            return overrides[modeId] ?: defaultPrompt
         }
 
         // DAT-013: reads go through the versioned, null-validating codec. Both functions accept
