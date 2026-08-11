@@ -64,6 +64,13 @@ jlong begin_decode_locked() {
     return operation_id;
 }
 
+// Early-exit decode failures (bad request, I/O error, no session) never reach
+// capture_telemetry_locked, so the operation id begun by the Kotlin watchdog must be
+// cleared here or its cancellation state leaks into the next decode.
+void abandon_decode_locked() {
+    g_active_operation_id.store(0, std::memory_order_release);
+}
+
 void capture_telemetry_locked(transcribe_status status) {
     transcribe_timings timings;
     transcribe_timings_init(&timings);
@@ -85,15 +92,13 @@ void capture_telemetry_locked(transcribe_status status) {
 jstring run_locked(JNIEnv * env, const float * pcm, int count, const char * operation) {
     if (g_session == nullptr) {
         g_last_error = "recognizer is not loaded";
+        abandon_decode_locked();
         return nullptr;
     }
 
     transcribe_run_params run_params;
     transcribe_run_params_init(&run_params);
     run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
-    if (g_active_operation_id.load(std::memory_order_acquire) == 0) {
-        begin_decode_locked();
-    }
     const transcribe_status status = transcribe_run(g_session, pcm, count, &run_params);
     capture_telemetry_locked(status);
     if (status != TRANSCRIBE_OK) {
@@ -247,7 +252,13 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeDecodeTelemetry(
         static_cast<jfloat>(g_last_telemetry.status),
     };
     jfloatArray result = env->NewFloatArray(6);
-    if (result != nullptr) env->SetFloatArrayRegion(result, 0, 6, values);
+    if (result == nullptr) {
+        // Failure leaves a pending OutOfMemoryError; clear it so the caller sees a plain
+        // missing-telemetry null instead of an exception thrown after a successful decode.
+        env->ExceptionClear();
+        return nullptr;
+    }
+    env->SetFloatArrayRegion(result, 0, 6, values);
     return result;
 }
 
@@ -276,11 +287,27 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribe(
     jfloatArray samples) {
     if (samples == nullptr) return nullptr;
     const jsize count = env->GetArrayLength(samples);
-    if (count <= 0) return env->NewStringUTF("");
 
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_last_error.clear();
+    if (g_session == nullptr) {
+        g_last_error = "recognizer is not loaded";
+        abandon_decode_locked();
+        return nullptr;
+    }
+    // Checked after the session so silent audio on an unloaded recognizer reports the
+    // load failure instead of masquerading as a clean no-speech decode.
+    if (count <= 0) {
+        abandon_decode_locked();
+        return env->NewStringUTF("");
+    }
     jfloat * pcm = env->GetFloatArrayElements(samples, nullptr);
-    if (pcm == nullptr) return nullptr;
+    if (pcm == nullptr) {
+        env->ExceptionClear();
+        g_last_error = "out of memory reading audio";
+        abandon_decode_locked();
+        return nullptr;
+    }
 
     jstring result = run_locked(env, pcm, count, "transcribe_run");
     env->ReleaseFloatArrayElements(samples, pcm, JNI_ABORT);
@@ -297,16 +324,24 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribePcmFloatFile(
         sample_count > std::numeric_limits<int>::max()) {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_last_error = "invalid float PCM file request";
+        abandon_decode_locked();
         return nullptr;
     }
 
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_last_error.clear();
     const char * path = env->GetStringUTFChars(file_path, nullptr);
-    if (path == nullptr) return nullptr;
+    if (path == nullptr) {
+        env->ExceptionClear();
+        g_last_error = "out of memory reading PCM file path";
+        abandon_decode_locked();
+        return nullptr;
+    }
     const int fd = open(path, O_RDONLY | O_CLOEXEC);
     env->ReleaseStringUTFChars(file_path, path);
     if (fd < 0) {
         set_errno_error("open PCM file");
+        abandon_decode_locked();
         return nullptr;
     }
 
@@ -315,12 +350,14 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribePcmFloatFile(
     if (fstat(fd, &file_stat) != 0) {
         set_errno_error("stat PCM file");
         close(fd);
+        abandon_decode_locked();
         return nullptr;
     }
     if (file_stat.st_size < 0 || static_cast<uint64_t>(file_stat.st_size) != expected_bytes) {
         g_last_error = "float PCM file size does not match its declared sample count";
         __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", g_last_error.c_str());
         close(fd);
+        abandon_decode_locked();
         return nullptr;
     }
 
@@ -329,6 +366,7 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribePcmFloatFile(
     close(fd);
     if (mapping == MAP_FAILED) {
         set_errno_error("map PCM file", mmap_error);
+        abandon_decode_locked();
         return nullptr;
     }
     madvise(mapping, expected_bytes, MADV_SEQUENTIAL);
@@ -349,9 +387,21 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
     jobjectArray sample_batches) {
     if (sample_batches == nullptr) return nullptr;
     const jsize count = env->GetArrayLength(sample_batches);
-    if (count <= 0) return nullptr;
 
     std::lock_guard<std::mutex> lock(g_mutex);
+    g_last_error.clear();
+    if (count <= 0) {
+        g_last_error = "batch is empty";
+        abandon_decode_locked();
+        return nullptr;
+    }
+    // The loop below holds one local reference per batch element at once.
+    if (env->EnsureLocalCapacity(count + 8) != JNI_OK) {
+        env->ExceptionClear();
+        g_last_error = "batch is too large";
+        abandon_decode_locked();
+        return nullptr;
+    }
     std::vector<jfloatArray> arrays;
     std::vector<jfloat *> pcm;
     std::vector<const float *> pcm_const;
@@ -368,7 +418,9 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
                 env->ReleaseFloatArrayElements(arrays[j], pcm[j], JNI_ABORT);
                 env->DeleteLocalRef(arrays[j]);
             }
+            if (array != nullptr) env->DeleteLocalRef(array);
             g_last_error = "batch contains empty audio";
+            abandon_decode_locked();
             return nullptr;
         }
         jfloat * samples = env->GetFloatArrayElements(array, nullptr);
@@ -378,6 +430,9 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
                 env->DeleteLocalRef(arrays[j]);
             }
             env->DeleteLocalRef(array);
+            env->ExceptionClear();
+            g_last_error = "out of memory reading batch audio";
+            abandon_decode_locked();
             return nullptr;
         }
         arrays.push_back(array);
@@ -392,15 +447,13 @@ Java_dev_chirpboard_app_gguf_GgufNativeRecognizer_nativeTranscribeBatch(
             env->DeleteLocalRef(arrays[i]);
         }
         g_last_error = "recognizer is not loaded";
+        abandon_decode_locked();
         return nullptr;
     }
 
     transcribe_run_params run_params;
     transcribe_run_params_init(&run_params);
     run_params.timestamps = TRANSCRIBE_TIMESTAMPS_NONE;
-    if (g_active_operation_id.load(std::memory_order_acquire) == 0) {
-        begin_decode_locked();
-    }
     const transcribe_status status =
         transcribe_run_batch(g_session, pcm_const.data(), lengths.data(), count, &run_params);
     capture_telemetry_locked(status);
