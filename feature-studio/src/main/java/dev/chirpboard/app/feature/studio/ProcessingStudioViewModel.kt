@@ -103,7 +103,7 @@ class ProcessingStudioViewModel
             }
             return cachedRevision
         }
-        private var cachedTranscript: ProcessingStudioTranscript = ProcessingStudioTranscript.Empty
+        private var cachedTranscript: BuiltTranscript = EMPTY_BUILT_TRANSCRIPT
 
         private val structuredOutcomeGenerationInFlight = MutableStateFlow(false)
 
@@ -322,7 +322,7 @@ class ProcessingStudioViewModel
                 currentRecordingId = id
                 currentTranscript = null
                 cachedTranscriptInputs = null
-                cachedTranscript = ProcessingStudioTranscript.Empty
+                cachedTranscript = EMPTY_BUILT_TRANSCRIPT
                 _playbackTick.value = StudioPlaybackTick()
                 var sawRecording = false
 
@@ -380,7 +380,7 @@ class ProcessingStudioViewModel
                         // handlers write _uiState during that hop. A snapshot taken before the
                         // suspension would clobber those writes at the copy() further down,
                         // eating keystrokes typed while an enhancement result lands.
-                        val transcriptState =
+                        val (transcriptState, renderedTranscriptText) =
                             buildTimedTranscript(
                                 rawText = effectiveTranscriptText,
                                 timings = timings,
@@ -396,7 +396,6 @@ class ProcessingStudioViewModel
                             _message.value = context.getString(R.string.rec_msg_transcript_updated_while_editing)
                         }
                         val isEditingTranscript = wasEditingTranscript
-                        val renderedTranscriptText = transcriptState.renderedText()
                         val renderedTranscriptChanged = renderedTranscriptText != currentState.renderedTranscriptText
                         var nextState =
                             currentState.copy(
@@ -1327,14 +1326,17 @@ class ProcessingStudioViewModel
         private suspend fun buildTimedTranscript(
             rawText: String,
             timings: List<dev.chirpboard.app.data.entity.TranscriptTiming>,
-        ): ProcessingStudioTranscript {
+        ): BuiltTranscript {
             val inputs = TranscriptBuildInputs(rawText = rawText, timings = timings)
             cachedTranscriptInputs?.let { cached ->
                 if (cached == inputs) return cachedTranscript
             }
+            // Rendered text is joined off the main thread too: on a long dictation the
+            // join over thousands of segments is as measurable as the build itself.
             val built =
                 withContext(transcriptBuildDispatcher) {
-                    buildProcessingStudioTranscript(rawText = rawText, timings = timings)
+                    val transcript = buildProcessingStudioTranscript(rawText = rawText, timings = timings)
+                    BuiltTranscript(transcript, transcript.renderedText())
                 }
             cachedTranscriptInputs = inputs
             cachedTranscript = built
@@ -1367,6 +1369,13 @@ private data class PlaybackRevealKey(
     val recordingId: UUID,
     val audioPath: String,
 )
+
+private data class BuiltTranscript(
+    val transcript: ProcessingStudioTranscript,
+    val renderedText: String,
+)
+
+private val EMPTY_BUILT_TRANSCRIPT = BuiltTranscript(ProcessingStudioTranscript.Empty, "")
 
 private data class TranscriptBuildInputs(
     val rawText: String,
