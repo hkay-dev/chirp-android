@@ -26,12 +26,17 @@
         android:textStyle="bold"
         android:layout_marginBottom="8dp" />
 
-    <!-- Record/Stop button -->
+    <!-- Record/Stop button. The glyph is white and its real colour arrives at runtime via
+         setColorFilter, which never runs for previewLayout/initialLayout — so the widget
+         picker and the first frame after drop drew a white circle on a near-white container.
+         The static tint below covers those two frames; the runtime colour filter takes
+         precedence over it everywhere else. -->
     <ImageView
         android:id="@+id/widget_button"
         android:layout_width="56dp"
         android:layout_height="56dp"
         android:src="@drawable/ic_widget_record"
+        android:tint="@color/widget_tint_live"
         android:contentDescription="@string/widget_desc_start_recording"
         android:scaleType="fitCenter"
         android:background="@drawable/widget_button_background" />
