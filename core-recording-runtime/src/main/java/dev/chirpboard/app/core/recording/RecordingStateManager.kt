@@ -589,13 +589,17 @@ class RecordingStateManager @Inject constructor() {
                 Log.w(TAG, "rotateSegment called in wrong state: ${current::class.simpleName}")
                 break
             }
-            val elapsedThisSegment = nowMs() - current.startTimeMs
+            // One clock reading for both halves of the rotation: taking a second one for the
+            // new segment's start would silently drop everything in between (a GC pause, or a
+            // CAS retry looping back through here) from the recording's accumulated duration.
+            val rotatedAtMs = nowMs()
+            val elapsedThisSegment = rotatedAtMs - current.startTimeMs
             val totalAccumulated = current.accumulatedBeforeSegmentMs + elapsedThisSegment
             val nextState =
                 RecordingState.Recording(
                     origin = current.origin,
                     profileId = current.profileId,
-                    startTimeMs = nowMs(),
+                    startTimeMs = rotatedAtMs,
                     audioFilePath = newAudioFilePath,
                     recordingId = current.recordingId,
                     accumulatedBeforeSegmentMs = totalAccumulated,
