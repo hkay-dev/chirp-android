@@ -25,6 +25,10 @@ class RecordingPlaybackService : MediaSessionService() {
                     true,
                 )
                 .setHandleAudioBecomingNoisy(true)
+                // Recordings are long and usually played with the screen off; without the
+                // wakelock the CPU can suspend mid-playback and the audio stutters or stalls.
+                // The lock is held only while playing (WAKE_LOCK comes from feature-recording).
+                .setWakeMode(C.WAKE_MODE_LOCAL)
                 .build()
                 .also { player ->
                     player.repeatMode = Player.REPEAT_MODE_OFF
