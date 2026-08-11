@@ -111,6 +111,13 @@ class RecordViewModelTest {
     }
 
     @Test
+    fun `creating the view model drops a stale completed recording id`() = runTest(testDispatcher) {
+        // A completion published while no Record screen existed (notification stop, shortcut
+        // session) must not bounce the next Record entry into that recording's Studio.
+        verify { recordingStateManager.clearLastCompletedRecordingId() }
+    }
+
+    @Test
     fun `selected profile is resolved for the recording session`() = runTest(testDispatcher) {
         val profileId = UUID.randomUUID()
         val profile = Profile(id = profileId, name = "Meeting", icon = "🎤")

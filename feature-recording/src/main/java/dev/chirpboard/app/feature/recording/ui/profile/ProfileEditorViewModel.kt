@@ -158,20 +158,30 @@ class ProfileEditorViewModel
                 try {
                     if (profileId != null) {
                         val existing = profileRepository.getProfile(profileId)
-                        if (existing != null) {
-                            val updated =
-                                existing.copy(
-                                    name = state.name.trim(),
-                                    icon = state.icon.ifBlank { null },
-                                    autoTranscribe = state.autoTranscribe,
-                                    autoTitle = state.autoTitle,
-                                    autoSummary = state.autoSummary,
-                                    autoExportToObsidian = state.autoExportToObsidian,
-                                    defaultProcessingMode = state.defaultProcessingMode,
-                                    isQuickStartPinned = state.quickStartPinned,
+                        if (existing == null) {
+                            // The profile was deleted while the editor was open. Flipping isSaved
+                            // here would pop the screen as a successful save when nothing was
+                            // written; report it instead so the user knows their edits are gone.
+                            _uiState.update {
+                                it.copy(
+                                    isLoading = false,
+                                    error = appContext.getString(R.string.rec_msg_profile_not_found),
                                 )
-                            profileRepository.update(updated)
+                            }
+                            return@launch
                         }
+                        val updated =
+                            existing.copy(
+                                name = state.name.trim(),
+                                icon = state.icon.ifBlank { null },
+                                autoTranscribe = state.autoTranscribe,
+                                autoTitle = state.autoTitle,
+                                autoSummary = state.autoSummary,
+                                autoExportToObsidian = state.autoExportToObsidian,
+                                defaultProcessingMode = state.defaultProcessingMode,
+                                isQuickStartPinned = state.quickStartPinned,
+                            )
+                        profileRepository.update(updated)
                     } else {
                         profileRepository.createProfile(
                             ProfileRepository.CreateProfileRequest(
