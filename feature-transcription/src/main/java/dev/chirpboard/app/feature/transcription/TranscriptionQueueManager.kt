@@ -55,7 +55,6 @@ class TranscriptionQueueManager
         private val transcriptionRoutingStore: TranscriptionRoutingStore,
     ) : TranscriptionRecovery, TranscriptionQueueLifecycle {
         private val reconciliationMutex = Mutex()
-        private var reconciliationJob: Job? = null
 
         @Volatile
         private var reconciliationStarted = false
@@ -160,29 +159,28 @@ class TranscriptionQueueManager
                 reconciliationStarted = true
             }
 
-            reconciliationJob =
-                scope.launch {
-                    var idleSafetyNet: Job? = null
-                    nonTerminalWorkSignature.collect { signature ->
-                        // Every change to the non-terminal set is a reconciliation trigger.
-                        runReconciliationPass()
+            scope.launch {
+                var idleSafetyNet: Job? = null
+                nonTerminalWorkSignature.collect { signature ->
+                    // Every change to the non-terminal set is a reconciliation trigger.
+                    runReconciliationPass()
 
-                        if (signature.isEmpty) {
-                            // Queue drained: stop the safety-net timer. The next enqueue
-                            // re-emits a non-empty signature and reconciliation resumes.
-                            idleSafetyNet?.cancel()
-                            idleSafetyNet = null
-                        } else if (idleSafetyNet?.isActive != true) {
-                            idleSafetyNet =
-                                scope.launch {
-                                    while (isActive) {
-                                        delay(activeIntervalMs)
-                                        runReconciliationPass()
-                                    }
+                    if (signature.isEmpty) {
+                        // Queue drained: stop the safety-net timer. The next enqueue
+                        // re-emits a non-empty signature and reconciliation resumes.
+                        idleSafetyNet?.cancel()
+                        idleSafetyNet = null
+                    } else if (idleSafetyNet?.isActive != true) {
+                        idleSafetyNet =
+                            scope.launch {
+                                while (isActive) {
+                                    delay(activeIntervalMs)
+                                    runReconciliationPass()
                                 }
-                        }
+                            }
                     }
                 }
+            }
             scope.launch {
                 readinessGate.state
                     .map { it is ModelReadinessState.Ready }

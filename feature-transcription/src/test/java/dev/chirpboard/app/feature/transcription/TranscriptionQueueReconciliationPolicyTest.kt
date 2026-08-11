@@ -18,9 +18,9 @@ class TranscriptionQueueReconciliationPolicyTest {
     private val staleThresholdMs = 60_000L
 
     @Test
-    fun `startup recovers transcribing with missing ownership`() {
+    fun `startup recovers stale work with missing ownership`() {
         assertTrue(
-            shouldRecoverStaleTranscribing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.STARTUP,
                 createdAtEpochMs = now,
                 ownership = QueueOwnership.MISSING_OR_TERMINAL,
@@ -31,9 +31,9 @@ class TranscriptionQueueReconciliationPolicyTest {
     }
 
     @Test
-    fun `periodic does not recover fresh transcribing with missing ownership`() {
+    fun `periodic does not recover fresh work with missing ownership`() {
         assertFalse(
-            shouldRecoverStaleTranscribing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.PERIODIC,
                 createdAtEpochMs = now - 10_000L,
                 ownership = QueueOwnership.MISSING_OR_TERMINAL,
@@ -44,9 +44,9 @@ class TranscriptionQueueReconciliationPolicyTest {
     }
 
     @Test
-    fun `periodic recovers stale transcribing with missing ownership`() {
+    fun `periodic recovers stale work with missing ownership`() {
         assertTrue(
-            shouldRecoverStaleTranscribing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.PERIODIC,
                 createdAtEpochMs = now - 120_000L,
                 ownership = QueueOwnership.MISSING_OR_TERMINAL,
@@ -57,9 +57,9 @@ class TranscriptionQueueReconciliationPolicyTest {
     }
 
     @Test
-    fun `periodic does not recover transcribing with active ownership`() {
+    fun `periodic does not recover stale work with active ownership`() {
         assertFalse(
-            shouldRecoverStaleTranscribing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.PERIODIC,
                 createdAtEpochMs = now - 120_000L,
                 ownership = QueueOwnership.ACTIVE,
@@ -70,38 +70,12 @@ class TranscriptionQueueReconciliationPolicyTest {
     }
 
     @Test
-    fun `periodic does not recover transcribing when inspection timed out`() {
+    fun `periodic does not recover stale work when inspection timed out`() {
         assertFalse(
-            shouldRecoverStaleTranscribing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.PERIODIC,
                 createdAtEpochMs = now - 120_000L,
                 ownership = QueueOwnership.INSPECTION_TIMEOUT,
-                nowEpochMs = now,
-                staleThresholdMs = staleThresholdMs
-            )
-        )
-    }
-
-    @Test
-    fun `periodic recovers stale enhancing with missing ownership`() {
-        assertTrue(
-            shouldRecoverStaleEnhancing(
-                trigger = ReconciliationTrigger.PERIODIC,
-                createdAtEpochMs = now - 120_000L,
-                ownership = QueueOwnership.MISSING_OR_TERMINAL,
-                nowEpochMs = now,
-                staleThresholdMs = staleThresholdMs
-            )
-        )
-    }
-
-    @Test
-    fun `periodic does not recover fresh enhancing with missing ownership`() {
-        assertFalse(
-            shouldRecoverStaleEnhancing(
-                trigger = ReconciliationTrigger.PERIODIC,
-                createdAtEpochMs = now - 10_000L,
-                ownership = QueueOwnership.MISSING_OR_TERMINAL,
                 nowEpochMs = now,
                 staleThresholdMs = staleThresholdMs
             )
@@ -142,22 +116,9 @@ class TranscriptionQueueReconciliationPolicyTest {
     // same ownership rules apply.
 
     @Test
-    fun `startup recovers enhancing with missing ownership`() {
-        assertTrue(
-            shouldRecoverStaleEnhancing(
-                trigger = ReconciliationTrigger.STARTUP,
-                createdAtEpochMs = now,
-                ownership = QueueOwnership.MISSING_OR_TERMINAL,
-                nowEpochMs = now,
-                staleThresholdMs = staleThresholdMs
-            )
-        )
-    }
-
-    @Test
-    fun `startup does not recover enhancing with active ownership`() {
+    fun `startup does not recover stale work with active ownership`() {
         assertFalse(
-            shouldRecoverStaleEnhancing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.STARTUP,
                 createdAtEpochMs = now,
                 ownership = QueueOwnership.ACTIVE,
@@ -168,9 +129,9 @@ class TranscriptionQueueReconciliationPolicyTest {
     }
 
     @Test
-    fun `startup does not recover enhancing when inspection timed out`() {
+    fun `startup does not recover stale work when inspection timed out`() {
         assertFalse(
-            shouldRecoverStaleEnhancing(
+            shouldRecoverStaleWork(
                 trigger = ReconciliationTrigger.STARTUP,
                 createdAtEpochMs = now,
                 ownership = QueueOwnership.INSPECTION_TIMEOUT,

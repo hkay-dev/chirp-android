@@ -99,22 +99,9 @@ internal enum class QueueOwnership {
     INSPECTION_TIMEOUT,
 }
 
-internal fun shouldRecoverStaleTranscribing(
-    trigger: ReconciliationTrigger,
-    createdAtEpochMs: Long,
-    ownership: QueueOwnership,
-    nowEpochMs: Long,
-    staleThresholdMs: Long,
-): Boolean {
-    if (ownership == QueueOwnership.ACTIVE || ownership == QueueOwnership.INSPECTION_TIMEOUT) {
-        return false
-    }
-
-    return trigger == ReconciliationTrigger.STARTUP ||
-        (nowEpochMs - createdAtEpochMs) >= staleThresholdMs
-}
-
-internal fun shouldRecoverStaleEnhancing(
+// Applies to both stale TRANSCRIBING and stale ENHANCING rows: recovery policy is
+// identical for the two phases.
+internal fun shouldRecoverStaleWork(
     trigger: ReconciliationTrigger,
     createdAtEpochMs: Long,
     ownership: QueueOwnership,

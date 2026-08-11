@@ -74,7 +74,7 @@ internal class TranscriptionQueueReconciler(
 
         transcribing.forEach { recording ->
             val ownership = inspectQueueOwnership(recording)
-            val shouldRecover = shouldRecoverStaleTranscribing(
+            val shouldRecover = shouldRecoverStaleWork(
                 trigger = trigger,
                 createdAtEpochMs = recording.createdAt.time,
                 ownership = ownership,
@@ -102,7 +102,7 @@ internal class TranscriptionQueueReconciler(
 
         enhancing.forEach { recording ->
             val ownership = inspectQueueOwnership(recording)
-            val shouldRecover = shouldRecoverStaleEnhancing(
+            val shouldRecover = shouldRecoverStaleWork(
                 trigger = trigger,
                 createdAtEpochMs = recording.createdAt.time,
                 ownership = ownership,
