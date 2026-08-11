@@ -20,7 +20,7 @@
     <string name="llm_api_key_show">Show</string>
     <string name="llm_api_key_hide">Hide</string>
     <string name="llm_enable_processing_title">Enable AI Processing</string>
-    <string name="llm_enable_processing_enabled">AI processing is on for recordings, the keyboard, and voice typing.</string>
+    <string name="llm_enable_processing_enabled">AI processing is on for recordings. The keyboard and voice typing have their own AI toggle in Keyboard settings.</string>
     <string name="llm_enable_processing_disabled">AI processing is off.</string>
     <string name="llm_api_key_configured">Key saved</string>
     <string name="llm_api_key_not_set">No key saved</string>
