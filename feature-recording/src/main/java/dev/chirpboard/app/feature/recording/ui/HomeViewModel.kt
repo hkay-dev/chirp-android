@@ -142,9 +142,7 @@ data class RecordingPlaybackRowState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val hasStartedPlayback: Boolean = false,
-) {
-    fun isForRecording(recordingId: UUID): Boolean = this.recordingId == recordingId
-}
+)
 
 internal fun RecordingPlaybackState.toHomeRowState(): RecordingPlaybackRowState =
     RecordingPlaybackRowState(
@@ -448,7 +446,6 @@ class HomeViewModel
 
         private val _recoverableSessions = sessionRecovery.actionablePendingSessions
         val recoverableSessions: StateFlow<List<RecoverableRecordingSession>> = _recoverableSessions
-        val playbackState: StateFlow<RecordingPlaybackState> = playbackController.state
         val playbackRowState: StateFlow<RecordingPlaybackRowState> =
             playbackController
                 .state

@@ -27,6 +27,4 @@ data class RecordingPlaybackState(
 
     val isIdle: Boolean
         get() = recordingId == null && !isLoading && errorMessage == null
-
-    fun isForRecording(recordingId: UUID): Boolean = this.recordingId == recordingId
 }
