@@ -1,5 +1,6 @@
 package dev.chirpboard.app.core.playback
 
+import android.app.PendingIntent
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -50,10 +51,21 @@ class RecordingPlaybackService : MediaSessionService() {
                     )
                 }
         player = exoPlayer
-        mediaSession =
-            MediaSession.Builder(this, exoPlayer)
-                .setId(SESSION_ID)
-                .build()
+        val sessionBuilder = MediaSession.Builder(this, exoPlayer).setId(SESSION_ID)
+        // Without a session activity, tapping the media notification (or the lock-screen
+        // media controls) does nothing at all. The launch intent is resolved rather than
+        // naming the activity so this module keeps no dependency on the app module.
+        packageManager.getLaunchIntentForPackage(packageName)?.let { launch ->
+            sessionBuilder.setSessionActivity(
+                PendingIntent.getActivity(
+                    this,
+                    0,
+                    launch,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+        }
+        mediaSession = sessionBuilder.build()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
