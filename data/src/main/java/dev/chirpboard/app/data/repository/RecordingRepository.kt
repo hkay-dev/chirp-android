@@ -436,14 +436,16 @@ class RecordingRepository
                 .catchRepositoryFlowState(TAG, null)
 
         suspend fun saveTranscript(transcript: Transcript) {
-            val existing = transcriptDao.getTranscript(transcript.recordingId)
-            transcriptDao.insert(
-                mergePipelineTranscript(
-                    transcript = transcript,
-                    existing = existing,
-                    clearManualCorrection = false,
-                ),
-            )
+            database.withTransaction {
+                val existing = transcriptDao.getTranscript(transcript.recordingId)
+                transcriptDao.insert(
+                    mergePipelineTranscript(
+                        transcript = transcript,
+                        existing = existing,
+                        clearManualCorrection = false,
+                    ),
+                )
+            }
         }
 
         suspend fun saveTranscriptWithTiming(
@@ -1092,27 +1094,29 @@ class RecordingRepository
             sourceTranscriptRevision: String,
             failureMessage: String,
         ) {
-            val now = Date()
-            val existing = structuredOutcomeSnapshotDao.getSnapshot(recordingId)?.toModel()
-            val snapshot =
-                if (existing?.hasReadyPayload == true) {
-                    existing.copy(
-                        generationStatus = StructuredOutcomeGenerationStatus.FAILED,
-                        lastAttemptedAt = now,
-                        failureMessage = failureMessage,
-                    )
-                } else {
-                    StructuredOutcomeSnapshot(
-                        recordingId = recordingId,
-                        sourceTranscriptRevision = sourceTranscriptRevision,
-                        generationStatus = StructuredOutcomeGenerationStatus.FAILED,
-                        generatedAt = null,
-                        lastAttemptedAt = now,
-                        failureMessage = failureMessage,
-                    )
-                }
+            database.withTransaction {
+                val now = Date()
+                val existing = structuredOutcomeSnapshotDao.getSnapshot(recordingId)?.toModel()
+                val snapshot =
+                    if (existing?.hasReadyPayload == true) {
+                        existing.copy(
+                            generationStatus = StructuredOutcomeGenerationStatus.FAILED,
+                            lastAttemptedAt = now,
+                            failureMessage = failureMessage,
+                        )
+                    } else {
+                        StructuredOutcomeSnapshot(
+                            recordingId = recordingId,
+                            sourceTranscriptRevision = sourceTranscriptRevision,
+                            generationStatus = StructuredOutcomeGenerationStatus.FAILED,
+                            generatedAt = null,
+                            lastAttemptedAt = now,
+                            failureMessage = failureMessage,
+                        )
+                    }
 
-            structuredOutcomeSnapshotDao.insert(snapshot.toEntity())
+                structuredOutcomeSnapshotDao.insert(snapshot.toEntity())
+            }
         }
 
         suspend fun deleteAll() = recordingDao.deleteAll()
