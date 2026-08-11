@@ -108,6 +108,10 @@ class AudioSettingsStore
 
         private val migrationMutex = Mutex()
 
+        /** True once migration has been verified complete for this process. */
+        @Volatile
+        private var migrationVerified = false
+
         val settings: Flow<AudioSettings> =
             dataFlow { preferences ->
                 preferences.toAudioSettings()
@@ -244,7 +248,12 @@ class AudioSettingsStore
             }
 
         private suspend fun ensureMigrated() {
+            // Migration completes at most once per install; after the first verified pass
+            // every getter/setter (including the capture-start path) skips the mutex and
+            // DataStore read entirely.
+            if (migrationVerified) return
             migrationMutex.withLock {
+                if (migrationVerified) return
                 val currentPreferences = dataStore.data.first()
                 if (currentPreferences[Keys.migrationComplete] == true) {
                     if (currentPreferences[Keys.outputFormat] == null) {
@@ -252,6 +261,7 @@ class AudioSettingsStore
                             preferences[Keys.outputFormat] = RecordingOutputFormat.DEFAULT.storageValue
                         }
                     }
+                    migrationVerified = true
                     return
                 }
 
@@ -274,6 +284,7 @@ class AudioSettingsStore
                     }
                     preferences[Keys.migrationComplete] = true
                 }
+                migrationVerified = true
             }
         }
 
