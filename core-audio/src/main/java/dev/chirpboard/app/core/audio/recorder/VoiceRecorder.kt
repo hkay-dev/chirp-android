@@ -548,13 +548,15 @@ class VoiceRecorder(
                 watchdogRestartCount.set(0)
                 attempt.publishedGeneration = sessionGeneration.incrementAndGet()
                 isRecording.set(true)
-            }
 
-            // Track live reroutes for the rest of the session ([stopAudioRecord]
-            // removes the listener before release); the first-read refresh in
-            // collectSamples stays because the platform may not fire the listener
-            // for the initial route on all OS versions.
-            inputDeviceSelector?.observeRouting(record)
+                // Track live reroutes for the rest of the session ([stopAudioRecord]
+                // removes the listener before release); the first-read refresh in
+                // collectSamples stays because the platform may not fire the listener
+                // for the initial route on all OS versions. Registered under the
+                // publish lock (like the recovery swap) so a stop racing this start
+                // always removes the listener after it exists.
+                inputDeviceSelector?.observeRouting(record)
+            }
 
             // Signal that recording is ready for collection
             ready.complete(Unit)

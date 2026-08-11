@@ -392,8 +392,11 @@ class AudioInputDeviceSelector
             synchronized(routingListeners) {
                 if (routingListeners.containsKey(record)) return
                 routingListeners[record] = listener
+                // Registered under the same lock that removes it: a concurrent
+                // stopObservingRouting can otherwise interleave between the map insert
+                // and this call, stranding a map entry for an already-released record.
+                record.addOnRoutingChangedListener(listener, Handler(Looper.getMainLooper()))
             }
-            record.addOnRoutingChangedListener(listener, Handler(Looper.getMainLooper()))
         }
 
         /**
@@ -402,8 +405,10 @@ class AudioInputDeviceSelector
          * leaks past the session.
          */
         fun stopObservingRouting(record: AudioRecord) {
-            val listener = synchronized(routingListeners) { routingListeners.remove(record) } ?: return
-            runCatching { record.removeOnRoutingChangedListener(listener) }
+            synchronized(routingListeners) {
+                val listener = routingListeners.remove(record) ?: return
+                runCatching { record.removeOnRoutingChangedListener(listener) }
+            }
         }
 
         /**
