@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -63,8 +64,7 @@ class RecordingStateManager @Inject constructor() {
     /** Scope for internal operations like timeouts */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    @Volatile
-    private var timeoutJob: Job? = null
+    private val timeoutJob = AtomicReference<Job?>(null)
 
     @Volatile
     private var lastAmplitudeEmitMs = 0L
@@ -334,10 +334,9 @@ class RecordingStateManager @Inject constructor() {
     /**
      * Begin stopping timeout after recorder release completes.
      */
-    fun startStoppingTimeout(fileSizeBytes: Long): Job? {
+    fun startStoppingTimeout(fileSizeBytes: Long) {
         val timeoutMs = stoppingTimeoutMsOverrideForTest ?: computeStoppingTimeoutMs(fileSizeBytes)
-        timeoutJob?.cancel()
-        timeoutJob =
+        val started =
             (timeoutScopeOverrideForTest ?: scope).launch {
                 delay(timeoutMs)
                 val stoppingState = _state.value
@@ -380,7 +379,11 @@ class RecordingStateManager @Inject constructor() {
                     recordingLock.set(false)
                 }
             }
-        return timeoutJob
+        // getAndSet, not cancel-then-assign: two concurrent starts (a service stop racing the
+        // keyboard coordinator) would otherwise both cancel the same old job and both launch,
+        // leaving one orphan that no later cancel can reach — and that orphan still forces
+        // Error and releases the lock when it fires.
+        timeoutJob.getAndSet(started)?.cancel()
     }
 
     /**
@@ -430,7 +433,7 @@ class RecordingStateManager @Inject constructor() {
             }
         }
         if (handoffAccepted) {
-            timeoutJob?.cancel()
+            timeoutJob.getAndSet(null)?.cancel()
             publishCompletedRecordingId(recordingId)
             recordingLock.set(false)
             clearAmplitude()
@@ -482,7 +485,7 @@ class RecordingStateManager @Inject constructor() {
             }
         }
         if (completionAccepted) {
-            timeoutJob?.cancel()
+            timeoutJob.getAndSet(null)?.cancel()
             publishCompletedRecordingId(recordingId)
             recordingLock.set(false)
             clearAmplitude()
@@ -539,7 +542,7 @@ class RecordingStateManager @Inject constructor() {
             RecordingState.Error(origin, message, cause)
         }
         if (errorAccepted) {
-            timeoutJob?.cancel()
+            timeoutJob.getAndSet(null)?.cancel()
             recordingLock.set(false)
             clearAmplitude()
         }
@@ -569,7 +572,7 @@ class RecordingStateManager @Inject constructor() {
      * Use this for emergency cleanup (e.g., app being killed).
      */
     fun forceCancel() {
-        timeoutJob?.cancel()
+        timeoutJob.getAndSet(null)?.cancel()
         _state.update { current ->
             Log.d(TAG, "State: ${current::class.simpleName} -> Idle (force cancelled)")
             RecordingState.Idle
