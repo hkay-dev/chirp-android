@@ -14,13 +14,16 @@ import dev.chirpboard.app.core.ui.R as CoreUiR
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.core.audio.RecordingOutputFormat
 import dev.chirpboard.app.core.di.DefaultDispatcher
-import dev.chirpboard.app.core.llm.RecordingTextEnrichment
+import dev.chirpboard.app.core.llm.GOOGLE_CLOUD_VERTEX_PROVIDER_ID
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementContext
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.playback.RecordingPlaybackController
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStartResult
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
+import dev.chirpboard.app.core.transcription.TranscriptionEngine
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
 import dev.chirpboard.app.core.transcription.toUserMessage
 import dev.chirpboard.app.data.entity.Profile
@@ -165,7 +168,7 @@ class HomeViewModel
         private val tagRepository: TagRepository,
         private val profileRepository: ProfileRepository,
         private val transcriptionRecovery: TranscriptionRecovery,
-        private val recordingTextEnrichment: RecordingTextEnrichment,
+        private val recordingTextEnrichment: RecordingTextEnhancementPort,
         private val audioImportOrchestrator: AudioImportOrchestrator,
         private val sessionRecovery: RecordingRecoveryStore,
         private val playbackController: RecordingPlaybackController,
@@ -769,7 +772,7 @@ class HomeViewModel
                 inProgressStatus = appContext.getString(R.string.rec_msg_generating_title),
                 successStatus = appContext.getString(R.string.rec_msg_title_updated),
                 failureTemplateRes = R.string.rec_msg_title_generation_failed,
-                generate = { text -> recordingTextEnrichment.generateTitle(text) },
+                generate = { text -> recordingTextEnrichment.generateTitle(enrichmentContext(recording, text)) },
                 persist = { result -> recordingRepository.updateTitle(recording.id, result) },
             )
         }
@@ -784,8 +787,37 @@ class HomeViewModel
                 inProgressStatus = appContext.getString(R.string.rec_msg_generating_summary),
                 successStatus = appContext.getString(R.string.rec_msg_summary_updated),
                 failureTemplateRes = R.string.rec_msg_summary_generation_failed,
-                generate = { text -> recordingTextEnrichment.generateSummary(text) },
+                generate = { text -> recordingTextEnrichment.generateSummary(enrichmentContext(recording, text)) },
                 persist = { result -> recordingRepository.updateSummary(recording.id, result) },
+            )
+        }
+
+        /**
+         * Mirrors the enhancement worker's provider selection so a manual Generate action uses
+         * the same backend the recording's automatic enrichment used: an explicitly requested
+         * provider first, then Vertex for Chirp 3 cloud transcriptions, else the active provider.
+         */
+        private fun enrichmentContext(
+            recording: RecordingDisplayItem,
+            text: String,
+        ): RecordingTextEnhancementContext {
+            val requestedProviderId = recording.recording.requestedLlmProviderId
+            val requestedModelId = recording.recording.requestedLlmModelId
+            val (providerId, modelId) =
+                when {
+                    requestedProviderId != null || requestedModelId != null ->
+                        requestedProviderId to requestedModelId
+
+                    recording.recording.transcriptionEngineId == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3.id ->
+                        GOOGLE_CLOUD_VERTEX_PROVIDER_ID to null
+
+                    else -> null to null
+                }
+            return RecordingTextEnhancementContext(
+                text = text,
+                providerId = providerId,
+                modelId = modelId,
+                recordingId = recording.id.toString(),
             )
         }
 

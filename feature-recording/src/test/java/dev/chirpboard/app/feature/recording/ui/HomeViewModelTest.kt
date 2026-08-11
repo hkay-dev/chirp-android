@@ -2,7 +2,7 @@ package dev.chirpboard.app.feature.recording.ui
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
-import dev.chirpboard.app.core.llm.RecordingTextEnrichment
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.transcription.ManualRecoveryResult
 import dev.chirpboard.app.core.transcription.TranscriptionRecovery
@@ -78,7 +78,7 @@ class HomeViewModelTest {
     private lateinit var tagRepository: TagRepository
     private lateinit var profileRepository: ProfileRepository
     private lateinit var transcriptionQueueManager: TranscriptionRecovery
-    private lateinit var recordingTextEnrichment: RecordingTextEnrichment
+    private lateinit var recordingTextEnrichment: RecordingTextEnhancementPort
     private lateinit var audioImportOrchestrator: AudioImportOrchestrator
     private lateinit var sessionRecovery: RecordingRecoveryStore
     private lateinit var savedStateHandle: SavedStateHandle
