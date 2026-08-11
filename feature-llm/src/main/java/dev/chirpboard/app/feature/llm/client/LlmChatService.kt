@@ -13,15 +13,21 @@ import dev.chirpboard.app.feature.llm.settings.LlmPreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 @Singleton
 class LlmChatService
@@ -31,33 +37,21 @@ class LlmChatService
     ) {
         private val gson = Gson()
         private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+        // callTimeout bounds the whole request including retriable DNS/connect stalls; without
+        // it a black-holed endpoint held the settings "Test connection" spinner (and worker
+        // enhancement attempts) for the OS socket timeout times three retries.
         private val httpClient =
             OkHttpClient
                 .Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .writeTimeout(60, TimeUnit.SECONDS)
+                .callTimeout(90, TimeUnit.SECONDS)
                 .build()
 
         suspend fun completePrompt(prompt: String): Result<String> =
             withContext(Dispatchers.IO) {
-                val provider = preferences.getActiveProvider()
-                val apiKey = preferences.fetchApiKeyFor(provider)?.trim().orEmpty()
-                val model = preferences.getModelFor(provider)
-                if (apiKey.isBlank()) {
-                    return@withContext Result.failure(
-                        Exception("API key not configured. Add your ${provider.displayName} key in Settings."),
-                    )
-                }
-
-                executeWithRetry(provider.displayName) {
-                    when (provider) {
-                        LlmProvider.GEMINI -> completeGeminiPrompt(apiKey, model, prompt)
-                        LlmProvider.ANTHROPIC -> completeAnthropicPrompt(apiKey, model, prompt)
-                        LlmProvider.OPENAI -> completeOpenAiCompatiblePrompt(OPENAI_CHAT_URL, apiKey, model, prompt)
-                        LlmProvider.GROQ -> completeOpenAiCompatiblePrompt(GROQ_CHAT_URL, apiKey, model, prompt)
-                        LlmProvider.CEREBRAS -> completeOpenAiCompatiblePrompt(CEREBRAS_CHAT_URL, apiKey, model, prompt)
-                    }
-                }
+                completeResolvedPrompt(preferences.getActiveProvider(), modelId = null, prompt = prompt)
             }
 
         suspend fun completePrompt(
@@ -66,25 +60,32 @@ class LlmChatService
             prompt: String,
         ): Result<String> =
             withContext(Dispatchers.IO) {
-                val provider = LlmProvider.fromId(providerId)
-                val apiKey = preferences.fetchApiKeyFor(provider)?.trim().orEmpty()
-                val model = modelId?.takeIf { it.isNotBlank() } ?: preferences.getModelFor(provider)
-                if (apiKey.isBlank()) {
-                    return@withContext Result.failure(
-                        Exception("API key not configured. Add your ${provider.displayName} key in Settings."),
-                    )
-                }
+                completeResolvedPrompt(LlmProvider.fromId(providerId), modelId = modelId, prompt = prompt)
+            }
 
-                executeWithRetry(provider.displayName) {
-                    when (provider) {
-                        LlmProvider.GEMINI -> completeGeminiPrompt(apiKey, model, prompt)
-                        LlmProvider.ANTHROPIC -> completeAnthropicPrompt(apiKey, model, prompt)
-                        LlmProvider.OPENAI -> completeOpenAiCompatiblePrompt(OPENAI_CHAT_URL, apiKey, model, prompt)
-                        LlmProvider.GROQ -> completeOpenAiCompatiblePrompt(GROQ_CHAT_URL, apiKey, model, prompt)
-                        LlmProvider.CEREBRAS -> completeOpenAiCompatiblePrompt(CEREBRAS_CHAT_URL, apiKey, model, prompt)
-                    }
+        private suspend fun completeResolvedPrompt(
+            provider: LlmProvider,
+            modelId: String?,
+            prompt: String,
+        ): Result<String> {
+            val apiKey = preferences.fetchApiKeyFor(provider)?.trim().orEmpty()
+            val model = modelId?.takeIf { it.isNotBlank() } ?: preferences.getModelFor(provider)
+            if (apiKey.isBlank()) {
+                return Result.failure(
+                    Exception("API key not configured. Add your ${provider.displayName} key in Settings."),
+                )
+            }
+
+            return executeWithRetry(provider.displayName) {
+                when (provider) {
+                    LlmProvider.GEMINI -> completeGeminiPrompt(apiKey, model, prompt)
+                    LlmProvider.ANTHROPIC -> completeAnthropicPrompt(apiKey, model, prompt)
+                    LlmProvider.OPENAI -> completeOpenAiCompatiblePrompt(OPENAI_CHAT_URL, apiKey, model, prompt)
+                    LlmProvider.GROQ -> completeOpenAiCompatiblePrompt(GROQ_CHAT_URL, apiKey, model, prompt)
+                    LlmProvider.CEREBRAS -> completeOpenAiCompatiblePrompt(CEREBRAS_CHAT_URL, apiKey, model, prompt)
                 }
             }
+        }
 
         suspend fun completeChat(
             systemPrompt: String,
@@ -114,9 +115,8 @@ class LlmChatService
             block: suspend () -> Result<String>,
         ): Result<String> {
             var currentDelay = 1_000L
-            var lastException: Exception? = null
-
-            for (attempt in 1..3) {
+            var attempt = 1
+            while (true) {
                 val result =
                     try {
                         block()
@@ -131,28 +131,26 @@ class LlmChatService
                 }
 
                 val error = result.exceptionOrNull() ?: Exception("Unknown error")
-                if (!shouldRetry(error) || attempt == 3) {
+                if (!shouldRetry(error) || attempt == MAX_ATTEMPTS) {
                     Log.e(TAG, "$operationName failed", error)
                     return Result.failure(error)
                 }
 
                 Log.w(TAG, "Retrying $operationName after transient error (attempt $attempt)", error)
-                lastException = error as? Exception ?: Exception(error.message, error)
                 delay(currentDelay)
                 currentDelay *= 2
+                attempt++
             }
-
-            return Result.failure(lastException ?: Exception("Max retries exceeded"))
         }
 
         private fun shouldRetry(error: Throwable): Boolean =
             when (error) {
                 is IOException -> true
-                is LlmHttpException -> error.code == 429 || error.code == 503 || error.code >= 500
+                is LlmHttpException -> error.code == 429 || error.code >= 500
                 else -> false
             }
 
-        private fun completeGeminiPrompt(
+        private suspend fun completeGeminiPrompt(
             apiKey: String,
             model: String,
             prompt: String,
@@ -169,7 +167,7 @@ class LlmChatService
             }
         }
 
-        private fun completeGeminiChat(
+        private suspend fun completeGeminiChat(
             apiKey: String,
             model: String,
             systemPrompt: String,
@@ -206,7 +204,7 @@ class LlmChatService
             }
         }
 
-        private fun completeOpenAiCompatiblePrompt(
+        private suspend fun completeOpenAiCompatiblePrompt(
             url: String,
             apiKey: String,
             model: String,
@@ -225,7 +223,7 @@ class LlmChatService
             }
         }
 
-        private fun completeOpenAiCompatibleChat(
+        private suspend fun completeOpenAiCompatibleChat(
             url: String,
             apiKey: String,
             model: String,
@@ -250,7 +248,7 @@ class LlmChatService
             }
         }
 
-        private fun completeAnthropicPrompt(
+        private suspend fun completeAnthropicPrompt(
             apiKey: String,
             model: String,
             prompt: String,
@@ -267,7 +265,7 @@ class LlmChatService
             }
         }
 
-        private fun completeAnthropicChat(
+        private suspend fun completeAnthropicChat(
             apiKey: String,
             model: String,
             systemPrompt: String,
@@ -329,7 +327,7 @@ class LlmChatService
                 json.getAsJsonObject("error")?.get("message")?.asString
             }.getOrNull()
 
-        private fun postJson(
+        private suspend fun postJson(
             url: String,
             jsonBody: String,
             headers: Map<String, String>,
@@ -342,7 +340,7 @@ class LlmChatService
 
             headers.forEach { (key, value) -> requestBuilder.header(key, value) }
 
-            httpClient.newCall(requestBuilder.build()).execute().use { response ->
+            awaitResponse(httpClient.newCall(requestBuilder.build())).use { response ->
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     val message = extractErrorMessage(body) ?: "HTTP ${response.code}"
@@ -354,6 +352,31 @@ class LlmChatService
                 return Result.success(body)
             }
         }
+
+        // A blocking execute() ignores coroutine cancellation: a stopped worker or a closed
+        // settings screen would keep the socket and an IO thread busy until timeout. enqueue +
+        // invokeOnCancellation aborts the request the moment the caller is cancelled.
+        private suspend fun awaitResponse(call: Call): Response =
+            suspendCancellableCoroutine { continuation ->
+                continuation.invokeOnCancellation { call.cancel() }
+                call.enqueue(
+                    object : Callback {
+                        override fun onFailure(
+                            call: Call,
+                            e: IOException,
+                        ) {
+                            continuation.resumeWithException(e)
+                        }
+
+                        override fun onResponse(
+                            call: Call,
+                            response: Response,
+                        ) {
+                            if (continuation.isActive) continuation.resume(response) else response.close()
+                        }
+                    },
+                )
+            }
 
         private fun bearerHeaders(apiKey: String): Map<String, String> =
             mapOf("Authorization" to "Bearer $apiKey")
@@ -439,6 +462,7 @@ class LlmChatService
 
         companion object {
             private const val TAG = "LlmChatService"
+            private const val MAX_ATTEMPTS = 3
             private const val DEFAULT_MAX_TOKENS = 4096
             private const val ANTHROPIC_VERSION = "2023-06-01"
             private const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
