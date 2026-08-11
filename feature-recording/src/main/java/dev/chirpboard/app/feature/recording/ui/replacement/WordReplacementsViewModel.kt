@@ -6,12 +6,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.WordReplacement
 import dev.chirpboard.app.data.repository.WordReplacementRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import dev.chirpboard.app.feature.recording.ui.launchRepositoryMutation
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -28,6 +29,10 @@ class WordReplacementsViewModel
         private val _pendingUndo = MutableStateFlow<WordReplacement?>(null)
         val pendingUndo: StateFlow<WordReplacement?> = _pendingUndo.asStateFlow()
 
+        // The in-flight delete. An Undo must wait for it: re-inserting before the delete commits
+        // would be wiped again when the delete lands (same race TagsViewModel guards against).
+        private var deleteJob: Job? = null
+
         val replacements: StateFlow<List<WordReplacement>> =
             repository
                 .getAllReplacements()
@@ -43,7 +48,7 @@ class WordReplacementsViewModel
             replacement: String,
             caseSensitive: Boolean,
         ) {
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                 repository.createReplacement(
                     original = original,
                     replacement = replacement,
@@ -54,7 +59,7 @@ class WordReplacementsViewModel
         }
 
         fun update(item: WordReplacement) {
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                 repository.update(item)
             }
         }
@@ -62,16 +67,20 @@ class WordReplacementsViewModel
         fun delete(item: WordReplacement) {
             // Capture the whole entity before deletion so Undo can re-insert it verbatim.
             _pendingUndo.value = item
-            viewModelScope.launch {
-                repository.delete(item)
-            }
+            deleteJob =
+                launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
+                    repository.delete(item)
+                }
         }
 
         /** PROP-11: re-insert the last swipe-deleted replacement, preserving its original id. */
         fun undoDelete() {
             val item = _pendingUndo.value ?: return
             _pendingUndo.value = null
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
+                // An immediate Undo can arrive while the delete is still in flight: inserting now
+                // would be wiped when the delete lands. Wait it out.
+                deleteJob?.join()
                 repository.insert(item)
             }
         }
@@ -82,8 +91,12 @@ class WordReplacementsViewModel
         }
 
         fun toggleEnabled(item: WordReplacement) {
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                 repository.setEnabled(item.id, !item.enabled)
             }
+        }
+
+        private companion object {
+            const val TAG = "WordReplacementsVM"
         }
     }

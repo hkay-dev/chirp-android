@@ -6,13 +6,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.TagRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import dev.chirpboard.app.feature.recording.ui.launchRepositoryMutation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
 
@@ -59,13 +59,13 @@ class TagsViewModel
             name: String,
             color: String?,
         ) {
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                 tagRepository.createTag(name, color)
             }
         }
 
         fun updateTag(tag: Tag) {
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                 tagRepository.update(tag)
             }
         }
@@ -76,7 +76,7 @@ class TagsViewModel
             // preserved) and re-links those assignments — a lossless undo.
             _pendingUndo.value = tag
             deleteJob =
-                viewModelScope.launch {
+                launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                     val recordingIds = tagRepository.getRecordingIdsForTag(tag.id)
                     val profileIds = tagRepository.getProfileIdsForTag(tag.id)
                     pendingDeletion = PendingDeletion(tag, recordingIds, profileIds)
@@ -88,7 +88,7 @@ class TagsViewModel
         fun undoDelete() {
             val tag = _pendingUndo.value ?: return
             _pendingUndo.value = null
-            viewModelScope.launch {
+            launchRepositoryMutation(TAG, { _errorMessage.value = it }) {
                 // An immediate Undo can arrive while the delete coroutine is still snapshotting:
                 // restoring now would be undone by the still-pending delete. Wait it out.
                 deleteJob?.join()
@@ -108,5 +108,9 @@ class TagsViewModel
         fun clearPendingUndo() {
             _pendingUndo.value = null
             pendingDeletion = null
+        }
+
+        private companion object {
+            const val TAG = "TagsVM"
         }
     }

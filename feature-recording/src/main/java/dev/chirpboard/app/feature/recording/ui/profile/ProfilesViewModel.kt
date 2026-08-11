@@ -6,12 +6,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.repository.ProfileRepository
 import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import dev.chirpboard.app.feature.recording.ui.launchRepositoryMutation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -34,7 +34,7 @@ class ProfilesViewModel
         }
 
         fun deleteProfile(profile: Profile) {
-            viewModelScope.launch {
+            launchRepositoryMutation("ProfilesVM", { _errorMessage.value = it }) {
                 profileRepository.delete(profile)
             }
         }
