@@ -289,7 +289,10 @@ class RecordingSessionJournal
                 loadAllEntries().filter { entry ->
                     entry.state == SessionJournalState.ABANDONED &&
                         !entry.hasRecoverableAudioArtifact &&
-                        entry.lastHeartbeatEpochMs < cutoff
+                        // Inclusive: an entry exactly maxAgeMs old prunes. A strict < made the
+                        // maxAgeMs = 0 case (and its test) flaky when the heartbeat and the
+                        // prune landed in the same millisecond.
+                        entry.lastHeartbeatEpochMs <= cutoff
                 }
             stale.forEach { deleteEntry(it.sessionId) }
             return stale.size
