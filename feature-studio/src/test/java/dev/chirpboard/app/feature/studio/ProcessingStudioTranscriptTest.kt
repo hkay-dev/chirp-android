@@ -94,6 +94,41 @@ class ProcessingStudioTranscriptTest {
     }
 
     @Test
+    fun `timed transcript preserves paragraph breaks in segments and rendered text`() {
+        val transcript =
+            buildProcessingStudioTranscript(
+                rawText = "hello world\nagain\n\ndone",
+                timings =
+                    listOf(
+                        TranscriptTiming(recordingId, 0, "hello", 0L, 100L),
+                        TranscriptTiming(recordingId, 1, "world", 100L, 250L),
+                        TranscriptTiming(recordingId, 2, "again", 250L, 400L),
+                        TranscriptTiming(recordingId, 3, "done", 400L, 500L),
+                    ),
+            ) as ProcessingStudioTranscript.Timed
+
+        assertEquals(0, transcript.segments[1].precededByLineBreaks)
+        assertEquals(1, transcript.segments[2].precededByLineBreaks)
+        assertEquals(2, transcript.segments[3].precededByLineBreaks)
+        assertEquals("hello world\nagain\n\ndone", transcript.renderedText())
+    }
+
+    @Test
+    fun `untimed chunks keep paragraphs whole and split only oversized ones`() {
+        val longParagraph = (1..250).joinToString(" ") { "word$it" }
+        val text = "first paragraph\nstill first\n\n$longParagraph\n\nlast paragraph"
+
+        val chunks = buildUntimedTranscriptChunks(text)
+
+        assertEquals("first paragraph\nstill first", chunks.first())
+        assertEquals("last paragraph", chunks.last())
+        // 250 words split at 100 per chunk.
+        assertEquals(5, chunks.size)
+        assertTrue(chunks[1].startsWith("word1 "))
+        assertTrue(chunks[3].endsWith(" word250"))
+    }
+
+    @Test
     fun `manual correction text falls back to untimed transcript when timings no longer align`() {
         val transcript =
             buildProcessingStudioTranscript(

@@ -57,6 +57,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.ProcessingStudioTranscript
 import dev.chirpboard.app.feature.studio.R
 import dev.chirpboard.app.feature.studio.TranscriptSegment
+import dev.chirpboard.app.feature.studio.transcriptWordSeparator
 import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.R as CoreR
@@ -552,22 +553,13 @@ private fun UntimedTranscriptContent(
     transcript: ProcessingStudioTranscript.Untimed,
     modifier: Modifier,
 ) {
-    val textChunks =
-        remember(transcript.text) {
-            transcript.text
-                .split(UNTIMED_WHITESPACE_REGEX)
-                .filter { it.isNotBlank() }
-                .chunked(100)
-                .map { it.joinToString(" ") }
-        }
-
     LazyColumn(modifier = modifier) {
         item {
             Box(modifier = Modifier.padding(bottom = 12.dp)) {
                 WordTimingUnavailableNote()
             }
         }
-        itemsIndexed(textChunks, key = { index, _ -> index }) { _, chunk ->
+        itemsIndexed(transcript.textChunks, key = { index, _ -> index }) { _, chunk ->
             Text(
                 text = chunk,
                 style = MaterialTheme.typography.bodyLarge,
@@ -637,8 +629,6 @@ private fun TimedTranscriptContent(
  */
 private const val TIMED_SEGMENTS_PER_CHUNK = 20
 
-private val UNTIMED_WHITESPACE_REGEX = "\\s+".toRegex()
-
 @Composable
 private fun rememberTimedTranscriptChunk(
     chunk: List<TranscriptSegment>,
@@ -653,6 +643,9 @@ private fun rememberTimedTranscriptChunk(
         buildAnnotatedString {
             chunk.forEachIndexed { index, segment ->
                 val absoluteIndex = chunkStartIndex + index
+                // The recorded separator precedes each word within the chunk, preserving the
+                // transcript's paragraph breaks. Chunk boundaries rely on item padding instead.
+                if (index > 0) append(transcriptWordSeparator(segment.precededByLineBreaks))
                 val isActive = absoluteIndex == activeSegmentIndex
                 // Highlight the active karaoke word with color + background only. Changing
                 // fontWeight widens glyphs and reflows the whole paragraph word-by-word during
@@ -683,7 +676,6 @@ private fun rememberTimedTranscriptChunk(
                         append(segment.text)
                     }
                 }
-                append(" ")
             }
         }
     }
