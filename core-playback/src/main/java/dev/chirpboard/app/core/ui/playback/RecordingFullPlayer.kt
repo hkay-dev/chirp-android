@@ -14,6 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.playback.R as PlaybackR
 import dev.chirpboard.app.core.playback.RecordingPlaybackState
+import androidx.compose.material3.minimumInteractiveComponentSize
 import dev.chirpboard.app.core.ui.components.ChirpPill
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
@@ -108,7 +109,12 @@ private fun PlaybackSpeedChip(
     ChirpPill(
         label = stringResource(PlaybackR.string.playback_speed_label, speedText),
         onClick = onCycleSpeed,
-        modifier = modifier.semantics { contentDescription = description },
+        // The capsule itself is only ~45x32dp. This keeps that visual size while giving the
+        // tap target the 48dp minimum the rest of the transport already meets.
+        modifier =
+            modifier
+                .minimumInteractiveComponentSize()
+                .semantics { contentDescription = description },
     )
 }
 
