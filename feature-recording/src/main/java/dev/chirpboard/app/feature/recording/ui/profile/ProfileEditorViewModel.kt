@@ -82,7 +82,15 @@ class ProfileEditorViewModel
                         val savedAutoTitle = savedStateHandle.get<Boolean>("autoTitle")
                         val savedAutoSummary = savedStateHandle.get<Boolean>("autoSummary")
                         val savedAutoExportToObsidian = savedStateHandle.get<Boolean>("autoExportToObsidian")
-                        val savedDefaultProcessingMode = savedStateHandle.get<String>("defaultProcessingMode")
+                        // contains() distinguishes "never touched" (fall back to the stored
+                        // profile) from "explicitly cleared to null" (keep the cleared choice
+                        // across rotation/process death).
+                        val savedDefaultProcessingMode =
+                            if (savedStateHandle.contains("defaultProcessingMode")) {
+                                savedStateHandle.get<String>("defaultProcessingMode")
+                            } else {
+                                profile.defaultProcessingMode
+                            }
                         val savedQuickStartPinned = savedStateHandle.get<Boolean>("quickStartPinned")
                         it.copy(
                             name = savedName ?: profile.name,
@@ -91,7 +99,7 @@ class ProfileEditorViewModel
                             autoTitle = savedAutoTitle ?: profile.autoTitle,
                             autoSummary = savedAutoSummary ?: profile.autoSummary,
                             autoExportToObsidian = savedAutoExportToObsidian ?: profile.autoExportToObsidian,
-                            defaultProcessingMode = savedDefaultProcessingMode ?: profile.defaultProcessingMode,
+                            defaultProcessingMode = savedDefaultProcessingMode,
                             quickStartPinned = savedQuickStartPinned ?: profile.isQuickStartPinned,
                             isLoading = false,
                         )
