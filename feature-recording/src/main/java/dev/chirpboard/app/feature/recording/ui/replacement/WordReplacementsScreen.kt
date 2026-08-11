@@ -111,7 +111,7 @@ fun WordReplacementsScreen(
     var editingReplacementId by rememberSaveable { mutableStateOf<String?>(null) }
     val editingReplacement =
         remember(editingReplacementId, replacements) {
-            editingReplacementId?.let { id -> replacements.firstOrNull { it.id.toString() == id } }
+            editingReplacementId?.let { id -> replacements.orEmpty().firstOrNull { it.id.toString() == id } }
         }
 
     ChirpSettingsDetailScaffold(
@@ -134,14 +134,18 @@ fun WordReplacementsScreen(
     ) { paddingValues ->
         AnimatedContent(
             modifier = Modifier.animatePushDownLayout(),
-            targetState = replacements.isEmpty(),
+            // Three states: null = first load still running (render nothing, no flicker),
+            // true = genuinely empty, false = list. Error emissions never reach here.
+            targetState = replacements?.isEmpty(),
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
             label = "replacements_content",
         ) { isEmpty ->
-            if (isEmpty) {
+            if (isEmpty == null) {
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues))
+            } else if (isEmpty) {
                 EmptyState(
                     icon = Icons.Default.SwapHoriz,
                     title = stringResource(R.string.rec_word_replacements_empty_title),
@@ -162,13 +166,13 @@ fun WordReplacementsScreen(
                     contentPadding = PaddingValues(bottom = ChirpSpacing.MiniPlayerClearance),
                 ) {
                     itemsIndexed(
-                        items = replacements,
+                        items = replacements.orEmpty(),
                         key = { _, item -> item.id },
                         contentType = { _, _ -> "replacement" },
                     ) { index, replacement ->
                         SwipeableReplacementItem(
                             replacement = replacement,
-                            showDivider = index < replacements.lastIndex,
+                            showDivider = index < replacements.orEmpty().lastIndex,
                             onToggleEnabled = { viewModel.toggleEnabled(replacement) },
                             onEdit = {
                                 editingReplacementId = replacement.id.toString()

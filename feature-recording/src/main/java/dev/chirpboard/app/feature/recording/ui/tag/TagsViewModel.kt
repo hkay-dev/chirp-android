@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.repository.TagRepository
-import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import dev.chirpboard.app.data.repository.unwrapRepositoryFlowSkippingErrors
 import dev.chirpboard.app.feature.recording.ui.launchRepositoryMutation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,11 +45,12 @@ class TagsViewModel
         // would either hit the still-present row or be wiped again when the delete lands.
         private var deleteJob: Job? = null
 
-        val tags: StateFlow<List<Tag>> =
+        /** null until the first successful load — the screen shows neither list nor empty state. */
+        val tags: StateFlow<List<Tag>?> =
             tagRepository
                 .getAllTags()
-                .unwrapRepositoryFlow { _errorMessage.value = it }
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .unwrapRepositoryFlowSkippingErrors { _errorMessage.value = it }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         fun clearError() {
             _errorMessage.value = null

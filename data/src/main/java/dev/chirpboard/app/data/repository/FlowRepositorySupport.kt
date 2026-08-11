@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.transform
 
 data class RepositoryFlowState<T>(
     val value: T,
@@ -78,3 +79,19 @@ fun <T> Flow<RepositoryFlowState<T>>.unwrapRepositoryFlow(
     onEach { state ->
         state.errorMessage?.let(onError)
     }.map { it.value }
+
+/**
+ * Like [unwrapRepositoryFlow], but drops error emissions instead of passing their fallback value
+ * through. Use when the fallback (typically an empty list) is indistinguishable from real data —
+ * passing it through would flash a misleading "empty" UI while the underlying query retries.
+ */
+fun <T> Flow<RepositoryFlowState<T>>.unwrapRepositoryFlowSkippingErrors(
+    onError: (String) -> Unit,
+): Flow<T> =
+    transform { state ->
+        if (state.errorMessage != null) {
+            onError(state.errorMessage)
+        } else {
+            emit(state.value)
+        }
+    }

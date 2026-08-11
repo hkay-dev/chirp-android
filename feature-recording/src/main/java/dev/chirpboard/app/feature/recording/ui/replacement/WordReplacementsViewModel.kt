@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.chirpboard.app.data.entity.WordReplacement
 import dev.chirpboard.app.data.repository.WordReplacementRepository
-import dev.chirpboard.app.data.repository.unwrapRepositoryFlow
+import dev.chirpboard.app.data.repository.unwrapRepositoryFlowSkippingErrors
 import dev.chirpboard.app.feature.recording.ui.launchRepositoryMutation
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,11 +33,12 @@ class WordReplacementsViewModel
         // would be wiped again when the delete lands (same race TagsViewModel guards against).
         private var deleteJob: Job? = null
 
-        val replacements: StateFlow<List<WordReplacement>> =
+        /** null until the first successful load — the screen shows neither list nor empty state. */
+        val replacements: StateFlow<List<WordReplacement>?> =
             repository
                 .getAllReplacements()
-                .unwrapRepositoryFlow { _errorMessage.value = it }
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .unwrapRepositoryFlowSkippingErrors { _errorMessage.value = it }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         fun clearError() {
             _errorMessage.value = null

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -62,7 +63,7 @@ fun ProfileListScreen(
     var profileToDeleteId by rememberSaveable { mutableStateOf<String?>(null) }
     val profileToDelete =
         remember(profileToDeleteId, profiles) {
-            profileToDeleteId?.let { id -> profiles.firstOrNull { it.id.toString() == id } }
+            profileToDeleteId?.let { id -> profiles.orEmpty().firstOrNull { it.id.toString() == id } }
         }
 
     // Delete confirmation dialog
@@ -108,14 +109,18 @@ fun ProfileListScreen(
     ) { paddingValues ->
         AnimatedContent(
             modifier = Modifier.animatePushDownLayout(),
-            targetState = profiles.isEmpty(),
+            // Three states: null = first load still running (render nothing, no flicker),
+            // true = genuinely empty, false = list. Error emissions never reach here.
+            targetState = profiles?.isEmpty(),
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
             label = "profiles_content",
         ) { isEmpty ->
-            if (isEmpty) {
+            if (isEmpty == null) {
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues))
+            } else if (isEmpty) {
                 EmptyState(
                     icon = Icons.Default.Person,
                     title = stringResource(R.string.rec_no_profiles_yet),
@@ -137,7 +142,7 @@ fun ProfileListScreen(
                         ),
                 ) {
                     items(
-                        items = profiles,
+                        items = profiles.orEmpty(),
                         key = { it.id },
                         contentType = { "profile" },
                     ) { profile ->

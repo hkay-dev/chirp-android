@@ -113,7 +113,7 @@ fun TagManagementScreen(
     // re-resolved from the live list so the dialog also closes if the tag is deleted elsewhere.
     var showCreateDialog by rememberSaveable { mutableStateOf(false) }
     var editingTagId by rememberSaveable { mutableStateOf<String?>(null) }
-    val editingTag = remember(editingTagId, tags) { editingTagId?.let { id -> tags.firstOrNull { it.id.toString() == id } } }
+    val editingTag = remember(editingTagId, tags) { editingTagId?.let { id -> tags.orEmpty().firstOrNull { it.id.toString() == id } } }
 
     ChirpSettingsDetailScaffold(
         title = stringResource(R.string.rec_tags),
@@ -130,14 +130,18 @@ fun TagManagementScreen(
     ) { paddingValues ->
         AnimatedContent(
             modifier = Modifier.animatePushDownLayout(),
-            targetState = tags.isEmpty(),
+            // Three states: null = first load still running (render nothing, no flicker),
+            // true = genuinely empty, false = list. Error emissions never reach here.
+            targetState = tags?.isEmpty(),
             transitionSpec = {
                 fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
                     fadeOut(tween(200, easing = FastOutSlowInEasing))
             },
             label = "tags_content",
         ) { isEmpty ->
-            if (isEmpty) {
+            if (isEmpty == null) {
+                Box(modifier = Modifier.fillMaxSize().padding(paddingValues))
+            } else if (isEmpty) {
                 EmptyState(
                     icon = Icons.AutoMirrored.Filled.Label,
                     title = stringResource(R.string.rec_no_tags_yet),
@@ -154,7 +158,7 @@ fun TagManagementScreen(
                     contentPadding = PaddingValues(bottom = ChirpSpacing.MiniPlayerClearance),
                 ) {
                     items(
-                        items = tags,
+                        items = tags.orEmpty(),
                         key = { it.id },
                         contentType = { "tag" },
                     ) { tag ->
