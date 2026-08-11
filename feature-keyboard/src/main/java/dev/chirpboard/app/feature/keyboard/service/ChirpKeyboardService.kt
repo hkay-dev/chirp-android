@@ -59,7 +59,6 @@ import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import dev.chirpboard.app.feature.keyboard.session.KeyboardSessionCoordinator
-import dev.chirpboard.app.core.modelreadiness.LocalRecognizerWarmWindow
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardScreen
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -90,7 +89,6 @@ class ChirpKeyboardService :
     @Inject lateinit var recognizerProvider: TranscriberProvider
     @Inject lateinit var streamingRecognizerProvider: StreamingTranscriberProvider
     @Inject lateinit var modelReadinessGate: SpeechModelReadinessGate
-    @Inject lateinit var localRecognizerWarmWindow: LocalRecognizerWarmWindow
     @Inject lateinit var inputDeviceSelector: AudioInputDeviceSelector
     @Inject lateinit var audioSettingsStore: AudioSettingsStore
     @Inject lateinit var inlineTranscription: InlineTranscriptionPort
@@ -332,7 +330,6 @@ class ChirpKeyboardService :
 
     override fun onWindowShown() {
         super.onWindowShown()
-        localRecognizerWarmWindow.onImeVisibilityChanged(true)
         // The window instance can change across show cycles; re-apply the dictation-scoped flag.
         updateImeKeepScreenOn(window?.window, enabled = coordinator.isRecordingActive())
         windowShownState.value = true
@@ -345,7 +342,6 @@ class ChirpKeyboardService :
 
     override fun onWindowHidden() {
         super.onWindowHidden()
-        localRecognizerWarmWindow.onImeVisibilityChanged(false)
         updateImeKeepScreenOn(window?.window, enabled = false)
         windowShownState.value = false
         // PRF-3: with the keyboard window hidden there is nothing to draw — drop the lifecycle to
@@ -537,7 +533,6 @@ class ChirpKeyboardService :
     }
 
     override fun onDestroy() {
-        localRecognizerWarmWindow.onImeVisibilityChanged(false)
         updateImeKeepScreenOn(window?.window, enabled = false)
         stopBridgeRegistration?.let(keyboardStopBridge::clearStopHandler)
         stopBridgeRegistration = null

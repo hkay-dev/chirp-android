@@ -18,7 +18,6 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.core.transcription.LocalSpeechModelActivator
 import dev.chirpboard.app.core.transcription.LocalSpeechModelSelectionStore
-import dev.chirpboard.app.core.modelreadiness.LocalRecognizerWarmWindow
 import dev.chirpboard.app.download.ModelDownloader
 import javax.inject.Singleton
 
@@ -28,13 +27,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object KeyboardModule {
-    @Provides
-    @Singleton
-    fun provideLocalRecognizerWarmWindow(): LocalRecognizerWarmWindow =
-        object : LocalRecognizerWarmWindow {
-            override fun onImeVisibilityChanged(visible: Boolean) = Unit
-        }
-
     @Provides
     @Singleton
     fun provideSelectableLocalTranscriberProvider(
