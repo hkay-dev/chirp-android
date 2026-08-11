@@ -135,19 +135,19 @@ class RecordingPlaybackController
             // live recording (the recorder treats permanent focus loss as stop-with-save).
             // Refuse with a visible message instead; the recorder's focus claim wins.
             if (recordingStateManager.state.value.isActive) {
-                _state.value =
-                    RecordingPlaybackState(
-                        recordingId = recordingId,
-                        title = title,
-                        audioPath = audioPath,
-                        errorMessage = context.getString(R.string.playback_blocked_while_recording),
-                        playbackSpeed = _state.value.playbackSpeed,
-                    )
+                refusePlayWhileRecording(recordingId, title, audioPath)
                 return
             }
             scope.launch {
                 if (!validateAudioFile(audioPath, recordingId)) return@launch
                 withConnectedController { player ->
+                    // Re-check after the file-validate IO hop: a capture started in that
+                    // window must not receive our focus request (it treats the loss as
+                    // stop-with-save), so the refusal has to be decided here too.
+                    if (recordingStateManager.state.value.isActive) {
+                        refusePlayWhileRecording(recordingId, title, audioPath)
+                        return@withConnectedController
+                    }
                     _state.value = _state.value.copy(hasStartedPlayback = true)
                     val currentId = activeRecordingId(player)
                     if (currentId == recordingId) {
@@ -183,6 +183,21 @@ class RecordingPlaybackController
                     syncFromPlayer()
                 }
             }
+        }
+
+        private fun refusePlayWhileRecording(
+            recordingId: UUID,
+            title: String,
+            audioPath: String,
+        ) {
+            _state.value =
+                RecordingPlaybackState(
+                    recordingId = recordingId,
+                    title = title,
+                    audioPath = audioPath,
+                    errorMessage = context.getString(R.string.playback_blocked_while_recording),
+                    playbackSpeed = _state.value.playbackSpeed,
+                )
         }
 
         fun togglePlayPause() {
