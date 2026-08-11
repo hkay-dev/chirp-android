@@ -104,6 +104,7 @@
     <string name="rec_msg_enhancement_recovery_queued">AI processing recovery queued</string>
     <string name="rec_msg_retranscription_queued">Full retranscription queued</string>
     <string name="rec_msg_title_save_failed">Couldn’t save the title. Your device storage may be full.</string>
+    <string name="rec_msg_title_blank">Enter a title first, or tap Cancel to keep the current one.</string>
     <string name="rec_share_item_chooser">Share item</string>
     <!-- I18N-05: AI failure classification copy (raw errors stay in logs). -->
     <string name="rec_ai_failure_network">Couldn’t reach the AI service. Check your internet connection and try again.</string>

@@ -173,6 +173,30 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `blank title save shows feedback and stays in edit mode`() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { context.getString(R.string.rec_msg_title_blank) } returns "Enter a title first"
+
+            val viewModel = createViewModel(recordingId = recordingId.toString())
+            advanceUntilIdle()
+
+            viewModel.startEditingTitle()
+            viewModel.updateEditedTitle("   ")
+            viewModel.saveTitle()
+            advanceUntilIdle()
+
+            assertTrue(viewModel.uiState.value.isEditingTitle)
+            assertEquals("Enter a title first", viewModel.message.value)
+            coVerify(exactly = 0) { repository.updateTitle(any(), any()) }
+        }
+
+    @Test
     fun `pending enhancement shows enhancement recovery and uses pending enhancement recovery`() =
         runTest {
             val dispatcher = StandardTestDispatcher(testScheduler)

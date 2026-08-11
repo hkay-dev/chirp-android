@@ -1052,18 +1052,22 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val id = currentRecordingId ?: return@launch
                 val trimmedTitle = _uiState.value.editedTitle.trim()
-                if (trimmedTitle.isNotEmpty()) {
-                    // ERR-18: surface a full-disk write failure instead of crashing.
-                    try {
-                        repository.updateTitle(id, trimmedTitle)
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        Log.e("ProcessingStudioVM", "Failed to save title", e)
-                        _message.value = context.getString(R.string.rec_msg_title_save_failed)
-                        return@launch
-                    }
-                    _uiState.value = _uiState.value.copy(title = trimmedTitle)
+                if (trimmedTitle.isEmpty()) {
+                    // A blank Save used to exit edit mode with the old title and no feedback;
+                    // there is a separate Cancel button, so tell the user and stay editing.
+                    _message.value = context.getString(R.string.rec_msg_title_blank)
+                    return@launch
                 }
+                // ERR-18: surface a full-disk write failure instead of crashing.
+                try {
+                    repository.updateTitle(id, trimmedTitle)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e("ProcessingStudioVM", "Failed to save title", e)
+                    _message.value = context.getString(R.string.rec_msg_title_save_failed)
+                    return@launch
+                }
+                _uiState.value = _uiState.value.copy(title = trimmedTitle)
                 mirrorTitleEditState(isEditing = false, editedTitle = null)
                 _uiState.value = _uiState.value.copy(isEditingTitle = false)
             }
