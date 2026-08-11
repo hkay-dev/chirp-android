@@ -8,4 +8,9 @@
     <files-path
         name="recordings"
         path="recordings/" />
+    <!-- Oversized transcript shares (EXTRA_TEXT would exceed the Binder limit). Maps only
+         this subdirectory, never the cache root, so dictation staging stays unreachable. -->
+    <cache-path
+        name="transcript-shares"
+        path="transcript-shares/" />
 </paths>

@@ -1264,25 +1264,33 @@ class ProcessingStudioViewModel
         }
 
         fun shareTranscript(context: Context) {
-            val state = _uiState.value
-            val text =
-                ProcessingStudioShare.buildTranscriptShareText(
-                    title = state.title,
-                    summary = state.summary,
-                    transcriptText = state.effectiveTranscriptText,
-                )
-            try {
-                context.startActivity(
-                    ProcessingStudioShare.chooserIntent(
-                        ProcessingStudioShare.transcriptShareIntent(state.title, text),
-                        context.getString(CoreUiR.string.rec_share_transcript),
-                    ),
-                )
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                // I18N-05: exception messages are developer diagnostics; keep them in logs.
-                Log.e("ProcessingStudioVM", "Share failed", e)
-                _message.value = context.getString(CoreUiR.string.rec_msg_share_failed)
+            viewModelScope.launch {
+                val state = _uiState.value
+                try {
+                    // Building the share text and (for oversized transcripts) writing the share
+                    // file are proportional to transcript length; keep them off the main thread.
+                    val intent =
+                        withContext(Dispatchers.IO) {
+                            val text =
+                                ProcessingStudioShare.buildTranscriptShareText(
+                                    title = state.title,
+                                    summary = state.summary,
+                                    transcriptText = state.effectiveTranscriptText,
+                                )
+                            ProcessingStudioShare.transcriptShareIntent(context, state.title, text)
+                        }
+                    context.startActivity(
+                        ProcessingStudioShare.chooserIntent(
+                            intent,
+                            context.getString(CoreUiR.string.rec_share_transcript),
+                        ),
+                    )
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    // I18N-05: exception messages are developer diagnostics; keep them in logs.
+                    Log.e("ProcessingStudioVM", "Share failed", e)
+                    _message.value = context.getString(CoreUiR.string.rec_msg_share_failed)
+                }
             }
         }
 
@@ -1301,6 +1309,7 @@ class ProcessingStudioViewModel
                 context.startActivity(
                     ProcessingStudioShare.chooserIntent(
                         ProcessingStudioShare.structuredOutcomeShareIntent(
+                            context = context,
                             title = state.title,
                             groupLabel = item.group.displayLabel(context),
                             text = text,
@@ -1328,20 +1337,24 @@ class ProcessingStudioViewModel
                     return@launch
                 }
                 try {
-                    val text =
-                        ProcessingStudioShare.buildTranscriptShareText(
-                            title = state.title,
-                            summary = state.summary,
-                            transcriptText = state.effectiveTranscriptText,
-                        )
-                    context.startActivity(
-                        ProcessingStudioShare.chooserIntent(
+                    val intent =
+                        withContext(Dispatchers.IO) {
+                            val text =
+                                ProcessingStudioShare.buildTranscriptShareText(
+                                    title = state.title,
+                                    summary = state.summary,
+                                    transcriptText = state.effectiveTranscriptText,
+                                )
                             ProcessingStudioShare.audioAndTranscriptShareIntent(
                                 context = context,
                                 audioFile = file,
                                 title = state.title,
                                 text = text,
-                            ),
+                            )
+                        }
+                    context.startActivity(
+                        ProcessingStudioShare.chooserIntent(
+                            intent,
                             context.getString(CoreUiR.string.rec_share_recording_chooser),
                         ),
                     )
