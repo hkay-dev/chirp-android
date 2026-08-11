@@ -175,11 +175,13 @@ fun RecordScreen(
     // record screen itself (previously only Home rendered RecordingState.Error).
     LaunchedEffect(recordingState) {
         val error = recordingState as? RecordingState.Error ?: return@LaunchedEffect
-        viewModel.clearRecordingError()
+        // Show first, clear after: clearing resets recordingState, which restarts this effect and
+        // cancels a snackbar that hasn't displayed yet (same ordering Home uses for its errors).
         snackbarHostState.showSnackbar(
             message = error.message,
             duration = SnackbarDuration.Short,
         )
+        viewModel.clearRecordingError()
     }
 
     // ERR-13/ERR-14: reasoned auto-stops (storage critical, focus loss, device loss, capture

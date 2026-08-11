@@ -211,6 +211,13 @@ class RecordViewModel
         private var noteDraftDirty = false
 
         init {
+            // lastCompletedRecordingId is process-wide state that only this screen consumes. A
+            // completion published while no Record screen existed (recording stopped from the
+            // notification after navigating away, a shortcut session, a handoff) would otherwise
+            // sit in the flow and bounce the next Record entry straight into that old recording's
+            // Studio. A fresh ViewModel means a fresh screen entry, so drop anything stale first;
+            // completions from this session are published after this and still navigate.
+            recordingStateManager.clearLastCompletedRecordingId()
             viewModelScope.launch {
                 try {
                     recoveryStore.refresh()
