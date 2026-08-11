@@ -72,6 +72,19 @@ class KeyboardPendingStopStoreTest {
         }
 
     @Test
+    fun peek_entryTimestampedInTheFutureIsIgnoredAndCleared() =
+        runTest {
+            store.enqueue(RecordingOrigin.WIDGET)
+
+            // The clock moved backwards after the write, so the entry looks like it was made
+            // in the future. It must age out rather than live forever.
+            val skewed = store.peek(nowEpochMs = System.currentTimeMillis() - 60 * 60 * 1000L)
+
+            assertNull(skewed)
+            assertNull(store.peek())
+        }
+
+    @Test
     fun reconcileStale_clearsWhenGlobalStateIdle() =
         runTest {
             store.enqueue(RecordingOrigin.WIDGET)

@@ -51,7 +51,12 @@ class KeyboardPendingStopStore
             val requestedAt = preferences[REQUESTED_AT_KEY] ?: return null
             val originName = preferences[REQUESTER_ORIGIN_KEY] ?: return null
             val origin = runCatching { RecordingOrigin.valueOf(originName) }.getOrNull() ?: return null
-            if (nowEpochMs - requestedAt > PENDING_STOP_TTL_MS) {
+            val age = nowEpochMs - requestedAt
+            // A negative age means the timestamp is in the future, which only happens when the
+            // clock moved backwards (NTP correction, manual change, timezone-less RTC on boot).
+            // Without this the entry never ages out and can fire against an unrelated session
+            // minutes or hours later.
+            if (age < 0 || age > PENDING_STOP_TTL_MS) {
                 // A stop request this old can only clobber a newer healthy session;
                 // drop it instead of letting it fire long after the fact.
                 clear()
