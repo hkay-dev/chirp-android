@@ -580,10 +580,10 @@ private fun TimedTranscriptContent(
     onSegmentClicked: ((Long) -> Unit)?,
     modifier: Modifier,
 ) {
-    val chunks = remember(transcript.segments) { transcript.segments.chunked(100) }
+    val chunks = remember(transcript.segments) { transcript.segments.chunked(TIMED_SEGMENTS_PER_CHUNK) }
     val activeChunkIndex =
         remember(activeSegmentIndex) {
-            if (activeSegmentIndex < 0) -1 else activeSegmentIndex / 100
+            if (activeSegmentIndex < 0) -1 else activeSegmentIndex / TIMED_SEGMENTS_PER_CHUNK
         }
 
     val listState = rememberLazyListState()
@@ -607,7 +607,7 @@ private fun TimedTranscriptContent(
 
     LazyColumn(state = listState, modifier = modifier) {
         itemsIndexed(chunks, key = { index, _ -> index }) { chunkIndex, chunk ->
-            val chunkStartIndex = chunkIndex * 100
+            val chunkStartIndex = chunkIndex * TIMED_SEGMENTS_PER_CHUNK
             val isActiveChunk = chunkIndex == activeChunkIndex
             val annotatedString =
                 rememberTimedTranscriptChunk(
@@ -625,6 +625,15 @@ private fun TimedTranscriptContent(
         }
     }
 }
+
+/**
+ * Segments per LazyColumn item in the timed (karaoke) transcript. This is both the
+ * follow-scroll granularity (the list can only scroll chunk-by-chunk, so the highlight
+ * may sit off screen for up to a chunk) and the cost of a word tick (the active chunk's
+ * whole AnnotatedString rebuilds each time the highlighted word moves). 100 made the
+ * karaoke follow lag by whole screens and rebuilt 100 link spans per word.
+ */
+private const val TIMED_SEGMENTS_PER_CHUNK = 20
 
 @Composable
 private fun rememberTimedTranscriptChunk(
