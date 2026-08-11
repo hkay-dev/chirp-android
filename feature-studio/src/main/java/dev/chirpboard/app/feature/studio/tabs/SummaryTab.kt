@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Chat
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.MaterialTheme
@@ -26,7 +27,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R as CoreR
-import dev.chirpboard.app.core.ui.components.CopyActionButton
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.StudioOutlinedAction
 import dev.chirpboard.app.core.ui.components.TranscriptionProgressCopy
@@ -300,8 +300,9 @@ private fun StructuredOutcomeGroupSection(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CopyActionButton(
+                        StudioOutlinedAction(
                             onClick = { onCopyStructuredOutcome(item) },
+                            icon = Icons.Outlined.ContentCopy,
                             label = stringResource(CoreR.string.rec_copy),
                         )
                         StudioOutlinedAction(

@@ -1,8 +1,6 @@
 package dev.chirpboard.app.core.ui.components
 
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -13,7 +11,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -27,23 +24,18 @@ import androidx.compose.ui.res.stringResource
 import dev.chirpboard.app.core.ui.R
 
 /**
- * Standard leaf screen wrapper with TopAppBar, optional navigation, and FAB support.
+ * Standard leaf screen wrapper with a fixed TopAppBar and back navigation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChirpLeafScaffold(
     title: String,
+    onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
-    onNavigateBack: (() -> Unit)? = null,
-    actions: @Composable RowScope.() -> Unit = {},
-    floatingActionButton: @Composable () -> Unit = {},
-    snackbarHostState: SnackbarHostState? = null,
-    contentWindowInsets: WindowInsets = ScaffoldDefaults.contentWindowInsets,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
         modifier = modifier,
-        contentWindowInsets = contentWindowInsets,
         topBar = {
             TopAppBar(
                 title = {
@@ -53,16 +45,13 @@ fun ChirpLeafScaffold(
                     )
                 },
                 navigationIcon = {
-                    if (onNavigateBack != null) {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = stringResource(R.string.desc_navigate_back),
-                            )
-                        }
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = stringResource(R.string.desc_navigate_back),
+                        )
                     }
                 },
-                actions = actions,
                 colors =
                     TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.surface,
@@ -71,12 +60,6 @@ fun ChirpLeafScaffold(
                         actionIconContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     ),
             )
-        },
-        floatingActionButton = floatingActionButton,
-        snackbarHost = {
-            if (snackbarHostState != null) {
-                SnackbarHost(snackbarHostState)
-            }
         },
         containerColor = MaterialTheme.colorScheme.background,
         content = content,

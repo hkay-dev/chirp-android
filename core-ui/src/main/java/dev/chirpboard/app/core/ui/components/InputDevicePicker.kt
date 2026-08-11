@@ -348,7 +348,7 @@ private fun InputDeviceRow(
  * built-in mic while the legacy "prefer built-in" policy is active (selecting it by
  * row converts the preference to a robust manual selection).
  */
-fun isDeviceSelected(
+private fun isDeviceSelected(
     state: InputDevicePickerUiState,
     device: AudioInputDeviceSummary,
 ): Boolean =
