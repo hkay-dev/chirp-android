@@ -247,6 +247,8 @@
     <string name="shortcut_record_disabled">Recording unavailable</string>
     <!-- Long label for a per-profile launcher/home-screen shortcut; %1$s is the profile name. -->
     <string name="shortcut_record_with_profile_long">Record with %1$s</string>
+    <!-- Shown when tapping a pinned home-screen shortcut whose recording profile was deleted. -->
+    <string name="shortcut_profile_deleted">This profile was deleted</string>
     <!-- Shown when the launcher does not support pinning shortcuts to the home screen. -->
     <string name="add_to_home_unsupported">This launcher doesn’t support adding shortcuts to the Home screen</string>
 

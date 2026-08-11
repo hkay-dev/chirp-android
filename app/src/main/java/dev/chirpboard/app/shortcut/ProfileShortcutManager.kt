@@ -36,16 +36,51 @@ class ProfileShortcutManager
          * Replaces the dynamic per-profile shortcuts with one entry per profile, capped at the
          * launcher's per-activity maximum. Profiles are ordered pinned-then-recent first (the same
          * ordering the home quick-start row uses) so the most useful entries survive the cap.
+         * Pinned per-profile shortcuts are re-labelled to match renamed profiles and disabled for
+         * deleted ones, so a home-screen pin never launches a stale or dead profile.
          */
         fun pushDynamicShortcuts(profiles: List<Profile>) {
-            val maxCount = ShortcutManagerCompat.getMaxShortcutCountPerActivity(context)
+            // getMaxShortcutCountPerActivity is the combined manifest + dynamic budget; publishing
+            // that many dynamic entries alongside the static "start_recording" shortcut makes
+            // setDynamicShortcuts throw, so the manifest entries come off the top.
+            val manifestCount =
+                ShortcutManagerCompat
+                    .getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_MANIFEST)
+                    .size
+            val maxCount = ShortcutManagerCompat.getMaxShortcutCountPerActivity(context) - manifestCount
             if (maxCount <= 0) {
                 ShortcutManagerCompat.removeAllDynamicShortcuts(context)
+            } else {
+                val shortcuts = orderedForShortcuts(profiles, maxCount).map { buildShortcut(it) }
+                ShortcutManagerCompat.setDynamicShortcuts(context, shortcuts)
+            }
+            syncPinnedShortcuts(profiles)
+        }
+
+        private fun syncPinnedShortcuts(profiles: List<Profile>) {
+            val pinnedProfileShortcuts =
+                ShortcutManagerCompat
+                    .getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_PINNED)
+                    .filter { it.id.startsWith(PROFILE_SHORTCUT_ID_PREFIX) }
+            if (pinnedProfileShortcuts.isEmpty()) {
                 return
             }
 
-            val shortcuts = orderedForShortcuts(profiles, maxCount).map { buildShortcut(it) }
-            ShortcutManagerCompat.setDynamicShortcuts(context, shortcuts)
+            val profilesByShortcutId = profiles.associateBy { shortcutId(it) }
+            val (live, dead) = pinnedProfileShortcuts.partition { it.id in profilesByShortcutId }
+            if (live.isNotEmpty()) {
+                ShortcutManagerCompat.updateShortcuts(
+                    context,
+                    live.map { buildShortcut(profilesByShortcutId.getValue(it.id)) },
+                )
+            }
+            if (dead.isNotEmpty()) {
+                ShortcutManagerCompat.disableShortcuts(
+                    context,
+                    dead.map { it.id },
+                    context.getString(R.string.shortcut_profile_deleted),
+                )
+            }
         }
 
         /**
@@ -89,7 +124,9 @@ class ProfileShortcutManager
         }
 
         companion object {
-            internal fun shortcutId(profile: Profile): String = "profile_${profile.id}"
+            private const val PROFILE_SHORTCUT_ID_PREFIX = "profile_"
+
+            internal fun shortcutId(profile: Profile): String = "$PROFILE_SHORTCUT_ID_PREFIX${profile.id}"
 
             /**
              * Orders profiles pinned-then-recent (the home quick-start ordering) and caps the list

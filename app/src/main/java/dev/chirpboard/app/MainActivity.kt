@@ -52,7 +52,7 @@ import dev.chirpboard.app.feature.transcription.TerminalRecordingNotificationDel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -181,8 +181,9 @@ class MainActivity : ComponentActivity() {
      * Keeps the dynamic per-profile launcher shortcuts in sync with the profile set. Collected on
      * a background dispatcher (ShortcutManager IPC + icon resource decode) while the activity is at
      * least STARTED; [ProfileRepository.getAllProfiles] already de-duplicates identical Room
-     * re-emissions, and the profile-name/id projection is distinct-checked so a shortcut rewrite
-     * only happens when something a shortcut shows actually changed.
+     * re-emissions, and the profile list is distinct-checked again here so a shortcut rewrite only
+     * happens when the set actually changed. Error emissions (which carry an empty fallback list)
+     * are skipped — mirroring one would wipe every dynamic shortcut over a transient DB hiccup.
      */
     private fun observeProfilesForShortcuts() {
         // repeatOnLifecycle must be entered from the main dispatcher; the Room collection and the
@@ -192,7 +193,7 @@ class MainActivity : ComponentActivity() {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 profileRepository
                     .getAllProfiles()
-                    .map { state -> state.value }
+                    .mapNotNull { state -> state.value.takeIf { state.errorMessage == null } }
                     .distinctUntilChanged()
                     .flowOn(Dispatchers.Default)
                     .collect { profiles ->
@@ -201,6 +202,10 @@ class MainActivity : ComponentActivity() {
                                 profileShortcutManager.pushDynamicShortcuts(profiles)
                             } catch (e: IllegalStateException) {
                                 // e.g. rate-limited by the launcher; the next change retries.
+                                Log.w(TAG, "Failed to refresh profile shortcuts", e)
+                            } catch (e: IllegalArgumentException) {
+                                // e.g. the launcher rejects the shortcut count; never crash over
+                                // launcher decoration.
                                 Log.w(TAG, "Failed to refresh profile shortcuts", e)
                             }
                         }
