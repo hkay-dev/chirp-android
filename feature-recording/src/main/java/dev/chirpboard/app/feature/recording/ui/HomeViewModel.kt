@@ -466,11 +466,14 @@ class HomeViewModel
             }
         }
 
+        // The recover/discard/keep store calls refresh the pending-session snapshot themselves,
+        // so none of these re-refresh afterwards (doing so doubled the recovery disk scan).
         fun recoverInterruptedSession(sessionId: UUID) {
             viewModelScope.launch {
                 when (val result = sessionRecovery.recoverSession(sessionId)) {
                     is SessionRecoveryResult.Recovered -> {
-                        _errorMessage.value =
+                        // SLOP-23: a successful recovery is a status notice, not an error.
+                        _statusMessage.value =
                             result.estimatedLostMinutes?.let { lostMinutes ->
                                 appContext.resources.getQuantityString(
                                     R.plurals.rec_msg_recovered_with_loss,
@@ -478,13 +481,11 @@ class HomeViewModel
                                     lostMinutes,
                                 )
                             } ?: appContext.getString(R.string.rec_msg_recovered)
-                        refreshRecoverableSessions()
                     }
                     is SessionRecoveryResult.Failed -> {
                         _errorMessage.value = result.message
-                        refreshRecoverableSessions()
                     }
-                    else -> refreshRecoverableSessions()
+                    else -> Unit
                 }
             }
         }
@@ -497,7 +498,6 @@ class HomeViewModel
                     // session) instead of letting the card silently disappear.
                     _errorMessage.value = result.message
                 }
-                refreshRecoverableSessions()
             }
         }
 
@@ -507,7 +507,6 @@ class HomeViewModel
                 if (result is SessionRecoveryResult.Failed) {
                     _errorMessage.value = result.message
                 }
-                refreshRecoverableSessions()
             }
         }
 
@@ -714,8 +713,7 @@ class HomeViewModel
             viewModelScope.launch {
                 if (recording.status == RecordingStatus.FAILED) {
                     val result = transcriptionRecovery.retry(recording.id)
-                    _errorMessage.value =
-                        result.toUserMessage(appContext, appContext.getString(CoreUiR.string.rec_msg_requeued_transcription))
+                    reportManualRecovery(result, CoreUiR.string.rec_msg_requeued_transcription)
                 }
             }
         }
@@ -741,15 +739,31 @@ class HomeViewModel
                         }
                     }
 
-                _errorMessage.value =
-                    result.toUserMessage(appContext, appContext.getString(R.string.rec_msg_recovery_queued))
+                reportManualRecovery(result, R.string.rec_msg_recovery_queued)
+            }
+        }
+
+        /**
+         * SLOP-23: route a manual-recovery outcome to the right channel — the caller's success
+         * copy is a status notice, a refusal is an error.
+         */
+        private fun reportManualRecovery(
+            result: ManualRecoveryResult,
+            @androidx.annotation.StringRes successRes: Int,
+        ) {
+            val message = result.toUserMessage(appContext, appContext.getString(successRes))
+            if (result == ManualRecoveryResult.ENQUEUED) {
+                _statusMessage.value = message
+            } else {
+                _errorMessage.value = message
             }
         }
 
         fun recoverAllStuck() {
             viewModelScope.launch {
                 val recoveredCount = transcriptionRecovery.recoverStuckRecordings()
-                _errorMessage.value =
+                // Both branches are informational ("queued N" / "nothing to recover").
+                _statusMessage.value =
                     if (recoveredCount > 0) {
                         appContext.resources.getQuantityString(
                             R.plurals.rec_msg_recover_all_queued,
@@ -894,13 +908,7 @@ class HomeViewModel
         fun startManualTranscription(recording: RecordingDisplayItem) {
             viewModelScope.launch {
                 val result = transcriptionRecovery.retranscribe(recording.id)
-                val message =
-                    result.toUserMessage(appContext, appContext.getString(R.string.rec_msg_queued_for_transcription))
-                if (result == ManualRecoveryResult.ENQUEUED) {
-                    _statusMessage.value = message
-                } else {
-                    _errorMessage.value = message
-                }
+                reportManualRecovery(result, R.string.rec_msg_queued_for_transcription)
             }
         }
 
@@ -918,8 +926,12 @@ class HomeViewModel
                         }
 
                         is AudioImportResult.SavedPendingRecovery -> {
+                            // Navigate only: the Studio screen the user lands on shows this
+                            // row's pending-recovery state with its recovery actions. Setting
+                            // _errorMessage too parked an invisible snackbar behind the
+                            // navigation that then greeted the user on their next Home visit,
+                            // long out of context.
                             _openStudioForRecordingId.value = result.recordingId
-                            _errorMessage.value = result.message
                         }
                     }
                 } catch (e: Exception) {

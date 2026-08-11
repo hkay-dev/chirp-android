@@ -429,7 +429,9 @@ class HomeViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify { transcriptionQueueManager.retry(recordingId) }
-            assertEquals("Re-queued for transcription", viewModel.errorMessage.value)
+            // SLOP-23: a successful queue is a status notice, not an error.
+            assertEquals("Re-queued for transcription", viewModel.statusMessage.value)
+            assertEquals(null, viewModel.errorMessage.value)
         }
 
     @Test
@@ -627,10 +629,9 @@ class HomeViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify { audioImportOrchestrator.import(uri) }
-            assertEquals(
-                "Import finished, but queue handoff failed. Recovery is ready on startup.",
-                viewModel.errorMessage.value,
-            )
+            // Navigation only: the Studio the user lands on surfaces the pending-recovery state;
+            // a Home snackbar behind the navigation was never visible in context.
+            assertEquals(null, viewModel.errorMessage.value)
             assertEquals(recordingId, viewModel.openStudioForRecordingId.value)
         }
 
