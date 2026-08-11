@@ -21,6 +21,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -40,8 +41,8 @@ class WidgetStateObserverTest {
     private val dispatcher = StandardTestDispatcher()
     private val testScope = TestScope(dispatcher)
 
-    /** (widgetId, state, durationMs) for every render pushed to the provider. */
-    private val renders = mutableListOf<Triple<Int, RecordingState, Long>>()
+    /** (widgetIds, state, durationMs) for every render pushed to the provider. */
+    private val renders = mutableListOf<Triple<List<Int>, RecordingState, Long>>()
 
     @Before
     fun setUp() {
@@ -59,7 +60,7 @@ class WidgetStateObserverTest {
         } answers {
             renders +=
                 Triple(
-                    thirdArg<Int>(),
+                    thirdArg<IntArray>().toList(),
                     arg<RecordingState>(3),
                     arg<Long>(4),
                 )
@@ -88,11 +89,9 @@ class WidgetStateObserverTest {
         startedObserver()
         testScope.runCurrent()
 
+        // One RemoteViews build, pushed to both placed widgets in a single call.
         assertEquals(
-            listOf(
-                Triple(7, live as RecordingState, 42_000L),
-                Triple(9, live as RecordingState, 42_000L),
-            ),
+            listOf(Triple(listOf(7, 9), live as RecordingState, 42_000L)),
             renders.toList(),
         )
     }
@@ -111,10 +110,9 @@ class WidgetStateObserverTest {
         stateFlow.value = stopping
         testScope.runCurrent()
 
-        val statesPerWidget = renders.filter { it.first == 7 }.map { it.second }
-        assertEquals(listOf(RecordingState.Idle, recording, stopping), statesPerWidget)
+        assertEquals(listOf(RecordingState.Idle, recording, stopping), renders.map { it.second })
         // Both placed widgets received every transition.
-        assertEquals(renders.size, statesPerWidget.size * 2)
+        assertTrue(renders.all { it.first == listOf(7, 9) })
     }
 
     @Test
@@ -126,7 +124,7 @@ class WidgetStateObserverTest {
         stateFlow.value = RecordingState.Recording(origin = RecordingOrigin.APP)
         testScope.runCurrent()
 
-        assertEquals(emptyList<Triple<Int, RecordingState, Long>>(), renders.toList())
+        assertEquals(emptyList<Triple<List<Int>, RecordingState, Long>>(), renders.toList())
         verify(exactly = 0) {
             RecordingWidgetProvider.updateAppWidgetWithState(any(), any(), any(), any(), any())
         }
@@ -141,6 +139,6 @@ class WidgetStateObserverTest {
         stateFlow.value = RecordingState.Recording(origin = RecordingOrigin.APP)
         testScope.runCurrent()
 
-        assertEquals(emptyList<Triple<Int, RecordingState, Long>>(), renders.toList())
+        assertEquals(emptyList<Triple<List<Int>, RecordingState, Long>>(), renders.toList())
     }
 }

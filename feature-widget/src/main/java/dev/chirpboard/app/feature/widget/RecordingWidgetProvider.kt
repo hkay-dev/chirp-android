@@ -51,9 +51,7 @@ class RecordingWidgetProvider : AppWidgetProvider() {
                 .getOrNull()
         val state = stateManager?.state?.value ?: RecordingState.Idle
         val durationMs = stateManager?.getCurrentDurationMs() ?: 0L
-        for (appWidgetId in appWidgetIds) {
-            updateAppWidgetWithState(context, appWidgetManager, appWidgetId, state, durationMs)
-        }
+        updateAppWidgetWithState(context, appWidgetManager, appWidgetIds, state, durationMs)
     }
 
     companion object {
@@ -65,16 +63,21 @@ class RecordingWidgetProvider : AppWidgetProvider() {
             val appWidgetManager = AppWidgetManager.getInstance(context) ?: return
             val componentName = ComponentName(context, RecordingWidgetProvider::class.java)
             val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
-
-            for (appWidgetId in appWidgetIds) {
-                updateAppWidgetWithState(context, appWidgetManager, appWidgetId, state, currentDurationMs)
+            if (appWidgetIds.isEmpty()) {
+                return
             }
+            updateAppWidgetWithState(context, appWidgetManager, appWidgetIds, state, currentDurationMs)
         }
 
-        fun updateAppWidgetWithState(
+        /**
+         * Every placed widget renders the same frame, so the RemoteViews — and with it the
+         * PackageManager launch-intent query and the two PendingIntent lookups, none of which
+         * vary by widget id — is built once and pushed to all of them in one call.
+         */
+        internal fun updateAppWidgetWithState(
             context: Context,
             appWidgetManager: AppWidgetManager,
-            appWidgetId: Int,
+            appWidgetIds: IntArray,
             state: RecordingState,
             currentDurationMs: Long
         ) {
@@ -133,8 +136,8 @@ class RecordingWidgetProvider : AppWidgetProvider() {
                 )
             }
 
-            // Update the widget
-            appWidgetManager.updateAppWidget(appWidgetId, views)
+            // Update the widgets
+            appWidgetManager.updateAppWidget(appWidgetIds, views)
         }
     }
 }
