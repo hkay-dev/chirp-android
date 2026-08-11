@@ -743,7 +743,7 @@ class TranscriptionQueueManager
             return ManualRecoveryResult.ENQUEUED
         }
 
-        private fun enqueueWorkForStatus(
+        private suspend fun enqueueWorkForStatus(
             recordingId: UUID,
             status: RecordingStatus,
             executionToken: String,
