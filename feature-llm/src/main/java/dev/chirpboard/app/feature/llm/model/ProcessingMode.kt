@@ -299,10 +299,9 @@ IMPORTANT: Respond ONLY with the cleaned text. Do not add any commentary, explan
         /**
          * Create a ProcessingMode from its ID.
          * @param id The mode identifier
-         * @param customPrompt Optional custom prompt text (required for "custom" id)
          * @return The corresponding ProcessingMode, defaults to Proofread if unknown
          */
-        fun fromId(id: String, customPrompt: String? = null): ProcessingMode = when (id) {
+        fun fromId(id: String): ProcessingMode = when (id) {
             "proofread" -> Proofread
             "raw" -> Proofread  // Backward compatibility: old "raw" now maps to Proofread
             "formal" -> Formal
@@ -310,12 +309,9 @@ IMPORTANT: Respond ONLY with the cleaned text. Do not add any commentary, explan
             "email" -> Email
             "code" -> Code
             "smart" -> Smart
-            "custom" -> Custom(customPrompt ?: "")
+            // Not selectable in current UI; kept so legacy stored mode ids still resolve.
+            "custom" -> Custom("")
             else -> Proofread
         }
-
-        /** List of all preset modes (excludes Custom) */
-        val presets: List<ProcessingMode>
-            get() = listOf(Proofread, Formal, Casual, Email, Code, Smart)
     }
 }

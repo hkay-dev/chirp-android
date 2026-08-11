@@ -68,13 +68,6 @@ Every source idea and meaningful word must survive in the output. Never omit the
         }
 
         suspend fun process(
-            text: String,
-            mode: ProcessingMode,
-        ): Result<String> {
-            return process(TranscriptLlmContext(text), mode)
-        }
-
-        suspend fun process(
             context: TranscriptLlmContext,
             mode: ProcessingMode,
         ): Result<String> {

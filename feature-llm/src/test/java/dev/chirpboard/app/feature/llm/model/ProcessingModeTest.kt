@@ -26,19 +26,9 @@ class ProcessingModeTest {
     }
 
     @Test
-    fun `fromId returns Custom mode with provided prompt`() {
-        val customPrompt = "Make it sound like Shakespeare"
-        val mode = ProcessingMode.fromId("custom", customPrompt)
-        
-        assertTrue(mode is ProcessingMode.Custom)
-        assertEquals(customPrompt, (mode as ProcessingMode.Custom).customPrompt)
-        assertEquals(customPrompt, mode.prompt)
-    }
+    fun `fromId maps the legacy custom id to an empty Custom mode`() {
+        val mode = ProcessingMode.fromId("custom")
 
-    @Test
-    fun `fromId returns Custom mode with empty prompt if not provided`() {
-        val mode = ProcessingMode.fromId("custom", null)
-        
         assertTrue(mode is ProcessingMode.Custom)
         assertEquals("", (mode as ProcessingMode.Custom).customPrompt)
     }

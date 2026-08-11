@@ -32,7 +32,7 @@ class TextProcessorTest {
             coEvery { modeRepository.getPrompt("formal") } returns "formal prompt"
             coEvery { llmClient.process(any<TranscriptLlmContext>(), any()) } returns Result.success("Success")
 
-            textProcessor.process("test", ProcessingMode.Formal)
+            textProcessor.process(TranscriptLlmContext("test"), ProcessingMode.Formal)
 
             coVerify {
                 llmClient.process(
@@ -48,7 +48,7 @@ class TextProcessorTest {
             coEvery { llmClient.process(any<TranscriptLlmContext>(), any()) } returns Result.success("Success")
 
             val mode = ProcessingMode.Custom("My custom prompt")
-            textProcessor.process("test", mode)
+            textProcessor.process(TranscriptLlmContext("test"), mode)
 
             coVerify {
                 llmClient.process(
@@ -66,7 +66,7 @@ class TextProcessorTest {
 
             val mode = ProcessingMode.Smart
             val text = "Dear John, please find the attachment."
-            textProcessor.process(text, mode)
+            textProcessor.process(TranscriptLlmContext(text), mode)
 
             coVerify {
                 llmClient.process(
@@ -84,7 +84,7 @@ class TextProcessorTest {
 
             val mode = ProcessingMode.Smart
             val text = "public static void main(String[] args) {}"
-            textProcessor.process(text, mode)
+            textProcessor.process(TranscriptLlmContext(text), mode)
 
             coVerify {
                 llmClient.process(

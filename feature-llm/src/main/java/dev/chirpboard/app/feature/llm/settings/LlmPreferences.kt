@@ -154,8 +154,6 @@ class LlmPreferences
                 preferences[Keys.LLM_ENABLED] ?: true
             }
 
-        val activeProvider: Flow<LlmProvider> = _activeProvider.asStateFlow()
-
         /** API key for the currently selected provider. */
         val apiKey: Flow<String?> = _apiKey.asStateFlow()
 
@@ -180,8 +178,6 @@ class LlmPreferences
             refreshActiveApiKey()
         }
 
-        suspend fun fetchApiKey(): String? = withContext(Dispatchers.IO) { fetchApiKeyForSync(getActiveProviderSync()) }
-
         override suspend fun fetchApiKeyFor(provider: LlmProvider): String? =
             withContext(Dispatchers.IO) { fetchApiKeyForSync(provider) }
 
@@ -192,8 +188,6 @@ class LlmPreferences
 
         /** Reads a stored API key without triggering [ensureInitialized] (used during init). */
         private fun fetchApiKeyForRaw(provider: LlmProvider): String? = securePrefs?.getString(apiKeyPrefKey(provider), null)
-
-        suspend fun getModelName(): String = withContext(Dispatchers.IO) { getModelForSync(getActiveProviderSync()) }
 
         override suspend fun getModelFor(provider: LlmProvider): String = withContext(Dispatchers.IO) { getModelForSync(provider) }
 

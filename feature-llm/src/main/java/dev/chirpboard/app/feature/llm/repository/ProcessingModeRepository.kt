@@ -60,19 +60,9 @@ class ProcessingModeRepository
                 )
             }
 
-        val currentModeId: Flow<String> =
-            context.dataStore.data.map { preferences ->
-                preferences[KEY_MODE_ID] ?: ProcessingModeDefaults.DEFAULT_MODE_ID
-            }
-
         val defaultModeId: Flow<String> =
             context.dataStore.data.map { preferences ->
                 preferences[KEY_MODE_ID] ?: ProcessingModeDefaults.DEFAULT_MODE_ID
-            }
-
-        val customPrompt: Flow<String> =
-            context.dataStore.data.map { preferences ->
-                preferences[KEY_CUSTOM_PROMPT] ?: ""
             }
 
         val promptPresets: Flow<List<ProcessingPromptPreset>> =
@@ -95,36 +85,9 @@ class ProcessingModeRepository
             return buildMode(modeId, preferences)
         }
 
-        suspend fun setMode(mode: ProcessingMode) {
-            setModeById(mode.id)
-        }
-
         suspend fun setModeById(modeId: String) {
             context.dataStore.edit { preferences ->
                 preferences[KEY_MODE_ID] = modeId
-                if (modeId == "custom") {
-                    preferences[KEY_CUSTOM_PROMPT] = resolvePrompt("custom", preferences).orEmpty()
-                }
-            }
-        }
-
-        suspend fun setDefaultModeId(modeId: String) {
-            setModeById(modeId)
-        }
-
-        suspend fun setCustomPrompt(prompt: String) {
-            context.dataStore.edit { preferences ->
-                preferences[KEY_CUSTOM_PROMPT] = prompt
-                preferences[KEY_MODE_ID] = "custom"
-                val overrides = readOverrides(preferences).toMutableMap()
-                overrides["custom"] = prompt
-                preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
-            }
-        }
-
-        suspend fun saveCustomPromptDraft(prompt: String) {
-            context.dataStore.edit { preferences ->
-                preferences[KEY_CUSTOM_PROMPT] = prompt
             }
         }
 
@@ -170,10 +133,6 @@ class ProcessingModeRepository
                     overrides.remove(presetId)
                     preferences[KEY_PROMPT_OVERRIDES] = ProcessingModeStoreCodec.encodeOverrides(overrides)
                     return@edit
-                }
-
-                if (presetId == "custom") {
-                    preferences.remove(KEY_CUSTOM_PROMPT)
                 }
 
                 val overrides = readOverrides(preferences).toMutableMap()
@@ -240,15 +199,6 @@ class ProcessingModeRepository
                 if (currentModeId == presetId) {
                     preferences[KEY_MODE_ID] = ProcessingModeDefaults.DEFAULT_MODE_ID
                 }
-            }
-        }
-
-        suspend fun reset() {
-            context.dataStore.edit { preferences ->
-                preferences[KEY_MODE_ID] = ProcessingModeDefaults.DEFAULT_MODE_ID
-                preferences.remove(KEY_CUSTOM_PROMPT)
-                preferences.remove(KEY_PROMPT_OVERRIDES)
-                preferences.remove(KEY_CUSTOM_PRESETS)
             }
         }
 

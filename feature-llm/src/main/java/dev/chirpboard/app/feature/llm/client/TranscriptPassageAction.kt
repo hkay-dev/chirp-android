@@ -1,11 +1,9 @@
 package dev.chirpboard.app.feature.llm.client
 
-enum class TranscriptPassageAction(
-    val label: String,
-) {
-    SUMMARIZE(label = "Summarize"),
-    EXPLAIN(label = "Explain"),
-    EXTRACT_ITEMS(label = "Extract items"),
+enum class TranscriptPassageAction {
+    SUMMARIZE,
+    EXPLAIN,
+    EXTRACT_ITEMS,
 }
 
 internal fun buildTranscriptPassagePrompt(
@@ -19,7 +17,7 @@ internal fun buildTranscriptPassagePrompt(
             Stay grounded in the selected passage only.
             Return only the summary.
 
-            Selected passage:
+            <selected_passage>
             $passage
             </selected_passage>
             """.trimIndent()
@@ -31,7 +29,7 @@ internal fun buildTranscriptPassagePrompt(
             Clarify jargon, references, or implied meaning, but stay grounded in the selected passage only.
             Return only the explanation.
 
-            Selected passage:
+            <selected_passage>
             $passage
             </selected_passage>
             """.trimIndent()
@@ -43,16 +41,9 @@ internal fun buildTranscriptPassagePrompt(
             Return a short bullet list.
             If there are no clear items, return exactly: No action items found.
 
-            Selected passage:
+            <selected_passage>
             $passage
             </selected_passage>
             """.trimIndent()
         }
-    }
-
-internal fun TranscriptPassageAction.operationName(): String =
-    when (this) {
-        TranscriptPassageAction.SUMMARIZE -> "passage summary"
-        TranscriptPassageAction.EXPLAIN -> "passage explanation"
-        TranscriptPassageAction.EXTRACT_ITEMS -> "passage extraction"
     }

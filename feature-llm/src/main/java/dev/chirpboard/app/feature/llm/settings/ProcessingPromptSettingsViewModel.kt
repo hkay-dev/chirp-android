@@ -45,7 +45,7 @@ class ProcessingPromptSettingsViewModel
 
         fun setDefaultMode(modeId: String) {
             viewModelScope.launch {
-                modeRepository.setDefaultModeId(modeId)
+                modeRepository.setModeById(modeId)
             }
         }
 
