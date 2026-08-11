@@ -14,6 +14,7 @@ import dev.chirpboard.app.download.ModelDownloader
 import dev.chirpboard.app.feature.transcription.audio.ChunkedAudioProcessor
 import dev.chirpboard.app.gguf.GgufNativeDecodeTelemetry
 import dev.chirpboard.app.gguf.GgufNativeRecognizer
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -49,8 +50,12 @@ internal class GgufRecognizer(
     val isReady: Boolean
         get() = native != null
 
-    suspend fun initialize(): Boolean =
-        decodeDispatcher.run {
+    suspend fun initialize(): Boolean {
+        if (GgufNativeEngineHealth.isWedged()) {
+            Log.e(GGUF_TAG, "Refusing native load: a wedged decode holds the native session; restart required")
+            return false
+        }
+        return decodeDispatcher.run {
             mutex.withLock {
                 if (native?.isLoaded() == true) return@withLock true
                 val model = downloader.resolvedGgufModelFile(config.modelId) ?: return@withLock false
@@ -83,6 +88,7 @@ internal class GgufRecognizer(
                 loaded
             }
         }
+    }
 
     suspend fun transcribe(samples: FloatArray, sampleRate: Int): TranscriptionOutcome =
         decodeDispatcher.run {
@@ -256,7 +262,8 @@ internal class GgufRecognizer(
         sampleRate: Int,
     ): String? {
         var activeEngine = engine
-        return ChunkedAudioProcessor(
+        return try {
+            ChunkedAudioProcessor(
                 chunkDurationMs = RECOVERY_CHUNK_SECONDS * 1_000L,
                 overlapDurationMs = RECOVERY_CHUNK_OVERLAP_MS,
                 sampleRate = sampleRate,
@@ -298,6 +305,13 @@ internal class GgufRecognizer(
                     -> null
                 }
             }
+        } catch (error: IOException) {
+            // Preserved-audio reads can fail at collection time (empty capture, file
+            // truncated or deleted since its sample count was recorded). That is a failed
+            // recovery, not an exception to throw past the TranscriptionOutcome contract.
+            Log.e(GGUF_TAG, "Preserved-audio recovery source failed", error)
+            null
+        }
     }
 
     private suspend fun <T> runNativeDecode(
@@ -420,6 +434,13 @@ internal class GgufRecognizer(
                     } != null
                 if (!releasedCleanly) {
                     Log.w(GGUF_TAG, "Native release timed out behind a stuck decode; leaking the session")
+                    // The leaked decode is still inside transcribe_run holding the native
+                    // global mutex. Any further nativeLoad would block on that mutex forever
+                    // — on a dispatcher thread, under the manager mutex, inside NonCancellable
+                    // — turning one wedged decode into a permanent process-wide transcription
+                    // deadlock. Poison the native layer instead so later loads fail fast and
+                    // callers get clean retryable errors until the process restarts.
+                    GgufNativeEngineHealth.markWedged()
                     native = null
                     actualComputeBackend = null
                 }
@@ -488,7 +509,12 @@ internal object GgufRecognizerManager {
         return try {
             block()
         } finally {
-            mutex.withLock { activeLeases.decrementAndGet() }
+            // The decrement must survive cancellation: a suspending withLock in a finally
+            // throws CancellationException on contention, and a lease that never returns
+            // permanently blocks model switching, memory-pressure release, and benchmarks.
+            withContext(NonCancellable) {
+                mutex.withLock { activeLeases.decrementAndGet() }
+            }
         }
     }
 
@@ -513,6 +539,20 @@ internal object GgufRecognizerManager {
             recognizer = null
             true
         }
+}
+
+/**
+ * Latched when a native release timed out behind a stuck decode. The wedged thread still
+ * holds the native global mutex, so any subsequent load would block a dispatcher thread
+ * forever; every load path checks this first and fails fast instead. Cleared only by
+ * process restart.
+ */
+internal object GgufNativeEngineHealth {
+    private val wedged = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun markWedged() = wedged.set(true)
+
+    fun isWedged(): Boolean = wedged.get()
 }
 
 internal object GgufNativeSessionReservation {
