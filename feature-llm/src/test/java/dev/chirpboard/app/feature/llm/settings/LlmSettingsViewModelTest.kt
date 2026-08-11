@@ -4,7 +4,6 @@ import androidx.lifecycle.SavedStateHandle
 import dev.chirpboard.app.core.testing.MockAndroidLogRule
 import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.client.LlmClient
-import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -80,7 +79,6 @@ class LlmSettingsViewModelTest {
             assertTrue(state.llmEnabled)
             assertEquals("initial-key", state.apiKey)
             assertTrue(state.isKeyConfigured)
-            assertFalse(state.autoTitle)
             assertFalse(state.autoTitle)
             assertTrue(state.autoSummary)
         }
@@ -178,11 +176,12 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
             coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.success("OK")
+            coEvery { llmClient.testConnection(LlmProvider.GEMINI, "valid-key") } returns Result.success("OK")
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
+            // The validated key is installed only after the probe succeeds.
             coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "valid-key") }
             val result = viewModel.uiState.value.connectionTestResult
             assertTrue(result is LlmSettingsViewModel.ConnectionTestResult.Success)
@@ -193,7 +192,7 @@ class LlmSettingsViewModelTest {
         runTest {
             viewModel.updateApiKey("valid-key")
             // I18N-05: raw client errors are no longer surfaced; the copy is classified.
-            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
+            coEvery { llmClient.testConnection(any(), any()) } returns
                 Result.failure(java.io.IOException("Unable to resolve host"))
 
             viewModel.testConnection()
@@ -208,38 +207,20 @@ class LlmSettingsViewModelTest {
         }
 
     @Test
-    fun `testConnection failure restores the previously stored key`() =
+    fun `testConnection failure never touches the stored key`() =
         runTest {
             testDispatcher.scheduler.advanceUntilIdle()
             viewModel.updateApiKey("bad-key")
-            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
+            coEvery { llmClient.testConnection(LlmProvider.GEMINI, "bad-key") } returns
                 Result.failure(java.io.IOException("Unable to resolve host"))
 
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            // The draft was written for the test, then rolled back to the stored key.
-            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "bad-key") }
-            coVerify { preferences.setApiKeyFor(LlmProvider.GEMINI, "initial-key") }
-        }
-
-    @Test
-    fun `testConnection failure clears the key when none was stored before`() =
-        runTest {
-            coEvery { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns null
-            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns false
-            viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, SavedStateHandle())
-            testDispatcher.scheduler.advanceUntilIdle()
-            viewModel.updateApiKey("bad-key")
-            // The draft write succeeds, so the post-write verification passes.
-            coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returns true
-            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns
-                Result.failure(java.io.IOException("Unable to resolve host"))
-
-            viewModel.testConnection()
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            coVerify { preferences.clearApiKeyFor(LlmProvider.GEMINI) }
+            // The probe runs with the candidate key directly; the store is written only
+            // after a successful validation.
+            coVerify(exactly = 0) { preferences.setApiKeyFor(any(), any()) }
+            coVerify(exactly = 0) { preferences.clearApiKeyFor(any()) }
         }
 
     @Test
@@ -248,7 +229,7 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
             coEvery { preferences.hasApiKeyFor(LlmProvider.GEMINI) } returnsMany listOf(true, true, true)
             viewModel.updateApiKey("valid-key")
-            coEvery { llmClient.process(any<TranscriptLlmContext>(), any<String>()) } returns Result.success("OK")
+            coEvery { llmClient.testConnection(any(), any()) } returns Result.success("OK")
             viewModel.testConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 

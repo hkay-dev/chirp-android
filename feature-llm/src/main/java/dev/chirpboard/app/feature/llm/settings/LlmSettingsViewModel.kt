@@ -10,8 +10,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chirpboard.app.feature.llm.R
 import dev.chirpboard.app.feature.llm.client.LlmClient
-import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -217,38 +215,25 @@ class LlmSettingsViewModel
                     return@launch
                 }
 
-                // The client reads its key from the store, so the draft has to be written
-                // before the probe — but a failed test must not leave that unvalidated
-                // draft as the live credential for background workers. Remember what was
-                // stored so it can be put back if the test fails.
-                val previousKey = preferences.fetchApiKeyFor(provider)
-                preferences.setApiKeyFor(provider, apiKey)
-                if (!preferences.hasApiKeyFor(provider)) {
-                    _uiState.update {
-                        it.copy(
-                            isTestingConnection = false,
-                            connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_key_save_failed)),
-                        )
-                    }
-                    return@launch
-                }
+                // Probe with the candidate key directly: the stored credential is only
+                // replaced after the key validates, so background workers never read an
+                // unvalidated draft during the (up to 90s) probe and nothing needs to be
+                // rolled back on failure or cancellation.
+                val result = llmClient.testConnection(provider, apiKey)
 
-                // The restore must survive the screen closing mid-test: the probe and the
-                // preference writes are suspend calls, so a cancelled scope would otherwise
-                // skip the rollback and leave the unvalidated draft as the live key.
-                val result =
-                    try {
-                        llmClient.process(
-                            context = TranscriptLlmContext("Hello"),
-                            systemPrompt = "Reply with 'OK' if you can read this.",
-                        )
-                    } catch (e: CancellationException) {
-                        withContext(NonCancellable) { restoreStoredKey(provider, previousKey, apiKey) }
-                        throw e
+                if (result.isSuccess) {
+                    // NonCancellable: the key just validated; a screen close between the
+                    // probe and this write must not silently discard a good credential.
+                    withContext(NonCancellable) { preferences.setApiKeyFor(provider, apiKey) }
+                    if (!preferences.hasApiKeyFor(provider)) {
+                        _uiState.update {
+                            it.copy(
+                                isTestingConnection = false,
+                                connectionTestResult = ConnectionTestResult.Error(appContext.getString(R.string.llm_error_key_save_failed)),
+                            )
+                        }
+                        return@launch
                     }
-
-                if (result.isFailure) {
-                    withContext(NonCancellable) { restoreStoredKey(provider, previousKey, apiKey) }
                 }
 
                 _uiState.update {
@@ -424,19 +409,6 @@ class LlmSettingsViewModel
             viewModelScope.launch {
                 preferences.setLlmEnabled(enabled)
                 _uiState.update { it.copy(llmEnabled = enabled) }
-            }
-        }
-
-        private suspend fun restoreStoredKey(
-            provider: LlmProvider,
-            previousKey: String?,
-            draftKey: String,
-        ) {
-            if (previousKey == draftKey) return
-            if (previousKey.isNullOrBlank()) {
-                preferences.clearApiKeyFor(provider)
-            } else {
-                preferences.setApiKeyFor(provider, previousKey)
             }
         }
 

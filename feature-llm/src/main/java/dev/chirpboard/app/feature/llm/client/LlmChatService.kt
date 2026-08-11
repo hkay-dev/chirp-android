@@ -54,6 +54,20 @@ class LlmChatService
                 completeResolvedPrompt(preferences.getActiveProvider(), modelId = null, prompt = prompt)
             }
 
+        /**
+         * Probes [provider] with an explicit candidate [apiKey], leaving the stored
+         * credentials untouched. Used by the settings connection test so an unvalidated
+         * draft key is never installed where concurrent background work would read it.
+         */
+        suspend fun probePrompt(
+            provider: LlmProvider,
+            apiKey: String,
+            prompt: String,
+        ): Result<String> =
+            withContext(Dispatchers.IO) {
+                completeResolvedPrompt(provider, modelId = null, prompt = prompt, apiKeyOverride = apiKey)
+            }
+
         suspend fun completePrompt(
             providerId: String?,
             modelId: String?,
@@ -67,8 +81,9 @@ class LlmChatService
             provider: LlmProvider,
             modelId: String?,
             prompt: String,
+            apiKeyOverride: String? = null,
         ): Result<String> {
-            val apiKey = preferences.fetchApiKeyFor(provider)?.trim().orEmpty()
+            val apiKey = (apiKeyOverride ?: preferences.fetchApiKeyFor(provider))?.trim().orEmpty()
             val model = modelId?.takeIf { it.isNotBlank() } ?: preferences.getModelFor(provider)
             if (apiKey.isBlank()) {
                 return Result.failure(

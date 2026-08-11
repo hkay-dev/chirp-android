@@ -1,5 +1,7 @@
 package dev.chirpboard.app.feature.llm.client
 
+import dev.chirpboard.app.feature.llm.settings.LlmProvider
+
 /**
  * Interface for LLM client operations.
  * Abstracts the underlying LLM provider (Gemini, OpenAI, etc.)
@@ -63,5 +65,14 @@ interface LlmClient {
     suspend fun generateChatResponse(
         transcript: String,
         messages: List<dev.chirpboard.app.feature.llm.model.ChatMessage>,
+    ): Result<String>
+
+    /**
+     * Probe [provider] with a candidate [apiKey] without touching stored credentials.
+     * @return Result containing the probe response or error
+     */
+    suspend fun testConnection(
+        provider: LlmProvider,
+        apiKey: String,
     ): Result<String>
 }

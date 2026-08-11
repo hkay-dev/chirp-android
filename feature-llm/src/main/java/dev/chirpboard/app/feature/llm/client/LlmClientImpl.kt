@@ -1,6 +1,7 @@
 package dev.chirpboard.app.feature.llm.client
 
 import dev.chirpboard.app.feature.llm.model.ChatMessage
+import dev.chirpboard.app.feature.llm.settings.LlmProvider
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,6 +15,8 @@ class LlmClientImpl
         private val chatService: LlmChatService,
     ) : LlmClient {
         companion object {
+            private const val CONNECTION_TEST_PROMPT = "Reply with 'OK' if you can read this."
+
             private const val TITLE_PROMPT = """Generate a brief, descriptive title (5-8 words max) for this voice recording transcript. 
 Return ONLY the title text, nothing else. No quotes, no explanation.
 
@@ -74,6 +77,11 @@ Transcript:
             }
             return parseStructuredOutcomeExtractionResponse(response.getOrThrow())
         }
+
+        override suspend fun testConnection(
+            provider: LlmProvider,
+            apiKey: String,
+        ): Result<String> = chatService.probePrompt(provider, apiKey, CONNECTION_TEST_PROMPT)
 
         override suspend fun generateChatResponse(
             transcript: String,
