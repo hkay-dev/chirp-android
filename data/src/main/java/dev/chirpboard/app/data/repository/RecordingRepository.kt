@@ -601,44 +601,19 @@ class RecordingRepository
                     return@withTransaction rejectedTransitionForCurrentStatus(currentStatus)
                 }
 
-                val now = Date()
-                val existing = transcriptDao.getTranscript(transcript.recordingId)
-                val mergedTranscript =
-                    mergePipelineTranscript(
-                        transcript = transcript.copy(updatedAt = now),
-                        existing = existing,
-                        clearManualCorrection = true,
+                val destinationStatus =
+                    persistTranscriptionResultLocked(
+                        transcript = transcript,
+                        timings = timings,
+                        enhancementIntent = enhancementIntent,
+                        enhancementExecutionToken = null,
                     )
-                transcriptDao.insert(mergedTranscript)
-                transcriptDao.deleteTimingsByRecordingId(transcript.recordingId)
-                if (timings.isNotEmpty()) {
-                    transcriptDao.insertTimings(timings)
-                }
-
-                if (enhancementIntent?.hasRequestedWork == true) {
-                    enhancementSnapshotDao.upsert(
-                        enhancementIntent.toSnapshotEntity(
-                            recordingId = transcript.recordingId,
-                            transcript = mergedTranscript,
-                            enhancementExecutionToken = null,
-                            createdAt = now,
-                        ),
-                    )
-                    transitionRecordingStatusLocked(
-                        id = transcript.recordingId,
-                        destinationStatus = RecordingStatus.PENDING_ENHANCEMENT,
-                        allowedSourceStatuses = listOf(RecordingStatus.TRANSCRIBING),
-                        errorMessage = null,
-                    )
-                } else {
-                    enhancementSnapshotDao.deleteByRecordingId(transcript.recordingId)
-                    transitionRecordingStatusLocked(
-                        id = transcript.recordingId,
-                        destinationStatus = RecordingStatus.COMPLETED,
-                        allowedSourceStatuses = listOf(RecordingStatus.TRANSCRIBING),
-                        errorMessage = null,
-                    )
-                }
+                transitionRecordingStatusLocked(
+                    id = transcript.recordingId,
+                    destinationStatus = destinationStatus,
+                    allowedSourceStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                    errorMessage = null,
+                )
             }
 
         suspend fun commitTranscriptionResult(
@@ -657,50 +632,64 @@ class RecordingRepository
                     return@withTransaction false
                 }
 
-                val now = Date()
-                val existing = transcriptDao.getTranscript(transcript.recordingId)
-                val mergedTranscript =
-                    mergePipelineTranscript(
-                        transcript = transcript.copy(updatedAt = now),
-                        existing = existing,
-                        clearManualCorrection = true,
+                val destinationStatus =
+                    persistTranscriptionResultLocked(
+                        transcript = transcript,
+                        timings = timings,
+                        enhancementIntent = enhancementIntent,
+                        enhancementExecutionToken = enhancementExecutionToken,
                     )
-                transcriptDao.insert(mergedTranscript)
-                transcriptDao.deleteTimingsByRecordingId(transcript.recordingId)
-                if (timings.isNotEmpty()) {
-                    transcriptDao.insertTimings(timings)
-                }
-
-                if (enhancementIntent?.hasRequestedWork == true) {
-                    enhancementSnapshotDao.upsert(
-                        enhancementIntent.toSnapshotEntity(
-                            recordingId = transcript.recordingId,
-                            transcript = mergedTranscript,
-                            enhancementExecutionToken = enhancementExecutionToken,
-                            createdAt = now,
-                        ),
-                    )
-                    recordingDao.updateStatusWithTranscriptionToken(
-                        id = transcript.recordingId,
-                        status = RecordingStatus.PENDING_ENHANCEMENT,
-                        errorMessage = null,
-                        executionToken = null,
-                        allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
-                        expectedExecutionToken = expectedExecutionToken,
-                    )
-                } else {
-                    enhancementSnapshotDao.deleteByRecordingId(transcript.recordingId)
-                    recordingDao.updateStatusWithTranscriptionToken(
-                        id = transcript.recordingId,
-                        status = RecordingStatus.COMPLETED,
-                        errorMessage = null,
-                        executionToken = null,
-                        allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
-                        expectedExecutionToken = expectedExecutionToken,
-                    )
-                }
+                recordingDao.updateStatusWithTranscriptionToken(
+                    id = transcript.recordingId,
+                    status = destinationStatus,
+                    errorMessage = null,
+                    executionToken = null,
+                    allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                    expectedExecutionToken = expectedExecutionToken,
+                )
                 true
             }
+
+        /**
+         * Shared tail of both transcription commits: merge and persist the transcript row,
+         * replace the timing rows, and stage or clear the enhancement snapshot. Returns the
+         * status the recording should transition to. Must run inside the caller's transaction.
+         */
+        private suspend fun persistTranscriptionResultLocked(
+            transcript: Transcript,
+            timings: List<TranscriptTiming>,
+            enhancementIntent: RecordingEnhancementIntent?,
+            enhancementExecutionToken: String?,
+        ): RecordingStatus {
+            val now = Date()
+            val existing = transcriptDao.getTranscript(transcript.recordingId)
+            val mergedTranscript =
+                mergePipelineTranscript(
+                    transcript = transcript.copy(updatedAt = now),
+                    existing = existing,
+                    clearManualCorrection = true,
+                )
+            transcriptDao.insert(mergedTranscript)
+            transcriptDao.deleteTimingsByRecordingId(transcript.recordingId)
+            if (timings.isNotEmpty()) {
+                transcriptDao.insertTimings(timings)
+            }
+
+            return if (enhancementIntent?.hasRequestedWork == true) {
+                enhancementSnapshotDao.upsert(
+                    enhancementIntent.toSnapshotEntity(
+                        recordingId = transcript.recordingId,
+                        transcript = mergedTranscript,
+                        enhancementExecutionToken = enhancementExecutionToken,
+                        createdAt = now,
+                    ),
+                )
+                RecordingStatus.PENDING_ENHANCEMENT
+            } else {
+                enhancementSnapshotDao.deleteByRecordingId(transcript.recordingId)
+                RecordingStatus.COMPLETED
+            }
+        }
 
         suspend fun claimEnhancementExecution(
             recordingId: UUID,
@@ -1244,11 +1233,19 @@ class RecordingRepository
             transcript: Transcript,
             existing: Transcript?,
             clearManualCorrection: Boolean,
-        ): Transcript =
-            transcript.copy(
-                manualCorrectionText = if (clearManualCorrection) null else existing?.manualCorrectionText,
-                manualCorrectionSourceText = if (clearManualCorrection) null else existing?.manualCorrectionSourceText,
+        ): Transcript {
+            if (existing == null) return transcript
+            // A pipeline write is an update of the existing row, not a new transcript: keep
+            // the row identity and the LLM summary (re-transcription regenerates it only
+            // when the user asked for one) so a REPLACE insert cannot silently drop them.
+            return transcript.copy(
+                id = existing.id,
+                createdAt = existing.createdAt,
+                summary = transcript.summary ?: existing.summary,
+                manualCorrectionText = if (clearManualCorrection) null else existing.manualCorrectionText,
+                manualCorrectionSourceText = if (clearManualCorrection) null else existing.manualCorrectionSourceText,
             )
+        }
 
         private fun RecordingEnhancementIntent.toSnapshotEntity(
             recordingId: UUID,

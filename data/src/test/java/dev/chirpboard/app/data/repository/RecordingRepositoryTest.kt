@@ -575,6 +575,43 @@ class RecordingRepositoryTest {
         }
 
     @Test
+    fun `re-transcription keeps the existing transcript row identity and summary`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val existing =
+                Transcript(
+                    recordingId = id,
+                    rawText = "old text",
+                    summary = "Existing summary",
+                    manualCorrectionText = "corrected",
+                    manualCorrectionSourceText = "old text",
+                    createdAt = java.util.Date(1_000L),
+                )
+            coEvery { recordingDao.getRecording(id) } returns
+                recording(status = RecordingStatus.TRANSCRIBING, executionToken = "token-1")
+            coEvery { transcriptDao.getTranscript(id) } returns existing
+            val inserted = slot<Transcript>()
+            coEvery { transcriptDao.insert(capture(inserted)) } returns Unit
+
+            val committed =
+                repository.commitTranscriptionResult(
+                    transcript = Transcript(recordingId = id, rawText = "new text"),
+                    timings = emptyList(),
+                    enhancementIntent = null,
+                    expectedExecutionToken = "token-1",
+                    enhancementExecutionToken = null,
+                )
+
+            assertTrue(committed)
+            assertEquals(existing.id, inserted.captured.id)
+            assertEquals(existing.createdAt, inserted.captured.createdAt)
+            assertEquals("Existing summary", inserted.captured.summary)
+            assertEquals("new text", inserted.captured.rawText)
+            assertNull(inserted.captured.manualCorrectionText)
+            assertNull(inserted.captured.manualCorrectionSourceText)
+        }
+
+    @Test
     fun `token-guarded commitTranscriptionResult rejects stale execution token`() =
         runTest {
             val id = UUID.randomUUID()
