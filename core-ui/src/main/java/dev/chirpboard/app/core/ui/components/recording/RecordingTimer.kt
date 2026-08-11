@@ -12,7 +12,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -37,6 +36,49 @@ private const val SECONDS_PER_MINUTE = 60L
 internal fun snapToSecond(elapsedMs: Long): Long = elapsedMs - (elapsedMs % MILLIS_PER_SECOND)
 
 /**
+ * Milliseconds to sleep from [rawElapsedMs] until the next whole-second boundary. Always at
+ * least 1 ms so the tick loop suspends even when woken exactly on a boundary.
+ */
+internal fun delayToNextSecondMs(rawElapsedMs: Long): Long =
+    MILLIS_PER_SECOND - (rawElapsedMs % MILLIS_PER_SECOND)
+
+/**
+ * Elapsed capture time for [recordingState], snapped to whole seconds.
+ *
+ * Prior-segment time comes from the state itself, so a timer composed fresh mid-session
+ * (screen re-entered, row scrolled back) shows the true total across pauses and segment
+ * rotations. Every consumer renders whole seconds, so the loop sleeps until the next second
+ * boundary instead of polling sub-second.
+ */
+@Composable
+fun rememberRecordingElapsedMs(recordingState: RecordingState): Long {
+    var elapsedMs by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(recordingState) {
+        when (val state = recordingState) {
+            is RecordingState.Starting -> elapsedMs = 0L
+
+            is RecordingState.Recording ->
+                while (true) {
+                    val rawMs =
+                        state.accumulatedBeforeSegmentMs +
+                            (System.currentTimeMillis() - state.startTimeMs)
+                    elapsedMs = snapToSecond(rawMs)
+                    delay(delayToNextSecondMs(rawMs))
+                }
+
+            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
+
+            is RecordingState.Idle -> elapsedMs = 0L
+
+            else -> Unit
+        }
+    }
+
+    return elapsedMs
+}
+
+/**
  * Whole minutes and leftover seconds for the spoken (TalkBack) duration, e.g. 72_000 ms ->
  * (1, 12) -> "1 minute 12 seconds". Pure so the boundary math is JVM-testable.
  */
@@ -55,37 +97,13 @@ fun RecordingTimer(
     textStyle: androidx.compose.ui.text.TextStyle = recordingTimerStyle,
     modifier: Modifier = Modifier,
 ) {
-    var elapsedMs by remember { mutableLongStateOf(0L) }
+    val elapsedMs = rememberRecordingElapsedMs(recordingState)
 
     val textColor by animateColorAsState(
         targetValue = if (isRecording) MaterialTheme.colorScheme.chirpAccents.recordingLive else MaterialTheme.colorScheme.onSurface,
         animationSpec = tween(durationMillis = 300),
         label = "timerColor"
     )
-
-    LaunchedEffect(recordingState) {
-        when (val state = recordingState) {
-            is RecordingState.Starting -> elapsedMs = 0L
-
-            is RecordingState.Recording -> {
-                // Prior-segment time comes from the state itself, so a timer composed
-                // fresh mid-session shows the true total across pauses and rotations.
-                while (true) {
-                    elapsedMs = snapToSecond(
-                        state.accumulatedBeforeSegmentMs +
-                            (System.currentTimeMillis() - state.startTimeMs),
-                    )
-                    delay(ChirpMotion.TIMER_TICK_MS)
-                }
-            }
-
-            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
-
-            is RecordingState.Idle -> elapsedMs = 0L
-
-            else -> Unit
-        }
-    }
 
     // A11Y: merge digits + caption into one TalkBack stop with a human-readable duration
     // ("Duration: 1 minute 12 seconds") instead of two nodes reading "zero zero, twelve" and

@@ -31,6 +31,17 @@ class RecordingTimerTest {
     }
 
     @Test
+    fun delayToNextSecondMs_sleepsToTheBoundaryAndNeverReturnsZero() {
+        // Woken exactly on a boundary: sleep a full second, not zero (a zero delay would
+        // turn the tick loop into a busy spin).
+        assertEquals(1000L, delayToNextSecondMs(0L))
+        assertEquals(1000L, delayToNextSecondMs(7000L))
+        assertEquals(999L, delayToNextSecondMs(7001L))
+        assertEquals(1L, delayToNextSecondMs(7999L))
+        assertEquals(500L, delayToNextSecondMs(500L))
+    }
+
+    @Test
     fun accessibleDurationParts_splitsMinutesAndSecondsForTalkBack() {
         assertEquals(0 to 0, accessibleDurationParts(0L))
         assertEquals(0 to 5, accessibleDurationParts(5_000L))

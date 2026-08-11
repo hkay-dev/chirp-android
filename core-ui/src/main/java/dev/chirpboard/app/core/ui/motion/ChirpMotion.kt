@@ -27,7 +27,6 @@ object ChirpMotion {
     const val STUDIO_HIDE_MS = 260
     const val RECORD_HANDOFF_MS = 480L
 
-    const val TIMER_TICK_MS = 100L
     const val PLAYBACK_TICK_MS = 500L
 
     val layoutMotionSpring =

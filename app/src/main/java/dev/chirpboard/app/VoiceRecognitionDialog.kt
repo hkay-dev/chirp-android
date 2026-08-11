@@ -62,7 +62,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -100,6 +99,7 @@ import dev.chirpboard.app.core.ui.components.ChirpVoiceTriggerButton
 import dev.chirpboard.app.core.ui.components.ThinkingDots
 import dev.chirpboard.app.core.ui.components.brandedPulse
 import dev.chirpboard.app.core.ui.components.recording.AudioWaveform
+import dev.chirpboard.app.core.ui.components.recording.rememberRecordingElapsedMs
 import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
 import dev.chirpboard.app.core.ui.theme.ChirpShapes
@@ -1054,30 +1054,7 @@ private fun VoiceRecognitionErrorStatus(
  */
 @Composable
 private fun VoiceRecognitionTimer(recordingState: RecordingState) {
-    var elapsedMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(recordingState) {
-        when (val state = recordingState) {
-            is RecordingState.Starting -> elapsedMs = 0L
-
-            is RecordingState.Recording -> {
-                // Prior-segment time comes from the state itself, so a timer composed
-                // fresh mid-session shows the true total across pauses and rotations.
-                while (true) {
-                    val raw =
-                        state.accumulatedBeforeSegmentMs +
-                            (System.currentTimeMillis() - state.startTimeMs)
-                    elapsedMs = raw - (raw % MILLIS_PER_SECOND)
-                    delay(ChirpMotion.TIMER_TICK_MS)
-                }
-            }
-
-            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
-
-            is RecordingState.Idle -> elapsedMs = 0L
-
-            else -> Unit
-        }
-    }
+    val elapsedMs = rememberRecordingElapsedMs(recordingState)
 
     // A11Y-1: announce that capture is live when the timer appears. The description is a
     // constant "Listening…" (not the ticking digits) so TalkBack hears the state change
@@ -1097,7 +1074,6 @@ private fun VoiceRecognitionTimer(recordingState: RecordingState) {
     )
 }
 
-private const val MILLIS_PER_SECOND = 1000L
 
 /** Compact recording-timer size: a calm counterpart to the 72sp in-app recorder timer. */
 private val DIALOG_TIMER_FONT_SIZE = 40.sp

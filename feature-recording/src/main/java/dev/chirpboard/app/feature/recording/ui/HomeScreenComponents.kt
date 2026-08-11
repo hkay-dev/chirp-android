@@ -53,11 +53,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -81,11 +77,10 @@ import dev.chirpboard.app.core.ui.components.TranscriptionProgressBanner
 import dev.chirpboard.app.core.ui.components.transcriptionProgressCopy
 import dev.chirpboard.app.core.ui.components.transcriptionProgressKind
 import dev.chirpboard.app.core.recording.RecordingState
+import dev.chirpboard.app.core.ui.components.recording.rememberRecordingElapsedMs
 import dev.chirpboard.app.core.ui.haptics.ChirpHaptics
-import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.core.ui.theme.chirpAccents
-import kotlinx.coroutines.delay
 import java.util.UUID
 
 /**
@@ -109,7 +104,7 @@ internal fun RecordingListItem(
     val isPlayingCurrent = isCurrentItem && playbackState.isPlaying
     val liveCaptureElapsedMs =
         if (item.isLiveCapture) {
-            rememberLiveCaptureElapsedMs(recordingState)
+            rememberRecordingElapsedMs(recordingState)
         } else {
             null
         }
@@ -288,38 +283,6 @@ internal fun RecordingListItem(
 
 /** Maximum number of tag chips rendered inline on a recording row before collapsing to a count. */
 private const val MAX_VISIBLE_TAGS = 3
-
-@Composable
-private fun rememberLiveCaptureElapsedMs(recordingState: RecordingState): Long {
-    var elapsedMs by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(recordingState) {
-        when (val state = recordingState) {
-            is RecordingState.Starting -> elapsedMs = 0L
-
-            is RecordingState.Recording -> {
-                // Prior-segment time comes from the state itself, so a row that composes
-                // fresh mid-session (scrolled back, screen re-entered) shows the true total.
-                while (true) {
-                    val rawMs =
-                        state.accumulatedBeforeSegmentMs +
-                            (System.currentTimeMillis() - state.startTimeMs)
-                    // The pill renders whole seconds; snapping keeps 9 of every 10 ticks
-                    // an equal-value write, which Compose skips instead of re-laying out
-                    // the metadata row at 10 Hz for the whole capture.
-                    elapsedMs = rawMs - (rawMs % 1000L)
-                    delay(ChirpMotion.TIMER_TICK_MS)
-                }
-            }
-
-            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
-
-            else -> Unit
-        }
-    }
-
-    return elapsedMs
-}
 
 @Composable
 private fun LiveCaptureHomeBanner(
