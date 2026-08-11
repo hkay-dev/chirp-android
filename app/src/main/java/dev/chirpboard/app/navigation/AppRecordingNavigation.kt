@@ -75,7 +75,11 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                 autoStart = event.autoStart,
                                 profileId = event.profileId?.toString(),
                             ),
-                        )
+                        ) {
+                            // A double-tap on the record button emits two events; single-top
+                            // keeps the second from stacking a duplicate Record entry.
+                            launchSingleTop = true
+                        }
                     }
 
                     is HomeRecordEntryEvent.ShowModelRequired -> {
@@ -132,7 +136,9 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
         HomeScreen(
             onRecordingClick = { item ->
                 if (item.isLiveCapture) {
-                    navController.navigate(Screen.Record.createRoute(autoStart = false))
+                    navController.navigate(Screen.Record.createRoute(autoStart = false)) {
+                        launchSingleTop = true
+                    }
                 } else {
                     navController.navigateToStudio(item.id)
                 }

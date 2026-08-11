@@ -1,6 +1,5 @@
 package dev.chirpboard.app.navigation
 
-import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize

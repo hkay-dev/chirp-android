@@ -17,14 +17,3 @@ fun NavController.navigateToStudio(
         configure()
     }
 }
-
-fun NavController.navigateToStudio(
-    recordingId: String,
-    configure: androidx.navigation.NavOptionsBuilder.() -> Unit = {},
-) {
-    navigate(Screen.ProcessingStudio.createRoute(recordingId)) {
-        launchSingleTop = true
-        restoreState = true
-        configure()
-    }
-}

@@ -81,7 +81,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RecordScreen(
     onNavigateBack: () -> Unit,
-    onRecordingComplete: (recordingId: String) -> Unit = { onNavigateBack() },
+    onRecordingComplete: (recordingId: java.util.UUID) -> Unit = { onNavigateBack() },
     autoStart: Boolean = true,
     viewModel: RecordViewModel = hiltViewModel(),
 ) {
@@ -208,7 +208,7 @@ fun RecordScreen(
         }
         val recordingId = lastCompletedRecordingId ?: return@LaunchedEffect
         hasNavigatedToComplete = true
-        onRecordingComplete(recordingId.toString())
+        onRecordingComplete(recordingId)
         viewModel.clearLastCompletedRecordingId()
     }
 
@@ -225,7 +225,7 @@ fun RecordScreen(
     fun navigateToProcessingStudioIfNeeded(recordingId: java.util.UUID?) {
         if (recordingId != null && !hasNavigatedToComplete) {
             hasNavigatedToComplete = true
-            onRecordingComplete(recordingId.toString())
+            onRecordingComplete(recordingId)
         }
     }
 
