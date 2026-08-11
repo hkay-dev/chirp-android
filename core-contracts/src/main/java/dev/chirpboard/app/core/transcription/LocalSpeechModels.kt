@@ -120,6 +120,9 @@ interface LocalSpeechModelActivator {
         backend: LocalSpeechComputeBackend,
     ): LocalSpeechComputeBackendActivationResult
 
+    /** Whether this build's native libraries include the given backend at all. */
+    suspend fun isComputeBackendAvailable(backend: LocalSpeechComputeBackend): Boolean
+
     /** Keeps model files intact during an active native decode; false means try again later. */
     suspend fun releaseForDeletion(modelId: LocalSpeechModelId): Boolean
 }

@@ -62,6 +62,9 @@ class TranscriptionSettingsViewModel
             val managedLocalModel: LocalSpeechModelId = LocalSpeechModelId.DEFAULT,
             val selectedComputeBackend: LocalSpeechComputeBackend = LocalSpeechComputeBackend.CPU,
             val computeBackendNotice: String? = null,
+            // False until the native capability check answers, so a build without the Vulkan
+            // backend never flashes a compute choice it cannot honor.
+            val vulkanComputeAvailable: Boolean = false,
             val cloudConfigurationStatus: CloudTranscriptionConfigurationStatus =
                 CloudTranscriptionConfigurationStatus.AUTHENTICATION_MISSING,
         )
@@ -164,6 +167,12 @@ class TranscriptionSettingsViewModel
                 modelManager.selectedComputeBackend.collect { selected ->
                     _uiState.update { it.copy(selectedComputeBackend = selected) }
                 }
+            }
+
+            viewModelScope.launch {
+                val vulkanAvailable =
+                    modelManager.isComputeBackendAvailable(LocalSpeechComputeBackend.VULKAN)
+                _uiState.update { it.copy(vulkanComputeAvailable = vulkanAvailable) }
             }
 
             viewModelScope.launch {

@@ -14,8 +14,10 @@ import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
 import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.di.SherpaRecognizerProvider
 import dev.chirpboard.app.download.ModelDownloader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Process-wide router for the selected authoritative offline recognizer.
@@ -109,6 +111,14 @@ class SelectableLocalTranscriberProvider(
             Log.i(TAG, "Activated local speech model ${modelId.persistedValue}")
             if (current != modelId && provider(current) !== target) provider(current).release()
             LocalSpeechModelActivationResult.Activated
+        }
+
+    override suspend fun isComputeBackendAvailable(backend: LocalSpeechComputeBackend): Boolean =
+        when (backend) {
+            LocalSpeechComputeBackend.CPU -> true
+            // First read dlopens the native libraries; keep that off the caller's thread.
+            LocalSpeechComputeBackend.VULKAN ->
+                withContext(Dispatchers.Default) { GgufNativeCapabilities.supportsVulkan }
         }
 
     override suspend fun activateComputeBackend(

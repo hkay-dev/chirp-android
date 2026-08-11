@@ -181,7 +181,9 @@ fun TranscriptionSettingsScreen(
 
             val managedModel = uiState.availableLocalModels.firstOrNull { it.id == uiState.managedLocalModel }
             val activeModel = uiState.availableLocalModels.firstOrNull { it.id == uiState.selectedLocalModel }
-            if (managedModel?.backend == LocalSpeechBackend.TRANSCRIBE_GGUF) {
+            // A build whose native libraries lack Vulkan has no compute choice to offer;
+            // hide the whole section instead of rendering a permanently failing toggle.
+            if (managedModel?.backend == LocalSpeechBackend.TRANSCRIBE_GGUF && uiState.vulkanComputeAvailable) {
                 item {
                     SettingsSectionHeader(
                         title = stringResource(R.string.transcription_section_compute),

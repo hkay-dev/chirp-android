@@ -210,6 +210,9 @@ class SpeechModelManager
                 ?: LocalSpeechComputeBackendActivationResult.Failed("Compute switching is unavailable")
         }
 
+        suspend fun isComputeBackendAvailable(backend: LocalSpeechComputeBackend): Boolean =
+            modelActivator?.isComputeBackendAvailable(backend) ?: (backend == LocalSpeechComputeBackend.CPU)
+
         suspend fun deleteModel(): Boolean =
             withContext(Dispatchers.IO) {
                 if (modelActivator?.releaseForDeletion(_managedModel.value) == false) {

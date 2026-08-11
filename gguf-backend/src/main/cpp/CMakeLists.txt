@@ -6,6 +6,11 @@ include(FetchContent)
 # KleidiAI is the measured default. GGML keeps its generic CPU buffer type alongside KleidiAI, so
 # unsupported operations and CPUs still fall back safely.
 option(CHIRP_GGUF_KLEIDIAI "Enable GGML KleidiAI CPU kernels" ON)
+
+# OFF in shipped builds: no Vulkan transcribe.cpp backend is compiled in, and the app hides the
+# Vulkan compute choice when nativeSupportsVulkan() reports false. Turning this ON requires
+# transcribe.cpp to be built with its Vulkan backend as well.
+option(TRANSCRIBE_VULKAN "Enable the Vulkan compute backend" OFF)
 set(GGML_CPU_KLEIDIAI ${CHIRP_GGUF_KLEIDIAI} CACHE BOOL "Enable GGML KleidiAI CPU kernels" FORCE)
 
 set(FETCHCONTENT_QUIET OFF)
