@@ -55,6 +55,7 @@ class RecordingPlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
         val player = player ?: return
         if (!player.playWhenReady) {
             stopSelf()
