@@ -173,26 +173,18 @@ class LlmChatService
             systemPrompt: String,
             messages: List<ChatMessage>,
         ): Result<String> {
-            val contents = mutableListOf<GeminiRequest.Content>()
-            var firstUser = true
-            for (message in messages) {
-                val role = if (message.isFromUser) "user" else "model"
-                val text =
-                    if (firstUser && message.isFromUser) {
-                        firstUser = false
-                        "$systemPrompt\n\nUser Question:\n${message.text}"
-                    } else {
-                        message.text
-                    }
-                contents.add(
+            val contents =
+                messages.map { message ->
                     GeminiRequest.Content(
-                        role = role,
-                        parts = listOf(GeminiRequest.Part(text = text)),
-                    ),
-                )
-            }
-
-            val requestBody = gson.toJson(GeminiRequest(contents = contents))
+                        role = if (message.isFromUser) "user" else "model",
+                        parts = listOf(GeminiRequest.Part(text = message.text)),
+                    )
+                }
+            val systemInstruction =
+                systemPrompt
+                    .takeIf { it.isNotBlank() }
+                    ?.let { GeminiRequest.Content(parts = listOf(GeminiRequest.Part(text = it))) }
+            val requestBody = gson.toJson(GeminiRequest(contents = contents, systemInstruction = systemInstruction))
             val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent"
             return postJson(url, requestBody, geminiHeaders(apiKey)).mapCatching { body ->
                 val response = gson.fromJson(body, GeminiResponse::class.java)

@@ -5,7 +5,9 @@ import com.google.gson.annotations.SerializedName
 @Keep
 data class GeminiRequest(
     @SerializedName("contents")
-    val contents: List<Content>
+    val contents: List<Content>,
+    @SerializedName("systemInstruction")
+    val systemInstruction: Content? = null
 ) {
     @Keep
     data class Content(
