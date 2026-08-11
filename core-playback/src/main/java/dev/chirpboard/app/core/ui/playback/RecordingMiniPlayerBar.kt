@@ -166,7 +166,11 @@ fun RecordingMiniPlayerBar(
                             text = state.errorMessage,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error,
-                            maxLines = 1,
+                            // Two lines: at one line "Can't play audio while a recording is
+                            // in progress" ellipsized inside this narrow column and the full
+                            // text appeared nowhere else in the app. The bar already
+                            // animateContentSize()s, so the extra line grows it smoothly.
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
                     } else if (state.noticeMessage != null) {
