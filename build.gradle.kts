@@ -23,6 +23,12 @@ detekt {
 }
 
 subprojects {
+    // Unit-test workers inherit Gradle's 512m default, which the MockK inline agent now
+    // exhausts (the worker dies with an OutOfMemoryError at teardown even when every test
+    // passed). Give test JVMs real headroom.
+    tasks.withType<Test>().configureEach {
+        maxHeapSize = "2g"
+    }
     apply(plugin = "io.gitlab.arturbosch.detekt")
     extensions.configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension>("detekt") {
         config.setFrom(files("$rootDir/detekt.yml"))
