@@ -59,7 +59,11 @@ internal class GgufRecognizer(
             mutex.withLock {
                 if (native?.isLoaded() == true) return@withLock true
                 val model = downloader.resolvedGgufModelFile(config.modelId) ?: return@withLock false
-                val candidate = GgufNativeRecognizer()
+                val candidate =
+                    loadNativeGuarded(::GgufNativeRecognizer).getOrElse { error ->
+                        Log.e(GGUF_TAG, "Native recognizer libraries are unloadable on this device", error)
+                        return@withLock false
+                    }
                 val started = SystemClock.elapsedRealtime()
                 val loaded =
                     candidate.load(
@@ -340,7 +344,11 @@ internal class GgufRecognizer(
 
     private fun switchToCpu(): GgufNativeRecognizer? {
         val model = downloader.resolvedGgufModelFile(config.modelId) ?: return null
-        val candidate = GgufNativeRecognizer()
+        val candidate =
+            loadNativeGuarded(::GgufNativeRecognizer).getOrElse { error ->
+                Log.e(GGUF_TAG, "CPU recovery load failed: native libraries are unloadable", error)
+                return null
+            }
         val loaded =
             candidate.load(
                 modelPath = model.absolutePath,
@@ -514,6 +522,24 @@ internal object GgufNativeSessionReservation {
     fun isReserved(): Boolean = reserved.get()
 }
 
+/**
+ * Captures every failure of [construct] except cancellation.
+ *
+ * Touching the JNI owner dlopens the native libraries; on a device with a bad ABI split or a
+ * failed native-lib extraction that throws UnsatisfiedLinkError, an Error that every catch on
+ * the transcription path (which catches Exception) lets through. Unguarded, one such device
+ * kills the transcription worker with no transcript and no message instead of reporting the
+ * model as unavailable.
+ */
+internal fun <T> loadNativeGuarded(construct: () -> T): Result<T> =
+    try {
+        Result.success(construct())
+    } catch (cancellation: kotlin.coroutines.cancellation.CancellationException) {
+        throw cancellation
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
 internal object GgufNativeCapabilities {
     /**
      * Resolving this dlopens the native libraries; on a device or ABI where a .so is absent
@@ -523,12 +549,11 @@ internal object GgufNativeCapabilities {
      * A failed probe caches as "no Vulkan" and the CPU backend takes over.
      */
     val supportsVulkan: Boolean by lazy {
-        try {
-            GgufNativeRecognizer().supportsVulkan()
-        } catch (error: Throwable) {
-            android.util.Log.e("GgufNativeCapabilities", "Vulkan capability probe failed", error)
-            false
-        }
+        loadNativeGuarded { GgufNativeRecognizer().supportsVulkan() }
+            .getOrElse { error ->
+                android.util.Log.e("GgufNativeCapabilities", "Vulkan capability probe failed", error)
+                false
+            }
     }
 }
 
