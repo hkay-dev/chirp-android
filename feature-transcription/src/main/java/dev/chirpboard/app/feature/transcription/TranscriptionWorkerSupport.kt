@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -191,8 +192,16 @@ internal fun transcriptionErrorLaunchIntent(
 ) =
     context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
         action = ACTION_OPEN_TRANSCRIPTION_RECORDING
+        data = transcriptionOpenUri(recordingId)
         putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
     }
+
+/**
+ * Per-recording tap target. The content PendingIntents are keyed by `recordingId.hashCode()`,
+ * and [Intent.filterEquals] ignores extras, so without this URI two recordings whose hashes
+ * collide would share one PendingIntent and open the wrong recording.
+ */
+private fun transcriptionOpenUri(recordingId: UUID): Uri = Uri.parse("chirp://transcription/open/$recordingId")
 
 /**
  * PIPE-04: terminal-failure notification with a branded small icon, a tap action into
@@ -277,6 +286,7 @@ internal fun showTranscriptionReadyNotification(
     val contentIntent =
         context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
             launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING
+            launchIntent.data = transcriptionOpenUri(recordingId)
             launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
             PendingIntent.getActivity(
                 context,
@@ -328,6 +338,7 @@ internal fun showTranscriptionCleanupRetryNotification(
     val contentIntent =
         context.packageManager.getLaunchIntentForPackage(context.packageName)?.let { launchIntent ->
             launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING
+            launchIntent.data = transcriptionOpenUri(recordingId)
             launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
             PendingIntent.getActivity(
                 context,
@@ -400,9 +411,12 @@ private fun transcriptionRetryPendingIntent(
     context: Context,
     recordingId: UUID,
 ): PendingIntent {
+    // Intent.filterEquals ignores extras, so two recordings whose request codes collide would
+    // share one PendingIntent and act on the wrong row; the data URI keeps them distinct.
     val intent =
         Intent(context, TranscriptionRetryReceiver::class.java)
             .setAction(TranscriptionRetryReceiver.ACTION_RETRY_TRANSCRIPTION)
+            .setData(Uri.parse("chirp://transcription/retry/$recordingId"))
             .putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
     return PendingIntent.getBroadcast(
         context,
@@ -426,9 +440,13 @@ private fun transcriptionCopyPendingIntent(
     val requestCode = recordingId.hashCode() xor if (copyAiResult) COPY_AI_REQUEST_CODE_MASK else COPY_RAW_REQUEST_CODE_MASK
     // An activity, not a broadcast: the clipboard write needs window focus to be
     // honored on every build (see QuickInputCopyActivity).
+    val variant = if (copyAiResult) "ai" else "raw"
     val intent =
         Intent(context, QuickInputCopyActivity::class.java)
             .setAction(action)
+            // Distinguishes recordings (and the two copy variants) under filterEquals, which
+            // ignores extras and would otherwise let a request-code collision copy another row.
+            .setData(Uri.parse("chirp://transcription/copy/$variant/$recordingId"))
             .putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     return PendingIntent.getActivity(

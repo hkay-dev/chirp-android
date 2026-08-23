@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import androidx.work.Data
 import androidx.work.ListenableWorker
 import dev.chirpboard.app.core.recording.RecordingOrigin
@@ -15,6 +16,9 @@ import dev.chirpboard.app.core.transcription.TranscriptionOutcome
 import dev.chirpboard.app.data.model.RecordingStatus
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.slot
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -125,13 +129,25 @@ class TranscriptionWorkerSupportTest {
         every { context.packageManager } returns packageManager
         every { context.packageName } returns "dev.chirpboard.app"
         every { packageManager.getLaunchIntentForPackage("dev.chirpboard.app") } returns launchIntent
+        val parsedUri = mockk<Uri>()
+        val uriText = slot<String>()
+        mockkStatic(Uri::class)
+        every { Uri.parse(capture(uriText)) } returns parsedUri
 
-        val result = transcriptionErrorLaunchIntent(context, recordingId)
+        try {
+            val result = transcriptionErrorLaunchIntent(context, recordingId)
 
-        assertSame(launchIntent, result)
-        verify(exactly = 1) { launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING }
-        verify(exactly = 1) {
-            launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+            assertSame(launchIntent, result)
+            verify(exactly = 1) { launchIntent.action = ACTION_OPEN_TRANSCRIPTION_RECORDING }
+            verify(exactly = 1) {
+                launchIntent.putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+            }
+            // The per-recording data URI is what keeps colliding request codes from sharing a
+            // PendingIntent: filterEquals ignores the extra above.
+            verify(exactly = 1) { launchIntent.data = parsedUri }
+            assertEquals("chirp://transcription/open/$recordingId", uriText.captured)
+        } finally {
+            unmockkStatic(Uri::class)
         }
     }
 
