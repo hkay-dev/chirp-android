@@ -43,11 +43,16 @@ class SpeechModelReadinessCoordinator
                 }
             }
 
-            val failed = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first().value
-            return if (failed.any(Recording::isWaitingForSpeechModelRecovery)) {
-                SpeechModelReadinessCandidate.Recovery
-            } else {
-                null
+            val failedState = recordingRepository.getRecordingsByStatus(RecordingStatus.FAILED).first()
+            return when {
+                // An errored read emits an empty fallback list; treating that as "no recovery
+                // work" would silently skip model verification for real waiting recordings.
+                // verifyIfNeeded is idempotent and cheap, so verify on the unknown.
+                failedState.errorMessage != null -> SpeechModelReadinessCandidate.Recovery
+                failedState.value.any(Recording::isWaitingForSpeechModelRecovery) ->
+                    SpeechModelReadinessCandidate.Recovery
+
+                else -> null
             }
         }
 
