@@ -41,6 +41,7 @@ class ProcessingPromptEditorViewModel
             val isModified: Boolean = false,
             val isNewPreset: Boolean = false,
             val saveEnabled: Boolean = false,
+            val isSaving: Boolean = false,
             val resetEnabled: Boolean = false,
             val deleteEnabled: Boolean = false,
             val statusMessage: String? = null,
@@ -48,6 +49,9 @@ class ProcessingPromptEditorViewModel
 
         private val _uiState = MutableStateFlow(UiState())
         val uiState: StateFlow<UiState> = _uiState.asStateFlow()
+
+        /** Mirrors UiState.isSaving, but readable synchronously so save() can gate re-entry. */
+        private var isSaving = false
 
         init {
             viewModelScope.launch {
@@ -87,30 +91,40 @@ class ProcessingPromptEditorViewModel
         }
 
         fun save(onSaved: () -> Unit) {
-            viewModelScope.launch {
-                val state = _uiState.value
-                if (!state.saveEnabled) return@launch
+            val state = _uiState.value
+            // Gate BEFORE the launch: two taps landing in the same frame both saw
+            // isNewPreset, and addCustomPreset mints a fresh user_<uuid> per call, so the
+            // second tap silently created a duplicate preset.
+            if (isSaving || !state.saveEnabled) return
+            isSaving = true
+            _uiState.update { it.copy(isSaving = true) }
 
-                runCatching {
-                    if (state.isNewPreset) {
-                        modeRepository.addCustomPreset(
+            viewModelScope.launch {
+                try {
+                    runCatching {
+                        if (state.isNewPreset) {
+                            modeRepository.addCustomPreset(
                                 name = state.name,
                                 prompt = state.prompt,
                             )
-                    } else {
-                        if (state.canEditName && !state.isBuiltIn) {
-                            modeRepository.renameCustomPreset(state.presetId, state.name)
+                        } else {
+                            if (state.canEditName && !state.isBuiltIn) {
+                                modeRepository.renameCustomPreset(state.presetId, state.name)
+                            }
+                            modeRepository.updatePresetPrompt(state.presetId, state.prompt)
                         }
-                        modeRepository.updatePresetPrompt(state.presetId, state.prompt)
+                    }.onSuccess {
+                        onSaved()
+                    }.onFailure { error ->
+                        // I18N-05: raw exception text stays in logs, not the status line.
+                        Log.e(TAG, "Failed to save preset", error)
+                        _uiState.update {
+                            it.copy(statusMessage = appContext.getString(R.string.llm_prompt_save_failed))
+                        }
                     }
-                }.onSuccess {
-                    onSaved()
-                }.onFailure { error ->
-                    // I18N-05: raw exception text stays in logs, not the status line.
-                    Log.e("PromptEditorVM", "Failed to save preset", error)
-                    _uiState.update {
-                        it.copy(statusMessage = appContext.getString(R.string.llm_prompt_save_failed))
-                    }
+                } finally {
+                    isSaving = false
+                    _uiState.update { it.copy(isSaving = false) }
                 }
             }
         }
@@ -120,9 +134,18 @@ class ProcessingPromptEditorViewModel
                 val state = _uiState.value
                 if (state.isNewPreset || !state.resetEnabled) return@launch
 
-                modeRepository.resetPresetPrompt(state.presetId)
-                loadPreset(state.presetId)
-                _uiState.update { it.copy(statusMessage = null) }
+                runCatching {
+                    modeRepository.resetPresetPrompt(state.presetId)
+                    loadPreset(state.presetId)
+                }.onSuccess {
+                    _uiState.update { it.copy(statusMessage = null) }
+                }.onFailure { error ->
+                    // I18N-05: raw exception text stays in logs, not the status line.
+                    Log.e(TAG, "Failed to reset preset prompt", error)
+                    _uiState.update {
+                        it.copy(statusMessage = appContext.getString(R.string.llm_prompt_reset_failed))
+                    }
+                }
             }
         }
 
@@ -130,8 +153,18 @@ class ProcessingPromptEditorViewModel
             viewModelScope.launch {
                 val state = _uiState.value
                 if (!state.deleteEnabled) return@launch
-                modeRepository.deleteCustomPreset(state.presetId)
-                onDeleted()
+
+                runCatching {
+                    modeRepository.deleteCustomPreset(state.presetId)
+                }.onSuccess {
+                    onDeleted()
+                }.onFailure { error ->
+                    // I18N-05: raw exception text stays in logs, not the status line.
+                    Log.e(TAG, "Failed to delete preset", error)
+                    _uiState.update {
+                        it.copy(statusMessage = appContext.getString(R.string.llm_prompt_delete_failed))
+                    }
+                }
             }
         }
 
@@ -181,6 +214,7 @@ class ProcessingPromptEditorViewModel
         }
 
         companion object {
+            private const val TAG = "PromptEditorVM"
             const val PRESET_ID_ARG = "presetId"
             const val NEW_PRESET_ID = "new"
         }

@@ -88,6 +88,21 @@ fun ProcessingPromptSettingsScreen(
             contentPadding = padding,
             verticalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
         ) {
+            uiState.statusMessage?.let { message ->
+                item {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier =
+                            Modifier.padding(
+                                horizontal = ChirpSpacing.ScreenHorizontal,
+                                vertical = ChirpSpacing.Small,
+                            ),
+                    )
+                }
+            }
+
             item {
                 SettingsSectionHeader(title = stringResource(R.string.llm_prompt_default_section))
             }

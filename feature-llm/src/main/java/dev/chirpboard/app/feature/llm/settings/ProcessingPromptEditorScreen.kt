@@ -84,7 +84,7 @@ fun ProcessingPromptEditorScreen(
 
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = uiState.saveEnabled,
+                enabled = uiState.saveEnabled && !uiState.isSaving,
                 onClick = { viewModel.save(onSaved = onNavigateBack) },
             ) {
                 Text(stringResource(R.string.llm_prompt_save))

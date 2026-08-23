@@ -99,5 +99,8 @@
     <string name="llm_backup_export_failed">Backup failed. Try a different location.</string>
     <string name="llm_prompt_save_failed">Couldn’t save the preset. Try again.</string>
     <string name="llm_prompt_not_found">Preset not found</string>
+    <string name="llm_prompt_reset_failed">Couldn’t reset the prompt. Try again.</string>
+    <string name="llm_prompt_delete_failed">Couldn’t delete the preset. Try again.</string>
+    <string name="llm_prompt_default_mode_failed">Couldn’t change the default mode. Try again.</string>
     <string name="llm_backup_import_failed">Restore failed. Check the file and passphrase.</string>
 </resources>

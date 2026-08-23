@@ -14,10 +14,12 @@ import dev.chirpboard.app.feature.llm.model.ProcessingMode
 import dev.chirpboard.app.feature.llm.model.ProcessingModeDefaults
 import dev.chirpboard.app.feature.llm.model.ProcessingModeListItem
 import dev.chirpboard.app.feature.llm.model.ProcessingPromptPreset
+import java.io.IOException
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -52,8 +54,25 @@ class ProcessingModeRepository
     constructor(
         @ApplicationContext private val context: Context,
     ) {
+        /**
+         * Single read path for the DataStore. The corruption handler only covers
+         * CorruptionException; a plain IOException (unreadable file, no space, a device in
+         * direct boot) otherwise propagates to every collector — killing the Prompt Settings
+         * screen outright, and escaping the Result contract of the background prompt reads.
+         * Fall back to defaults instead, matching what the corruption handler already does.
+         */
+        private val preferencesFlow: Flow<Preferences> =
+            context.dataStore.data.catch { error ->
+                if (error is IOException) {
+                    Log.e(TAG, "Failed to read processing_mode_preferences; using defaults", error)
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }
+
         val currentMode: Flow<ProcessingMode> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 buildMode(
                     modeId = preferences[KEY_MODE_ID] ?: ProcessingModeDefaults.DEFAULT_MODE_ID,
                     preferences = preferences,
@@ -61,27 +80,27 @@ class ProcessingModeRepository
             }
 
         val defaultModeId: Flow<String> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 preferences[KEY_MODE_ID] ?: ProcessingModeDefaults.DEFAULT_MODE_ID
             }
 
         val promptPresets: Flow<List<ProcessingPromptPreset>> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 buildPromptPresets(preferences)
             }
 
         val selectableModes: Flow<List<ProcessingModeListItem>> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 buildSelectableModes(preferences)
             }
 
         suspend fun getPrompt(modeId: String): String? {
-            val preferences = context.dataStore.data.first()
+            val preferences = preferencesFlow.first()
             return resolvePrompt(modeId, preferences)
         }
 
         suspend fun resolveMode(modeId: String): ProcessingMode {
-            val preferences = context.dataStore.data.first()
+            val preferences = preferencesFlow.first()
             return buildMode(modeId, preferences)
         }
 
@@ -362,6 +381,7 @@ class ProcessingModeRepository
         }
 
         companion object {
+            private const val TAG = "ProcessingModeRepo"
             private val KEY_MODE_ID = stringPreferencesKey("mode_id")
             private val KEY_CUSTOM_PROMPT = stringPreferencesKey("custom_prompt")
             private val KEY_PROMPT_OVERRIDES = stringPreferencesKey("prompt_overrides_json")
