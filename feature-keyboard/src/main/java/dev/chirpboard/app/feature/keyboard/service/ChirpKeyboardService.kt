@@ -716,6 +716,9 @@ class ChirpKeyboardService :
         val committed = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
         if (!committed) {
             Log.w(TAG, "Skipped dictation commit because the input session changed")
+            dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
+                dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_REFUSALS,
+            )
             coordinator.setSessionError(getString(R.string.keyboard_input_changed))
         }
         return committed

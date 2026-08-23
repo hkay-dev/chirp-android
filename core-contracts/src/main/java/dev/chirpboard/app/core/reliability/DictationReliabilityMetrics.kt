@@ -16,6 +16,10 @@ enum class DictationReliabilityMetric(
     COMMIT("Raw text to commit", 150),
     CAPTURE_GAP("Capture gap", 20),
     RECORDER_RESTARTS("Recorder restarts", 0),
+    CAPTURE_WATCHDOG_TRIPS("Capture watchdog trips", 0),
+    RECORDER_INIT_RETRIES("Recorder init retries", 0),
+    COMMIT_REFUSALS("Commit refusals", 0),
+    COMMIT_VERIFY_MISMATCHES("Commit verify mismatches", 0),
 }
 
 data class DictationMetricSummary(
@@ -106,6 +110,14 @@ object DictationReliabilityMetrics {
             persistMetric(metric)
             publish()
         }
+    }
+
+    /**
+     * Records one occurrence of a counted failure event (the budget-0 metrics). Any occurrence
+     * makes the metric exceed its zero budget, which is the intended red flag.
+     */
+    fun countEvent(metric: DictationReliabilityMetric) {
+        record(metric, 1L)
     }
 
     fun startSoak(targetSessions: Int = 25) {

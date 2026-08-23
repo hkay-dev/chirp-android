@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 import dev.chirpboard.app.core.audio.AudioGain
 import dev.chirpboard.app.core.audio.AudioInputDeviceSelector
 import dev.chirpboard.app.core.recording.WaveformBuffer
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetric
+import dev.chirpboard.app.core.reliability.DictationReliabilityMetrics
 import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
@@ -497,6 +499,7 @@ class VoiceRecorder(
                 }
 
                 retryCount++
+                DictationReliabilityMetrics.countEvent(DictationReliabilityMetric.RECORDER_INIT_RETRIES)
                 if (retryCount < maxRetries) {
                     delay(INIT_RETRY_DELAY_MS)
                 }
@@ -991,6 +994,7 @@ class VoiceRecorder(
         issue: CaptureHealthIssue,
         monitor: CaptureHealthMonitor,
     ): AudioRecord? {
+        DictationReliabilityMetrics.countEvent(DictationReliabilityMetric.CAPTURE_WATCHDOG_TRIPS)
         if (watchdogRestartCount.get() >= MAX_WATCHDOG_RECOVERIES) return null
         val replacement = recoverAudioRecord(generation, record, "health watchdog detected ${issue.name}")
         if (replacement != null) {
