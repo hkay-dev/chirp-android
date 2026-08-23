@@ -1027,6 +1027,19 @@ private fun VoiceRecognitionErrorStatus(
             textAlign = TextAlign.Center,
             modifier = statusLiveRegion,
         )
+        // ERR-30: the pipeline's specific reason ("Speech model is not downloaded yet",
+        // "Not enough memory to transcribe dictation", …) under the generic headline, so
+        // a recurring "Couldn't transcribe" is diagnosable without digging into logs.
+        val detail = (uiError as? VoiceRecognitionUiError.TranscriptionFailed)?.detail
+        if (detail != null) {
+            Spacer(modifier = Modifier.height(ChirpSpacing.ExtraSmall))
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
         if (gentle) {
             Spacer(modifier = Modifier.height(ChirpSpacing.Small))
             FilledTonalButton(onClick = onRetry) {

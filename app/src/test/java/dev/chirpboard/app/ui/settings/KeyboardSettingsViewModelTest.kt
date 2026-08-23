@@ -31,6 +31,7 @@ class KeyboardSettingsViewModelTest {
         every { keyboardPreferences.llmEnabled } returns MutableStateFlow(false)
         every { keyboardPreferences.defaultProcessingMode } returns MutableStateFlow("custom_mode")
         every { keyboardPreferences.quickInputNotificationTimeoutMs } returns MutableStateFlow(60_000L)
+        every { keyboardPreferences.dictationHistoryEnabled } returns MutableStateFlow(false)
     }
 
     @After
@@ -48,6 +49,18 @@ class KeyboardSettingsViewModelTest {
             assertEquals(false, state.llmEnabled)
             assertEquals("custom_mode", state.defaultProcessingMode)
             assertEquals(60_000L, state.quickInputNotificationTimeoutMs)
+            assertEquals(false, state.dictationHistoryEnabled)
+        }
+
+    @Test
+    fun `toggleDictationHistoryEnabled updates preferences`() =
+        runTest {
+            coEvery { keyboardPreferences.setDictationHistoryEnabled(any()) } returns Unit
+            val viewModel = KeyboardSettingsViewModel(keyboardPreferences)
+
+            viewModel.toggleDictationHistoryEnabled()
+
+            coVerify { keyboardPreferences.setDictationHistoryEnabled(true) } // Initially false
         }
 
     @Test

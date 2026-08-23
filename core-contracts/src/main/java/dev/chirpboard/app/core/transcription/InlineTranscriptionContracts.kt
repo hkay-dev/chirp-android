@@ -17,6 +17,14 @@ sealed interface InlineTranscriptionPhase {
     data class Error(val message: String) : InlineTranscriptionPhase
 
     data class LlmError(val message: String) : InlineTranscriptionPhase
+
+    /**
+     * IME-16: terminal state for a dictation that produced no recognizable speech (or a
+     * capture too short to transcribe). Not an error — surfaces let the UI show a gentle
+     * "didn't catch that" hint instead of silently returning to [Idle], which read as the
+     * keyboard swallowing the dictation.
+     */
+    data object NoSpeech : InlineTranscriptionPhase
 }
 
 data class InlineTranscriptionRequest(
@@ -183,6 +191,14 @@ interface InlineTranscriptionPort {
     fun resetPhase()
 
     fun setError(message: String)
+
+    /**
+     * IME-16: moves the phase to [InlineTranscriptionPhase.NoSpeech] for a capture that
+     * ended with nothing to transcribe (no speech detected, or shorter than the minimum
+     * recording length so no audio source was produced). Default no-op keeps lightweight
+     * implementations source-compatible.
+     */
+    fun noteNoSpeech() = Unit
 
     /**
      * Marks the in-flight transcription as cancelled by an explicit user action (cancel

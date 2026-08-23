@@ -508,6 +508,29 @@ object Migrations {
     }
 
     /**
+     * HIST-1: adds the capped, text-only dictation history table. Purely additive; rows are
+     * written only by the quick-dictation persistence hook and pruned to the newest
+     * [dev.chirpboard.app.data.entity.DICTATION_HISTORY_MAX_ENTRIES] on every insert.
+     */
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `dictation_history` (
+                    `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    `rawText` TEXT NOT NULL,
+                    `processedText` TEXT,
+                    `createdAt` INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS `index_dictation_history_createdAt` ON `dictation_history` (`createdAt`)"
+            )
+        }
+    }
+
+    /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
@@ -524,6 +547,7 @@ object Migrations {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
+            MIGRATION_12_13,
         )
     // Example migration template (uncomment and modify when needed):
     /*

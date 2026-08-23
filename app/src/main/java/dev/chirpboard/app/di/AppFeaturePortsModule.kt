@@ -32,6 +32,8 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.util.DurableFiles
+import dev.chirpboard.app.data.dao.DictationHistoryDao
+import dev.chirpboard.app.data.entity.DictationHistoryEntry
 import dev.chirpboard.app.data.repository.RecordingRepository
 import dev.chirpboard.app.feature.llm.TextProcessor
 import dev.chirpboard.app.cloud.VertexTextGenerationClient
@@ -279,6 +281,7 @@ class AppKeyboardInlineCapturePersistence
         private val transcriptExportPort: TranscriptExportPort,
         private val audioEncoder: AudioEncoder,
         private val terminalNotificationDelivery: dagger.Lazy<TerminalRecordingNotificationDelivery>,
+        private val dictationHistoryDao: DictationHistoryDao,
     ) : InlineCapturePersistence {
         // Written from the IME thread and read-and-cleared from IO/NonCancellable coroutines,
         // so every access holds checkpointLock; an unguarded take could hand the same source
@@ -459,6 +462,28 @@ class AppKeyboardInlineCapturePersistence
             withContext(NonCancellable + Dispatchers.IO) {
                 var sourceHandled = false
                 try {
+                    // HIST-1: record delivered dictations as capped text-only history, before
+                    // and independent of the save-recordings preference below — with saving
+                    // off, this is the only recovery path once the caller app drops the text
+                    // and the quick-input notification times out. Only COMPLETED persists
+                    // qualify: rescues surface through the recordings library, and the
+                    // incognito (IME-3) and secure (IME-6) wrappers never forward COMPLETED
+                    // persists here. Best effort: a history failure must never fail a persist.
+                    if (reason == InlineCapturePersistReason.COMPLETED && !rawText.isNullOrBlank()) {
+                        runCatching {
+                            if (keyboardPreferences.dictationHistoryEnabled.first()) {
+                                dictationHistoryDao.record(
+                                    DictationHistoryEntry(
+                                        rawText = rawText,
+                                        processedText = processedText?.takeIf { it.isNotBlank() },
+                                    ),
+                                )
+                            }
+                        }.onFailure { error ->
+                            Log.e(TAG, "Could not record dictation history entry", error)
+                        }
+                    }
+
                     // Rescue entries are error artifacts, not normal keyboard recordings:
                     // persist them even when saveKeyboardRecordings is off so the user can
                     // retrieve undelivered transcripts from the app. An explicit user cancel

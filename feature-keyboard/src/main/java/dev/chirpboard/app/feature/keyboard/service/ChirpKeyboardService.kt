@@ -49,6 +49,7 @@ import dev.chirpboard.app.core.recording.RecordingPermissionGuard
 import dev.chirpboard.app.core.recording.RecordingState
 import dev.chirpboard.app.core.recording.RecordingStateManager
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
+import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPort
 import dev.chirpboard.app.core.transcription.KeyboardDictationHandoff
 import dev.chirpboard.app.core.transcription.TranscriptionRoutingStore
@@ -481,6 +482,13 @@ class ChirpKeyboardService :
             return
         }
         coordinator.setSensitiveInput(false)
+        // IME-16: the "didn't catch that" hint is scoped to the dictation that produced it.
+        // Re-engaging an editor (field change or restart) clears it; a config-change restart
+        // preserves the whole session, hint included. Sticky Errors keep their stronger
+        // lifecycle (dismissed explicitly or by the sensitive-field reset above).
+        if (!preserveSession && inlineTranscription.phase.value is InlineTranscriptionPhase.NoSpeech) {
+            inlineTranscription.resetPhase()
+        }
         if (cleanupStraySwitchCharacter) {
             removeStraySwitchCharacter(currentInputConnection)
         }

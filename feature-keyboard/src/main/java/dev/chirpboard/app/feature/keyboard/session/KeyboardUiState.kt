@@ -113,10 +113,19 @@ data class KeyboardUiState(
     val deviceLostHint: Boolean = false,
     /** Best-effort live text. Final insertion always comes from the complete saved audio. */
     val partialTranscript: String? = null,
+    /**
+     * IME-16: the last dictation ended with nothing to transcribe (no recognizable speech,
+     * or a capture shorter than the minimum recording length). Shows a gentle "didn't
+     * catch that" status on the idle panel instead of a silent return to Idle; cleared by
+     * the next phase change (mic tap, new dictation). Only ever true while [voicePanel]
+     * is Idle.
+     */
+    val noSpeechHint: Boolean = false,
 ) {
     @StringRes
     fun statusLabelRes(): Int? =
         when {
+            voicePanel == VoicePanelPhase.Idle && noSpeechHint -> R.string.keyboard_status_no_speech
             voicePanel == VoicePanelPhase.Recording && silenceHint -> R.string.keyboard_status_no_audio
             // MIC-014: silence outranks the disconnect hint — no audio at all is the more
             // actionable signal when both fire on the same unplug.
@@ -191,5 +200,10 @@ fun mapKeyboardUiState(
         // session instead of leaking into transcription or the next dictation.
         deviceLostHint = voicePanel == VoicePanelPhase.Recording && deviceLost,
         partialTranscript = partialTranscript?.takeIf { voicePanel == VoicePanelPhase.Recording },
+        // IME-16: the NoSpeech terminal phase maps to the Idle panel (nothing is running)
+        // plus this hint; gating on the resolved Idle panel keeps it out of overlays.
+        noSpeechHint =
+            voicePanel == VoicePanelPhase.Idle &&
+                transcriptionPhase is InlineTranscriptionPhase.NoSpeech,
     )
 }

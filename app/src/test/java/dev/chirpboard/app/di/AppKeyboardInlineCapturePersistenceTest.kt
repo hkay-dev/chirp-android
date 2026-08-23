@@ -10,6 +10,8 @@ import dev.chirpboard.app.core.export.TranscriptExportPort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
+import dev.chirpboard.app.data.dao.DictationHistoryDao
+import dev.chirpboard.app.data.entity.DictationHistoryEntry
 import dev.chirpboard.app.data.entity.Recording
 import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
@@ -790,6 +792,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                     transcriptExportPort = transcriptExportPort(),
                     audioEncoder = encoder,
                     terminalNotificationDelivery = mockk(relaxed = true),
+                    dictationHistoryDao = mockk(relaxed = true),
                 )
             val source = InlineAudioSource.PcmFloatFile(audio.absolutePath, sampleCount = 10)
             assertTrue(persistence.checkpointAudioSource(source, 8, "surviving words", 0))
@@ -830,6 +833,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                     transcriptExportPort = transcriptExportPort(),
                     audioEncoder = mockk(relaxed = true),
                     terminalNotificationDelivery = mockk(relaxed = true),
+                    dictationHistoryDao = mockk(relaxed = true),
                 )
 
             var failed = false
@@ -852,6 +856,97 @@ class AppKeyboardInlineCapturePersistenceTest {
             assertTrue(failed)
             assertFalse(sourceFile.exists())
         }
+    @Test
+    fun persist_completedWithText_recordsDictationHistoryEvenWhenSaveRecordingsIsOff() =
+        runTest {
+            // HIST-1: history is independent of the audio-saving preference — it's the
+            // recovery path precisely when no recording entity exists.
+            val dictationHistoryDao = mockk<DictationHistoryDao>(relaxed = true)
+            val persistence =
+                persistence(
+                    root = createTempDir("keyboard-history-on"),
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                    dictationHistoryDao = dictationHistoryDao,
+                )
+
+            persistence.persist(
+                samples = floatArrayOf(0.1f),
+                rawText = "remember me",
+                processedText = "Remember me.",
+                errorMessage = null,
+                reason = InlineCapturePersistReason.COMPLETED,
+            )
+
+            coVerify(exactly = 1) {
+                dictationHistoryDao.record(
+                    match<DictationHistoryEntry> {
+                        it.rawText == "remember me" && it.processedText == "Remember me."
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun persist_recordsNoHistoryWhenToggleIsOff() =
+        runTest {
+            val dictationHistoryDao = mockk<DictationHistoryDao>(relaxed = true)
+            val persistence =
+                persistence(
+                    root = createTempDir("keyboard-history-off"),
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                    dictationHistoryDao = dictationHistoryDao,
+                    historyEnabled = false,
+                )
+
+            persistence.persist(
+                samples = floatArrayOf(0.1f),
+                rawText = "off the record",
+                processedText = null,
+                errorMessage = null,
+                reason = InlineCapturePersistReason.COMPLETED,
+            )
+
+            coVerify(exactly = 0) { dictationHistoryDao.record(any()) }
+        }
+
+    @Test
+    fun persist_recordsNoHistoryForNonCompletedOrBlankResults() =
+        runTest {
+            val dictationHistoryDao = mockk<DictationHistoryDao>(relaxed = true)
+            val persistence =
+                persistence(
+                    root = createTempDir("keyboard-history-skip"),
+                    audioEncoder = mockk(relaxed = true),
+                    recordingRepository = mockk(relaxed = true),
+                    saveRecordings = false,
+                    transcriptExportPort = transcriptExportPort(),
+                    dictationHistoryDao = dictationHistoryDao,
+                )
+
+            persistence.persist(
+                samples = floatArrayOf(0.1f),
+                rawText = "cancelled words",
+                processedText = null,
+                errorMessage = null,
+                reason = InlineCapturePersistReason.USER_CANCELLED,
+            )
+            persistence.persist(
+                samples = floatArrayOf(0.1f),
+                rawText = "   ",
+                processedText = null,
+                errorMessage = null,
+                reason = InlineCapturePersistReason.COMPLETED,
+            )
+
+            coVerify(exactly = 0) { dictationHistoryDao.record(any()) }
+        }
+
     private fun audioEncoderWritingFile(): AudioEncoder =
         mockk {
             every { encode(any(), any(), any(), any(), any()) } answers {
@@ -867,6 +962,8 @@ class AppKeyboardInlineCapturePersistenceTest {
         saveRecordings: Boolean,
         transcriptExportPort: TranscriptExportPort,
         terminalNotificationDelivery: Lazy<TerminalRecordingNotificationDelivery> = mockk(relaxed = true),
+        dictationHistoryDao: DictationHistoryDao = mockk(relaxed = true),
+        historyEnabled: Boolean = true,
     ): AppKeyboardInlineCapturePersistence {
         val context =
             mockk<Context> {
@@ -877,6 +974,7 @@ class AppKeyboardInlineCapturePersistenceTest {
                 every { saveKeyboardRecordings } returns flowOf(saveRecordings)
                 every { recordingQualityPreset } returns flowOf(RecordingQualityPreset.High)
                 every { outputFormat } returns flowOf(RecordingOutputFormat.WAV)
+                every { dictationHistoryEnabled } returns flowOf(historyEnabled)
             }
         return AppKeyboardInlineCapturePersistence(
             context = context,
@@ -885,6 +983,7 @@ class AppKeyboardInlineCapturePersistenceTest {
             transcriptExportPort = transcriptExportPort,
             audioEncoder = audioEncoder,
             terminalNotificationDelivery = terminalNotificationDelivery,
+            dictationHistoryDao = dictationHistoryDao,
         )
     }
 

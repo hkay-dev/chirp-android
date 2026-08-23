@@ -3,6 +3,7 @@ package dev.chirpboard.app.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import dev.chirpboard.app.data.dao.DictationHistoryDao
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
@@ -10,6 +11,7 @@ import dev.chirpboard.app.data.dao.StructuredOutcomeSnapshotDao
 import dev.chirpboard.app.data.dao.TagDao
 import dev.chirpboard.app.data.dao.TranscriptDao
 import dev.chirpboard.app.data.dao.WordReplacementDao
+import dev.chirpboard.app.data.entity.DictationHistoryEntry
 import dev.chirpboard.app.data.entity.Profile
 import dev.chirpboard.app.data.entity.ProfileDefaultTag
 import dev.chirpboard.app.data.entity.Recording
@@ -39,8 +41,9 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - Version 11: Added nullable freeform notes column to recordings (per-recording user note)
  *   - Version 12: Added durable transcription engine, requested cleanup, enhancement snapshot,
  *     and ready-notification routing fields to recordings
+ *   - Version 13: Added the capped text-only dictation history table (HIST-1)
  *
- * Current Schema (v12):
+ * Current Schema (v13):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -147,6 +150,13 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - caseSensitive: INTEGER (boolean)
  *   - enabled: INTEGER (boolean)
  *   Indices: original
+ *
+ * dictation_history:
+ *   - id: INTEGER (PK, autoincrement)
+ *   - rawText: TEXT
+ *   - processedText: TEXT (nullable)
+ *   - createdAt: INTEGER (Date as timestamp)
+ *   Indices: createdAt
  */
 @Database(
     entities = [
@@ -160,8 +170,9 @@ import dev.chirpboard.app.data.entity.WordReplacement
         Tag::class,
         RecordingTag::class,
         WordReplacement::class,
+        DictationHistoryEntry::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -179,6 +190,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
 
     abstract fun wordReplacementDao(): WordReplacementDao
+
+    abstract fun dictationHistoryDao(): DictationHistoryDao
 
     companion object {
         const val DATABASE_NAME = "chirp.db"

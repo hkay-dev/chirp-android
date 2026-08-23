@@ -23,6 +23,7 @@ class KeyboardSettingsViewModel @Inject constructor(
         val llmEnabled: Boolean = true,
         val defaultProcessingMode: String? = null,
         val quickInputNotificationTimeoutMs: Long = DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS,
+        val dictationHistoryEnabled: Boolean = true,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -35,12 +36,14 @@ class KeyboardSettingsViewModel @Inject constructor(
                 keyboardPreferences.llmEnabled,
                 keyboardPreferences.defaultProcessingMode,
                 keyboardPreferences.quickInputNotificationTimeoutMs,
-            ) { saveRecordings, llmEnabled, processingMode, notificationTimeoutMs ->
+                keyboardPreferences.dictationHistoryEnabled,
+            ) { saveRecordings, llmEnabled, processingMode, notificationTimeoutMs, dictationHistoryEnabled ->
                 UiState(
                     saveKeyboardRecordings = saveRecordings,
                     llmEnabled = llmEnabled,
                     defaultProcessingMode = processingMode,
                     quickInputNotificationTimeoutMs = notificationTimeoutMs,
+                    dictationHistoryEnabled = dictationHistoryEnabled,
                 )
             }.collect { state ->
                 _uiState.value = state
@@ -51,6 +54,12 @@ class KeyboardSettingsViewModel @Inject constructor(
     fun toggleSaveRecordings() {
         viewModelScope.launch {
             keyboardPreferences.setSaveKeyboardRecordings(!_uiState.value.saveKeyboardRecordings)
+        }
+    }
+
+    fun toggleDictationHistoryEnabled() {
+        viewModelScope.launch {
+            keyboardPreferences.setDictationHistoryEnabled(!_uiState.value.dictationHistoryEnabled)
         }
     }
 

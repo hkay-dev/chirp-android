@@ -63,6 +63,10 @@ class InlineTranscriptionCoordinatorImpl
             _phase.value = InlineTranscriptionPhase.Error(message)
         }
 
+        override fun noteNoSpeech() {
+            _phase.value = InlineTranscriptionPhase.NoSpeech
+        }
+
         override fun markUserCancelled() {
             userCancelRequested.set(true)
         }
@@ -162,7 +166,11 @@ class InlineTranscriptionCoordinatorImpl
                                 persistence?.discardAudioSource(request.audioSource)
                                 captureResolved.set(true)
                                 onRecordingCompleted()
-                                _phase.value = InlineTranscriptionPhase.Idle
+                                // IME-16: terminal NoSpeech instead of a silent Idle so the
+                                // keyboard can show a gentle "didn't catch that" hint. The
+                                // voice dialog is unaffected: a non-Error terminal phase with
+                                // blank text already resolves to its no-speech retry state.
+                                _phase.value = InlineTranscriptionPhase.NoSpeech
                             }
                             return
                         }
@@ -519,7 +527,7 @@ internal const val AI_CONTENT_GUARD_MESSAGE =
     "AI may have dropped the opening — inserted the raw transcript"
 
 /** ERR-25: appended to rescue-backed errors so users know their speech was not lost. */
-internal const val RESCUE_SAVED_SUFFIX = " — your audio was saved to recordings"
+const val RESCUE_SAVED_SUFFIX = " — your audio was saved to recordings"
 
 internal fun aiResultDropsOpening(
     rawText: String,

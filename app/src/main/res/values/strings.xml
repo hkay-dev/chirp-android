@@ -27,6 +27,11 @@
         <item quantity="other">%d minutes</item>
     </plurals>
     <string name="keyboard_settings_section_behavior">Behavior</string>
+    <!-- HIST-1: capped text-only dictation history. -->
+    <string name="keyboard_settings_dictation_history_title">Keep Dictation History</string>
+    <string name="keyboard_settings_dictation_history_description">Save the text of recent dictations so you can copy them again if an app loses them. Last 50 kept; audio is never stored.</string>
+    <string name="keyboard_settings_view_dictation_history_title">Dictation History</string>
+    <string name="keyboard_settings_view_dictation_history_description">Browse and copy your recent dictations.</string>
     <string name="keyboard_settings_system_title">System Settings</string>
     <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>
     <!-- PROP-5: shown once Chirp is the enabled IME, so the "Enable Keyboard" action de-emphasizes.

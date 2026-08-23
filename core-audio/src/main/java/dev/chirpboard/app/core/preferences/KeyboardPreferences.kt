@@ -32,6 +32,7 @@ class KeyboardPreferences @Inject constructor(
         val defaultProcessingMode = stringPreferencesKey("default_processing_mode")
         val llmEnabled = booleanPreferencesKey("llm_enabled")
         val quickInputNotificationTimeoutMs = longPreferencesKey("quick_input_notification_timeout_ms")
+        val dictationHistoryEnabled = booleanPreferencesKey("dictation_history_enabled")
     }
 
     /**
@@ -57,6 +58,18 @@ class KeyboardPreferences @Inject constructor(
      */
     val llmEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[Keys.llmEnabled] ?: true
+    }
+
+    /**
+     * HIST-1: whether successfully delivered quick dictations (keyboard + voice dialog)
+     * are kept as capped text-only history entries. On by default: delivery to another
+     * app is not durable (some editors drop the committed text), and with
+     * [saveKeyboardRecordings] off this history is the only recovery path once the
+     * quick-input notification times out. Incognito and secure sessions are excluded
+     * upstream and never write history regardless of this toggle.
+     */
+    val dictationHistoryEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[Keys.dictationHistoryEnabled] ?: true
     }
 
     /** How long a completed quick-input result stays available for one-tap copying. */
@@ -100,6 +113,12 @@ class KeyboardPreferences @Inject constructor(
     suspend fun setLlmEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[Keys.llmEnabled] = enabled
+        }
+    }
+
+    suspend fun setDictationHistoryEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[Keys.dictationHistoryEnabled] = enabled
         }
     }
 

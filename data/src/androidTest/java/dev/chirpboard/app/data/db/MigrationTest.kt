@@ -161,7 +161,7 @@ class MigrationTest {
             close()
         }
 
-        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 12, true, *Migrations.ALL)
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 13, true, *Migrations.ALL)
         migratedDb.query(
             """
             SELECT recordings.title, transcripts.rawText, tags.name
@@ -1217,6 +1217,61 @@ class MigrationTest {
         ).use { cursor ->
             org.junit.Assert.assertTrue(cursor.moveToFirst())
             org.junit.Assert.assertEquals("Standup riff about Q3 roadmap", cursor.getString(0))
+        }
+
+        migratedDb.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate12To13_createsDictationHistoryTable() {
+        val recordingId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+
+        helper.createDatabase(TEST_DB, 12).apply {
+            execSQL(
+                """
+                INSERT INTO recordings(
+                    id, title, audioPath, status, source, profileId, createdAt, durationMs,
+                    errorMessage, lastExportedPath, lastExportedAt, transcriptionExecutionToken,
+                    notes, transcriptionEngineId, requestedProcessingModeId,
+                    requestedLlmProviderId, requestedLlmModelId, notifyWhenReady,
+                    terminalNotificationPending, enhancementRequestSnapshotted
+                ) VALUES(
+                    '$recordingId', 'Pre-history recording', '/tmp/audio.m4a',
+                    'COMPLETED', 'APP', NULL, $createdAt, 4200,
+                    NULL, NULL, NULL, NULL,
+                    NULL, 'local_parakeet', NULL,
+                    NULL, NULL, 0,
+                    0, 0
+                )
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 13, true, Migrations.MIGRATION_12_13)
+
+        // The new table is writable and reads back exactly what was stored.
+        migratedDb.execSQL(
+            "INSERT INTO dictation_history(rawText, processedText, createdAt) VALUES('hello there', NULL, $createdAt)",
+        )
+        migratedDb.query(
+            "SELECT id, rawText, processedText, createdAt FROM dictation_history",
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals(1L, cursor.getLong(0))
+            org.junit.Assert.assertEquals("hello there", cursor.getString(1))
+            org.junit.Assert.assertTrue(cursor.isNull(2))
+            org.junit.Assert.assertEquals(createdAt, cursor.getLong(3))
+        }
+
+        // Pre-existing data is untouched.
+        migratedDb.query(
+            "SELECT title FROM recordings WHERE id = '$recordingId'",
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals("Pre-history recording", cursor.getString(0))
         }
 
         migratedDb.close()

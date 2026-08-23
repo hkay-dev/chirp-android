@@ -368,6 +368,19 @@ class InlineTranscriptionCoordinatorImplTest {
         // source instead of this request's own audio.
         assertSame(source, persistence.lastDiscardedSource)
         assertEquals(0, persistence.discardSamplesCalls)
+        // IME-16: NoSpeech resolves to its own terminal phase so surfaces can show a
+        // gentle "didn't catch that" instead of a silent return to Idle.
+        assertEquals(InlineTranscriptionPhase.NoSpeech, coordinator.phase.value)
+    }
+
+    @Test
+    fun `noteNoSpeech marks the terminal no-speech phase`() = runTest {
+        coordinator.noteNoSpeech()
+
+        assertEquals(InlineTranscriptionPhase.NoSpeech, coordinator.phase.value)
+
+        coordinator.resetPhase()
+
         assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
     }
 

@@ -7,6 +7,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.chirpboard.app.data.dao.DictationHistoryDao
 import dev.chirpboard.app.data.dao.ProfileDao
 import dev.chirpboard.app.data.dao.RecordingEnhancementSnapshotDao
 import dev.chirpboard.app.data.dao.RecordingDao
@@ -58,4 +59,7 @@ object DataModule {
 
     @Provides
     fun provideWordReplacementDao(database: AppDatabase): WordReplacementDao = database.wordReplacementDao()
+
+    @Provides
+    fun provideDictationHistoryDao(database: AppDatabase): DictationHistoryDao = database.dictationHistoryDao()
 }

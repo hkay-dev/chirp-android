@@ -1062,7 +1062,10 @@ class KeyboardSessionCoordinator(
             abandonActiveLiveCapture()
             persistence.discardSamples()
             recordingStateManager.onRecordingCompleted()
-            transcription.resetPhase()
+            // IME-16: a null source means the capture was too short (< minimum recording
+            // length) or produced no samples. A plain resetPhase() here read as the
+            // keyboard swallowing the dictation; show the gentle no-speech hint instead.
+            transcription.noteNoSpeech()
             clearPendingStop()
             return
         }

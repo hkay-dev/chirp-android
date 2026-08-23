@@ -15,6 +15,13 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- HIST-1: browsing surface for recent quick dictations; a normal task entry
+             (kept in recents) since it's a screen the user reads, not a focus shim. -->
+        <activity
+            android:name=".DictationHistoryActivity"
+            android:exported="false"
+            android:label="@string/dictation_history_title" />
+
         <!-- WorkManager foreground worker (TranscriptionWorker setForeground) -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

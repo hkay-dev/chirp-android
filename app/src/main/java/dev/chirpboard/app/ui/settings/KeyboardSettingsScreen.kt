@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.Settings
@@ -44,10 +46,12 @@ import dev.chirpboard.app.core.preferences.QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTI
 import dev.chirpboard.app.core.ui.components.ChirpSettingsDetailScaffold
 import dev.chirpboard.app.core.ui.components.SettingsBadge
 import dev.chirpboard.app.core.ui.components.SettingsDropdownListItem
+import dev.chirpboard.app.core.ui.components.SettingsListItem
 import dev.chirpboard.app.core.ui.components.SettingsSectionHeader
 import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
 import dev.chirpboard.app.core.ui.components.StatusBadge
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
+import dev.chirpboard.app.feature.transcription.DictationHistoryActivity
 import kotlinx.coroutines.launch
 
 private val KeyboardProcessingModeIds = listOf(null, "proofread", "formal", "casual", "email", "code", "smart")
@@ -145,6 +149,27 @@ fun KeyboardSettingsScreen(
                     onOptionSelected = viewModel::setQuickInputNotificationTimeoutMs,
                     trailingIconContentDescription =
                         stringResource(R.string.keyboard_settings_notification_duration_select),
+                )
+            }
+
+            item {
+                // HIST-1: text-only recovery history for delivered dictations.
+                SettingsSwitchItem(
+                    icon = Icons.Rounded.History,
+                    title = stringResource(R.string.keyboard_settings_dictation_history_title),
+                    subtitle = stringResource(R.string.keyboard_settings_dictation_history_description),
+                    checked = uiState.dictationHistoryEnabled,
+                    onCheckedChange = { viewModel.toggleDictationHistoryEnabled() },
+                )
+            }
+            item {
+                SettingsListItem(
+                    icon = Icons.AutoMirrored.Rounded.List,
+                    title = stringResource(R.string.keyboard_settings_view_dictation_history_title),
+                    subtitle = stringResource(R.string.keyboard_settings_view_dictation_history_description),
+                    onClick = {
+                        context.startActivity(Intent(context, DictationHistoryActivity::class.java))
+                    },
                 )
             }
 

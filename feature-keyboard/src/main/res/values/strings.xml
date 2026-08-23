@@ -21,6 +21,9 @@
     <!-- MIC-014: shown in place of the Recording status after the session's active mic
          disconnects mid-dictation; capture continues on a fallback device (inform, don't stop). -->
     <string name="keyboard_status_device_lost">Mic disconnected — using another input</string>
+    <!-- IME-16: shown after a dictation ends with nothing to transcribe (no recognizable
+         speech, or a tap-tap capture shorter than the minimum recording length). -->
+    <string name="keyboard_status_no_speech">Didn\'t catch that — tap the mic to try again</string>
     <string name="keyboard_downloading_model_progress">Downloading model… %1$d%%</string>
     <string name="keyboard_loading_speech_model">Loading voice model…</string>
     <string name="keyboard_model_not_ready">Model not ready</string>

@@ -37,6 +37,7 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.TranscriberProvider
+import dev.chirpboard.app.feature.transcription.inline.RESCUE_SAVED_SUFFIX
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import kotlinx.coroutines.CoroutineScope
@@ -89,6 +90,13 @@ internal sealed interface VoiceRecognitionUiError {
         override val speechErrorCode: Int,
         /** True when the inline pipeline's rescue persisted the captured audio. */
         val audioRescued: Boolean,
+        /**
+         * ERR-30: the pipeline's specific failure reason ("Speech model is not downloaded
+         * yet", "Not enough memory to transcribe dictation", …), shown as secondary text
+         * under the generic headline so recurring failures are diagnosable from the dialog
+         * itself. Null when the failure had no pipeline message (unexpected client error).
+         */
+        val detail: String? = null,
     ) : VoiceRecognitionUiError
 
     /**
@@ -774,6 +782,13 @@ class VoiceRecognitionActivity : ComponentActivity() {
                                     // Claim a rescue only when a persist actually completed;
                                     // "your audio was saved" must never be a guess.
                                     audioRescued = outcome.audioPersisted,
+                                    // ERR-30: keep the pipeline's reason; the rescued headline
+                                    // already says the audio was saved, so drop that suffix.
+                                    detail =
+                                        (outcome.terminalPhase as InlineTranscriptionPhase.Error)
+                                            .message
+                                            .removeSuffix(RESCUE_SAVED_SUFFIX)
+                                            .takeIf { it.isNotBlank() },
                                 ),
                             )
                         } else {

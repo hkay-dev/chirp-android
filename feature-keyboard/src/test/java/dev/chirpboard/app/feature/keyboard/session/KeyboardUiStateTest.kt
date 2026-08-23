@@ -100,6 +100,45 @@ class KeyboardUiStateTest {
     }
 
     @Test
+    fun `no-speech phase surfaces the gentle retry hint on the idle panel`() {
+        // IME-16: a dictation that produced no usable speech must say so instead of
+        // silently returning to the idle keyboard.
+        val state =
+            mapKeyboardUiState(
+                isRecording = false,
+                transcriptionPhase = InlineTranscriptionPhase.NoSpeech,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+            )
+        assertEquals(VoicePanelPhase.Idle, state.voicePanel)
+        assertTrue(state.noSpeechHint)
+        assertEquals(
+            dev.chirpboard.app.feature.keyboard.R.string.keyboard_status_no_speech,
+            state.statusLabelRes(),
+        )
+    }
+
+    @Test
+    fun `no-speech hint is suppressed while a new recording is live`() {
+        val state =
+            mapKeyboardUiState(
+                isRecording = true,
+                transcriptionPhase = InlineTranscriptionPhase.NoSpeech,
+                modelBanner = ModelBannerState.None,
+                modelInitFailedMessage = null,
+                llmEnabled = true,
+                processingMode = ProcessingMode.Proofread,
+                availableModes = emptyList(),
+                overlayError = null,
+            )
+        assertFalse(state.noSpeechHint)
+    }
+
+    @Test
     fun `device lost while recording surfaces the disconnect hint`() {
         // MIC-014 keyboard half: a hot-unplugged active mic mid-dictation must be visible
         // in the panel (inform, don't stop — the platform reroutes and capture continues).

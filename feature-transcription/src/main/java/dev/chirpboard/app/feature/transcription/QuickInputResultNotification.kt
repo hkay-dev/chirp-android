@@ -26,6 +26,7 @@ private const val QUICK_INPUT_RESULT_CHANNEL_ID = "quick_input_results_v1"
 private const val COPY_PREFERRED_REQUEST_CODE = 4_100
 private const val COPY_RAW_REQUEST_CODE = 4_101
 private const val COPY_AI_REQUEST_CODE = 4_102
+private const val HISTORY_REQUEST_CODE = 4_103
 private const val TAG = "QuickInputResultNotif"
 
 internal data class QuickInputNotificationContent(
@@ -100,9 +101,20 @@ class QuickInputResultNotificationPublisher
                     return false
                 }
 
+                // HIST-1: only offer the History action when the entry was actually
+                // recorded (toggle on); a dead-end action would read as data loss.
+                val historyEnabled =
+                    try {
+                        keyboardPreferences.dictationHistoryEnabled.first()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Could not read dictation history preference; hiding action", error)
+                        false
+                    }
                 NotificationManagerCompat.from(context).notify(
                     QUICK_INPUT_RESULT_NOTIFICATION_ID,
-                    buildNotification(content, timeoutMs),
+                    buildNotification(content, timeoutMs, historyEnabled),
                 )
                 true
             } catch (error: CancellationException) {
@@ -133,6 +145,7 @@ class QuickInputResultNotificationPublisher
         private fun buildNotification(
             content: QuickInputNotificationContent,
             timeoutMs: Long,
+            historyEnabled: Boolean,
         ): Notification {
             val expandedText =
                 quickInputNotificationExpandedText(
@@ -183,6 +196,20 @@ class QuickInputResultNotificationPublisher
                                 action = QuickInputCopyActivity.ACTION_COPY_AI,
                                 requestCode = COPY_AI_REQUEST_CODE,
                                 text = processed,
+                            ),
+                        )
+                    }
+                    // HIST-1: the recovery path once this card times out.
+                    if (historyEnabled) {
+                        addAction(
+                            0,
+                            context.getString(R.string.quick_input_result_history_action),
+                            PendingIntent.getActivity(
+                                context,
+                                HISTORY_REQUEST_CODE,
+                                Intent(context, DictationHistoryActivity::class.java)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                             ),
                         )
                     }

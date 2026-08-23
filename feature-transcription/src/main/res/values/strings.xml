@@ -66,6 +66,20 @@
     <string name="quick_input_result_copied_raw">Original copied</string>
     <string name="quick_input_result_copied_ai">AI result copied</string>
     <string name="quick_input_result_copy_failed">That quick input is no longer available</string>
+    <!-- HIST-1: capped text-only history of delivered quick dictations. -->
+    <string name="quick_input_result_history_action">History</string>
+    <string name="dictation_history_title">Dictation history</string>
+    <string name="dictation_history_back">Back</string>
+    <string name="dictation_history_empty_title">No dictations yet</string>
+    <string name="dictation_history_empty_body">Your recent keyboard and voice dictations will appear here so you can copy them again if an app loses the text.</string>
+    <string name="dictation_history_tap_to_copy">Tap an entry to copy it</string>
+    <string name="dictation_history_copy_original">Copy original</string>
+    <string name="dictation_history_delete_entry">Delete entry</string>
+    <string name="dictation_history_clear_all">Clear all</string>
+    <string name="dictation_history_clear_confirm_title">Clear dictation history?</string>
+    <string name="dictation_history_clear_confirm_body">This removes all saved dictation text. It doesn\'t affect recordings.</string>
+    <string name="dictation_history_clear_confirm_action">Clear</string>
+    <string name="dictation_history_clear_cancel">Cancel</string>
     <string name="transcription_cleanup_retry_notification_title">Transcript saved</string>
     <string name="transcription_cleanup_retry_notification_body">AI cleanup needs a retry. Tap to open it in Chirp.</string>
 

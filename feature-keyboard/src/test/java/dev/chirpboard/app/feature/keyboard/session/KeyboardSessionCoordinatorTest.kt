@@ -119,6 +119,7 @@ class KeyboardSessionCoordinatorTest {
             mockk {
                 every { phase } returns phaseFlow
                 every { resetPhase() } just runs
+                every { noteNoSpeech() } just runs
                 every { setError(any()) } just runs
                 every { markUserCancelled() } just runs
             }
@@ -591,7 +592,9 @@ class KeyboardSessionCoordinatorTest {
             coordinator.stopAndTranscribe { true }
 
             verify { recordingStateManager.onRecordingCompleted(any()) }
-            verify { transcription.resetPhase() }
+            // IME-16: a null audio source on the non-cancel path surfaces the no-speech
+            // hint instead of silently resetting to Idle.
+            verify { transcription.noteNoSpeech() }
             coVerify(exactly = 1) { pendingStopStore.clear() }
         }
 

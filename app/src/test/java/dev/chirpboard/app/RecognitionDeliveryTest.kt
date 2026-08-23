@@ -90,6 +90,21 @@ class RecognitionDeliveryTest {
     }
 
     @Test
+    fun `blank result on the no-speech phase returns no-match`() {
+        // IME-16: the keyboard's NoSpeech terminal phase is not an error; the dialog
+        // maps it to the same no-match retry state a blank Idle resolution gets.
+        val delivery =
+            resolveRecognitionDelivery(
+                committedText = "",
+                processedText = null,
+                terminalPhase = InlineTranscriptionPhase.NoSpeech,
+            )
+
+        assertTrue(delivery is RecognitionDelivery.Failure)
+        assertEquals(SpeechRecognizer.ERROR_NO_MATCH, (delivery as RecognitionDelivery.Failure).errorCode)
+    }
+
+    @Test
     fun `blank result on idle phase returns no-match`() {
         val delivery =
             resolveRecognitionDelivery(
