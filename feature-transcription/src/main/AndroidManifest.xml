@@ -15,6 +15,12 @@
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <!-- RELY-6: notification Retry action for failed transcriptions; needs no focus,
+             so a receiver (not the copy activity's focus shim) is the right surface. -->
+        <receiver
+            android:name=".TranscriptionRetryReceiver"
+            android:exported="false" />
+
         <!-- HIST-1: browsing surface for recent quick dictations; a normal task entry
              (kept in recents) since it's a screen the user reads, not a focus shim. -->
         <activity

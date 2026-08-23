@@ -29,6 +29,9 @@
     <string name="transcription_compute_vulkan_subtitle">Experimental GPU path; falls back to CPU if startup fails</string>
     <string name="transcription_ctc_unavailable">CTC is not selectable for the 110M model. Its verified GGUF conversion contains the faster TDT head and drops the auxiliary CTC head. A CTC option stays gated until a verified small CTC artifact exists.</string>
     <string name="transcription_retry">Retry</string>
+    <!-- RELY-6: toasts for the failed-transcription notification's Retry action. -->
+    <string name="transcription_retry_enqueued">Retrying transcription…</string>
+    <string name="transcription_retry_failed">Couldn\'t retry. Open Chirp to try again.</string>
     <string name="transcription_cancel_download">Cancel Download</string>
     <string name="transcription_download_waiting">Waiting for connection…</string>
     <string name="transcription_storage_choice_title">Where should the model go?</string>

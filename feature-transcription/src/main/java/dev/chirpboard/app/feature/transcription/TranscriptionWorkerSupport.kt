@@ -38,6 +38,7 @@ internal const val ENHANCEMENT_FOREGROUND_NOTIFICATION_ID = 2002
 internal const val ENHANCEMENT_FOREGROUND_CHANNEL_ID = "enhancement_progress"
 private const val COPY_RAW_REQUEST_CODE_MASK = 0x13579BDF
 private const val COPY_AI_REQUEST_CODE_MASK = 0x2468ACE
+private const val RETRY_REQUEST_CODE_MASK = 0x5A5A5A5
 
 // I18N-08: notification titles/bodies/channel names live in strings.xml, not Kotlin literals.
 internal fun transcriptionProgressNotificationTitle(context: Context): String =
@@ -237,6 +238,13 @@ internal fun showTranscriptionErrorNotification(
         .setGroup(TRANSCRIPTION_ERROR_GROUP)
         .setAutoCancel(true)
         .apply { contentIntent?.let(::setContentIntent) }
+        // RELY-6: the rescue path kept the audio; retry it right here instead of sending the
+        // user hunting for the recording inside the app.
+        .addAction(
+            0,
+            context.getString(R.string.transcription_retry),
+            transcriptionRetryPendingIntent(context, recordingId),
+        )
         .build()
     notificationManager.notify(recordingId.hashCode(), notification)
 
@@ -386,6 +394,22 @@ private fun NotificationCompat.Builder.addTranscriptCopyActions(
             transcriptionCopyPendingIntent(context, recordingId, copyAiResult = true),
         )
     }
+}
+
+private fun transcriptionRetryPendingIntent(
+    context: Context,
+    recordingId: UUID,
+): PendingIntent {
+    val intent =
+        Intent(context, TranscriptionRetryReceiver::class.java)
+            .setAction(TranscriptionRetryReceiver.ACTION_RETRY_TRANSCRIPTION)
+            .putExtra(EXTRA_TRANSCRIPTION_RECORDING_ID, recordingId.toString())
+    return PendingIntent.getBroadcast(
+        context,
+        recordingId.hashCode() xor RETRY_REQUEST_CODE_MASK,
+        intent,
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 }
 
 private fun transcriptionCopyPendingIntent(
