@@ -6,7 +6,15 @@ import android.view.inputmethod.InputConnection
 
 internal data class KeyboardInputCommitSession(
     val generation: Long,
+    val editorIdentity: KeyboardEditorIdentity? = null,
 )
+
+/**
+ * How long a refused dictation commit stays pending for the editor it was captured against
+ * (RELY-3). Long enough to cover an app-driven input restart plus the user's re-tap, short
+ * enough that a stale transcript cannot surprise a much later session.
+ */
+internal const val DEFERRED_DICTATION_COMMIT_WINDOW_MS = 5_000L
 
 /** Outcome of a dictation commit attempt, including post-commit verification (RELY-1). */
 internal enum class KeyboardDictationCommitResult {
@@ -26,10 +34,17 @@ internal enum class KeyboardDictationCommitResult {
  * (setText while focused, autofill drops, text-watcher rewrites), and a transcript finishing
  * inside that window can still safely commit into the same field.
  */
-private data class KeyboardEditorIdentity(
+internal data class KeyboardEditorIdentity(
     val fieldId: Int,
     val packageName: String?,
     val inputType: Int,
+)
+
+/** A refused dictation commit held for a same-editor rebind within its window (RELY-3). */
+private data class DeferredDictationCommit(
+    val editorIdentity: KeyboardEditorIdentity,
+    val text: String,
+    val deadlineElapsedMs: Long,
 )
 
 internal class KeyboardInputSessionGuard {
@@ -38,6 +53,7 @@ internal class KeyboardInputSessionGuard {
     private var learningSuppressed = false
     private var activeInput = false
     private var lastEditorIdentity: KeyboardEditorIdentity? = null
+    private var deferredCommit: DeferredDictationCommit? = null
 
     /** True for blocked editors (password variants, null EditorInfo): dictation is refused. */
     val isSensitiveInput: Boolean
@@ -86,8 +102,51 @@ internal class KeyboardInputSessionGuard {
         if (blockedInput || !activeInput) {
             null
         } else {
-            KeyboardInputCommitSession(generation)
+            KeyboardInputCommitSession(generation, lastEditorIdentity)
         }
+
+    /**
+     * Holds a refused dictation commit for [DEFERRED_DICTATION_COMMIT_WINDOW_MS] so it can still
+     * land when the same editor rebinds (RELY-3): apps restart input around IME transitions, and
+     * the transcript often finishes in exactly that gap. Requires the session to know which
+     * editor it was captured against; returns false when it cannot defer.
+     */
+    fun deferCommit(
+        session: KeyboardInputCommitSession,
+        text: String,
+        nowElapsedMs: Long,
+    ): Boolean {
+        val identity = session.editorIdentity ?: return false
+        if (text.isBlank()) return false
+        deferredCommit =
+            DeferredDictationCommit(
+                editorIdentity = identity,
+                text = text,
+                deadlineElapsedMs = nowElapsedMs + DEFERRED_DICTATION_COMMIT_WINDOW_MS,
+            )
+        return true
+    }
+
+    /**
+     * The deferred transcript, if the current editor matches the one it was captured against and
+     * the window has not expired. Does NOT consume the deferral — the caller clears it via
+     * [clearDeferredCommit] only after the commit actually lands, so a failed attempt can retry
+     * on the next rebind within the original window.
+     */
+    fun deferredCommitTextForCurrentEditor(nowElapsedMs: Long): String? {
+        val pending = deferredCommit ?: return null
+        if (nowElapsedMs > pending.deadlineElapsedMs) {
+            deferredCommit = null
+            return null
+        }
+        if (blockedInput || !activeInput) return null
+        if (pending.editorIdentity != lastEditorIdentity) return null
+        return pending.text
+    }
+
+    fun clearDeferredCommit() {
+        deferredCommit = null
+    }
 
     fun commitIfCurrent(
         session: KeyboardInputCommitSession,

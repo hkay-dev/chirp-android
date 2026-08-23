@@ -544,6 +544,7 @@ class ChirpKeyboardService :
         if (cleanupStraySwitchCharacter) {
             removeStraySwitchCharacter(currentInputConnection)
         }
+        commitDeferredDictationIfMatching()
         if (!RecordingPermissionGuard.hasRecordAudioPermission(this)) {
             coordinator.setMicPermissionError(RecordingPermissionGuard.PERMISSION_DENIED_MESSAGE)
             return
@@ -727,7 +728,7 @@ class ChirpKeyboardService :
                 dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
                     dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_REFUSALS,
                 )
-                coordinator.setSessionError(commitFailureMessage(text))
+                return handleRefusedCommit(session, text)
             }
             KeyboardDictationCommitResult.VERIFICATION_FAILED -> {
                 Log.w(TAG, "Editor accepted the dictation commit but the text never appeared")
@@ -738,6 +739,54 @@ class ChirpKeyboardService :
             }
         }
         return result.committed
+    }
+
+    /**
+     * RELY-3: a refused commit is not always lost — apps restart input around IME transitions,
+     * and the transcript often finishes inside that gap. Hold the text against the editor it was
+     * captured for, retry immediately (the same editor may already be rebound under a new
+     * session), and otherwise leave it for [commitDeferredDictationIfMatching] plus a clipboard
+     * copy as the manual fallback.
+     */
+    private fun handleRefusedCommit(
+        session: KeyboardInputCommitSession,
+        text: String,
+    ): Boolean {
+        if (inputSessionGuard.deferCommit(session, text, SystemClock.elapsedRealtime())) {
+            if (commitDeferredDictationIfMatching()) {
+                return true
+            }
+            val message =
+                if (copyFailedCommitToClipboard(text)) {
+                    getString(R.string.keyboard_commit_deferred)
+                } else {
+                    getString(R.string.keyboard_input_changed)
+                }
+            coordinator.setSessionError(message)
+        } else {
+            coordinator.setSessionError(commitFailureMessage(text))
+        }
+        return false
+    }
+
+    /**
+     * Lands a deferred dictation commit into the editor that just (re)bound, when it matches the
+     * one the transcript was captured against and the deferral window is still open. The deferral
+     * is cleared only after the commit lands, so a failed attempt can retry on the next rebind.
+     */
+    private fun commitDeferredDictationIfMatching(): Boolean {
+        val pending =
+            inputSessionGuard.deferredCommitTextForCurrentEditor(SystemClock.elapsedRealtime())
+                ?: return false
+        val session = inputSessionGuard.captureCommitSession() ?: return false
+        val result = inputSessionGuard.commitIfCurrent(session, currentInputConnection, pending)
+        if (!result.committed) {
+            return false
+        }
+        inputSessionGuard.clearDeferredCommit()
+        coordinator.clearErrorOverlay()
+        Log.i(TAG, "Deferred dictation commit landed after the editor rebound")
+        return true
     }
 
     /**

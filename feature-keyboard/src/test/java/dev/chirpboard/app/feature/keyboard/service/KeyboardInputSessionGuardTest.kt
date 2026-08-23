@@ -457,6 +457,103 @@ class KeyboardInputSessionGuardTest {
         )
     }
 
+    private fun chatEditor(): EditorInfo =
+        EditorInfo().apply {
+            fieldId = 42
+            packageName = "com.example.chat"
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+
+    @Test
+    fun `deferred commit lands when the same editor rebinds inside the window`() {
+        // RELY-3: the app restarted input mid-transcription; the refused text is held and the
+        // rebind of the same field can still take it.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        guard.finishInput()
+
+        assertFalse(guard.commitIfCurrent(session, connection, "hello").committed)
+        assertTrue(guard.deferCommit(session, "hello", nowElapsedMs = 1_000L))
+
+        guard.startInput(chatEditor())
+        assertEquals("hello", guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 2_000L))
+        val rebound = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.commitIfCurrent(rebound, connection, "hello").committed)
+        guard.clearDeferredCommit()
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 2_000L))
+    }
+
+    @Test
+    fun `deferred commit expires after its window`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.deferCommit(session, "hello", nowElapsedMs = 1_000L))
+
+        guard.startInput(chatEditor())
+
+        val pastDeadline = 1_000L + DEFERRED_DICTATION_COMMIT_WINDOW_MS + 1L
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = pastDeadline))
+        // Expiry consumes the deferral; a later in-window query stays empty too.
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 1_000L))
+    }
+
+    @Test
+    fun `deferred commit refuses a different editor`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.deferCommit(session, "hello", nowElapsedMs = 1_000L))
+
+        guard.startInput(
+            EditorInfo().apply {
+                fieldId = 7
+                packageName = "com.example.chat"
+                inputType = InputType.TYPE_CLASS_TEXT
+            },
+        )
+
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 2_000L))
+        // The deferral survives a wrong-field visit and still matches the original field.
+        guard.startInput(chatEditor())
+        assertEquals("hello", guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 3_000L))
+    }
+
+    @Test
+    fun `deferred commit stays hidden for blocked input`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.deferCommit(session, "hello", nowElapsedMs = 1_000L))
+
+        guard.startInput(
+            EditorInfo().apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            },
+        )
+
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 2_000L))
+    }
+
+    @Test
+    fun `deferCommit refuses sessions without editor identity and blank text`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        assertFalse(guard.deferCommit(session, "   ", nowElapsedMs = 1_000L))
+        assertFalse(
+            guard.deferCommit(
+                KeyboardInputCommitSession(generation = 0L),
+                "hello",
+                nowElapsedMs = 1_000L,
+            ),
+        )
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 1_000L))
+    }
+
     @Test
     fun `resolveDictationCommitText covers spacing decisions`() {
         // No surrounding context: unchanged.
