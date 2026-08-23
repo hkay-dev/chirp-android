@@ -143,6 +143,14 @@ class QuickInputCopyActivity : Activity() {
             Toast.makeText(this, plan.failedToast, Toast.LENGTH_SHORT).show()
             return
         }
+        if (!window.decorView.hasWindowFocus()) {
+            // Reached only through the focus timeout. An unfocused write is silently
+            // dropped by the clipboard service, which is the exact failure this activity
+            // exists to prevent — report it instead of implying success.
+            Log.w(TAG, "Copy attempted without window focus; the write may have been dropped")
+            Toast.makeText(this, plan.failedToast, Toast.LENGTH_SHORT).show()
+            return
+        }
         // Android 13+ shows the system clipboard confirmation; a toast would duplicate it.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             Toast.makeText(this, plan.copiedToast, Toast.LENGTH_SHORT).show()

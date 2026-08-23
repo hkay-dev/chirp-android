@@ -210,6 +210,7 @@ class ObsidianManagerTest {
             buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
         val previousExport = mockk<DocumentFile>()
         every { previousExport.name } returns expectedFilename
+        every { previousExport.uri } returns mockk()
         every { previousExport.renameTo(any()) } returns true
         every { previousExport.delete() } returns true
         every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
@@ -234,6 +235,7 @@ class ObsidianManagerTest {
             buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
         val previousExport = mockk<DocumentFile>()
         every { previousExport.name } returns expectedFilename
+        every { previousExport.uri } returns mockk()
         every { previousExport.renameTo(any()) } returns true
         every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
         // Temp rename fails AND the fallback can't create the final document (grant
@@ -288,12 +290,15 @@ class ObsidianManagerTest {
             buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
         val staleTemp = mockk<DocumentFile>()
         every { staleTemp.name } returns "$expectedFilename.tmp.deadbeef"
+        every { staleTemp.uri } returns mockk()
         every { staleTemp.delete() } returns true
         val staleBackup = mockk<DocumentFile>()
         every { staleBackup.name } returns "$expectedFilename.bak.cafebabe"
+        every { staleBackup.uri } returns mockk()
         every { staleBackup.delete() } returns true
         val otherNote = mockk<DocumentFile>()
         every { otherNote.name } returns "Unrelated (2026-01-01 000000).md"
+        every { otherNote.uri } returns mockk()
         every { harness.vaultDir.listFiles() } returns arrayOf(staleTemp, staleBackup, otherNote)
 
         val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)

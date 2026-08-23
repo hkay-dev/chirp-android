@@ -231,17 +231,17 @@ class ObsidianManager
 
                 val existing = findExistingAndSweepLeftovers(vaultDir, filename, tempFile.uri)
                 return replaceExisting(vaultDir, tempFile, existing, filename, uniqueSuffix)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: InPlaceOverwriteFailure) {
+                // The previous note was being overwritten in place and the write did not
+                // finish, so it is now truncated or half-written. The temp document is the
+                // only intact copy of the content — keeping it turns total loss into a
+                // recoverable file the user can rename, and the next successful export of
+                // this note sweeps it away.
+                Log.e(TAG, "In-place overwrite failed; keeping ${tempFile?.name} as the surviving copy", e.cause)
+                throw checkNotNull(e.cause)
             } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                if (e is InPlaceOverwriteFailure) {
-                    // The previous note was being overwritten in place and the write did not
-                    // finish, so it is now truncated or half-written. The temp document is the
-                    // only intact copy of the content — keeping it turns total loss into a
-                    // recoverable file the user can rename, and the next successful export of
-                    // this note sweeps it away.
-                    Log.e(TAG, "In-place overwrite failed; keeping ${tempFile?.name} as the surviving copy", e.cause)
-                    throw checkNotNull(e.cause)
-                }
                 // Clean up temp file on any failure
                 try {
                     tempFile?.delete()

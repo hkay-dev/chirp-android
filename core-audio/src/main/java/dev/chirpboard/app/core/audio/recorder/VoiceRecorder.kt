@@ -106,6 +106,7 @@ class VoiceRecorder(
         private const val WATCHDOG_POLL_MS = 250L
         private const val READ_STALL_TIMEOUT_MS = 1_500L
         private const val ZERO_READ_LIMIT = 8
+        private const val INIT_RETRY_DELAY_MS = 150L
 
         /** Keeps enough headroom for ten minutes of float PCM plus filesystem overhead. */
         const val MIN_CAPTURE_FREE_BYTES = 48L * 1024L * 1024L
@@ -497,7 +498,7 @@ class VoiceRecorder(
 
                 retryCount++
                 if (retryCount < maxRetries) {
-                    delay(150)
+                    delay(INIT_RETRY_DELAY_MS)
                 }
             }
 
