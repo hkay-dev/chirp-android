@@ -104,7 +104,9 @@ class LlmSettingsViewModel
             viewModelScope.launch {
                 preferences.setActiveProvider(provider)
                 val storedApiKey = preferences.fetchApiKeyFor(provider).orEmpty()
-                val apiKeyInput = savedStateHandle.get<String>(apiKeyInputKey(provider)) ?: storedApiKey
+                val apiKeyInput =
+                    savedStateHandle.get<String>(apiKeyInputKey(provider))?.takeIf { it.isNotBlank() }
+                        ?: storedApiKey
                 savedStateHandle[apiKeyInputKey(provider)] = apiKeyInput
                 _uiState.update {
                     it.copy(
@@ -358,6 +360,9 @@ class LlmSettingsViewModel
 
                 result.fold(
                     onSuccess = { keyCount ->
+                        // The restored keys supersede any typed draft; drop the drafts first
+                        // so refreshFromPreferences() shows what actually landed on disk.
+                        clearApiKeyDrafts()
                         refreshFromPreferences()
                         _uiState.update {
                             it.copy(
@@ -420,8 +425,12 @@ class LlmSettingsViewModel
             // must happen exactly once, out here; only pure state assembly goes inside.
             val provider = preferences.getActiveProvider()
             val storedApiKey = preferences.fetchApiKeyFor(provider).orEmpty()
+            // A BLANK draft is an absent draft, not an intentional empty field: the handle is
+            // written back on every refresh, so treating "" as a real value made the first
+            // refresh's placeholder win over the stored key forever after — and a later
+            // successful "Test connection" then wrote that empty draft back over a good key.
             val apiKeyInput =
-                savedStateHandle.get<String>(apiKeyInputKey(provider))
+                savedStateHandle.get<String>(apiKeyInputKey(provider))?.takeIf { it.isNotBlank() }
                     ?: _uiState.value.apiKey.takeIf { it.isNotBlank() }
                     ?: storedApiKey
             savedStateHandle[apiKeyInputKey(provider)] = apiKeyInput
@@ -454,6 +463,19 @@ class LlmSettingsViewModel
 
         fun dismissSecureStorageResetNotice() {
             _uiState.update { it.copy(secureStorageWasReset = false) }
+        }
+
+        /**
+         * Drops every per-provider draft, in the handle and in the live state alike. Used
+         * after a restore: the drafts describe keys the user typed before the import, and
+         * leaving either copy in place lets a stale (often empty) draft outrank the key that
+         * was just restored — and then overwrite it on the next successful connection test.
+         */
+        private fun clearApiKeyDrafts() {
+            LlmProvider.entries.forEach { provider ->
+                savedStateHandle.remove<String>(apiKeyInputKey(provider))
+            }
+            _uiState.update { it.copy(apiKey = "") }
         }
 
         private fun apiKeyInputKey(provider: LlmProvider): String = "apiKeyInput_${provider.id}"

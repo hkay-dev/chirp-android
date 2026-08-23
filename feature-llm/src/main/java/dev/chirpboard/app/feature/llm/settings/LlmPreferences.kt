@@ -17,9 +17,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -149,8 +151,25 @@ class LlmPreferences
             }
         }
 
+        /**
+         * Single read path for the DataStore. The corruption handler only covers
+         * CorruptionException; a plain IOException (unreadable file, no space, a device in
+         * direct boot) otherwise propagates out of every collector and kills the screen
+         * collecting it. Fall back to defaults instead — the same outcome the corruption
+         * handler already gives.
+         */
+        private val preferencesFlow: Flow<Preferences> =
+            context.dataStore.data.catch { error ->
+                if (error is IOException) {
+                    Log.e(TAG, "Failed to read llm_settings; using defaults", error)
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }
+
         val llmEnabled: Flow<Boolean> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 preferences[Keys.LLM_ENABLED] ?: true
             }
 
@@ -216,12 +235,12 @@ class LlmPreferences
         }
 
         val autoTitle: Flow<Boolean> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 preferences[Keys.AUTO_TITLE] ?: false
             }
 
         val autoSummary: Flow<Boolean> =
-            context.dataStore.data.map { preferences ->
+            preferencesFlow.map { preferences ->
                 preferences[Keys.AUTO_SUMMARY] ?: false
             }
 
@@ -231,33 +250,48 @@ class LlmPreferences
             }
         }
 
-        suspend fun setApiKey(key: String) = withContext(Dispatchers.IO) { setApiKeyForSync(getActiveProviderSync(), key) }
+        suspend fun setApiKey(key: String) {
+            withContext(Dispatchers.IO) { setApiKeyForSync(getActiveProviderSync(), key) }
+        }
 
         override suspend fun setApiKeyFor(
             provider: LlmProvider,
             apiKey: String,
-        ) = withContext(Dispatchers.IO) { setApiKeyForSync(provider, apiKey) }
+        ) {
+            withContext(Dispatchers.IO) { setApiKeyForSync(provider, apiKey) }
+        }
 
+        /** Returns true only when the key was committed AND reads back from the secure store. */
         private fun setApiKeyForSync(
             provider: LlmProvider,
             key: String,
-        ) {
+        ): Boolean {
             ensureInitialized()
             val normalized = key.trim()
             val prefs = securePrefs
             if (prefs == null) {
                 Log.e(TAG, "Cannot save API key: secure storage unavailable")
-                return
+                return false
             }
 
             val committed = prefs.edit().putString(apiKeyPrefKey(provider), normalized).commit()
-            if (committed) {
-                if (provider == getActiveProviderSync()) {
-                    _apiKey.value = normalized
-                }
-            } else {
+            if (!committed) {
                 Log.e(TAG, "Failed to commit API key to secure storage")
+                return false
             }
+
+            // Re-read: commit() returning true is not proof the value is retrievable (a
+            // recreated/undecryptable keyset can swallow it), and callers report a restored
+            // key count the user is expected to trust.
+            if (fetchApiKeyForRaw(provider) != normalized) {
+                Log.e(TAG, "API key did not read back after commit for ${provider.id}")
+                return false
+            }
+
+            if (provider == getActiveProviderSync()) {
+                _apiKey.value = normalized
+            }
+            return true
         }
 
         suspend fun clearApiKey() = withContext(Dispatchers.IO) { clearApiKeyForSync(getActiveProviderSync()) }
@@ -325,7 +359,12 @@ class LlmPreferences
                 )
             }
 
-        suspend fun applySettingsSnapshot(snapshot: LlmSettingsSnapshot) =
+        /**
+         * Applies a restored snapshot and returns how many API keys VERIFIABLY landed in the
+         * secure store. A write that could not be committed (or does not read back) is not
+         * counted, so the restore UI never claims keys it did not actually save.
+         */
+        suspend fun applySettingsSnapshot(snapshot: LlmSettingsSnapshot): Int =
             withContext(Dispatchers.IO) {
                 val provider = LlmProvider.entries.firstOrNull { it.id == snapshot.activeProvider } ?: LlmProvider.GEMINI
                 setActiveProviderSync(provider)
@@ -335,14 +374,16 @@ class LlmPreferences
                     setModelForSync(snapshotProvider, modelId)
                 }
 
-                snapshot.apiKeys.forEach { (providerId, apiKey) ->
-                    val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId } ?: return@forEach
-                    if (apiKey.isNotBlank()) {
-                        setApiKeyForSync(snapshotProvider, apiKey)
+                val restoredKeys =
+                    snapshot.apiKeys.count { (providerId, apiKey) ->
+                        val snapshotProvider = LlmProvider.entries.firstOrNull { it.id == providerId }
+                        snapshotProvider != null &&
+                            apiKey.isNotBlank() &&
+                            setApiKeyForSync(snapshotProvider, apiKey)
                     }
-                }
 
                 refreshActiveApiKey()
+                restoredKeys
             }
 
         override suspend fun countConfiguredApiKeys(): Int =

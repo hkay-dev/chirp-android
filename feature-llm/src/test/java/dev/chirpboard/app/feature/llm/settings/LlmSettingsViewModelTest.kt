@@ -39,6 +39,7 @@ class LlmSettingsViewModelTest {
             every { getString(R.string.llm_error_connection_rejected) } returns
                 "The provider rejected the request. Check your API key and model."
             every { getString(R.string.llm_error_key_blank) } returns "Enter an API key first"
+            every { resources } returns mockk(relaxed = true)
         }
     private lateinit var preferences: LlmSettingsStore
     private lateinit var backupManager: LlmApiKeyBackupManager
@@ -105,6 +106,41 @@ class LlmSettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("typed-before-init", viewModel.uiState.value.apiKey)
+        }
+
+    @Test
+    fun `a blank saved draft does not hide the stored key`() =
+        runTest {
+            // The handle is rewritten on every refresh, so an empty placeholder used to win
+            // over the stored key from then on.
+            val savedStateHandle = SavedStateHandle()
+            savedStateHandle["apiKeyInput_gemini"] = ""
+            viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, savedStateHandle)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("initial-key", viewModel.uiState.value.apiKey)
+        }
+
+    @Test
+    fun `a successful restore drops stale drafts and shows the restored key`() =
+        runTest {
+            val savedStateHandle = SavedStateHandle()
+            viewModel = LlmSettingsViewModel(appContext, preferences, backupManager, llmClient, savedStateHandle)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.updateApiKey("stale-typed-draft")
+            coEvery { backupManager.importFromUri(any(), any()) } returns Result.success(1)
+            coEvery { preferences.fetchApiKeyFor(LlmProvider.GEMINI) } returns "restored-key"
+
+            viewModel.startRestore()
+            viewModel.submitPassphrase("passphrase-long-enough")
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.completeRestore(mockk(relaxed = true))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("restored-key", viewModel.uiState.value.apiKey)
+            // The stale draft is gone; the handle is re-primed from what was restored.
+            assertEquals("restored-key", savedStateHandle.get<String>("apiKeyInput_gemini"))
         }
 
     @Test

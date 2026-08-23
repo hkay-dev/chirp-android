@@ -71,7 +71,9 @@ class LlmApiKeyBackupManager
          * Decrypts and applies a CHIRPKEY snapshot previously produced by
          * [buildEncryptedSnapshot] or [exportToUri]. Validation happens entirely before any
          * write: a wrong passphrase or corrupted payload leaves the stored keys untouched.
-         * Returns the number of restored API keys.
+         * Returns the number of API keys VERIFIED present in the secure store afterwards —
+         * never the number the file happened to contain — and fails outright when a backup
+         * carrying keys managed to restore none of them.
          */
         suspend fun restoreEncryptedSnapshot(
             encrypted: ByteArray,
@@ -91,8 +93,11 @@ class LlmApiKeyBackupManager
                         error("Unsupported backup version")
                     }
 
-                    preferences.applySettingsSnapshot(snapshot)
-                    snapshot.apiKeys.size
+                    val restoredKeys = preferences.applySettingsSnapshot(snapshot)
+                    if (snapshot.apiKeys.isNotEmpty() && restoredKeys == 0) {
+                        error("No API keys could be written to secure storage")
+                    }
+                    restoredKeys
                 }
             }
 

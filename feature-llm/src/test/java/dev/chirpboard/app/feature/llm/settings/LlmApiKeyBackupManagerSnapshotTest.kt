@@ -35,7 +35,7 @@ class LlmApiKeyBackupManagerSnapshotTest {
             coEvery { preferences.isSecureStorageAvailable() } returns true
             coEvery { preferences.buildSettingsSnapshot() } returns snapshot
             val applied = slot<LlmSettingsSnapshot>()
-            coEvery { preferences.applySettingsSnapshot(capture(applied)) } returns Unit
+            coEvery { preferences.applySettingsSnapshot(capture(applied)) } returns 2
             val manager = managerWith(preferences)
             val passphrase = "round-trip-passphrase".toCharArray()
 
@@ -75,6 +75,38 @@ class LlmApiKeyBackupManagerSnapshotTest {
 
             assertTrue(result.isFailure)
             coVerify(exactly = 0) { preferences.applySettingsSnapshot(any()) }
+        }
+
+    @Test
+    fun `restore reports the verified key count, not the file's`() =
+        runTest {
+            // Only one of the two keys in the backup actually landed in secure storage.
+            val preferences = mockk<LlmPreferences>()
+            coEvery { preferences.isSecureStorageAvailable() } returns true
+            coEvery { preferences.buildSettingsSnapshot() } returns snapshot
+            coEvery { preferences.applySettingsSnapshot(any()) } returns 1
+            val manager = managerWith(preferences)
+
+            val backup = manager.buildEncryptedSnapshot("partial-write-pass".toCharArray()).getOrThrow()
+            val restoredCount =
+                manager.restoreEncryptedSnapshot(backup.bytes, "partial-write-pass".toCharArray()).getOrThrow()
+
+            assertEquals(1, restoredCount)
+        }
+
+    @Test
+    fun `restore that writes no keys fails instead of claiming success`() =
+        runTest {
+            val preferences = mockk<LlmPreferences>()
+            coEvery { preferences.isSecureStorageAvailable() } returns true
+            coEvery { preferences.buildSettingsSnapshot() } returns snapshot
+            coEvery { preferences.applySettingsSnapshot(any()) } returns 0
+            val manager = managerWith(preferences)
+
+            val backup = manager.buildEncryptedSnapshot("no-write-pass".toCharArray()).getOrThrow()
+            val result = manager.restoreEncryptedSnapshot(backup.bytes, "no-write-pass".toCharArray())
+
+            assertTrue(result.isFailure)
         }
 
     @Test
