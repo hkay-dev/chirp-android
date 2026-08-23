@@ -68,6 +68,7 @@ import java.util.Date
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -109,6 +110,12 @@ class DictationHistoryViewModel
             dao
                 .observeAll()
                 .map<List<DictationHistoryEntry>, List<DictationHistoryEntry>?> { it }
+                // A disk-level read failure degrades to the empty list instead of an
+                // uncaught SQLiteException tearing the activity down.
+                .catch { error ->
+                    Log.e(TAG, "Could not load dictation history", error)
+                    emit(emptyList())
+                }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
         fun delete(id: Long) {
