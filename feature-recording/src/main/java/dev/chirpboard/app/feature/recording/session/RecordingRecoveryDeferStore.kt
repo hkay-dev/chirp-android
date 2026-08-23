@@ -34,16 +34,28 @@ class RecordingRecoveryDeferStore
         }
 
         suspend fun deferSession(sessionId: UUID) {
-            dataStore.edit { preferences ->
-                val current = decode(preferences[DEFERRED_SESSION_IDS_KEY].orEmpty())
-                preferences[DEFERRED_SESSION_IDS_KEY] = encode(current + sessionId)
+            // Same defensive posture as the reader: a failed write means the session stays
+            // actionable, which only re-shows a recovery prompt — never a crash.
+            try {
+                dataStore.edit { preferences ->
+                    val current = decode(preferences[DEFERRED_SESSION_IDS_KEY].orEmpty())
+                    preferences[DEFERRED_SESSION_IDS_KEY] = encode(current + sessionId)
+                }
+            } catch (e: IOException) {
+                Log.e(TAG, "Failed to persist deferred session id", e)
             }
         }
 
         suspend fun retainOnly(sessionIds: Set<UUID>) {
-            dataStore.edit { preferences ->
-                val current = decode(preferences[DEFERRED_SESSION_IDS_KEY].orEmpty())
-                preferences[DEFERRED_SESSION_IDS_KEY] = encode(current.intersect(sessionIds))
+            // A failed prune only leaves stale ids behind; they are re-pruned on the next
+            // refresh, and this is reached from HomeViewModel.init with no handler above it.
+            try {
+                dataStore.edit { preferences ->
+                    val current = decode(preferences[DEFERRED_SESSION_IDS_KEY].orEmpty())
+                    preferences[DEFERRED_SESSION_IDS_KEY] = encode(current.intersect(sessionIds))
+                }
+            } catch (e: IOException) {
+                Log.e(TAG, "Failed to prune deferred session ids", e)
             }
         }
 
