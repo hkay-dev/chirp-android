@@ -160,6 +160,26 @@ class RecordingRepository
             ) > 0
 
         /**
+         * Returns a stale TRANSCRIBING row to the queue. Pinned to TRANSCRIBING *and* to the
+         * execution token the row was read with, so a re-claim (or the worker's own commit)
+         * landing between that read and this write is never overwritten. The token is left
+         * as-is; the next claim replaces it.
+         */
+        suspend fun resetStaleTranscribingToPending(
+            id: UUID,
+            expectedExecutionToken: String?,
+            errorMessage: String?,
+        ): Boolean =
+            recordingDao.updateStatusWithTranscriptionToken(
+                id = id,
+                status = RecordingStatus.PENDING_TRANSCRIPTION,
+                errorMessage = errorMessage,
+                executionToken = expectedExecutionToken,
+                allowedCurrentStatuses = listOf(RecordingStatus.TRANSCRIBING),
+                expectedExecutionToken = expectedExecutionToken,
+            ) > 0
+
+        /**
          * Resolves a user-cancelled enhancement to a neutral terminal state: the committed
          * transcript is kept and the row becomes COMPLETED (or AWAITING_MANUAL_TRANSCRIPTION
          * in the defensive case where no transcript exists). The enhancement snapshot is

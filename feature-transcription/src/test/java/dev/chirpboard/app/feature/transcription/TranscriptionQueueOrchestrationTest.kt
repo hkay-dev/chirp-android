@@ -81,6 +81,7 @@ class TranscriptionQueueOrchestrationTest {
         val id = UUID.randomUUID()
         every { staleRecording.id } returns id
         every { staleRecording.status } returns RecordingStatus.TRANSCRIBING
+        every { staleRecording.transcriptionExecutionToken } returns "token-1"
         // 20 minutes ago
         every { staleRecording.createdAt } returns Date(System.currentTimeMillis() - 20 * 60_000L)
         
@@ -94,8 +95,9 @@ class TranscriptionQueueOrchestrationTest {
 
         reconciler.reconcileQueueHealth(ReconciliationTrigger.PERIODIC)
 
+        // Pinned to the token the row was read with, so a re-claim between read and reset wins.
         coVerify {
-            recordingRepository.updateStatusWithError(id, RecordingStatus.PENDING_TRANSCRIPTION, match { it?.contains("Recovered stale transcribing") == true })
+            recordingRepository.resetStaleTranscribingToPending(id, "token-1", match { it?.contains("Recovered stale transcribing") == true })
         }
     }
 

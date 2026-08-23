@@ -365,9 +365,6 @@ class TranscriptionQueueManager
             val routedRecording = resolveTranscriptionRoute(recordingId)
             val transcriptionEngine =
                 TranscriptionEngine.fromId(routedRecording?.transcriptionEngineId)
-            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
-                warmUpTranscriberIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
-            }
 
             val scheduled =
                 withSerializedQueueScheduling {
@@ -391,6 +388,12 @@ class TranscriptionQueueManager
                 }
             if (!scheduled) {
                 return ManualRecoveryResult.NOT_RECOVERABLE_STATE
+            }
+            // Non-blocking, like enqueue(): the worker loads the recognizer itself, and this
+            // path runs inside a notification broadcast's goAsync window where a native model
+            // load would stall the receiver.
+            if (transcriptionEngine == TranscriptionEngine.LOCAL_PARAKEET) {
+                readinessGate.verifyIfNeeded(VerificationTrigger.QUEUED_TRANSCRIPTION)
             }
             return ManualRecoveryResult.ENQUEUED
         }

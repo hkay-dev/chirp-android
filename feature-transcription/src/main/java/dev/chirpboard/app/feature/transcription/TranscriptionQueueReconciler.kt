@@ -85,9 +85,9 @@ internal class TranscriptionQueueReconciler(
             if (shouldRecover) {
                 val reason = "${RECOVERABLE_STALE_TRANSCRIBING_PREFIX}Recovered stale transcribing state"
                 Log.w(TAG, "Recovering stale TRANSCRIBING recording ${recording.id}")
-                recordingRepository.updateStatusWithError(
+                recordingRepository.resetStaleTranscribingToPending(
                     id = recording.id,
-                    status = RecordingStatus.PENDING_TRANSCRIPTION,
+                    expectedExecutionToken = recording.transcriptionExecutionToken,
                     errorMessage = reason
                 )
             }
