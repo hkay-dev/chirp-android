@@ -27,6 +27,7 @@ import dev.chirpboard.app.core.util.formatAsDuration
 
 private const val MILLIS_PER_SECOND = 1000L
 private const val SECONDS_PER_MINUTE = 60L
+private const val NANOS_PER_MILLISECOND = 1_000_000L
 
 /**
  * Snaps an elapsed-millisecond value down to whole-second granularity. The timer display formats
@@ -60,9 +61,11 @@ fun rememberRecordingElapsedMs(recordingState: RecordingState): Long {
 
             is RecordingState.Recording ->
                 while (true) {
+                    // Monotonic base: a wall-clock correction (NTP sync, manual change)
+                    // mid-recording must not jump the on-screen timer.
                     val rawMs =
                         state.accumulatedBeforeSegmentMs +
-                            (System.currentTimeMillis() - state.startTimeMs)
+                            (System.nanoTime() / NANOS_PER_MILLISECOND - state.startMonotonicMs)
                     elapsedMs = snapToSecond(rawMs)
                     delay(delayToNextSecondMs(rawMs))
                 }

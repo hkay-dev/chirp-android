@@ -38,8 +38,20 @@ sealed class RecordingState {
         val audioFilePath: String? = null,
         val recordingId: UUID? = null,
         /**
+         * Monotonic stamp (`System.nanoTime()` in milliseconds) for when this segment
+         * started. Elapsed arithmetic must use this and never [startTimeMs]: an NTP/RTC
+         * correction or a manual clock change mid-recording moves the wall clock and would
+         * skew — or negate — the stored duration and the live timer. [startTimeMs] stays a
+         * real calendar timestamp for anything that displays or records when a session began.
+         *
+         * The state is in-memory only (never persisted across process death), so a monotonic
+         * base is safe here; it is nanoTime rather than SystemClock.elapsedRealtime so the
+         * runtime stays unit-testable on a plain JVM without Robolectric.
+         */
+        val startMonotonicMs: Long = System.nanoTime() / 1_000_000,
+        /**
          * Milliseconds recorded before this segment started (earlier segments across
-         * pauses and file rotations). Total elapsed = this + (now - [startTimeMs]).
+         * pauses and file rotations). Total elapsed = this + (now - [startMonotonicMs]).
          * Carried in the state so timers can render the true total even when they
          * (re)compose mid-session and never saw the earlier Paused states.
          */

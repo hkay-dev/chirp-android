@@ -101,7 +101,18 @@ class RecordingStateManager @Inject constructor() {
     @VisibleForTesting
     internal var nowMsOverrideForTest: (() -> Long)? = null
 
-    private fun nowMs(): Long = nowMsOverrideForTest?.invoke() ?: System.currentTimeMillis()
+    /**
+     * Monotonic milliseconds for every elapsed/segment computation. The wall clock cannot be
+     * used here: an NTP/RTC correction or a manual clock change mid-recording skews the stored
+     * duration, and a negative jump clamps the whole session to zero. nanoTime rather than
+     * SystemClock.elapsedRealtime keeps this module testable on a plain JVM without Robolectric;
+     * capture holds a foreground service and the mic, so the device is not in deep sleep while
+     * the difference between the two would matter.
+     */
+    private fun nowMs(): Long = nowMsOverrideForTest?.invoke() ?: (System.nanoTime() / 1_000_000)
+
+    /** Real calendar time, for timestamps that are stored or displayed as a date. */
+    private fun wallClockNowMs(): Long = System.currentTimeMillis()
 
     companion object {
         private const val TAG = "RecordingStateManager"
@@ -181,7 +192,8 @@ class RecordingStateManager @Inject constructor() {
                     RecordingState.Recording(
                         origin = current.origin,
                         profileId = current.profileId,
-                        startTimeMs = nowMs(),
+                        startTimeMs = wallClockNowMs(),
+                        startMonotonicMs = nowMs(),
                         audioFilePath = audioFilePath,
                         recordingId = recordingId ?: current.recordingId,
                         // A fresh session always starts its first segment at zero; pause/resume
@@ -208,7 +220,7 @@ class RecordingStateManager @Inject constructor() {
                 Log.w(TAG, "pauseRecording called in wrong state: ${current::class.simpleName}")
                 break
             }
-            val elapsedThisSegment = nowMs() - current.startTimeMs
+            val elapsedThisSegment = nowMs() - current.startMonotonicMs
             val totalAccumulated = current.accumulatedBeforeSegmentMs + elapsedThisSegment
             val nextState = RecordingState.Paused(
                 origin = current.origin,
@@ -236,7 +248,8 @@ class RecordingStateManager @Inject constructor() {
                     RecordingState.Recording(
                         origin = current.origin,
                         profileId = current.profileId,
-                        startTimeMs = nowMs(),
+                        startTimeMs = wallClockNowMs(),
+                        startMonotonicMs = nowMs(),
                         audioFilePath = newAudioFilePath ?: current.audioFilePath,
                         recordingId = current.recordingId,
                         accumulatedBeforeSegmentMs = current.accumulatedMs,
@@ -596,13 +609,14 @@ class RecordingStateManager @Inject constructor() {
             // new segment's start would silently drop everything in between (a GC pause, or a
             // CAS retry looping back through here) from the recording's accumulated duration.
             val rotatedAtMs = nowMs()
-            val elapsedThisSegment = rotatedAtMs - current.startTimeMs
+            val elapsedThisSegment = rotatedAtMs - current.startMonotonicMs
             val totalAccumulated = current.accumulatedBeforeSegmentMs + elapsedThisSegment
             val nextState =
                 RecordingState.Recording(
                     origin = current.origin,
                     profileId = current.profileId,
-                    startTimeMs = rotatedAtMs,
+                    startTimeMs = wallClockNowMs(),
+                    startMonotonicMs = rotatedAtMs,
                     audioFilePath = newAudioFilePath,
                     recordingId = current.recordingId,
                     accumulatedBeforeSegmentMs = totalAccumulated,
@@ -661,7 +675,7 @@ class RecordingStateManager @Inject constructor() {
     fun getCurrentDurationMs(): Long {
         return when (val currentState = _state.value) {
             is RecordingState.Recording -> {
-                currentState.accumulatedBeforeSegmentMs + (nowMs() - currentState.startTimeMs)
+                currentState.accumulatedBeforeSegmentMs + (nowMs() - currentState.startMonotonicMs)
             }
             is RecordingState.Paused -> {
                 currentState.accumulatedMs
