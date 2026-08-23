@@ -2,6 +2,7 @@ package dev.chirpboard.app.ui.settings
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.provider.Settings
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Arrangement
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.rounded.Adjust
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Keyboard
@@ -111,8 +113,11 @@ fun KeyboardSettingsScreen(
     // de-emphasize once it's done. Re-checked on every resume — the user enables it on the system
     // settings page and returns here, so a one-shot read at first composition would go stale.
     var isKeyboardEnabled by remember { mutableStateOf(false) }
+    // BUB-1: same resume-time re-check for the bubble's "display over other apps" grant.
+    var canDrawOverlays by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     LifecycleResumeEffect(Unit) {
         isKeyboardEnabled = isChirpKeyboardEnabled(context)
+        canDrawOverlays = Settings.canDrawOverlays(context)
         onPauseOrDispose { }
     }
 
@@ -169,6 +174,40 @@ fun KeyboardSettingsScreen(
                     subtitle = stringResource(R.string.keyboard_settings_view_dictation_history_description),
                     onClick = {
                         context.startActivity(Intent(context, DictationHistoryActivity::class.java))
+                    },
+                )
+            }
+
+            item {
+                // BUB-1: the floating one-tap dictation bubble. Enabling persists immediately,
+                // and when the draw-over grant is missing the tap also routes to the system
+                // permission page; the subtitle flags the still-missing grant until it lands.
+                SettingsSwitchItem(
+                    icon = Icons.Rounded.Adjust,
+                    title = stringResource(R.string.keyboard_settings_floating_bubble_title),
+                    subtitle =
+                        if (uiState.floatingMicBubbleEnabled && !canDrawOverlays) {
+                            stringResource(R.string.keyboard_settings_floating_bubble_permission)
+                        } else {
+                            stringResource(R.string.keyboard_settings_floating_bubble_description)
+                        },
+                    checked = uiState.floatingMicBubbleEnabled,
+                    onCheckedChange = { checked ->
+                        viewModel.setFloatingMicBubbleEnabled(checked)
+                        if (checked && !canDrawOverlays) {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ),
+                                )
+                            } catch (_: android.content.ActivityNotFoundException) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(systemSettingsOpenFailedMessage)
+                                }
+                            }
+                        }
                     },
                 )
             }

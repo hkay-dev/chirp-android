@@ -80,9 +80,14 @@ contract.
    SwiftKey path.
 3. Keep `ChirpRecognitionService` for apps using `SpeechRecognizer`. It does not solve a caller that
    explicitly launches the activity.
-4. Do not add accessibility injection, clipboard paste, or a draw-over-apps window. The controlled
-   accessibility trial made result insertion less reliable outside X as well, so Chirp must not
-   manipulate another app's focus or editor state.
+4. Do not add accessibility injection, clipboard paste, or a draw-over-apps window **for
+   quick-input delivery**. The controlled accessibility trial made result insertion less reliable
+   outside X as well, so Chirp must not manipulate another app's focus or editor state. This
+   prohibition is about crossing into another app's editor. The floating mic bubble (BUB-1) is a
+   draw-over window but stays inside the sanctioned boundary: it exists only while the Chirp IME
+   owns a live, non-sensitive input session, its window is `FLAG_NOT_FOCUSABLE` so the target
+   field keeps focus, and its tap drives the keyboard's own dictation flow, committing through
+   Chirp's own `InputConnection` — never another keyboard's session.
 
 For the proven X and SwiftKey failure, the standard contract is exhausted. Any automatic workaround
 must cross that boundary explicitly. The least risky choices are:

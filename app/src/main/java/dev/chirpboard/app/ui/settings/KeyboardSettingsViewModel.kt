@@ -24,6 +24,7 @@ class KeyboardSettingsViewModel @Inject constructor(
         val defaultProcessingMode: String? = null,
         val quickInputNotificationTimeoutMs: Long = DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS,
         val dictationHistoryEnabled: Boolean = true,
+        val floatingMicBubbleEnabled: Boolean = false,
     )
 
     private val _uiState = MutableStateFlow(UiState())
@@ -31,20 +32,27 @@ class KeyboardSettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            // The typed combine overloads stop at five flows, so the sixth preference is
+            // layered on with a nested combine.
             combine(
-                keyboardPreferences.saveKeyboardRecordings,
-                keyboardPreferences.llmEnabled,
-                keyboardPreferences.defaultProcessingMode,
-                keyboardPreferences.quickInputNotificationTimeoutMs,
-                keyboardPreferences.dictationHistoryEnabled,
-            ) { saveRecordings, llmEnabled, processingMode, notificationTimeoutMs, dictationHistoryEnabled ->
-                UiState(
-                    saveKeyboardRecordings = saveRecordings,
-                    llmEnabled = llmEnabled,
-                    defaultProcessingMode = processingMode,
-                    quickInputNotificationTimeoutMs = notificationTimeoutMs,
-                    dictationHistoryEnabled = dictationHistoryEnabled,
-                )
+                combine(
+                    keyboardPreferences.saveKeyboardRecordings,
+                    keyboardPreferences.llmEnabled,
+                    keyboardPreferences.defaultProcessingMode,
+                    keyboardPreferences.quickInputNotificationTimeoutMs,
+                    keyboardPreferences.dictationHistoryEnabled,
+                ) { saveRecordings, llmEnabled, processingMode, notificationTimeoutMs, dictationHistoryEnabled ->
+                    UiState(
+                        saveKeyboardRecordings = saveRecordings,
+                        llmEnabled = llmEnabled,
+                        defaultProcessingMode = processingMode,
+                        quickInputNotificationTimeoutMs = notificationTimeoutMs,
+                        dictationHistoryEnabled = dictationHistoryEnabled,
+                    )
+                },
+                keyboardPreferences.floatingMicBubbleEnabled,
+            ) { state, floatingMicBubbleEnabled ->
+                state.copy(floatingMicBubbleEnabled = floatingMicBubbleEnabled)
             }.collect { state ->
                 _uiState.value = state
             }
@@ -60,6 +68,12 @@ class KeyboardSettingsViewModel @Inject constructor(
     fun toggleDictationHistoryEnabled() {
         viewModelScope.launch {
             keyboardPreferences.setDictationHistoryEnabled(!_uiState.value.dictationHistoryEnabled)
+        }
+    }
+
+    fun setFloatingMicBubbleEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            keyboardPreferences.setFloatingMicBubbleEnabled(enabled)
         }
     }
 

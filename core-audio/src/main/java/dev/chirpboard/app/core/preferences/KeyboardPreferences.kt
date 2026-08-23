@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import dev.chirpboard.app.core.audio.AudioSettingsStore
@@ -17,6 +18,21 @@ import javax.inject.Singleton
 
 const val DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS = 30_000L
 val QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS = listOf(30_000L, 60_000L, 300_000L)
+
+const val DEFAULT_FLOATING_BUBBLE_Y_FRACTION = 0.55f
+
+/** Keeps a persisted bubble anchor away from the status bar and the keyboard area. */
+val FLOATING_BUBBLE_Y_FRACTION_RANGE = 0.05f..0.85f
+
+/**
+ * BUB-1: where the floating mic bubble sits — snapped to the left or right screen edge,
+ * with a vertical anchor stored as a fraction of the screen height so the position
+ * survives rotation and display-size changes.
+ */
+data class FloatingBubblePosition(
+    val onRight: Boolean = true,
+    val yFraction: Float = DEFAULT_FLOATING_BUBBLE_Y_FRACTION,
+)
 
 /**
  * Keyboard-specific preferences.
@@ -33,6 +49,9 @@ class KeyboardPreferences @Inject constructor(
         val llmEnabled = booleanPreferencesKey("llm_enabled")
         val quickInputNotificationTimeoutMs = longPreferencesKey("quick_input_notification_timeout_ms")
         val dictationHistoryEnabled = booleanPreferencesKey("dictation_history_enabled")
+        val floatingMicBubbleEnabled = booleanPreferencesKey("floating_mic_bubble_enabled")
+        val floatingBubbleOnRight = booleanPreferencesKey("floating_bubble_on_right")
+        val floatingBubbleYFraction = floatPreferencesKey("floating_bubble_y_fraction")
     }
 
     /**
@@ -70,6 +89,25 @@ class KeyboardPreferences @Inject constructor(
      */
     val dictationHistoryEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[Keys.dictationHistoryEnabled] ?: true
+    }
+
+    /**
+     * BUB-1: whether the draggable floating mic bubble shows while the Chirp keyboard is
+     * open. Off by default — it draws over the host app and needs the separate
+     * "display over other apps" grant, so it is strictly opt-in.
+     */
+    val floatingMicBubbleEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
+        preferences[Keys.floatingMicBubbleEnabled] ?: false
+    }
+
+    /** Persisted bubble anchor; the fraction is re-coerced on read in case an old value drifted. */
+    val floatingBubblePosition: Flow<FloatingBubblePosition> = dataStore.data.map { preferences ->
+        FloatingBubblePosition(
+            onRight = preferences[Keys.floatingBubbleOnRight] ?: true,
+            yFraction =
+                (preferences[Keys.floatingBubbleYFraction] ?: DEFAULT_FLOATING_BUBBLE_Y_FRACTION)
+                    .coerceIn(FLOATING_BUBBLE_Y_FRACTION_RANGE),
+        )
     }
 
     /** How long a completed quick-input result stays available for one-tap copying. */
@@ -119,6 +157,20 @@ class KeyboardPreferences @Inject constructor(
     suspend fun setDictationHistoryEnabled(enabled: Boolean) {
         dataStore.edit { preferences ->
             preferences[Keys.dictationHistoryEnabled] = enabled
+        }
+    }
+
+    suspend fun setFloatingMicBubbleEnabled(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[Keys.floatingMicBubbleEnabled] = enabled
+        }
+    }
+
+    suspend fun setFloatingBubblePosition(position: FloatingBubblePosition) {
+        dataStore.edit { preferences ->
+            preferences[Keys.floatingBubbleOnRight] = position.onRight
+            preferences[Keys.floatingBubbleYFraction] =
+                position.yFraction.coerceIn(FLOATING_BUBBLE_Y_FRACTION_RANGE)
         }
     }
 

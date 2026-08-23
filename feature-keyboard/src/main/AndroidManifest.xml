@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- BUB-1: the optional floating mic bubble is a TYPE_APPLICATION_OVERLAY window owned by
+         the IME service; showing it requires the user's "display over other apps" grant. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 </manifest>

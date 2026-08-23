@@ -32,6 +32,7 @@ class KeyboardSettingsViewModelTest {
         every { keyboardPreferences.defaultProcessingMode } returns MutableStateFlow("custom_mode")
         every { keyboardPreferences.quickInputNotificationTimeoutMs } returns MutableStateFlow(60_000L)
         every { keyboardPreferences.dictationHistoryEnabled } returns MutableStateFlow(false)
+        every { keyboardPreferences.floatingMicBubbleEnabled } returns MutableStateFlow(true)
     }
 
     @After
@@ -50,6 +51,18 @@ class KeyboardSettingsViewModelTest {
             assertEquals("custom_mode", state.defaultProcessingMode)
             assertEquals(60_000L, state.quickInputNotificationTimeoutMs)
             assertEquals(false, state.dictationHistoryEnabled)
+            assertEquals(true, state.floatingMicBubbleEnabled)
+        }
+
+    @Test
+    fun `setFloatingMicBubbleEnabled updates preferences`() =
+        runTest {
+            coEvery { keyboardPreferences.setFloatingMicBubbleEnabled(any()) } returns Unit
+            val viewModel = KeyboardSettingsViewModel(keyboardPreferences)
+
+            viewModel.setFloatingMicBubbleEnabled(false)
+
+            coVerify { keyboardPreferences.setFloatingMicBubbleEnabled(false) }
         }
 
     @Test

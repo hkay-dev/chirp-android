@@ -32,6 +32,10 @@
     <string name="keyboard_settings_dictation_history_description">Save the text of recent dictations so you can copy them again if an app loses them. Last 50 kept; audio is never stored.</string>
     <string name="keyboard_settings_view_dictation_history_title">Dictation History</string>
     <string name="keyboard_settings_view_dictation_history_description">Browse and copy your recent dictations.</string>
+    <!-- BUB-1: floating one-tap dictation bubble shown while the Chirp keyboard is open. -->
+    <string name="keyboard_settings_floating_bubble_title">Floating Mic Bubble</string>
+    <string name="keyboard_settings_floating_bubble_description">Show a draggable bubble above the keyboard that starts and stops dictation with one tap.</string>
+    <string name="keyboard_settings_floating_bubble_permission">Needs the “Display over other apps” permission — allow it for Chirp to show the bubble.</string>
     <string name="keyboard_settings_system_title">System Settings</string>
     <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>
     <!-- PROP-5: shown once Chirp is the enabled IME, so the "Enable Keyboard" action de-emphasizes.
