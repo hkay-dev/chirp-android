@@ -43,19 +43,28 @@ interface RecordingDao {
     /**
      * Matches titles AND transcript text: the home list is capped at [HOME_RECORDINGS_LIMIT],
      * so search is the only path to older recordings — and their titles are often
-     * auto-generated, so content search is what actually finds them. [pattern] is a
-     * ready-made `%…%` LIKE pattern with `\`-escaped metacharacters (see the repository),
-     * so a user typing `%` or `_` searches for those literal characters.
+     * auto-generated, so content search is what actually finds them.
+     *
+     * Transcript text goes through the `transcripts_fts` index instead of a leading-wildcard
+     * LIKE, which used to scan every transcript row on every debounced keystroke. [matchQuery]
+     * must be a sanitized, non-empty FTS prefix expression
+     * ([dev.chirpboard.app.data.search.FtsQuery.toFtsPrefixMatchQuery]); use
+     * [searchRecordingsByTitle] when the user's input has no word characters to index against.
+     *
+     * Titles stay on LIKE so a substring inside a word still matches a short auto-generated
+     * title. [pattern] is a ready-made `%…%` LIKE pattern with `\`-escaped metacharacters (see
+     * the repository), so a user typing `%` or `_` searches for those literal characters.
      */
     @Query(
         """
         SELECT r.* FROM recordings r
-        LEFT JOIN transcripts t ON t.recordingId = r.id
         WHERE (
             r.title LIKE :pattern ESCAPE '\'
-            OR t.rawText LIKE :pattern ESCAPE '\'
-            OR t.processedText LIKE :pattern ESCAPE '\'
-            OR t.manualCorrectionText LIKE :pattern ESCAPE '\'
+            OR r.id IN (
+                SELECT t.recordingId FROM transcripts_fts
+                JOIN transcripts t ON t.rowid = transcripts_fts.docid
+                WHERE transcripts_fts MATCH :matchQuery
+            )
         )
         AND r.status != 'RECORDING'
         ORDER BY r.createdAt DESC, r.id ASC
@@ -63,6 +72,22 @@ interface RecordingDao {
     """,
     )
     fun searchRecordings(
+        pattern: String,
+        matchQuery: String,
+        limit: Int,
+    ): Flow<List<Recording>>
+
+    /** Title-only arm for input that sanitizes to an empty FTS expression (e.g. `"---"`). */
+    @Query(
+        """
+        SELECT r.* FROM recordings r
+        WHERE r.title LIKE :pattern ESCAPE '\'
+        AND r.status != 'RECORDING'
+        ORDER BY r.createdAt DESC, r.id ASC
+        LIMIT :limit
+    """,
+    )
+    fun searchRecordingsByTitle(
         pattern: String,
         limit: Int,
     ): Flow<List<Recording>>

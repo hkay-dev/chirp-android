@@ -531,6 +531,54 @@ object Migrations {
     }
 
     /**
+     * SRCH-1: adds the `transcripts_fts` full-text index over the three transcript columns the
+     * library search matches, so a search no longer scans every transcript row per keystroke.
+     *
+     * External content: the FTS table stores only the index and reads its rows back out of
+     * `transcripts` through `docid` = `transcripts.rowid`. `transcripts` has a TEXT (UUID)
+     * primary key, so that rowid is SQLite's implicit one; nothing in the app runs VACUUM, which
+     * is the only operation that would renumber it out from under the index.
+     *
+     * The sync triggers are byte-identical to the ones Room generates for this entity. Room also
+     * installs them in onPostMigrate, but creating them here keeps the migration self-contained
+     * (and correct under MigrationTestHelper, which never runs that callback). Creating them
+     * before the rebuild is harmless: the rebuild reads `transcripts` directly, and the triggers
+     * only fire on later writes.
+     */
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS `transcripts_fts` USING FTS4(" +
+                    "`rawText` TEXT NOT NULL, `processedText` TEXT, `manualCorrectionText` TEXT, " +
+                    "content=`transcripts`)",
+            )
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_transcripts_fts_BEFORE_UPDATE " +
+                    "BEFORE UPDATE ON `transcripts` BEGIN " +
+                    "DELETE FROM `transcripts_fts` WHERE `docid`=OLD.`rowid`; END",
+            )
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_transcripts_fts_BEFORE_DELETE " +
+                    "BEFORE DELETE ON `transcripts` BEGIN " +
+                    "DELETE FROM `transcripts_fts` WHERE `docid`=OLD.`rowid`; END",
+            )
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_transcripts_fts_AFTER_UPDATE " +
+                    "AFTER UPDATE ON `transcripts` BEGIN " +
+                    "INSERT INTO `transcripts_fts`(`docid`, `rawText`, `processedText`, `manualCorrectionText`) " +
+                    "VALUES (NEW.`rowid`, NEW.`rawText`, NEW.`processedText`, NEW.`manualCorrectionText`); END",
+            )
+            db.execSQL(
+                "CREATE TRIGGER IF NOT EXISTS room_fts_content_sync_transcripts_fts_AFTER_INSERT " +
+                    "AFTER INSERT ON `transcripts` BEGIN " +
+                    "INSERT INTO `transcripts_fts`(`docid`, `rawText`, `processedText`, `manualCorrectionText`) " +
+                    "VALUES (NEW.`rowid`, NEW.`rawText`, NEW.`processedText`, NEW.`manualCorrectionText`); END",
+            )
+            db.execSQL("INSERT INTO `transcripts_fts`(`transcripts_fts`) VALUES('rebuild')")
+        }
+    }
+
+    /**
      * List of all migrations. Add new migrations here.
      * Order doesn't matter - Room sorts by version numbers.
      */
@@ -548,6 +596,7 @@ object Migrations {
             MIGRATION_10_11,
             MIGRATION_11_12,
             MIGRATION_12_13,
+            MIGRATION_13_14,
         )
     // Example migration template (uncomment and modify when needed):
     /*

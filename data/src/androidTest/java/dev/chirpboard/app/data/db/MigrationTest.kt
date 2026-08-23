@@ -161,7 +161,7 @@ class MigrationTest {
             close()
         }
 
-        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 13, true, *Migrations.ALL)
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 14, true, *Migrations.ALL)
         migratedDb.query(
             """
             SELECT recordings.title, transcripts.rawText, tags.name
@@ -1275,6 +1275,97 @@ class MigrationTest {
         }
 
         migratedDb.close()
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate13To14_indexesExistingTranscriptsAndStaysInSyncAfterwards() {
+        val indexedRecordingId = UUID.randomUUID().toString()
+        val laterRecordingId = UUID.randomUUID().toString()
+        val laterTranscriptId = UUID.randomUUID().toString()
+        val createdAt = System.currentTimeMillis()
+
+        helper.createDatabase(TEST_DB, 13).apply {
+            insertVersion13Recording(indexedRecordingId, createdAt)
+            insertVersion13Recording(laterRecordingId, createdAt)
+            insertVersion8Transcript(
+                recordingId = indexedRecordingId,
+                rawText = "the quarterly budget review",
+                processedText = null,
+                processingMode = null,
+                manualCorrectionText = null,
+                manualCorrectionSourceText = null,
+                createdAt = createdAt,
+            )
+            close()
+        }
+
+        val migratedDb = helper.runMigrationsAndValidate(TEST_DB, 14, true, Migrations.MIGRATION_13_14)
+
+        // The rebuild indexed rows that already existed before the FTS table did.
+        migratedDb.query(
+            """
+            SELECT t.recordingId FROM transcripts_fts
+            JOIN transcripts t ON t.rowid = transcripts_fts.docid
+            WHERE transcripts_fts MATCH 'quarter*'
+            """.trimIndent(),
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals(indexedRecordingId, cursor.getString(0))
+            org.junit.Assert.assertFalse(cursor.moveToNext())
+        }
+
+        // The sync triggers the migration installed pick up writes made after it ran.
+        migratedDb.execSQL(
+            """
+            INSERT INTO transcripts(
+                id, recordingId, rawText, processedText, processingMode,
+                manualCorrectionText, manualCorrectionSourceText, summary, createdAt, updatedAt
+            ) VALUES(
+                '$laterTranscriptId', '$laterRecordingId', 'shipping logistics', NULL, NULL,
+                NULL, NULL, NULL, $createdAt, $createdAt
+            )
+            """.trimIndent(),
+        )
+        migratedDb.execSQL(
+            "UPDATE transcripts SET manualCorrectionText = 'freight logistics' WHERE id = '$laterTranscriptId'",
+        )
+        migratedDb.query(
+            """
+            SELECT COUNT(*) FROM transcripts_fts
+            JOIN transcripts t ON t.rowid = transcripts_fts.docid
+            WHERE transcripts_fts MATCH 'freight*' AND t.recordingId = '$laterRecordingId'
+            """.trimIndent(),
+        ).use { cursor ->
+            org.junit.Assert.assertTrue(cursor.moveToFirst())
+            org.junit.Assert.assertEquals(1, cursor.getInt(0))
+        }
+
+        migratedDb.close()
+    }
+
+    private fun SupportSQLiteDatabase.insertVersion13Recording(
+        recordingId: String,
+        createdAt: Long,
+    ) {
+        execSQL(
+            """
+            INSERT INTO recordings(
+                id, title, audioPath, status, source, profileId, createdAt, durationMs,
+                errorMessage, lastExportedPath, lastExportedAt, transcriptionExecutionToken,
+                notes, transcriptionEngineId, requestedProcessingModeId,
+                requestedLlmProviderId, requestedLlmModelId, notifyWhenReady,
+                terminalNotificationPending, enhancementRequestSnapshotted
+            ) VALUES(
+                '$recordingId', 'Untitled recording', '/tmp/audio.m4a',
+                'COMPLETED', 'APP', NULL, $createdAt, 4200,
+                NULL, NULL, NULL, NULL,
+                NULL, 'local_parakeet', NULL,
+                NULL, NULL, 0,
+                0, 0
+            )
+            """.trimIndent(),
+        )
     }
 
     private fun SupportSQLiteDatabase.insertVersion8Profile(

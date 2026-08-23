@@ -20,6 +20,7 @@ import dev.chirpboard.app.data.entity.RecordingTag
 import dev.chirpboard.app.data.entity.StructuredOutcomeSnapshotEntity
 import dev.chirpboard.app.data.entity.Tag
 import dev.chirpboard.app.data.entity.Transcript
+import dev.chirpboard.app.data.entity.TranscriptFts
 import dev.chirpboard.app.data.entity.TranscriptTiming
 import dev.chirpboard.app.data.entity.WordReplacement
 
@@ -42,8 +43,10 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - Version 12: Added durable transcription engine, requested cleanup, enhancement snapshot,
  *     and ready-notification routing fields to recordings
  *   - Version 13: Added the capped text-only dictation history table (HIST-1)
+ *   - Version 14: Added the transcripts_fts full-text index over the searched transcript
+ *     columns (SRCH-1), replacing the per-keystroke leading-wildcard LIKE scan
  *
- * Current Schema (v13):
+ * Current Schema (v14):
  *
  * recordings:
  *   - id: TEXT (PK, UUID)
@@ -80,6 +83,10 @@ import dev.chirpboard.app.data.entity.WordReplacement
  *   - createdAt: INTEGER (Date as timestamp)
  *   - updatedAt: INTEGER (Date as timestamp)
  *   Indices: recordingId (unique)
+ *
+ * transcripts_fts (FTS4 virtual table, external content = transcripts):
+ *   - rawText, processedText, manualCorrectionText
+ *   - docid mirrors transcripts.rowid; kept in sync by Room-generated triggers
  *
  * transcript_timings:
  *   - recordingId: TEXT (PK/FK -> recordings.id, CASCADE on delete)
@@ -162,6 +169,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
     entities = [
         Recording::class,
         Transcript::class,
+        TranscriptFts::class,
         TranscriptTiming::class,
         StructuredOutcomeSnapshotEntity::class,
         RecordingEnhancementSnapshotEntity::class,
@@ -172,7 +180,7 @@ import dev.chirpboard.app.data.entity.WordReplacement
         WordReplacement::class,
         DictationHistoryEntry::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

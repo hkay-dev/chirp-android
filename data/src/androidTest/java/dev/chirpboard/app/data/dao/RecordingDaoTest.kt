@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.chirpboard.app.data.db.AppDatabase
 import dev.chirpboard.app.data.entity.Recording
+import dev.chirpboard.app.data.entity.Transcript
 import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import kotlinx.coroutines.flow.first
@@ -21,6 +22,7 @@ import java.util.UUID
 class RecordingDaoTest {
     private lateinit var database: AppDatabase
     private lateinit var dao: RecordingDao
+    private lateinit var transcriptDao: TranscriptDao
 
     @Before
     fun setup() {
@@ -30,6 +32,7 @@ class RecordingDaoTest {
                 AppDatabase::class.java,
             ).allowMainThreadQueries().build()
         dao = database.recordingDao()
+        transcriptDao = database.transcriptDao()
     }
 
     @After
@@ -100,7 +103,7 @@ class RecordingDaoTest {
         dao.insert(inProgress)
         dao.insert(completed)
 
-        val results = dao.searchRecordings("%Live%", limit = 10).first()
+        val results = dao.searchRecordings("%Live%", matchQuery = "live*", limit = 10).first()
 
         assertEquals(1, results.size)
         assertEquals(completed.id, results.single().id)
@@ -364,10 +367,101 @@ class RecordingDaoTest {
             )
         }
 
-        val results = dao.searchRecordings("%Match%", limit = 2).first()
+        val results = dao.searchRecordings("%Match%", matchQuery = "match*", limit = 2).first()
 
         assertEquals(2, results.size)
         assertEquals(ids.take(2), results.map { it.id })
+    }
+
+    @Test
+    fun searchRecordings_matchesTranscriptTextThroughTheFtsIndex() = runTest {
+        val recordingId = UUID.randomUUID()
+        dao.insert(
+            Recording(
+                id = recordingId,
+                title = "Untitled recording",
+                audioPath = "/tmp/fts.m4a",
+                source = RecordingSource.APP,
+                status = RecordingStatus.COMPLETED,
+            ),
+        )
+        transcriptDao.insert(
+            Transcript(
+                recordingId = recordingId,
+                rawText = "the quarterly budget review",
+            ),
+        )
+
+        // Prefix query on a word that appears only in the transcript, never in the title.
+        val results = dao.searchRecordings("%quarter%", matchQuery = "quarter*", limit = 10).first()
+
+        assertEquals(listOf(recordingId), results.map { it.id })
+    }
+
+    @Test
+    fun searchRecordings_reindexesEditedTranscriptText() = runTest {
+        val recordingId = UUID.randomUUID()
+        dao.insert(
+            Recording(
+                id = recordingId,
+                title = "Untitled recording",
+                audioPath = "/tmp/edit.m4a",
+                source = RecordingSource.APP,
+                status = RecordingStatus.COMPLETED,
+            ),
+        )
+        val transcript =
+            Transcript(
+                recordingId = recordingId,
+                rawText = "original wording",
+            )
+        transcriptDao.insert(transcript)
+        transcriptDao.updateManualCorrection(
+            recordingId = recordingId,
+            manualCorrectionText = "corrected wording",
+            manualCorrectionSourceText = "original wording",
+        )
+
+        // AFTER_UPDATE reindexed the row, so the correction is searchable.
+        assertEquals(
+            listOf(recordingId),
+            dao.searchRecordings("%zzz%", matchQuery = "corrected*", limit = 10).first().map { it.id },
+        )
+
+        // A REPLACE insert on the same primary key drops the old indexed row instead of
+        // leaving the superseded text matchable.
+        transcriptDao.insert(transcript.copy(rawText = "rewritten wording", manualCorrectionText = null))
+        assertEquals(
+            emptyList<UUID>(),
+            dao.searchRecordings("%zzz%", matchQuery = "corrected*", limit = 10).first().map { it.id },
+        )
+        assertEquals(
+            listOf(recordingId),
+            dao.searchRecordings("%zzz%", matchQuery = "rewritten*", limit = 10).first().map { it.id },
+        )
+    }
+
+    @Test
+    fun searchRecordingsByTitle_ignoresTranscriptText() = runTest {
+        val recordingId = UUID.randomUUID()
+        dao.insert(
+            Recording(
+                id = recordingId,
+                title = "Untitled recording",
+                audioPath = "/tmp/title.m4a",
+                source = RecordingSource.APP,
+                status = RecordingStatus.COMPLETED,
+            ),
+        )
+        transcriptDao.insert(
+            Transcript(
+                recordingId = recordingId,
+                rawText = "budget review",
+            ),
+        )
+
+        assertEquals(emptyList<UUID>(), dao.searchRecordingsByTitle("%budget%", limit = 10).first().map { it.id })
+        assertEquals(listOf(recordingId), dao.searchRecordingsByTitle("%titled%", limit = 10).first().map { it.id })
     }
 
     private fun guardedRecording(

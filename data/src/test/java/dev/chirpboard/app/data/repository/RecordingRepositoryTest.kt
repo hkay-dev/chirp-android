@@ -996,6 +996,23 @@ class RecordingRepositoryTest {
             repository.searchRecordings("""50%_\ off""")
 
             // \ -> \\, % -> \%, _ -> \_, wrapped in the contains-match wildcards.
-            verify { recordingDao.searchRecordings("""%50\%\_\\ off%""", any()) }
+            verify { recordingDao.searchRecordings("""%50\%\_\\ off%""", any(), any()) }
+        }
+
+    @Test
+    fun `searchRecordings passes a sanitized prefix MATCH expression to the FTS arm`() =
+        runTest {
+            repository.searchRecordings("""quarterly "re-org"""")
+
+            verify { recordingDao.searchRecordings(any(), "quarterly* re* org*", any()) }
+        }
+
+    @Test
+    fun `searchRecordings falls back to the title-only arm when nothing is indexable`() =
+        runTest {
+            repository.searchRecordings("---")
+
+            verify { recordingDao.searchRecordingsByTitle("%---%", any()) }
+            verify(exactly = 0) { recordingDao.searchRecordings(any(), any(), any()) }
         }
 }

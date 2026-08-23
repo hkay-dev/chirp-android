@@ -25,6 +25,7 @@ import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeGenerationStatus
 import dev.chirpboard.app.data.model.StructuredOutcomeSnapshot
 import dev.chirpboard.app.data.model.TranscriptPreview
+import dev.chirpboard.app.data.search.FtsQuery
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
@@ -220,10 +221,18 @@ class RecordingRepository
         fun searchRecordings(
             query: String,
             limit: Int = DEFAULT_SEARCH_LIMIT,
-        ): Flow<RepositoryFlowState<List<Recording>>> =
-            recordingDao
-                .searchRecordings(likeContainsPattern(query), limit.coerceIn(1, MAX_SEARCH_LIMIT))
-                .catchRepositoryFlowState(TAG, emptyList())
+        ): Flow<RepositoryFlowState<List<Recording>>> {
+            val pattern = likeContainsPattern(query)
+            val boundedLimit = limit.coerceIn(1, MAX_SEARCH_LIMIT)
+            val matchQuery = FtsQuery.toFtsPrefixMatchQuery(query)
+            // An empty MATCH expression is a SQLite syntax error, so input with no word
+            // characters at all ("%%%", "---") searches titles only instead of crashing.
+            return if (matchQuery.isEmpty()) {
+                recordingDao.searchRecordingsByTitle(pattern, boundedLimit)
+            } else {
+                recordingDao.searchRecordings(pattern, matchQuery, boundedLimit)
+            }.catchRepositoryFlowState(TAG, emptyList())
+        }
 
         // LIKE has no literal mode: escape the metacharacters so a user typing "%"/"_" searches
         // for those characters instead of getting wildcard matches over the whole library.
