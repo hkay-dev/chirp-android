@@ -109,6 +109,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val displayItems by viewModel.displayItems.collectAsStateWithLifecycle()
+    val allDisplayItems by viewModel.allDisplayItems.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val listFilter by viewModel.listFilter.collectAsStateWithLifecycle()
@@ -199,11 +200,13 @@ fun HomeScreen(
 
     // Bottom sheet state. LIF-10: keyed by the recording's UUID string in rememberSaveable and
     // re-resolved from the live list, so the open sheet survives rotation/process death and
-    // closes itself if the recording disappears.
+    // closes itself if the recording disappears. Resolved against the unfiltered library list,
+    // not displayItems: a background status transition that drops the row out of the
+    // "processing" filter must not dismiss a sheet mid-interaction.
     var selectedItemId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedItem =
-        remember(selectedItemId, displayItems) {
-            selectedItemId?.let { id -> displayItems.firstOrNull { it.id.toString() == id } }
+        remember(selectedItemId, allDisplayItems) {
+            selectedItemId?.let { id -> allDisplayItems.firstOrNull { it.id.toString() == id } }
         }
     val sheetState = rememberModalBottomSheetState()
 
@@ -216,8 +219,8 @@ fun HomeScreen(
     // recording disappears underneath it.
     var pendingDeleteItemId by rememberSaveable { mutableStateOf<String?>(null) }
     val pendingDeleteItem =
-        remember(pendingDeleteItemId, displayItems) {
-            pendingDeleteItemId?.let { id -> displayItems.firstOrNull { it.id.toString() == id } }
+        remember(pendingDeleteItemId, allDisplayItems) {
+            pendingDeleteItemId?.let { id -> allDisplayItems.firstOrNull { it.id.toString() == id } }
         }
 
     // Show error messages

@@ -227,6 +227,7 @@
     <string name="rec_msg_enrichment_hint_network">Check your internet connection and try again.</string>
     <string name="rec_msg_enrichment_hint_generic">Try again, or check your AI Processing settings.</string>
     <string name="rec_msg_persist_failed_storage">Couldn’t save the result. Your device storage may be full.</string>
+    <string name="rec_msg_library_load_failed">Couldn’t load your recordings. Retrying…</string>
     <string name="rec_msg_queued_for_transcription">Queued for transcription</string>
     <string name="rec_msg_import_failed">Couldn’t import the audio file. It may not be a playable audio file.</string>
     <string name="rec_msg_profile_missing">Profile no longer exists. Using default recording settings.</string>

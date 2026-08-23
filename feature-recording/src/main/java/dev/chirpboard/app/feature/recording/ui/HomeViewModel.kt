@@ -62,6 +62,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.shareIn
@@ -245,10 +246,23 @@ class HomeViewModel
                 .unwrapRepositoryFlow { _errorMessage.value = it }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+        /** One snackbar per failure streak: the repository retry loop re-emits the fallback every backoff cycle. */
+        private var libraryLoadErrorReported = false
+
         private val allRecordingsState =
             recordingRepository
                 .getAllRecordings()
-                .onEach { state -> state.errorMessage?.let { _errorMessage.value = it } }
+                .onEach { state ->
+                    if (state.errorMessage != null) {
+                        // Raw exception text is not user copy; localize and dedupe it.
+                        if (!libraryLoadErrorReported) {
+                            libraryLoadErrorReported = true
+                            _errorMessage.value = appContext.getString(R.string.rec_msg_library_load_failed)
+                        }
+                    } else {
+                        libraryLoadErrorReported = false
+                    }
+                }
                 .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5000), replay = 1)
 
         private val allRecordingsRaw: StateFlow<List<Recording>> =
@@ -269,6 +283,10 @@ class HomeViewModel
          */
         val libraryLoadState: StateFlow<HomeLibraryLoadState> =
             allRecordingsState
+                // A failed read emits the empty-list fallback while the repository retries;
+                // latching loaded=true on it would render "Nothing recorded yet" to a user
+                // whose recordings are all still there. Hold the skeleton until a clean read.
+                .filter { it.errorMessage == null }
                 .map { HomeLibraryLoadState(loaded = true, empty = it.value.isEmpty()) }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeLibraryLoadState())
 
@@ -353,8 +371,13 @@ class HomeViewModel
             }.flowOn(defaultDispatcher)
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        /** All recordings based on search, enriched with tags/summary/profile */
-        private val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
+        /**
+         * All recordings based on search, enriched with tags/summary/profile. Public so the open
+         * bottom sheet / delete dialog can resolve their recording here rather than against the
+         * list-filtered [displayItems]: a background status transition that drops the row out of
+         * the "processing" filter must not dismiss a sheet the user is interacting with.
+         */
+        val allDisplayItems: StateFlow<List<RecordingDisplayItem>> =
             combine(recordingsWithTagsAndTranscripts, allProfiles) { items, profiles ->
                 val profilesById = profiles.associateBy(Profile::id)
                 items.map { item ->
@@ -459,7 +482,14 @@ class HomeViewModel
 
         fun refreshRecoverableSessions() {
             viewModelScope.launch {
-                sessionRecovery.refresh()
+                // Runs from init on every home entry with no handler above it; a throw out of
+                // the recovery chain (journal scan, defer-store IO) must not crash the screen.
+                try {
+                    sessionRecovery.refresh()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e(TAG, "Recoverable-session refresh failed", e)
+                }
             }
         }
 
