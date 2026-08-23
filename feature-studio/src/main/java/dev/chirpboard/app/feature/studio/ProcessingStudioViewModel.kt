@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -62,6 +64,14 @@ class ProcessingStudioViewModel
 
         /** Dispatcher for oversized-draft side-file IO (LIF-05); overridable from tests. */
         internal var draftFileDispatcher: CoroutineDispatcher = Dispatchers.IO
+
+        /**
+         * Serializes oversized-draft side-file IO. Cancelling the persist job is cooperative
+         * and the atomic write has no suspension point, so a cancelled write can still be
+         * running when its replacement (or the delete branch) starts; both derive the same
+         * staging path, and DurableFiles requires callers to serialize per target.
+         */
+        private val draftFileMutex = Mutex()
 
         private var currentRecordingId: UUID? = null
         private var currentTranscript: Transcript? = null
@@ -162,7 +172,7 @@ class ProcessingStudioViewModel
                 // No file-backed draft to restore: remove any stale side file left behind by an
                 // earlier process death, so a full transcript never lingers in filesDir.
                 viewModelScope.launch(draftFileDispatcher) {
-                    runCatching { oversizedDraftFile()?.delete() }
+                    draftFileMutex.withLock { runCatching { oversizedDraftFile()?.delete() } }
                 }
                 pendingDraftRestoration = restoration
                 return
@@ -170,7 +180,9 @@ class ProcessingStudioViewModel
             viewModelScope.launch {
                 val draft =
                     withContext(draftFileDispatcher) {
-                        runCatching { oversizedDraftFile()?.takeIf(File::exists)?.readText() }.getOrNull()
+                        draftFileMutex.withLock {
+                            runCatching { oversizedDraftFile()?.takeIf(File::exists)?.readText() }.getOrNull()
+                        }
                     }
                 if (draft == null) {
                     // The process died before the debounced side-file write landed. Reopening in
@@ -230,12 +242,14 @@ class ProcessingStudioViewModel
                             // bundle carries no draft, so until the file exists a process death
                             // loses everything. Later keystrokes debounce as usual.
                             if (wasOversized) delay(OVERSIZED_DRAFT_PERSIST_DEBOUNCE_MS)
-                            withContext(draftFileDispatcher) { runCatching { writeOversizedDraft(draft) } }
+                            withContext(draftFileDispatcher) {
+                                draftFileMutex.withLock { runCatching { writeOversizedDraft(draft) } }
+                            }
                         }
 
                 !isEditing ->
                     viewModelScope.launch(draftFileDispatcher) {
-                        runCatching { oversizedDraftFile()?.delete() }
+                        draftFileMutex.withLock { runCatching { oversizedDraftFile()?.delete() } }
                     }
             }
         }
@@ -520,7 +534,16 @@ class ProcessingStudioViewModel
                 viewModelScope.launch {
                     delay(MISSING_RECORDING_GRACE_MS)
                     if (currentRecordingId != id) return@launch
-                    val stillMissing = repository.getRecording(id) == null
+                    // ERR-18: a disk-level read failure must not crash the check; treat it
+                    // as "not missing" and let the collector heal on the next emission.
+                    val stillMissing =
+                        try {
+                            repository.getRecording(id) == null
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            Log.e("ProcessingStudioVM", "Missing-recording check failed", e)
+                            false
+                        }
                     if (stillMissing) {
                         markRecordingNotFound()
                     }
@@ -1100,7 +1123,7 @@ class ProcessingStudioViewModel
                     status = state.status,
                     errorMessage = state.errorMessage,
                 )
-            applyRecoveryDiagnosticsResult(loadRecoveryDiagnostics(key))
+            loadRecoveryDiagnostics(key)?.let(::applyRecoveryDiagnosticsResult)
         }
 
         private fun scheduleRecoveryDiagnosticsRefresh(key: RecoveryDiagnosticsRefreshKey) {
@@ -1110,12 +1133,21 @@ class ProcessingStudioViewModel
             recoveryDiagnosticsJob?.cancel()
             recoveryDiagnosticsJob =
                 viewModelScope.launch {
-                    applyRecoveryDiagnosticsResult(loadRecoveryDiagnostics(key))
+                    loadRecoveryDiagnostics(key)?.let(::applyRecoveryDiagnosticsResult)
                 }
         }
 
-        private suspend fun loadRecoveryDiagnostics(key: RecoveryDiagnosticsRefreshKey): RecoveryDiagnosticsResult {
-            val diagnostics = transcriptionRecovery.getRecoveryDiagnostics(key.recordingId)
+        private suspend fun loadRecoveryDiagnostics(key: RecoveryDiagnosticsRefreshKey): RecoveryDiagnosticsResult? {
+            // ERR-18: a disk-level read failure degrades to no diagnostics update instead
+            // of crashing the studio while it is trying to show a recovery path.
+            val diagnostics =
+                try {
+                    transcriptionRecovery.getRecoveryDiagnostics(key.recordingId)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    Log.e("ProcessingStudioVM", "Failed to load recovery diagnostics", e)
+                    return null
+                }
             return RecoveryDiagnosticsResult(key = key, diagnostics = diagnostics)
         }
 
@@ -1210,7 +1242,16 @@ class ProcessingStudioViewModel
         fun deleteRecording(onDeleted: () -> Unit) {
             viewModelScope.launch {
                 val id = currentRecordingId ?: return@launch
-                val rec = repository.getRecording(id)
+                // ERR-18: a disk-level read failure surfaces as a failed delete, not a crash.
+                val rec =
+                    try {
+                        repository.getRecording(id)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        Log.e("ProcessingStudioVM", "Failed to load recording for delete: $id", e)
+                        _message.value = context.getString(CoreUiR.string.rec_msg_delete_failed)
+                        return@launch
+                    }
                 if (rec == null) {
                     // The row is already gone (deleted from Home, a recovery worker): the user
                     // confirmed a delete, so still leave the now-dead screen instead of silently
@@ -1235,7 +1276,7 @@ class ProcessingStudioViewModel
                             }
                             // The oversized-draft side file holds the full transcript text; it
                             // must not outlive the recording it belongs to.
-                            oversizedDraftFile()?.delete()
+                            draftFileMutex.withLock { oversizedDraftFile()?.delete() }
                         } catch (e: Exception) {
                             if (e is kotlinx.coroutines.CancellationException) throw e
                             Log.w("ProcessingStudioVM", "Error deleting audio file: ${rec.audioPath}", e)

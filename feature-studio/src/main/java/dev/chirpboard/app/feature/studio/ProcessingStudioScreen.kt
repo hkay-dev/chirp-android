@@ -779,8 +779,9 @@ fun ProcessingStudioScreen(
                             onTranscriptSelectionChanged = viewModel::onTranscriptSelectionChanged,
                             onRunTranscriptSelectionAction = viewModel::runTranscriptSelectionAction,
                             onCopySelectionResult = { text ->
-                                copySensitiveTextToClipboard(context, transcriptClipLabel, text)
-                                viewModel.onTranscriptCopied()
+                                if (copySensitiveTextToClipboard(context, transcriptClipLabel, text)) {
+                                    viewModel.onTranscriptCopied()
+                                }
                             },
                             onStartTranscription =
                                 if (state.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) {
@@ -795,22 +796,25 @@ fun ProcessingStudioScreen(
                             onTranscriptDraftChange = viewModel::updateTranscriptDraft,
                             onCopyTranscript = {
                                 val text = state.effectiveTranscriptText.trim()
-                                if (text.isNotEmpty()) {
+                                if (text.isNotEmpty() &&
                                     copySensitiveTextToClipboard(context, transcriptClipLabel, text)
+                                ) {
                                     viewModel.onTranscriptCopied()
                                 }
                             },
                             onCopyOriginal = {
                                 val text = state.rawTranscriptText.trim()
-                                if (text.isNotEmpty()) {
+                                if (text.isNotEmpty() &&
                                     copySensitiveTextToClipboard(context, transcriptClipLabel, text)
+                                ) {
                                     viewModel.onTranscriptCopied()
                                 }
                             },
                             onCopyEnhanced = {
                                 val text = state.enhancedTranscriptText.trim()
-                                if (text.isNotEmpty()) {
+                                if (text.isNotEmpty() &&
                                     copySensitiveTextToClipboard(context, transcriptClipLabel, text)
+                                ) {
                                     viewModel.onTranscriptCopied()
                                 }
                             },
@@ -823,8 +827,9 @@ fun ProcessingStudioScreen(
                             structuredOutcomeSection = state.structuredOutcomeSection,
                             onGenerateStructuredOutcomes = viewModel::generateStructuredOutcomes,
                             onCopyStructuredOutcome = { item ->
-                                copySensitiveTextToClipboard(context, transcriptClipLabel, item.text)
-                                viewModel.onStructuredOutcomeCopied()
+                                if (copySensitiveTextToClipboard(context, transcriptClipLabel, item.text)) {
+                                    viewModel.onStructuredOutcomeCopied()
+                                }
                             },
                             onShareStructuredOutcome = { item -> viewModel.shareStructuredOutcome(context, item) },
                             onAskAiAboutStructuredOutcome = { item ->

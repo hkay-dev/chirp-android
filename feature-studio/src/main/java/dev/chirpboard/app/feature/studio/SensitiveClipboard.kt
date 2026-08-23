@@ -18,8 +18,8 @@ internal fun copySensitiveTextToClipboard(
     context: Context,
     label: String,
     text: String,
-) {
-    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return
+): Boolean {
+    val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return false
     val clip =
         ClipData.newPlainText(label, text).apply {
             description.extras =
@@ -27,5 +27,8 @@ internal fun copySensitiveTextToClipboard(
                     putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
                 }
         }
-    clipboard.setPrimaryClip(clip)
+    // setPrimaryClip crosses a Binder boundary with the full transcript; a
+    // transaction-size overrun or a flaky OEM clipboard service must not take
+    // the activity down from a click handler.
+    return runCatching { clipboard.setPrimaryClip(clip) }.isSuccess
 }
