@@ -116,6 +116,8 @@ class KeyboardSessionCoordinator(
     @Volatile private var transcriptionJob: Job? = null
     private var modelInitJob: Job? = null
     @Volatile private var rollingTranscriptionJob: Job? = null
+    @Volatile private var durableCheckpointJob: Job? = null
+    @Volatile private var streamingCheckpointsActive = false
     @Volatile private var streamingPreviewPrepareJob: Job? = null
     @Volatile private var streamingPreviewReady = false
     @Volatile private var liveCaptureJournalJob: Job? = null
@@ -780,6 +782,10 @@ class KeyboardSessionCoordinator(
                                     }
                                 }
                             startRollingTranscription(historyPersistenceSuppressed())
+                            startDurableAudioCheckpoints(
+                                suppressHistory = historyPersistenceSuppressed(),
+                                cloudCapture = liveCapture?.transcriptionEngine == TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3,
+                            )
                             recordingJob =
                                 scope.launch {
                                     // MIC-014: surface a hot-unplug of the session's active
@@ -957,6 +963,9 @@ class KeyboardSessionCoordinator(
                 var previewReported = false
                 var lastCheckpointSampleCount = 0
                 val checkpointPersistence = persistence.takeUnless { suppressHistory }
+                // The preview's ~3s checkpoints supersede the slower durable-audio ticker for
+                // this session; the flag hands the job back on any preview teardown.
+                streamingCheckpointsActive = checkpointPersistence != null
                 try {
                     while (isRecording.value) {
                         val snapshot = capture.activeFileBackedSnapshot()
@@ -1008,7 +1017,51 @@ class KeyboardSessionCoordinator(
                         delay(STREAMING_TRANSCRIPTION_POLL_MS)
                     }
                 } finally {
+                    streamingCheckpointsActive = false
                     runCatching { streamingSession.close() }
+                }
+            }
+    }
+
+    /**
+     * RELY-7: journals the growing PCM file roughly every 10s for dictations that have no
+     * streaming-preview checkpoints (cloud engines own a stronger live-capture journal, and
+     * incognito sessions must not leave a history sidecar). Without this, a long GGUF or
+     * unprepared-preview dictation that died with the process could recover only its first
+     * durable block; with it, a crash loses at most the last ~10 seconds.
+     */
+    private fun startDurableAudioCheckpoints(
+        suppressHistory: Boolean,
+        cloudCapture: Boolean,
+    ) {
+        durableCheckpointJob?.cancel()
+        if (suppressHistory || cloudCapture) return
+        durableCheckpointJob =
+            scope.launch(teardownDispatcher) {
+                var lastCheckpointSampleCount = 0
+                while (isRecording.value) {
+                    delay(DURABLE_CHECKPOINT_INTERVAL_MS)
+                    if (!isRecording.value) break
+                    // The streaming preview's own ~3s checkpoints make this ticker redundant.
+                    if (streamingCheckpointsActive) continue
+                    val snapshot = capture.activeFileBackedSnapshot() ?: continue
+                    if (snapshot.sampleCount <= lastCheckpointSampleCount) continue
+                    lastCheckpointSampleCount = snapshot.sampleCount
+                    runCatching {
+                        persistence.checkpointAudioSource(
+                            audioSource =
+                                InlineAudioSource.PcmFloatFile(
+                                    path = snapshot.file.absolutePath,
+                                    sampleCount = snapshot.sampleCount.toLong(),
+                                    sampleRate = snapshot.sampleRate,
+                                ),
+                            trustedSampleCount = snapshot.sampleCount.toLong(),
+                            partialTranscript = livePartialTranscript.value,
+                            estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
+                        )
+                    }.onFailure { error ->
+                        Log.w(tag, "Could not checkpoint durable keyboard audio", error)
+                    }
                 }
             }
     }
@@ -1016,6 +1069,8 @@ class KeyboardSessionCoordinator(
     private fun stopRollingTranscription() {
         rollingTranscriptionJob?.cancel()
         rollingTranscriptionJob = null
+        durableCheckpointJob?.cancel()
+        durableCheckpointJob = null
     }
 
     private suspend fun finishStopAfterTeardown(
@@ -1520,6 +1575,9 @@ class KeyboardSessionCoordinator(
     companion object {
         private const val NANOS_PER_MILLISECOND = 1_000_000L
         private const val STREAMING_TRANSCRIPTION_POLL_MS = 320L
+
+        /** RELY-7: cadence of the fallback durable-audio checkpoints during long dictations. */
+        private const val DURABLE_CHECKPOINT_INTERVAL_MS = 10_000L
         internal const val STREAMING_CHECKPOINT_INTERVAL_SECONDS = 3
         internal const val STOP_TIMEOUT_IN_PROGRESS_MESSAGE =
             "Transcription is taking longer than expected"
