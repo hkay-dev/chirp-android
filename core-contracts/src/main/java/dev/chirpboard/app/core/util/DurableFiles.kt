@@ -60,7 +60,17 @@ object DurableFiles {
      * failure the staging file is removed and the exception propagates.
      *
      * [stagingSuffix] matters when other code filters files by name: pick a suffix that
-     * existing sweepers and readers already expect to skip (or protect).
+     * existing sweepers and readers already expect to skip (or protect). It is part of the
+     * crash-recovery contract — the keyboard handoff and chunk-checkpoint sweepers both
+     * match `.partial` exactly — so the staging name stays derived from the target rather
+     * than being made unique per call.
+     *
+     * That makes concurrent writes to the same [target] the caller's problem: two of them
+     * share one staging file, so the second truncates the first mid-write and the first
+     * can then rename the second's partial bytes over [target]. Every caller today
+     * serializes externally (the session journal writes under `journalLock`, the Obsidian
+     * exporter under `writeMutex`, the Studio draft cancels the previous job); a new caller
+     * must do the same.
      */
     fun writeAtomically(
         target: File,
