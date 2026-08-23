@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -39,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -46,6 +48,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withLink
@@ -350,6 +353,13 @@ private fun TranscriptSelectionContent(
                     Text(
                         text = selectionResult.text,
                         style = MaterialTheme.typography.bodyMedium,
+                        // The result is an unweighted sibling of the weighted transcript
+                        // field; uncapped LLM output would otherwise take the whole pane,
+                        // collapse the transcript, and clip its own tail unreachably.
+                        modifier =
+                            Modifier
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState()),
                     )
                 }
             }
@@ -357,32 +367,103 @@ private fun TranscriptSelectionContent(
 
         // A read-only BasicTextField is the one Compose surface that reports selection changes
         // (SelectionContainer never exposes its selection), which the passage actions need.
-        var selectionValue by remember(transcriptText) { mutableStateOf(TextFieldValue(transcriptText)) }
-        BasicTextField(
-            value = selectionValue,
-            onValueChange = { next ->
-                selectionValue = next.copy(text = transcriptText)
-                val selection = next.selection
-                onSelectionChanged(
-                    if (selection.collapsed) {
-                        ""
-                    } else {
-                        transcriptText.substring(selection.min, selection.max)
-                    },
-                )
-            },
-            readOnly = true,
-            textStyle =
-                MaterialTheme.typography.bodyLarge.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                ),
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-        )
+        // A long transcript is split across lazily-composed fields: a single text node lays
+        // out the entire text in one main-thread pass, which freezes the crossfade into
+        // selection mode on long dictations. Selection then spans one chunk at a time,
+        // which matches how passage actions are used.
+        val chunks = remember(transcriptText) { chunkTranscriptForSelection(transcriptText) }
+        val selectionTextStyle =
+            MaterialTheme.typography.bodyLarge.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        if (chunks.size == 1) {
+            var selectionValue by remember(transcriptText) { mutableStateOf(TextFieldValue(transcriptText)) }
+            BasicTextField(
+                value = selectionValue,
+                onValueChange = { next ->
+                    selectionValue = next.copy(text = transcriptText)
+                    val selection = next.selection
+                    onSelectionChanged(
+                        if (selection.collapsed) {
+                            ""
+                        } else {
+                            transcriptText.substring(selection.min, selection.max)
+                        },
+                    )
+                },
+                readOnly = true,
+                textStyle = selectionTextStyle,
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+            )
+        } else {
+            val chunkValues =
+                remember(chunks) { chunks.map { TextFieldValue(it) }.toMutableStateList() }
+            LazyColumn(
+                modifier =
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+            ) {
+                itemsIndexed(chunks) { index, chunk ->
+                    BasicTextField(
+                        value = chunkValues[index],
+                        onValueChange = { next ->
+                            chunkValues[index] = next.copy(text = chunk)
+                            // One active passage at a time: highlighting in this chunk
+                            // drops any highlight left in another.
+                            chunkValues.indices.forEach { other ->
+                                if (other != index && !chunkValues[other].selection.collapsed) {
+                                    chunkValues[other] =
+                                        chunkValues[other].copy(selection = TextRange.Zero)
+                                }
+                            }
+                            val selection = next.selection
+                            onSelectionChanged(
+                                if (selection.collapsed) {
+                                    ""
+                                } else {
+                                    chunk.substring(selection.min, selection.max)
+                                },
+                            )
+                        },
+                        readOnly = true,
+                        textStyle = selectionTextStyle,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
     }
+}
+
+/** Above this length, selection mode chunks the transcript instead of one giant text node. */
+private const val SELECTION_CHUNKING_THRESHOLD_CHARS = 12_000
+
+/** Target size of each lazily-composed selection chunk. */
+private const val SELECTION_CHUNK_CHARS = 4_000
+
+/**
+ * Splits [text] into roughly [SELECTION_CHUNK_CHARS]-sized pieces on whitespace boundaries.
+ * Short transcripts stay whole so selection can span the full text.
+ */
+internal fun chunkTranscriptForSelection(text: String): List<String> {
+    if (text.length <= SELECTION_CHUNKING_THRESHOLD_CHARS) return listOf(text)
+    val chunks = mutableListOf<String>()
+    var start = 0
+    while (start < text.length) {
+        var end = (start + SELECTION_CHUNK_CHARS).coerceAtMost(text.length)
+        if (end < text.length) {
+            val breakAt = text.lastIndexOf(' ', end)
+            if (breakAt > start) end = breakAt + 1
+        }
+        chunks += text.substring(start, end)
+        start = end
+    }
+    return chunks
 }
 
 @Composable
