@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.MonotonicFrameClock
 import androidx.compose.runtime.PausableMonotonicFrameClock
 import androidx.compose.runtime.getValue
@@ -85,6 +86,7 @@ class ChirpKeyboardService :
         private const val TAG = "ChirpKeyboard"
         private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
         private const val CONFIG_CHANGE_GRACE_MS = 2000L
+private const val VOICE_SUBTYPE_MODE = "voice"
     }
 
     @Inject lateinit var recordingStateManager: RecordingStateManager
@@ -142,6 +144,10 @@ class ChirpKeyboardService :
     private var lastKnownConfigSnapshot: KeyboardConfigSnapshot? = null
     private var orphanedRecordingFinalizeJob: Job? = null
     private var pendingImeSwitchCleanup = false
+
+    // RELY-5: true while this bind was entered through the auxiliary voice subtype (another
+    // keyboard handed us its mic key); the flag drives the switch back after the dictation ends.
+    private var voiceSubtypeSession = false
 
     // BUB-1: optional floating mic bubble. Owned here because only the active IME's
     // InputConnection can insert text; the bubble is a second trigger for the same session.
@@ -492,6 +498,9 @@ class ChirpKeyboardService :
                         // preview behind — the user just said "discard this dictation".
                         inputSessionGuard.clearComposingPreview(currentInputConnection)
                         coordinator.cancelRecording()
+                        // RELY-5: a cancelled hand-off dictation still returns to the keyboard
+                        // that sent us here — leaving Chirp up would strand the user.
+                        returnFromVoiceSubtypeIfNeeded()
                     },
                     onRestart = coordinator::restartRecording,
                     onToggleLlm = coordinator::toggleLlm,
@@ -586,6 +595,33 @@ class ChirpKeyboardService :
         coordinator.initializeModel()
         coordinator.prepareStreamingPreview()
         drainPendingKeyboardStopIfNeeded()
+        maybeAutoStartVoiceSubtypeDictation()
+    }
+
+    /**
+     * RELY-5: the auxiliary "voice" subtype exists so compliant third-party keyboards can hand
+     * their mic key to Chirp through the platform's IME-switching APIs. Arriving under it means
+     * the user asked to dictate right now — start immediately instead of showing an idle panel —
+     * and [returnFromVoiceSubtypeIfNeeded] hands control back once the dictation commits.
+     */
+    private fun maybeAutoStartVoiceSubtypeDictation() {
+        val inputMethodManager = getSystemService(InputMethodManager::class.java)
+        val subtypeMode = inputMethodManager?.currentInputMethodSubtype?.mode
+        if (subtypeMode != VOICE_SUBTYPE_MODE) {
+            voiceSubtypeSession = false
+            return
+        }
+        if (voiceSubtypeSession || coordinator.isRecordingActive()) return
+        voiceSubtypeSession = true
+        onMicTapForCurrentInput()
+    }
+
+    private fun returnFromVoiceSubtypeIfNeeded() {
+        if (!voiceSubtypeSession) return
+        voiceSubtypeSession = false
+        if (!switchToPreviousInputMethod()) {
+            Log.w(TAG, "Could not return to the previous keyboard after voice input")
+        }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -602,6 +638,7 @@ class ChirpKeyboardService :
         }
         val suppressHistory = inputSessionGuard.isLearningSuppressed
         inputSessionGuard.finishInput()
+        voiceSubtypeSession = false
         finalizeRecordingForClosedKeyboard(suppressHistory)
     }
 
@@ -612,6 +649,7 @@ class ChirpKeyboardService :
                 delay(CONFIG_CHANGE_GRACE_MS)
                 val suppressHistory = inputSessionGuard.isLearningSuppressed
                 inputSessionGuard.finishInput()
+                voiceSubtypeSession = false
                 finalizeRecordingForClosedKeyboard(suppressHistory)
             }
     }
@@ -765,6 +803,9 @@ class ChirpKeyboardService :
                 )
                 coordinator.setSessionError(commitFailureMessage(text))
             }
+        }
+        if (result.committed) {
+            returnFromVoiceSubtypeIfNeeded()
         }
         return result.committed
     }

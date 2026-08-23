@@ -8,4 +8,13 @@
         android:isAuxiliary="false"
         android:label="@string/subtype_label"
         android:imeSubtypeLocale="en_US" />
+    <!-- RELY-5: auxiliary voice subtype — invisible in the language switcher, but offered by
+         the platform's IME-switching APIs so compliant third-party keyboards can hand their
+         mic key to Chirp and get control back after the dictation commits. -->
+    <subtype
+        android:imeSubtypeMode="voice"
+        android:isAuxiliary="true"
+        android:overridesImplicitlyEnabledSubtype="false"
+        android:label="@string/subtype_voice_label"
+        android:imeSubtypeLocale="en_US" />
 </input-method>

@@ -5,6 +5,7 @@
     <string name="app_name" translatable="false">Chirp</string>
     <string name="keyboard_name" translatable="false">Chirp Voice</string>
     <string name="subtype_label">Voice Input</string>
+    <string name="subtype_voice_label">Chirp Dictation</string>
     <string name="enable_keyboard">Enable Keyboard</string>
     <string name="select_keyboard">Select Keyboard</string>
     <!-- Recording dialog strings live in feature-recording/res/values/strings.xml.
