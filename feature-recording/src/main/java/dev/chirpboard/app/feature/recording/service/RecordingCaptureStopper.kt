@@ -52,11 +52,14 @@ internal object RecordingCaptureStopper {
                 }
 
             if (sessionId != null && finalizedFile != null) {
-                sessionJournal.commitStoppedSegment(
-                    sessionId = sessionId,
-                    completedSegmentPath = finalizedFile.absolutePath,
-                    fileBytes = finalizedFile.takeIf(File::exists)?.length() ?: 0L,
-                )
+                // The journal commit fsyncs; the caller may be on Main, so stat and write on IO.
+                withContext(Dispatchers.IO) {
+                    sessionJournal.commitStoppedSegment(
+                        sessionId = sessionId,
+                        completedSegmentPath = finalizedFile.absolutePath,
+                        fileBytes = finalizedFile.takeIf(File::exists)?.length() ?: 0L,
+                    )
+                }
             }
 
             when (result) {

@@ -46,7 +46,10 @@ class RecordingSegmentRotator
                 if (recordingStateManager.state.value !is RecordingState.Recording) return@withLock null
 
                 val activeSessionId = sessionId ?: return@withLock null
-                val entry = sessionJournal.findBySessionId(activeSessionId) ?: return@withLock null
+                val entry =
+                    withContext(Dispatchers.IO) {
+                        sessionJournal.findBySessionId(activeSessionId)
+                    } ?: return@withLock null
                 val capture = segmentCapture ?: return@withLock null
                 val completedFile = currentRecordingFile ?: return@withLock null
 
@@ -76,7 +79,11 @@ class RecordingSegmentRotator
                 // segment; the next tick then recomputed the same segment index and the
                 // engine's rotation into that same file truncated the audio it was
                 // actively writing, capping the recording at the first segment forever.
-                val completedValidation = fileValidator.validateForRecovery(completedFile)
+                // Reads the file header, so it belongs on IO like the journal write below.
+                val completedValidation =
+                    withContext(Dispatchers.IO) {
+                        fileValidator.validateForRecovery(completedFile)
+                    }
                 if (!completedValidation.isRecoverableStub) {
                     Log.w(
                         TAG,
@@ -85,12 +92,15 @@ class RecordingSegmentRotator
                     rotationLog.failure("segment_rotation_invalid", message = completedValidation.failureReason)
                 }
 
-                sessionJournal.appendCompletedSegment(
-                    sessionId = activeSessionId,
-                    completedSegmentPath = completedFile.absolutePath,
-                    nextSegmentPath = nextSegment.absolutePath,
-                    fileBytes = nextSegment.takeIf { it.exists() }?.length() ?: 0L,
-                )
+                // Journal writes fsync; the caller's ticker may run on Main, so stat and write on IO.
+                withContext(Dispatchers.IO) {
+                    sessionJournal.appendCompletedSegment(
+                        sessionId = activeSessionId,
+                        completedSegmentPath = completedFile.absolutePath,
+                        nextSegmentPath = nextSegment.absolutePath,
+                        fileBytes = nextSegment.takeIf { it.exists() }?.length() ?: 0L,
+                    )
+                }
 
                 recordingStateManager.rotateSegment(nextSegment.absolutePath)
                 rotationLog.success("segment_rotated_gapless", message = "segment=$nextIndex")

@@ -723,11 +723,14 @@ class RecordingService : Service() {
         val finalized = completedFile ?: currentRecordingFile ?: return
         currentRecordingFile = finalized
 
-        sessionJournal.commitPausedSegment(
-            sessionId = sessionId,
-            completedSegmentPath = finalized.absolutePath,
-            fileBytes = finalized.length(),
-        )
+        // Journal writes fsync twice; keep them (and the file-size stat) off the main thread.
+        withContext(Dispatchers.IO) {
+            sessionJournal.commitPausedSegment(
+                sessionId = sessionId,
+                completedSegmentPath = finalized.absolutePath,
+                fileBytes = finalized.length(),
+            )
+        }
         ReliabilityEventLogger
             .scoped(
                 stage = ReliabilityStage.RECORDING_STOP,
@@ -771,7 +774,7 @@ class RecordingService : Service() {
                         return@withLock
                     }
                     val sessionId = currentSessionId ?: return@withLock
-                    val entry = sessionJournal.findBySessionId(sessionId) ?: return@withLock
+                    val entry = withContext(Dispatchers.IO) { sessionJournal.findBySessionId(sessionId) } ?: return@withLock
                     val nextSegment = capturePaths.durableSegmentFile(sessionId, entry.segmentPaths.size)
                     val recordingQualityConfig =
                         audioSettingsStore.currentRecordingQualityPreset().appRecordingConfig
@@ -787,7 +790,9 @@ class RecordingService : Service() {
                     }
 
                     currentRecordingFile = nextSegment
-                    sessionJournal.beginNextSegment(sessionId, nextSegment.absolutePath)
+                    withContext(Dispatchers.IO) {
+                        sessionJournal.beginNextSegment(sessionId, nextSegment.absolutePath)
+                    }
                     recordingStateManager.resumeRecording(nextSegment.absolutePath)
                     publishDeviceChangeOnResume()
                     ReliabilityEventLogger
@@ -1165,7 +1170,7 @@ class RecordingService : Service() {
                 }
             },
             markStopping = { stoppingSessionId ->
-                withContext(NonCancellable) {
+                withContext(Dispatchers.IO + NonCancellable) {
                     sessionJournal.markStopping(stoppingSessionId)
                 }
             },
