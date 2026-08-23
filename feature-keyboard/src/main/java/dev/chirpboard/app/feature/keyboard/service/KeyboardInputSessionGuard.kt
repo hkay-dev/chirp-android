@@ -8,6 +8,18 @@ internal data class KeyboardInputCommitSession(
     val generation: Long,
 )
 
+/** Outcome of a dictation commit attempt, including post-commit verification (RELY-1). */
+internal enum class KeyboardDictationCommitResult {
+    COMMITTED,
+    COMMITTED_AFTER_RETRY,
+    REFUSED,
+    VERIFICATION_FAILED,
+    ;
+
+    val committed: Boolean
+        get() = this == COMMITTED || this == COMMITTED_AFTER_RETRY
+}
+
 /**
  * Identity of the editor a session was started against, used to recognize a same-editor
  * `restartInput` (IME-11): editors restart input for reasons that do not change the target field
@@ -81,28 +93,59 @@ internal class KeyboardInputSessionGuard {
         session: KeyboardInputCommitSession,
         connection: InputConnection?,
         text: String,
-    ): Boolean {
+    ): KeyboardDictationCommitResult {
         if (blockedInput || !activeInput || session.generation != generation) {
-            return false
+            return KeyboardDictationCommitResult.REFUSED
         }
-        val target = connection ?: return false
+        val target = connection ?: return KeyboardDictationCommitResult.REFUSED
         // IME-12/IME-14/IME-23: clear any composing region a previous IME left behind (commitText
         // would replace it), fix up spacing against the surrounding text, and do it all inside one
         // batch edit so the editor sees a single atomic change.
+        val adjusted: String
         target.beginBatchEdit()
-        return try {
-            target.finishComposingText()
-            val adjusted =
-                resolveDictationCommitText(
-                    before = target.getTextBeforeCursor(1, 0),
-                    after = target.getTextAfterCursor(1, 0),
-                    text = text,
-                )
-            target.commitText(adjusted, 1)
-        } finally {
-            target.endBatchEdit()
+        val accepted =
+            try {
+                target.finishComposingText()
+                adjusted =
+                    resolveDictationCommitText(
+                        before = target.getTextBeforeCursor(1, 0),
+                        after = target.getTextAfterCursor(1, 0),
+                        text = text,
+                    )
+                target.commitText(adjusted, 1)
+            } finally {
+                target.endBatchEdit()
+            }
+        if (!accepted) return KeyboardDictationCommitResult.REFUSED
+        // RELY-1: read the field back and confirm the text actually landed. Editors can report
+        // success from commitText and still drop the change (a dying binder, a mid-restart race).
+        // Only a readback proving the text fully absent earns one retry; anything ambiguous
+        // (null readback, truncated context, partial presence) is accepted as committed, because
+        // a second commit there could duplicate text.
+        if (verifyReadback(target, adjusted) != DictationCommitVerification.MISSING) {
+            return KeyboardDictationCommitResult.COMMITTED
         }
+        target.beginBatchEdit()
+        val retried =
+            try {
+                target.commitText(adjusted, 1)
+            } finally {
+                target.endBatchEdit()
+            }
+        if (retried && verifyReadback(target, adjusted) != DictationCommitVerification.MISSING) {
+            return KeyboardDictationCommitResult.COMMITTED_AFTER_RETRY
+        }
+        return KeyboardDictationCommitResult.VERIFICATION_FAILED
     }
+
+    private fun verifyReadback(
+        target: InputConnection,
+        committed: String,
+    ): DictationCommitVerification =
+        verifyDictationCommitReadback(
+            readback = target.getTextBeforeCursor(committed.length + VERIFY_READBACK_SLACK, 0),
+            committed = committed,
+        )
 
     /**
      * Builds a commit-text provider for stops the IME does not initiate directly (for
@@ -117,6 +160,48 @@ internal class KeyboardInputSessionGuard {
                 { text: String -> commit(session, text) }
             }
         }
+}
+
+/** Extra readback characters requested beyond the committed length, absorbing editor fix-ups. */
+private const val VERIFY_READBACK_SLACK = 2
+
+/** Length of the committed-text tail probed for partial presence before declaring it missing. */
+private const val VERIFY_PROBE_LENGTH = 12
+
+/** What a post-commit readback of the field proved about the committed text (RELY-1). */
+internal enum class DictationCommitVerification {
+    VERIFIED,
+    UNVERIFIABLE,
+    MISSING,
+}
+
+/**
+ * Classifies a post-commit `getTextBeforeCursor` readback. Deliberately conservative: only a
+ * readback that proves the committed text fully absent returns [DictationCommitVerification.MISSING],
+ * because the caller retries the commit on that verdict and a wrong MISSING duplicates text.
+ * Editors that transform the commit (autocorrect, trimming) or truncate context land on
+ * [DictationCommitVerification.UNVERIFIABLE], which the caller treats as committed.
+ */
+internal fun verifyDictationCommitReadback(
+    readback: CharSequence?,
+    committed: String,
+): DictationCommitVerification {
+    if (committed.isBlank()) return DictationCommitVerification.VERIFIED
+    // A null readback means the editor cannot expose surrounding text; nothing is provable.
+    val observed = readback?.toString() ?: return DictationCommitVerification.UNVERIFIABLE
+    val expected = committed.trimEnd()
+    val observedTail = observed.trimEnd()
+    // Nothing (or only whitespace) sits before the cursor: the commit did not land.
+    if (observedTail.isEmpty()) return DictationCommitVerification.MISSING
+    if (observedTail.endsWith(expected)) return DictationCommitVerification.VERIFIED
+    // The editor returned less context than the committed text (small field, maxLength):
+    // the whole readback matching the committed tail is presence, not absence.
+    if (expected.endsWith(observedTail)) return DictationCommitVerification.UNVERIFIABLE
+    // Some tail chunk of the committed text is present but transformed or followed by editor
+    // additions. Retrying here could duplicate; accept it.
+    val probe = expected.takeLast(VERIFY_PROBE_LENGTH)
+    if (observed.contains(probe)) return DictationCommitVerification.UNVERIFIABLE
+    return DictationCommitVerification.MISSING
 }
 
 /** Characters after which dictation must NOT insert a leading space (openers, joiners). */

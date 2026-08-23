@@ -713,15 +713,31 @@ class ChirpKeyboardService :
             coordinator.setSessionError(getString(R.string.keyboard_input_changed))
             return false
         }
-        val committed = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
-        if (!committed) {
-            Log.w(TAG, "Skipped dictation commit because the input session changed")
-            dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
-                dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_REFUSALS,
-            )
-            coordinator.setSessionError(getString(R.string.keyboard_input_changed))
+        val result = inputSessionGuard.commitIfCurrent(session, currentInputConnection, text)
+        when (result) {
+            KeyboardDictationCommitResult.COMMITTED -> Unit
+            KeyboardDictationCommitResult.COMMITTED_AFTER_RETRY -> {
+                Log.w(TAG, "Dictation commit landed only after a verification retry")
+                dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
+                    dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_VERIFY_MISMATCHES,
+                )
+            }
+            KeyboardDictationCommitResult.REFUSED -> {
+                Log.w(TAG, "Skipped dictation commit because the input session changed")
+                dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
+                    dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_REFUSALS,
+                )
+                coordinator.setSessionError(getString(R.string.keyboard_input_changed))
+            }
+            KeyboardDictationCommitResult.VERIFICATION_FAILED -> {
+                Log.w(TAG, "Editor accepted the dictation commit but the text never appeared")
+                dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
+                    dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_VERIFY_MISMATCHES,
+                )
+                coordinator.setSessionError(getString(R.string.keyboard_input_changed))
+            }
         }
-        return committed
+        return result.committed
     }
 }
 

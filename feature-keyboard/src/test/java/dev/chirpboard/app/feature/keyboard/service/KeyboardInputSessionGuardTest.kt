@@ -16,6 +16,9 @@ import org.junit.Test
 class KeyboardInputSessionGuardTest {
     private fun commitConnection(): InputConnection =
         mockk<InputConnection>(relaxed = true).also { connection ->
+            // The post-commit verification readback (any request longer than the 1-char spacing
+            // probes) reports "cannot provide context", which the guard accepts as committed.
+            every { connection.getTextBeforeCursor(more(1), 0) } returns null
             every { connection.getTextBeforeCursor(1, 0) } returns ""
             every { connection.getTextAfterCursor(1, 0) } returns ""
             every { connection.commitText(any(), 1) } returns true
@@ -108,7 +111,7 @@ class KeyboardInputSessionGuardTest {
         guard.startInput(EditorInfo())
         val session = requireNotNull(guard.captureCommitSession())
 
-        assertTrue(guard.commitIfCurrent(session, connection, "hello"))
+        assertTrue(guard.commitIfCurrent(session, connection, "hello").committed)
 
         verify { connection.commitText("hello", 1) }
     }
@@ -122,7 +125,7 @@ class KeyboardInputSessionGuardTest {
         guard.startInput(EditorInfo())
         val session = requireNotNull(guard.captureCommitSession())
 
-        assertTrue(guard.commitIfCurrent(session, connection, "hello"))
+        assertTrue(guard.commitIfCurrent(session, connection, "hello").committed)
 
         verify { connection.beginBatchEdit() }
         verify { connection.finishComposingText() }
@@ -138,7 +141,7 @@ class KeyboardInputSessionGuardTest {
         guard.startInput(EditorInfo())
         val session = requireNotNull(guard.captureCommitSession())
 
-        assertTrue(guard.commitIfCurrent(session, connection, "world "))
+        assertTrue(guard.commitIfCurrent(session, connection, "world ").committed)
 
         verify { connection.commitText(" world ", 1) }
     }
@@ -152,7 +155,7 @@ class KeyboardInputSessionGuardTest {
         guard.startInput(EditorInfo())
         val session = requireNotNull(guard.captureCommitSession())
 
-        assertTrue(guard.commitIfCurrent(session, connection, "world "))
+        assertTrue(guard.commitIfCurrent(session, connection, "world ").committed)
 
         verify { connection.commitText("world", 1) }
     }
@@ -176,7 +179,7 @@ class KeyboardInputSessionGuardTest {
 
         guard.startInput(EditorInfo())
 
-        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        assertFalse(guard.commitIfCurrent(session, connection, "late").committed)
         verify(exactly = 0) { connection.commitText(any(), any()) }
     }
 
@@ -189,7 +192,7 @@ class KeyboardInputSessionGuardTest {
 
         guard.startInput(EditorInfo(), preserveSession = true)
 
-        assertTrue(guard.commitIfCurrent(session, connection, "hello"))
+        assertTrue(guard.commitIfCurrent(session, connection, "hello").committed)
         verify { connection.commitText("hello", 1) }
     }
 
@@ -217,7 +220,7 @@ class KeyboardInputSessionGuardTest {
             restarting = true,
         )
 
-        assertTrue(guard.commitIfCurrent(session, connection, "hello"))
+        assertTrue(guard.commitIfCurrent(session, connection, "hello").committed)
         verify { connection.commitText("hello", 1) }
     }
 
@@ -241,7 +244,7 @@ class KeyboardInputSessionGuardTest {
             restarting = true,
         )
 
-        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        assertFalse(guard.commitIfCurrent(session, connection, "late").committed)
         verify(exactly = 0) { connection.commitText(any(), any()) }
     }
 
@@ -256,7 +259,7 @@ class KeyboardInputSessionGuardTest {
 
         guard.startInput(EditorInfo().apply { fieldId = 42 })
 
-        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        assertFalse(guard.commitIfCurrent(session, connection, "late").committed)
     }
 
     @Test
@@ -275,7 +278,7 @@ class KeyboardInputSessionGuardTest {
             restarting = true,
         )
 
-        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        assertFalse(guard.commitIfCurrent(session, connection, "late").committed)
         verify(exactly = 0) { connection.commitText(any(), any()) }
     }
 
@@ -293,7 +296,7 @@ class KeyboardInputSessionGuardTest {
             preserveSession = true,
         )
 
-        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        assertFalse(guard.commitIfCurrent(session, connection, "late").committed)
         verify(exactly = 0) { connection.commitText(any(), any()) }
     }
 
@@ -306,7 +309,7 @@ class KeyboardInputSessionGuardTest {
 
         guard.startInput(null, preserveSession = true)
 
-        assertFalse(guard.commitIfCurrent(session, connection, "late"))
+        assertFalse(guard.commitIfCurrent(session, connection, "late").committed)
         verify(exactly = 0) { connection.commitText(any(), any()) }
     }
 
@@ -333,7 +336,7 @@ class KeyboardInputSessionGuardTest {
         // with no (or a stale) session for every later limit stop.
         val provider =
             guard.commitTextProvider { session, text ->
-                guard.commitIfCurrent(session, connection, text)
+                guard.commitIfCurrent(session, connection, text).committed
             }
 
         assertNull(provider())
@@ -350,7 +353,7 @@ class KeyboardInputSessionGuardTest {
         val connection = commitConnection()
         val provider =
             guard.commitTextProvider { session, text ->
-                guard.commitIfCurrent(session, connection, text)
+                guard.commitIfCurrent(session, connection, text).committed
             }
         guard.startInput(EditorInfo())
         val staleCommit = requireNotNull(provider())
@@ -364,6 +367,94 @@ class KeyboardInputSessionGuardTest {
         val liveCommit = requireNotNull(provider())
         assertTrue(liveCommit("hello"))
         verify { connection.commitText("hello", 1) }
+    }
+
+    @Test
+    fun `verified readback commits exactly once`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.getTextBeforeCursor(more(1), 0) } returns "hello "
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        assertEquals(
+            KeyboardDictationCommitResult.COMMITTED,
+            guard.commitIfCurrent(session, connection, "hello "),
+        )
+        verify(exactly = 1) { connection.commitText("hello ", 1) }
+    }
+
+    @Test
+    fun `commit retries once when the readback proves the text missing`() {
+        // RELY-1: the editor claimed success but the field stayed empty; one retry lands it.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.getTextBeforeCursor(more(1), 0) } returnsMany listOf("", "hello ")
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        assertEquals(
+            KeyboardDictationCommitResult.COMMITTED_AFTER_RETRY,
+            guard.commitIfCurrent(session, connection, "hello "),
+        )
+        verify(exactly = 2) { connection.commitText("hello ", 1) }
+    }
+
+    @Test
+    fun `commit reports verification failure when the retry never lands either`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.getTextBeforeCursor(more(1), 0) } returns ""
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+
+        val result = guard.commitIfCurrent(session, connection, "hello ")
+
+        assertEquals(KeyboardDictationCommitResult.VERIFICATION_FAILED, result)
+        assertFalse(result.committed)
+        verify(exactly = 2) { connection.commitText("hello ", 1) }
+    }
+
+    @Test
+    fun `verifyDictationCommitReadback classifies readbacks conservatively`() {
+        // Exact tail present: verified, even with the pipeline's trailing space trimmed.
+        assertEquals(
+            DictationCommitVerification.VERIFIED,
+            verifyDictationCommitReadback(readback = "Say hello ", committed = "hello "),
+        )
+        assertEquals(
+            DictationCommitVerification.VERIFIED,
+            verifyDictationCommitReadback(readback = "Say hello", committed = "hello "),
+        )
+        // Blank commits have nothing to verify.
+        assertEquals(
+            DictationCommitVerification.VERIFIED,
+            verifyDictationCommitReadback(readback = "", committed = " "),
+        )
+        // Null readback: the editor cannot expose context, nothing is provable.
+        assertEquals(
+            DictationCommitVerification.UNVERIFIABLE,
+            verifyDictationCommitReadback(readback = null, committed = "hello "),
+        )
+        // Truncated context that matches the committed tail is presence, not absence.
+        assertEquals(
+            DictationCommitVerification.UNVERIFIABLE,
+            verifyDictationCommitReadback(readback = "lo world", committed = "hello world "),
+        )
+        // A transformed commit (editor added punctuation) still shows the probe tail.
+        assertEquals(
+            DictationCommitVerification.UNVERIFIABLE,
+            verifyDictationCommitReadback(readback = "hello world!", committed = "hello world "),
+        )
+        // An empty or unrelated field proves the commit was dropped.
+        assertEquals(
+            DictationCommitVerification.MISSING,
+            verifyDictationCommitReadback(readback = "", committed = "hello "),
+        )
+        assertEquals(
+            DictationCommitVerification.MISSING,
+            verifyDictationCommitReadback(readback = "something else", committed = "hello world "),
+        )
     }
 
     @Test
