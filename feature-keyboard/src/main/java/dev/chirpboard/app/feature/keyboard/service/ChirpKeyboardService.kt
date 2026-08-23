@@ -727,17 +727,43 @@ class ChirpKeyboardService :
                 dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
                     dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_REFUSALS,
                 )
-                coordinator.setSessionError(getString(R.string.keyboard_input_changed))
+                coordinator.setSessionError(commitFailureMessage(text))
             }
             KeyboardDictationCommitResult.VERIFICATION_FAILED -> {
                 Log.w(TAG, "Editor accepted the dictation commit but the text never appeared")
                 dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
                     dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_VERIFY_MISMATCHES,
                 )
-                coordinator.setSessionError(getString(R.string.keyboard_input_changed))
+                coordinator.setSessionError(commitFailureMessage(text))
             }
         }
         return result.committed
+    }
+
+    /**
+     * RELY-2: when the editor cannot take the text, put it on the clipboard so one long-press
+     * still recovers the dictation. The active IME is one of the two callers Android guarantees
+     * clipboard writes for, so this cannot be silently dropped the way a background app's write
+     * can. Skipped for incognito sessions — their text must not outlive the session — and never
+     * reached for sensitive fields, which cannot capture a commit session at all.
+     */
+    private fun commitFailureMessage(text: String): String =
+        if (copyFailedCommitToClipboard(text)) {
+            getString(R.string.keyboard_commit_failed_copied)
+        } else {
+            getString(R.string.keyboard_input_changed)
+        }
+
+    private fun copyFailedCommitToClipboard(text: String): Boolean {
+        if (text.isBlank() || inputSessionGuard.isLearningSuppressed) return false
+        return runCatching {
+            val clipboard =
+                getSystemService(android.content.ClipboardManager::class.java) ?: return false
+            clipboard.setPrimaryClip(
+                android.content.ClipData.newPlainText(getString(R.string.keyboard_clip_label), text),
+            )
+            true
+        }.getOrDefault(false)
     }
 }
 

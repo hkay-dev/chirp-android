@@ -31,6 +31,8 @@
     <string name="keyboard_sensitive_input_disabled">Dictation is disabled for sensitive fields</string>
     <string name="keyboard_sensitive_notice">Dictation is off for secure fields</string>
     <string name="keyboard_input_changed">Dictation finished after the input field changed</string>
+    <string name="keyboard_commit_failed_copied">Couldn\'t insert the text — copied to clipboard. Long-press the field to paste.</string>
+    <string name="keyboard_clip_label" translatable="false">Chirp dictation</string>
     <string name="keyboard_closed_during_dictation">Recording stopped when the keyboard closed before transcription finished</string>
     <string name="keyboard_stopped_without_field">Recording stopped with no text field to type into; the transcript was saved to history</string>
     <string name="keyboard_no_active_field">No text field is active. Tap into a text field, then dictate.</string>
