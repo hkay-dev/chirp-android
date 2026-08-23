@@ -200,14 +200,21 @@ class RecordingRepository
                     } else {
                         RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION
                     }
-                recordingDao.updateStatusWithTranscriptionToken(
-                    id = recordingId,
-                    status = destination,
-                    errorMessage = null,
-                    executionToken = null,
-                    allowedCurrentStatuses = listOf(currentStatus),
-                    expectedExecutionToken = null,
-                ) > 0
+                val resolved =
+                    recordingDao.updateStatusWithTranscriptionToken(
+                        id = recordingId,
+                        status = destination,
+                        errorMessage = null,
+                        executionToken = null,
+                        allowedCurrentStatuses = listOf(currentStatus),
+                        expectedExecutionToken = null,
+                    ) > 0
+                if (resolved) {
+                    // The claim armed the terminal marker; a cancelled enhancement must not
+                    // surface as a "ready" notification for work the user stopped.
+                    recordingDao.clearPendingTerminalNotification(recordingId, destination)
+                }
+                resolved
             }
 
         fun searchRecordings(
@@ -865,7 +872,20 @@ class RecordingRepository
                             recordingDao.updateTitleIfCurrent(recordingId, title, expectedTitle = sourceTitle)
                         }
                     }
-                    reparked = snapshot.applyResult(partialResult, now)
+                    // Nothing transcript-derived was persisted when the transcript moved on, so
+                    // those subworks keep their PENDING/FAILED status and the retry re-runs them.
+                    val appliedResult =
+                        if (transcriptCurrent) {
+                            partialResult
+                        } else {
+                            partialResult.copy(
+                                processingModeStatus = null,
+                                processingModeError = null,
+                                summaryStatus = null,
+                                summaryError = null,
+                            )
+                        }
+                    reparked = snapshot.applyResult(appliedResult, now)
                 }
                 enhancementSnapshotDao.upsert(reparked.copy(lastErrorMessage = errorMessage))
                 true

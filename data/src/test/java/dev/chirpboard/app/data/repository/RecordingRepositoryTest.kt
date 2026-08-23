@@ -385,6 +385,116 @@ class RecordingRepositoryTest {
         }
 
     @Test
+    fun `reparkEnhancementExecution keeps transcript subwork retryable when the transcript moved on`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val snapshot =
+                enhancementSnapshot(id).copy(
+                    activeEnhancementExecutionToken = "enhancement-token",
+                    processingModeRequested = true,
+                    processingModeStatus = EnhancementSubworkStatus.PENDING,
+                    summaryRequested = true,
+                    summaryStatus = EnhancementSubworkStatus.PENDING,
+                )
+            coEvery { enhancementSnapshotDao.getSnapshot(id) } returns snapshot
+            coEvery {
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = "temporary outage",
+                    allowedStatuses = listOf(RecordingStatus.ENHANCING),
+                )
+            } returns 1
+            coEvery { transcriptDao.getTranscript(id) } returns
+                Transcript(recordingId = id, rawText = "edited transcript")
+
+            val reparked =
+                repository.reparkEnhancementExecution(
+                    recordingId = id,
+                    executionToken = "enhancement-token",
+                    errorMessage = "temporary outage",
+                    partialResult =
+                        RecordingEnhancementResult(
+                            processedText = "processed",
+                            processingMode = "clean-up",
+                            title = "Generated title",
+                            summary = "summary",
+                            processingModeStatus = EnhancementSubworkStatus.SUCCEEDED,
+                            titleStatus = EnhancementSubworkStatus.SUCCEEDED,
+                            summaryStatus = EnhancementSubworkStatus.SUCCEEDED,
+                        ),
+                    sourceTranscriptRevision = "stale revision",
+                )
+
+            assertTrue(reparked)
+            coVerify(exactly = 0) { transcriptDao.insert(any()) }
+            coVerify(exactly = 1) { recordingDao.updateTitle(id, "Generated title") }
+            coVerify(exactly = 1) {
+                enhancementSnapshotDao.upsert(
+                    match {
+                        it.processingModeStatus == EnhancementSubworkStatus.PENDING &&
+                            it.summaryStatus == EnhancementSubworkStatus.PENDING &&
+                            it.titleStatus == EnhancementSubworkStatus.SUCCEEDED &&
+                            it.lastErrorMessage == "temporary outage"
+                    },
+                )
+            }
+        }
+
+    @Test
+    fun `reparkEnhancementExecution records transcript subwork success when the transcript is current`() =
+        runTest {
+            val id = UUID.randomUUID()
+            val snapshot =
+                enhancementSnapshot(id).copy(
+                    activeEnhancementExecutionToken = "enhancement-token",
+                    processingModeRequested = true,
+                    processingModeStatus = EnhancementSubworkStatus.PENDING,
+                    summaryRequested = true,
+                    summaryStatus = EnhancementSubworkStatus.PENDING,
+                )
+            coEvery { enhancementSnapshotDao.getSnapshot(id) } returns snapshot
+            coEvery {
+                recordingDao.updateStatusWithErrorIfCurrentIn(
+                    id = id,
+                    status = RecordingStatus.PENDING_ENHANCEMENT,
+                    errorMessage = "temporary outage",
+                    allowedStatuses = listOf(RecordingStatus.ENHANCING),
+                )
+            } returns 1
+            coEvery { transcriptDao.getTranscript(id) } returns
+                Transcript(recordingId = id, rawText = "raw transcript")
+
+            val reparked =
+                repository.reparkEnhancementExecution(
+                    recordingId = id,
+                    executionToken = "enhancement-token",
+                    errorMessage = "temporary outage",
+                    partialResult =
+                        RecordingEnhancementResult(
+                            processedText = "processed",
+                            processingMode = "clean-up",
+                            title = null,
+                            summary = "summary",
+                            processingModeStatus = EnhancementSubworkStatus.SUCCEEDED,
+                            summaryStatus = EnhancementSubworkStatus.SUCCEEDED,
+                        ),
+                    sourceTranscriptRevision = "raw transcript||",
+                )
+
+            assertTrue(reparked)
+            coVerify(exactly = 1) { transcriptDao.insert(any()) }
+            coVerify(exactly = 1) {
+                enhancementSnapshotDao.upsert(
+                    match {
+                        it.processingModeStatus == EnhancementSubworkStatus.SUCCEEDED &&
+                            it.summaryStatus == EnhancementSubworkStatus.SUCCEEDED
+                    },
+                )
+            }
+        }
+
+    @Test
     fun `beginTranscriptionExecution resumes own interrupted transcribing run`() =
         runTest {
             val id = UUID.randomUUID()
@@ -713,6 +823,38 @@ class RecordingRepositoryTest {
                     expectedExecutionToken = null,
                 )
             }
+        }
+
+    @Test
+    fun `resolveCancelledEnhancement disarms the terminal notification marker`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getStatus(id) } returns RecordingStatus.PENDING_ENHANCEMENT
+            coEvery { transcriptDao.getTranscript(id) } returns Transcript(recordingId = id, rawText = "hello")
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(any(), any(), any(), any(), any(), any())
+            } returns 1
+
+            assertTrue(repository.resolveCancelledEnhancement(id))
+
+            coVerify(exactly = 1) {
+                recordingDao.clearPendingTerminalNotification(id, RecordingStatus.COMPLETED)
+            }
+        }
+
+    @Test
+    fun `resolveCancelledEnhancement leaves the notification marker alone when the row does not move`() =
+        runTest {
+            val id = UUID.randomUUID()
+            coEvery { recordingDao.getStatus(id) } returns RecordingStatus.ENHANCING
+            coEvery { transcriptDao.getTranscript(id) } returns Transcript(recordingId = id, rawText = "hello")
+            coEvery {
+                recordingDao.updateStatusWithTranscriptionToken(any(), any(), any(), any(), any(), any())
+            } returns 0
+
+            assertFalse(repository.resolveCancelledEnhancement(id))
+
+            coVerify(exactly = 0) { recordingDao.clearPendingTerminalNotification(any(), any()) }
         }
 
     @Test
