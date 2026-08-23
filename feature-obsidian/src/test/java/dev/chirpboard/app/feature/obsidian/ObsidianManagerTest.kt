@@ -2,10 +2,15 @@ package dev.chirpboard.app.feature.obsidian
 
 import android.content.ContentResolver
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import dev.chirpboard.app.core.export.TranscriptExportRecording
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -41,6 +46,7 @@ class ObsidianManagerTest {
 
     private lateinit var context: Context
     private lateinit var contentResolver: ContentResolver
+    private lateinit var exportRecords: ObsidianExportRecordStore
     private lateinit var manager: ObsidianManager
 
     @Before
@@ -48,9 +54,20 @@ class ObsidianManagerTest {
         context = mockk()
         contentResolver = mockk()
         every { context.contentResolver } returns contentResolver
-        
+        exportRecords = mockk()
+        coEvery { exportRecords.lastExport(any()) } returns null
+        coEvery { exportRecords.recordExport(any(), any()) } just runs
+
+        // The manager logs on every preservation and fallback path; android.util.Log is a
+        // throwing stub in unit tests, so a log line would fail the export under test.
+        mockkStatic(Log::class)
+        every { Log.i(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>(), any()) } returns 0
+        every { Log.e(any<String>(), any<String>(), any()) } returns 0
+
         mockkStatic(DocumentFile::class)
-        manager = ObsidianManager(context)
+        manager = ObsidianManager(context, exportRecords)
     }
 
     @After
@@ -177,7 +194,8 @@ class ObsidianManagerTest {
             )
 
         assertTrue(result.isSuccess)
-        assertEquals(harness.tempFileUri, result.getOrNull())
+        assertEquals(harness.tempFileUri, result.getOrNull()?.uri)
+        assertEquals(ObsidianExportDisposition.CREATED, result.getOrNull()?.disposition)
 
         // The temp document carries a unique suffix and is renamed to the deterministic
         // final filename only after the content was written and synced.
@@ -206,12 +224,8 @@ class ObsidianManagerTest {
     @Test
     fun `re-export moves the previous note aside and deletes it only after the rename`() = runTest {
         val harness = successExportHarness()
-        val expectedFilename =
-            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
-        val previousExport = mockk<DocumentFile>()
-        every { previousExport.name } returns expectedFilename
-        every { previousExport.uri } returns mockk()
-        every { previousExport.renameTo(any()) } returns true
+        val expectedFilename = expectedExportFilename()
+        val previousExport = unmodifiedPreviousExport(expectedFilename)
         every { previousExport.delete() } returns true
         every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
 
@@ -219,6 +233,7 @@ class ObsidianManagerTest {
             manager.export(harness.recording, "transcript", null, harness.vaultUri)
 
         assertTrue(result.isSuccess)
+        assertEquals(ObsidianExportDisposition.UPDATED, result.getOrNull()?.disposition)
         // The previous note is parked under a backup name and removed only once the new
         // note holds the final name — it exists under some name at every instant.
         verifyOrder {
@@ -226,17 +241,20 @@ class ObsidianManagerTest {
             harness.tempFile.renameTo(expectedFilename)
             previousExport.delete()
         }
+        // The hash of the bytes just written is what the next export compares against.
+        coVerify {
+            exportRecords.recordExport(
+                expectedFilename,
+                ObsidianExportRecord(expectedFilename, sha256Hex(harness.writtenContent())),
+            )
+        }
     }
 
     @Test
     fun `a failed replacement restores the previous note instead of losing it`() = runTest {
         val harness = successExportHarness(renameSucceeds = false)
-        val expectedFilename =
-            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
-        val previousExport = mockk<DocumentFile>()
-        every { previousExport.name } returns expectedFilename
-        every { previousExport.uri } returns mockk()
-        every { previousExport.renameTo(any()) } returns true
+        val expectedFilename = expectedExportFilename()
+        val previousExport = unmodifiedPreviousExport(expectedFilename)
         every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
         // Temp rename fails AND the fallback can't create the final document (grant
         // revoked mid-export): the previous note must be renamed back.
@@ -259,12 +277,9 @@ class ObsidianManagerTest {
     @Test
     fun `when the provider cannot rename the previous note it is overwritten in place`() = runTest {
         val harness = successExportHarness()
-        val expectedFilename =
-            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
-        val previousExport = mockk<DocumentFile>()
-        val previousUri = mockk<Uri>()
-        every { previousExport.name } returns expectedFilename
-        every { previousExport.uri } returns previousUri
+        val expectedFilename = expectedExportFilename()
+        val previousExport = unmodifiedPreviousExport(expectedFilename)
+        val previousUri = previousExport.uri
         every { previousExport.renameTo(any()) } returns false
         every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
         val copied = ByteArrayOutputStream()
@@ -277,7 +292,7 @@ class ObsidianManagerTest {
         val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
 
         assertTrue(result.isSuccess)
-        assertEquals(previousUri, result.getOrNull())
+        assertEquals(previousUri, result.getOrNull()?.uri)
         assertEquals(harness.writtenContent(), copied.toString(Charsets.UTF_8.name()))
         verify(exactly = 0) { previousExport.delete() }
         verify(exactly = 1) { harness.tempFile.delete() }
@@ -359,7 +374,7 @@ class ObsidianManagerTest {
         val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
 
         assertTrue(result.isSuccess)
-        assertEquals(finalUri, result.getOrNull())
+        assertEquals(finalUri, result.getOrNull()?.uri)
         // The fallback copies the already-written temp content and removes the temp file.
         assertEquals(harness.writtenContent(), copied.toString(Charsets.UTF_8.name()))
         verify(exactly = 1) { harness.tempFile.delete() }
@@ -370,12 +385,8 @@ class ObsidianManagerTest {
         // Provider supports neither rename, so the previous note is overwritten in place with
         // mode "wt" — which truncates it before anything is copied.
         val harness = successExportHarness(renameSucceeds = false)
-        val previousExport = mockk<DocumentFile>()
-        val previousUri = mockk<Uri>()
-        val expectedFilename =
-            buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
-        every { previousExport.name } returns expectedFilename
-        every { previousExport.uri } returns previousUri
+        val previousExport = unmodifiedPreviousExport(expectedExportFilename())
+        val previousUri = previousExport.uri
         every { previousExport.renameTo(any()) } returns false
         every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
         every { contentResolver.openOutputStream(previousUri, "wt") } returns null
@@ -448,6 +459,228 @@ class ObsidianManagerTest {
         val truncated = sanitizeObsidianFilename("x".repeat(99) + "😀")
         assertEquals(99, truncated.length)
         assertFalse(truncated.last().isHighSurrogate())
+    }
+
+    // region DAT: re-export must never destroy edits the user made in the vault
+
+    @Test
+    fun `a note edited in the vault is preserved and the export goes to a conflict copy`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename = expectedExportFilename()
+        // Bookkeeping says we last wrote "exported body"; the vault holds the user's edit.
+        val previousExport = unmodifiedPreviousExport(expectedFilename, body = "body with user notes")
+        coEvery { exportRecords.lastExport(expectedFilename) } returns
+            ObsidianExportRecord(expectedFilename, sha256Hex("exported body"))
+        every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        val conflictFilename = expectedFilename.removeSuffix(".md") + " (conflict 1).md"
+        assertTrue(result.isSuccess)
+        assertEquals(ObsidianExportDisposition.CONFLICT, result.getOrNull()?.disposition)
+        assertEquals(conflictFilename, result.getOrNull()?.filename)
+        // The user's note is neither renamed aside nor deleted, and the new content lands
+        // under the conflict name.
+        verify(exactly = 0) { previousExport.renameTo(any()) }
+        verify(exactly = 0) { previousExport.delete() }
+        verify(exactly = 1) { harness.tempFile.renameTo(conflictFilename) }
+        // The next export tracks the conflict copy, so repeated re-exports update that copy
+        // instead of piling up conflict 2, 3, 4...
+        coVerify {
+            exportRecords.recordExport(
+                expectedFilename,
+                ObsidianExportRecord(conflictFilename, sha256Hex(harness.writtenContent())),
+            )
+        }
+    }
+
+    @Test
+    fun `an export predating hash bookkeeping is treated as edited`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename = expectedExportFilename()
+        val previousExport = mockk<DocumentFile>()
+        every { previousExport.name } returns expectedFilename
+        every { previousExport.uri } returns mockk()
+        every { harness.vaultDir.listFiles() } returns arrayOf(previousExport)
+        coEvery { exportRecords.lastExport(expectedFilename) } returns null
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        // No hash to compare against, so the note might hold edits — preserve it.
+        assertEquals(ObsidianExportDisposition.CONFLICT, result.getOrNull()?.disposition)
+        verify(exactly = 0) { previousExport.renameTo(any()) }
+    }
+
+    @Test
+    fun `a conflict copy this app wrote is updated in place on the next export`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename = expectedExportFilename()
+        val conflictFilename = expectedFilename.removeSuffix(".md") + " (conflict 1).md"
+        val userEdited = mockk<DocumentFile>()
+        every { userEdited.name } returns expectedFilename
+        every { userEdited.uri } returns mockk()
+        val conflictCopy = unmodifiedPreviousExport(conflictFilename, trackedAs = expectedFilename)
+        every { conflictCopy.delete() } returns true
+        every { harness.vaultDir.listFiles() } returns arrayOf(userEdited, conflictCopy)
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertEquals(ObsidianExportDisposition.UPDATED, result.getOrNull()?.disposition)
+        assertEquals(conflictFilename, result.getOrNull()?.filename)
+        verify(exactly = 1) { harness.tempFile.renameTo(conflictFilename) }
+        verify(exactly = 0) { userEdited.renameTo(any()) }
+        // The backup name keeps the base prefix so the leftover sweep can still find it.
+        verify { conflictCopy.renameTo(match { it.startsWith("$expectedFilename.bak.") }) }
+    }
+
+    @Test
+    fun `the conflict counter skips names already taken in the vault`() {
+        val existing = setOf("Note (2026-01-01 000000).md", "Note (2026-01-01 000000) (conflict 1).md")
+        assertEquals(
+            "Note (2026-01-01 000000) (conflict 2).md",
+            buildObsidianConflictFilename("Note (2026-01-01 000000).md", existing),
+        )
+        assertEquals(
+            "Note (2026-01-01 000000) (conflict 1).md",
+            buildObsidianConflictFilename("Note (2026-01-01 000000).md", emptySet()),
+        )
+    }
+
+    @Test
+    fun `export target replaces only a document that still hashes to the last export`() {
+        val base = "Note (2026-01-01 000000).md"
+        val record = ObsidianExportRecord(base, sha256Hex("exported"))
+
+        val unchanged =
+            decideObsidianExportTarget(base, record, setOf(base)) { sha256Hex("exported") }
+        assertEquals(ObsidianExportDisposition.UPDATED, unchanged.disposition)
+        assertEquals(base, unchanged.filename)
+        assertTrue(unchanged.replacesExisting)
+
+        val edited = decideObsidianExportTarget(base, record, setOf(base)) { sha256Hex("edited") }
+        assertEquals(ObsidianExportDisposition.CONFLICT, edited.disposition)
+        assertFalse(edited.replacesExisting)
+
+        // An unreadable document is indistinguishable from an edited one, so preserve it.
+        val unreadable = decideObsidianExportTarget(base, record, setOf(base)) { null }
+        assertEquals(ObsidianExportDisposition.CONFLICT, unreadable.disposition)
+    }
+
+    @Test
+    fun `export target creates the canonical note when nothing of ours is in the vault`() {
+        val base = "Note (2026-01-01 000000).md"
+
+        val firstExport = decideObsidianExportTarget(base, null, emptySet()) { null }
+        assertEquals(ObsidianExportDisposition.CREATED, firstExport.disposition)
+        assertEquals(base, firstExport.filename)
+
+        // Our tracked conflict copy was deleted but the user's note is still there: recreating
+        // the canonical name would overwrite the user's file.
+        val record = ObsidianExportRecord("$base.gone", sha256Hex("exported"))
+        val userNoteRemains = decideObsidianExportTarget(base, record, setOf(base)) { null }
+        assertEquals(ObsidianExportDisposition.CONFLICT, userNoteRemains.disposition)
+
+        // Nothing is there at all: write the canonical note again.
+        val vaultEmptied = decideObsidianExportTarget(base, record, emptySet()) { null }
+        assertEquals(ObsidianExportDisposition.CREATED, vaultEmptied.disposition)
+        assertEquals(base, vaultEmptied.filename)
+    }
+
+    @Test
+    fun `sha256Hex is stable and content sensitive`() {
+        assertEquals(sha256Hex("abc"), sha256Hex("abc"))
+        assertTrue(sha256Hex("abc") != sha256Hex("abd"))
+        assertEquals(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            sha256Hex("abc"),
+        )
+    }
+
+    // endregion
+
+    // region PERF: one cursor over the vault root instead of a query per child
+
+    @Test
+    fun `the vault scan reads every child name from a single cursor query`() = runTest {
+        val harness = successExportHarness()
+        val expectedFilename = expectedExportFilename()
+        mockkStatic(DocumentsContract::class)
+        val vaultDirUri = mockk<Uri>()
+        val childrenUri = mockk<Uri>()
+        every { harness.vaultDir.uri } returns vaultDirUri
+        every { DocumentsContract.getDocumentId(vaultDirUri) } returns "vault"
+        every { DocumentsContract.getDocumentId(harness.tempFileUri) } returns "temp"
+        every { DocumentsContract.buildChildDocumentsUriUsingTree(vaultDirUri, "vault") } returns childrenUri
+        val staleUri = mockk<Uri>()
+        every { DocumentsContract.buildDocumentUriUsingTree(vaultDirUri, "stale") } returns staleUri
+        val staleLeftover = mockk<DocumentFile>()
+        every { staleLeftover.delete() } returns true
+        every { DocumentFile.fromTreeUri(context, staleUri) } returns staleLeftover
+
+        // Rows: the in-flight temp document, an unrelated note, and a crashed export's leftover.
+        val cursor = mockk<Cursor>()
+        every { cursor.moveToNext() } returnsMany listOf(true, true, true, false)
+        every { cursor.getString(0) } returnsMany listOf("temp", "other", "stale")
+        every { cursor.getString(1) } returnsMany
+            listOf("whatever.md", "Unrelated.md", "$expectedFilename.tmp.deadbeef")
+        every { cursor.close() } just runs
+        every { contentResolver.query(childrenUri, any(), null, null, null) } returns cursor
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isSuccess)
+        // No per-child DocumentFile walk, and only the leftover was materialized.
+        verify(exactly = 0) { harness.vaultDir.listFiles() }
+        verify(exactly = 1) { contentResolver.query(childrenUri, any(), null, null, null) }
+        verify(exactly = 1) { staleLeftover.delete() }
+        // The in-flight temp document is skipped by document id, never swept.
+        verify(exactly = 0) { harness.tempFile.delete() }
+    }
+
+    @Test
+    fun `a failed child query falls back to the DocumentFile walk`() = runTest {
+        val harness = successExportHarness()
+        mockkStatic(DocumentsContract::class)
+        val vaultDirUri = mockk<Uri>()
+        every { harness.vaultDir.uri } returns vaultDirUri
+        every { DocumentsContract.getDocumentId(vaultDirUri) } returns "vault"
+        every { DocumentsContract.getDocumentId(harness.tempFileUri) } returns "temp"
+        every { DocumentsContract.buildChildDocumentsUriUsingTree(vaultDirUri, "vault") } returns mockk()
+        every { contentResolver.query(any(), any(), null, null, null) } returns null
+
+        val result = manager.export(harness.recording, "transcript", null, harness.vaultUri)
+
+        assertTrue(result.isSuccess)
+        verify(exactly = 1) { harness.vaultDir.listFiles() }
+    }
+
+    // endregion
+
+    /** The deterministic note name the harness recording maps to. */
+    private fun expectedExportFilename(): String =
+        buildObsidianExportFilename("Weekly Sync", CREATED_AT_EPOCH_MS, ZoneId.systemDefault())
+
+    /**
+     * A vault document that holds exactly what this app last exported, so a re-export is
+     * allowed to replace it. [trackedAs] is the base filename the bookkeeping is keyed by,
+     * which differs from [filename] once a conflict copy is being tracked.
+     */
+    private fun unmodifiedPreviousExport(
+        filename: String,
+        body: String = "previously exported body",
+        trackedAs: String = filename,
+    ): DocumentFile {
+        val document = mockk<DocumentFile>()
+        val uri = mockk<Uri>()
+        every { document.name } returns filename
+        every { document.uri } returns uri
+        every { document.renameTo(any()) } returns true
+        every { contentResolver.openInputStream(uri) } answers {
+            ByteArrayInputStream(body.toByteArray(Charsets.UTF_8))
+        }
+        coEvery { exportRecords.lastExport(trackedAs) } returns
+            ObsidianExportRecord(filename, sha256Hex(body))
+        return document
     }
 
     private class SuccessExportHarness(

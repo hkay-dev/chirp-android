@@ -42,6 +42,7 @@ import dev.chirpboard.app.feature.llm.client.TranscriptLlmContext
 import dev.chirpboard.app.feature.llm.repository.ProcessingModeRepository
 import dev.chirpboard.app.feature.llm.settings.LlmProvider
 import dev.chirpboard.app.feature.llm.settings.LlmPreferences
+import dev.chirpboard.app.feature.obsidian.ObsidianExportDisposition
 import dev.chirpboard.app.feature.obsidian.ObsidianManager
 import dev.chirpboard.app.feature.obsidian.ObsidianVaultAccessException
 import dev.chirpboard.app.feature.obsidian.settings.ObsidianPreferences
@@ -650,10 +651,16 @@ class ObsidianTranscriptExportPort
                     vaultUri = Uri.parse(vaultUri),
                     tags = tags,
                 ).fold(
-                    onSuccess = { exportedUri ->
-                        recordExportBookkeeping(recording, exportedUri)
+                    onSuccess = { export ->
+                        if (export.disposition == ObsidianExportDisposition.CONFLICT) {
+                            // The vault note was edited in Obsidian, so it was preserved and the
+                            // transcript went to a conflict copy. Bookkeeping still points at
+                            // what this export actually wrote.
+                            Log.i(TAG, "Obsidian note was edited; exported to ${export.filename}")
+                        }
+                        recordExportBookkeeping(recording, export.uri)
                         clearExportFailureNotification()
-                        Result.success(TranscriptExportOutcome(exportedUri = exportedUri.toString()))
+                        Result.success(TranscriptExportOutcome(exportedUri = export.uri.toString()))
                     },
                     onFailure = { error ->
                         if (error is kotlinx.coroutines.CancellationException) throw error
