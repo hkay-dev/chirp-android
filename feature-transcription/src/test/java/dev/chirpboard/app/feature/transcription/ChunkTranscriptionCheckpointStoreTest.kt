@@ -133,6 +133,18 @@ class ChunkTranscriptionCheckpointStoreTest {
     }
 
     @Test
+    fun load_ignoresACrashOrphanedStagingFile() {
+        store.append(recordingId, fingerprint, chunkIndex = 0, chunk = ChunkTranscription(text = "good"))
+        val dir = File(temporaryFolder.root, "transcription-chunk-checkpoints/$recordingId")
+        // What a crash mid-write leaves behind: the ".partial" staging file the sweepers match.
+        File(dir, "chunk-1.partial").writeText("v1\n${base64("half written")}\nuntimed")
+
+        val loaded = store.load(recordingId, fingerprint)
+
+        assertEquals(setOf(0), loaded.keys)
+    }
+
+    @Test
     fun clear_removesTheRecordingDirectory() {
         store.append(recordingId, fingerprint, chunkIndex = 0, chunk = ChunkTranscription(text = "done"))
 

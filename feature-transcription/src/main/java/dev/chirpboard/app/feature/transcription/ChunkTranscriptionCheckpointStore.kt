@@ -201,7 +201,9 @@ class ChunkTranscriptionCheckpointStore @Inject constructor(
     }
 
     private fun writeAtomically(target: File, payload: String) {
-        runCatching { DurableFiles.writeTextAtomically(target, payload) }
+        // ".partial" is the suffix this store's readers and sweeper are written around: a
+        // crash-orphaned staging file neither parses as a chunk nor as the fingerprint.
+        runCatching { DurableFiles.writeTextAtomically(target, payload, stagingSuffix = ".partial") }
             .onFailure { Log.w(TAG, "Failed to replace checkpoint file ${target.name}", it) }
     }
 
