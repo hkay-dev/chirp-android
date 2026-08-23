@@ -54,6 +54,8 @@ internal class KeyboardInputSessionGuard {
     private var activeInput = false
     private var lastEditorIdentity: KeyboardEditorIdentity? = null
     private var deferredCommit: DeferredDictationCommit? = null
+    private var composingPreviewShown = false
+    private var composingPreviewPrefix: String? = null
 
     /** True for blocked editors (password variants, null EditorInfo): dictation is refused. */
     val isSensitiveInput: Boolean
@@ -83,6 +85,10 @@ internal class KeyboardInputSessionGuard {
         val preserve = preserveSession || sameEditorRestart
         if (!preserve || nowBlocked || blockedInput || !activeInput) {
             generation += 1
+            // RELY-4: a new editor never carries the previous editor's composing preview; a
+            // preserved session keeps its preview state so the live text keeps updating.
+            composingPreviewShown = false
+            composingPreviewPrefix = null
         }
         blockedInput = nowBlocked
         learningSuppressed = info.isNoPersonalizedLearningInput()
@@ -96,6 +102,10 @@ internal class KeyboardInputSessionGuard {
         learningSuppressed = false
         activeInput = false
         lastEditorIdentity = null
+        // RELY-4: deliberately NOT clearing the editor's composing region here — if the session
+        // dies mid-dictation, the editor keeping the streamed preview is the crash protection.
+        composingPreviewShown = false
+        composingPreviewPrefix = null
     }
 
     fun captureCommitSession(): KeyboardInputCommitSession? =
@@ -164,6 +174,13 @@ internal class KeyboardInputSessionGuard {
         target.beginBatchEdit()
         val accepted =
             try {
+                // RELY-4: our own streamed preview occupies the composing region; remove it so
+                // the final commit replaces it instead of stacking after a finished copy of it.
+                if (composingPreviewShown) {
+                    composingPreviewShown = false
+                    composingPreviewPrefix = null
+                    target.setComposingText("", 1)
+                }
                 target.finishComposingText()
                 adjusted =
                     resolveDictationCommitText(
@@ -195,6 +212,41 @@ internal class KeyboardInputSessionGuard {
             return KeyboardDictationCommitResult.COMMITTED_AFTER_RETRY
         }
         return KeyboardDictationCommitResult.VERIFICATION_FAILED
+    }
+
+    /**
+     * RELY-4: streams a best-effort partial transcript into the editor as composing text while
+     * dictation is still recording, so a session that dies mid-flight loses only the tail —
+     * the editor keeps whatever was composed. The leading-space prefix is decided once per
+     * preview (before our own composing text pollutes the surrounding-context readback) and the
+     * final [commitIfCurrent] replaces the whole composed region with the authoritative text.
+     */
+    fun updateComposingPreview(
+        connection: InputConnection?,
+        text: String,
+    ): Boolean {
+        if (blockedInput || !activeInput || text.isEmpty()) return false
+        val target = connection ?: return false
+        val prefix =
+            composingPreviewPrefix ?: run {
+                val before = target.getTextBeforeCursor(1, 0)
+                (if (dictationNeedsLeadingSpace(before)) " " else "").also {
+                    composingPreviewPrefix = it
+                }
+            }
+        val shown = target.setComposingText(prefix + text, 1)
+        if (shown) {
+            composingPreviewShown = true
+        }
+        return shown
+    }
+
+    /** Removes a live composing preview (user cancelled the dictation). Safe no-op otherwise. */
+    fun clearComposingPreview(connection: InputConnection?) {
+        if (!composingPreviewShown) return
+        composingPreviewShown = false
+        composingPreviewPrefix = null
+        connection?.setComposingText("", 1)
     }
 
     private fun verifyReadback(
@@ -263,6 +315,12 @@ internal fun verifyDictationCommitReadback(
     return DictationCommitVerification.MISSING
 }
 
+/** Whether dictated text landing after [before]'s last character needs a separating space. */
+internal fun dictationNeedsLeadingSpace(before: CharSequence?): Boolean {
+    val lastBefore = before?.lastOrNull() ?: return false
+    return !lastBefore.isWhitespace() && lastBefore !in LEADING_SPACE_SUPPRESSING_CHARS
+}
+
 /** Characters after which dictation must NOT insert a leading space (openers, joiners). */
 private val LEADING_SPACE_SUPPRESSING_CHARS = setOf('(', '[', '{', '"', '\'', '“', '‘', '«', '¿', '¡', '/', '-', '@', '#')
 
@@ -281,12 +339,7 @@ internal fun resolveDictationCommitText(
 ): String {
     if (text.isEmpty()) return text
     var result = text
-    val lastBefore = before?.lastOrNull()
-    val needsLeadingSpace =
-        lastBefore != null &&
-            !lastBefore.isWhitespace() &&
-            lastBefore !in LEADING_SPACE_SUPPRESSING_CHARS
-    if (needsLeadingSpace && !result.first().isWhitespace()) {
+    if (dictationNeedsLeadingSpace(before) && !result.first().isWhitespace()) {
         result = " $result"
     }
     val nextAfter = after?.firstOrNull()

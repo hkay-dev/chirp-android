@@ -555,6 +555,70 @@ class KeyboardInputSessionGuardTest {
     }
 
     @Test
+    fun `composing preview streams with a stable leading-space prefix`() {
+        // RELY-4: the prefix is decided once from the pre-preview context; later updates must
+        // not re-read context that now contains our own composing text.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.getTextBeforeCursor(1, 0) } returns "o"
+        every { connection.setComposingText(any(), 1) } returns true
+        guard.startInput(EditorInfo())
+
+        assertTrue(guard.updateComposingPreview(connection, "hel"))
+        every { connection.getTextBeforeCursor(1, 0) } returns "l"
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+
+        verify { connection.setComposingText(" hel", 1) }
+        verify { connection.setComposingText(" hello", 1) }
+    }
+
+    @Test
+    fun `commit replaces an active composing preview inside the batch edit`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.setComposingText(any(), 1) } returns true
+        guard.startInput(EditorInfo())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+
+        assertTrue(guard.commitIfCurrent(session, connection, "hello world ").committed)
+
+        verify { connection.setComposingText("", 1) }
+        verify { connection.commitText("hello world ", 1) }
+    }
+
+    @Test
+    fun `clearComposingPreview removes only a shown preview`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.setComposingText(any(), 1) } returns true
+        guard.startInput(EditorInfo())
+
+        guard.clearComposingPreview(connection)
+        verify(exactly = 0) { connection.setComposingText(any(), any()) }
+
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+        guard.clearComposingPreview(connection)
+        verify { connection.setComposingText("", 1) }
+    }
+
+    @Test
+    fun `composing preview refuses blocked or inactive input`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+
+        assertFalse(guard.updateComposingPreview(connection, "hello"))
+
+        guard.startInput(
+            EditorInfo().apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            },
+        )
+        assertFalse(guard.updateComposingPreview(connection, "hello"))
+        verify(exactly = 0) { connection.setComposingText(any(), any()) }
+    }
+
+    @Test
     fun `resolveDictationCommitText covers spacing decisions`() {
         // No surrounding context: unchanged.
         assertEquals("hello ", resolveDictationCommitText(before = "", after = "", text = "hello "))

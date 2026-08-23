@@ -62,6 +62,7 @@ import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import dev.chirpboard.app.feature.keyboard.session.KeyboardSessionCoordinator
+import dev.chirpboard.app.feature.keyboard.session.VoicePanelPhase
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardScreen
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
@@ -265,6 +266,28 @@ class ChirpKeyboardService :
                 .collect { keepAwake -> updateImeKeepScreenOn(window?.window, keepAwake) }
         }
 
+        // RELY-4: while an LLM-off dictation records, stream the live partial transcript into
+        // the editor as composing text — a session that dies mid-flight loses only the tail,
+        // because the editor keeps the composed prefix. LLM-on sessions keep the panel-only
+        // preview (the polished history entry may differ from the raw partial). Deliberately
+        // NOT cleared when recording ends: the final commit replaces the composed region, and
+        // if the pipeline dies first the surviving preview IS the crash protection.
+        scope.launch {
+            coordinator.uiState.collect { state ->
+                val previewText =
+                    state.partialTranscript?.takeIf {
+                        state.voicePanel == VoicePanelPhase.Recording && !state.llmEnabled
+                    }
+                if (previewText != null) {
+                    inputSessionGuard.updateComposingPreview(currentInputConnection, previewText)
+                } else if (state.voicePanel == VoicePanelPhase.Recording) {
+                    // LLM toggled on mid-recording (or the partial vanished): drop the preview
+                    // so stale composing text never underlies the eventual commit.
+                    inputSessionGuard.clearComposingPreview(currentInputConnection)
+                }
+            }
+        }
+
         stopBridgeRegistration =
             keyboardStopBridge.registerStopHandler {
                 stopAndTranscribeForCurrentInput()
@@ -464,7 +487,12 @@ class ChirpKeyboardService :
                     waveformBuffer = coordinator.capture.waveformBuffer,
                     sampleCountFlow = coordinator.capture.sampleCountFlow,
                     onMicTap = ::onMicTapForCurrentInput,
-                    onCancel = coordinator::cancelRecording,
+                    onCancel = {
+                        // RELY-4: a user cancel is the one end that must NOT leave the streamed
+                        // preview behind — the user just said "discard this dictation".
+                        inputSessionGuard.clearComposingPreview(currentInputConnection)
+                        coordinator.cancelRecording()
+                    },
                     onRestart = coordinator::restartRecording,
                     onToggleLlm = coordinator::toggleLlm,
                     onModeChange = coordinator::changeMode,
