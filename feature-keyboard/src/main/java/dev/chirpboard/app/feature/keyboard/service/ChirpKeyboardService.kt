@@ -282,7 +282,12 @@ private const val VOICE_SUBTYPE_MODE = "voice"
             coordinator.uiState.collect { state ->
                 val previewText =
                     state.partialTranscript?.takeIf {
-                        state.voicePanel == VoicePanelPhase.Recording && !state.llmEnabled
+                        state.voicePanel == VoicePanelPhase.Recording &&
+                            !state.llmEnabled &&
+                            // A cancel can race a queued Recording emission; the live check keeps
+                            // the stale partial from re-composing into the editor after the user
+                            // already dismissed the session.
+                            coordinator.isRecordingActive()
                     }
                 if (previewText != null) {
                     inputSessionGuard.updateComposingPreview(currentInputConnection, previewText)
@@ -638,7 +643,10 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         }
         val suppressHistory = inputSessionGuard.isLearningSuppressed
         inputSessionGuard.finishInput()
-        voiceSubtypeSession = false
+        // voiceSubtypeSession deliberately survives here: the view routinely finishes between
+        // arriving under the voice subtype and the commit, and dropping the latch would strand
+        // the user on Chirp instead of returning to their keyboard. It clears only when the
+        // switch-back runs or the next bind arrives under a non-voice subtype.
         finalizeRecordingForClosedKeyboard(suppressHistory)
     }
 
@@ -649,7 +657,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
                 delay(CONFIG_CHANGE_GRACE_MS)
                 val suppressHistory = inputSessionGuard.isLearningSuppressed
                 inputSessionGuard.finishInput()
-                voiceSubtypeSession = false
                 finalizeRecordingForClosedKeyboard(suppressHistory)
             }
     }
@@ -745,6 +752,9 @@ private const val VOICE_SUBTYPE_MODE = "voice"
             }
             return
         }
+        // A finalized preview remembered from an earlier session must never dedup against this
+        // new dictation's commit — from here on, whatever is in the editor stays.
+        inputSessionGuard.onDictationStarting()
         // KBD-3: a tap while the model is still warming must drive the load forward rather than
         // dead-end. initializeModel() is idempotent (guards on isReady()/in-flight job), so this
         // promotes the user's intent into a warm even if the IME-bind warm has not landed yet.
@@ -794,14 +804,20 @@ private const val VOICE_SUBTYPE_MODE = "voice"
                 dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
                     dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_REFUSALS,
                 )
-                return handleRefusedCommit(session, text)
+                // A refusal can still land through the deferred retry path; when it does, the
+                // voice-subtype return below must fire too, so fall through with its outcome.
+                val landed = handleRefusedCommit(session, text)
+                if (landed) {
+                    returnFromVoiceSubtypeIfNeeded()
+                }
+                return landed
             }
             KeyboardDictationCommitResult.VERIFICATION_FAILED -> {
                 Log.w(TAG, "Editor accepted the dictation commit but the text never appeared")
                 dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.countEvent(
                     dev.chirpboard.app.core.reliability.DictationReliabilityMetric.COMMIT_VERIFY_MISMATCHES,
                 )
-                coordinator.setSessionError(commitFailureMessage(text))
+                coordinator.setSessionError(commitFailureMessage(session, text))
             }
         }
         if (result.committed) {
@@ -826,14 +842,18 @@ private const val VOICE_SUBTYPE_MODE = "voice"
                 return true
             }
             val message =
-                if (copyFailedCommitToClipboard(text)) {
+                if (!inputSessionGuard.hasDeferredCommit) {
+                    // The immediate retry consumed the deferral (verification failure); nothing
+                    // is pending anymore, so report a plain failure instead of a deferral.
+                    commitFailureMessage(session, text)
+                } else if (copyFailedCommitToClipboard(text, session.learningSuppressed)) {
                     getString(R.string.keyboard_commit_deferred)
                 } else {
                     getString(R.string.keyboard_input_changed)
                 }
             coordinator.setSessionError(message)
         } else {
-            coordinator.setSessionError(commitFailureMessage(text))
+            coordinator.setSessionError(commitFailureMessage(session, text))
         }
         return false
     }
@@ -850,10 +870,17 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         val session = inputSessionGuard.captureCommitSession() ?: return false
         val result = inputSessionGuard.commitIfCurrent(session, currentInputConnection, pending)
         if (!result.committed) {
+            if (result == KeyboardDictationCommitResult.VERIFICATION_FAILED) {
+                // The editor swallowed the batch without surfacing the text. Retrying the same
+                // deferral on the next rebind risks committing twice into an editor that did
+                // take it silently; drop it and let the clipboard fallback carry the recovery.
+                inputSessionGuard.clearDeferredCommit()
+            }
             return false
         }
         inputSessionGuard.clearDeferredCommit()
         coordinator.clearErrorOverlay()
+        returnFromVoiceSubtypeIfNeeded()
         Log.i(TAG, "Deferred dictation commit landed after the editor rebound")
         return true
     }
@@ -865,15 +892,23 @@ private const val VOICE_SUBTYPE_MODE = "voice"
      * can. Skipped for incognito sessions — their text must not outlive the session — and never
      * reached for sensitive fields, which cannot capture a commit session at all.
      */
-    private fun commitFailureMessage(text: String): String =
-        if (copyFailedCommitToClipboard(text)) {
+    private fun commitFailureMessage(
+        session: KeyboardInputCommitSession,
+        text: String,
+    ): String =
+        if (copyFailedCommitToClipboard(text, session.learningSuppressed)) {
             getString(R.string.keyboard_commit_failed_copied)
         } else {
             getString(R.string.keyboard_input_changed)
         }
 
-    private fun copyFailedCommitToClipboard(text: String): Boolean {
-        if (text.isBlank() || inputSessionGuard.isLearningSuppressed) return false
+    private fun copyFailedCommitToClipboard(
+        text: String,
+        learningSuppressed: Boolean,
+    ): Boolean {
+        // The suppression flag travels with the captured session: the guard's live flag resets
+        // when the editor unbinds, which is exactly when this fallback runs for incognito text.
+        if (text.isBlank() || learningSuppressed) return false
         return runCatching {
             val clipboard =
                 getSystemService(android.content.ClipboardManager::class.java) ?: return false
