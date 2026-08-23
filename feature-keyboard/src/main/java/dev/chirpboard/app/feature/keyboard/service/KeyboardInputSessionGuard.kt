@@ -7,6 +7,9 @@ import android.view.inputmethod.InputConnection
 internal data class KeyboardInputCommitSession(
     val generation: Long,
     val editorIdentity: KeyboardEditorIdentity? = null,
+    // Captured at session-capture time: the live guard flag resets on finishInput, and a commit
+    // that outlives its editor must honor the incognito state of the session it was dictated in.
+    val learningSuppressed: Boolean = false,
 )
 
 /**
@@ -45,6 +48,17 @@ private data class DeferredDictationCommit(
     val editorIdentity: KeyboardEditorIdentity,
     val text: String,
     val deadlineElapsedMs: Long,
+    val learningSuppressed: Boolean,
+)
+
+/**
+ * A streamed composing preview that the framework finalized into plain text when the input
+ * session ended mid-dictation (RELY-4). Remembered so the same dictation's eventual commit into
+ * the same editor can remove the finalized copy instead of appending after it.
+ */
+private data class FinalizedComposingPreview(
+    val editorIdentity: KeyboardEditorIdentity,
+    val text: String,
 )
 
 internal class KeyboardInputSessionGuard {
@@ -56,6 +70,8 @@ internal class KeyboardInputSessionGuard {
     private var deferredCommit: DeferredDictationCommit? = null
     private var composingPreviewShown = false
     private var composingPreviewPrefix: String? = null
+    private var composingPreviewText: String? = null
+    private var finalizedPreview: FinalizedComposingPreview? = null
 
     /** True for blocked editors (password variants, null EditorInfo): dictation is refused. */
     val isSensitiveInput: Boolean
@@ -87,8 +103,10 @@ internal class KeyboardInputSessionGuard {
             generation += 1
             // RELY-4: a new editor never carries the previous editor's composing preview; a
             // preserved session keeps its preview state so the live text keeps updating.
+            rememberFinalizedPreview()
             composingPreviewShown = false
             composingPreviewPrefix = null
+            composingPreviewText = null
         }
         blockedInput = nowBlocked
         learningSuppressed = info.isNoPersonalizedLearningInput()
@@ -97,22 +115,37 @@ internal class KeyboardInputSessionGuard {
     }
 
     fun finishInput() {
+        // An incognito session's transcript must not outlive its editor, so a deferral captured
+        // in a learning-suppressed session dies with the input instead of waiting out its window.
+        if (deferredCommit?.learningSuppressed == true) {
+            deferredCommit = null
+        }
+        // RELY-4: deliberately NOT clearing the editor's composing region here — if the session
+        // dies mid-dictation, the editor keeping the streamed preview is the crash protection.
+        // The framework finalizes that region into plain text; remember it so the transcript's
+        // eventual commit can replace the finalized copy instead of appending after it.
+        rememberFinalizedPreview()
         generation += 1
         blockedInput = false
         learningSuppressed = false
         activeInput = false
         lastEditorIdentity = null
-        // RELY-4: deliberately NOT clearing the editor's composing region here — if the session
-        // dies mid-dictation, the editor keeping the streamed preview is the crash protection.
         composingPreviewShown = false
         composingPreviewPrefix = null
+        composingPreviewText = null
+    }
+
+    private fun rememberFinalizedPreview() {
+        val identity = lastEditorIdentity ?: return
+        val previewText = composingPreviewText?.takeIf { composingPreviewShown } ?: return
+        finalizedPreview = FinalizedComposingPreview(identity, previewText)
     }
 
     fun captureCommitSession(): KeyboardInputCommitSession? =
         if (blockedInput || !activeInput) {
             null
         } else {
-            KeyboardInputCommitSession(generation, lastEditorIdentity)
+            KeyboardInputCommitSession(generation, lastEditorIdentity, learningSuppressed)
         }
 
     /**
@@ -127,12 +160,17 @@ internal class KeyboardInputSessionGuard {
         nowElapsedMs: Long,
     ): Boolean {
         val identity = session.editorIdentity ?: return false
+        // Fail closed on degenerate field ids: Compose editors and id-less EditTexts all report
+        // 0 / NO_ID, so identity cannot distinguish fields there — a deferral could land the
+        // transcript in whichever same-typed field the user focuses next. Clipboard fallback only.
+        if (identity.fieldId == 0 || identity.fieldId == -1) return false
         if (text.isBlank()) return false
         deferredCommit =
             DeferredDictationCommit(
                 editorIdentity = identity,
                 text = text,
                 deadlineElapsedMs = nowElapsedMs + DEFERRED_DICTATION_COMMIT_WINDOW_MS,
+                learningSuppressed = session.learningSuppressed,
             )
         return true
     }
@@ -147,6 +185,9 @@ internal class KeyboardInputSessionGuard {
         val pending = deferredCommit ?: return null
         if (nowElapsedMs > pending.deadlineElapsedMs) {
             deferredCommit = null
+            // The finalized-preview memory exists only to dedup THIS transcript's commit; once
+            // the transcript can no longer land, deleting matching editor text would be wrong.
+            finalizedPreview = null
             return null
         }
         if (blockedInput || !activeInput) return null
@@ -157,6 +198,10 @@ internal class KeyboardInputSessionGuard {
     fun clearDeferredCommit() {
         deferredCommit = null
     }
+
+    /** Whether a deferred dictation commit is still being held for a future rebind. */
+    val hasDeferredCommit: Boolean
+        get() = deferredCommit != null
 
     fun commitIfCurrent(
         session: KeyboardInputCommitSession,
@@ -179,8 +224,21 @@ internal class KeyboardInputSessionGuard {
                 if (composingPreviewShown) {
                     composingPreviewShown = false
                     composingPreviewPrefix = null
+                    composingPreviewText = null
                     target.setComposingText("", 1)
+                } else {
+                    // RELY-4: a session boundary let the framework finalize the preview into
+                    // plain text. If that exact text still sits before the cursor in the same
+                    // editor, remove it — this commit is the authoritative version of it.
+                    finalizedPreview?.let { stale ->
+                        if (stale.editorIdentity == lastEditorIdentity &&
+                            target.getTextBeforeCursor(stale.text.length, 0)?.toString() == stale.text
+                        ) {
+                            target.deleteSurroundingText(stale.text.length, 0)
+                        }
+                    }
                 }
+                finalizedPreview = null
                 target.finishComposingText()
                 adjusted =
                     resolveDictationCommitText(
@@ -234,18 +292,33 @@ internal class KeyboardInputSessionGuard {
                     composingPreviewPrefix = it
                 }
             }
-        val shown = target.setComposingText(prefix + text, 1)
+        val previewText = prefix + text
+        val shown = target.setComposingText(previewText, 1)
         if (shown) {
             composingPreviewShown = true
+            composingPreviewText = previewText
         }
         return shown
     }
 
+    /**
+     * A new dictation is starting: any remembered finalized preview belongs to an older one,
+     * and deleting editor text on its behalf during the new dictation's commit would drop text
+     * the user chose to keep.
+     */
+    fun onDictationStarting() {
+        finalizedPreview = null
+    }
+
     /** Removes a live composing preview (user cancelled the dictation). Safe no-op otherwise. */
     fun clearComposingPreview(connection: InputConnection?) {
+        // The user discarded the dictation, so a remembered finalized copy must never be
+        // deleted out of the editor by a later commit either.
+        finalizedPreview = null
         if (!composingPreviewShown) return
         composingPreviewShown = false
         composingPreviewPrefix = null
+        composingPreviewText = null
         connection?.setComposingText("", 1)
     }
 

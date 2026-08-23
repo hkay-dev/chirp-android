@@ -555,6 +555,123 @@ class KeyboardInputSessionGuardTest {
     }
 
     @Test
+    fun `deferCommit refuses degenerate field ids`() {
+        // Compose editors and id-less EditTexts all report fieldId 0 / NO_ID; identity cannot
+        // tell such fields apart, so a deferral could land in the wrong one. Fail closed.
+        val guard = KeyboardInputSessionGuard()
+        for (degenerateId in intArrayOf(0, -1)) {
+            guard.startInput(
+                EditorInfo().apply {
+                    fieldId = degenerateId
+                    packageName = "com.example.chat"
+                    inputType = InputType.TYPE_CLASS_TEXT
+                },
+            )
+            val session = requireNotNull(guard.captureCommitSession())
+
+            assertFalse(guard.deferCommit(session, "hello", nowElapsedMs = 1_000L))
+            assertFalse(guard.hasDeferredCommit)
+        }
+    }
+
+    @Test
+    fun `commit session captures learning suppression at capture time`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(
+            chatEditor().apply { imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING },
+        )
+        val session = requireNotNull(guard.captureCommitSession())
+
+        // The live flag resets on finishInput, but the captured session keeps the truth so
+        // late fallbacks (clipboard copy) still honor the incognito field the text came from.
+        guard.finishInput()
+
+        assertTrue(session.learningSuppressed)
+        assertFalse(guard.isLearningSuppressed)
+    }
+
+    @Test
+    fun `finishInput drops a deferral captured in an incognito field`() {
+        val guard = KeyboardInputSessionGuard()
+        guard.startInput(
+            chatEditor().apply { imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING },
+        )
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.deferCommit(session, "secret", nowElapsedMs = 1_000L))
+
+        guard.finishInput()
+        guard.startInput(
+            chatEditor().apply { imeOptions = EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING },
+        )
+
+        assertNull(guard.deferredCommitTextForCurrentEditor(nowElapsedMs = 2_000L))
+        assertFalse(guard.hasDeferredCommit)
+    }
+
+    @Test
+    fun `deferred commit deletes the finalized composing preview it duplicates`() {
+        // The framework finalizes a live composing preview when input finishes; the deferred
+        // commit would then append the full transcript AFTER that already-inserted text. The
+        // guard must recognize its own finalized preview and replace it.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.setComposingText(any(), 1) } returns true
+        every { connection.getTextBeforeCursor(5, 0) } returns "hello"
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+        guard.finishInput()
+        assertTrue(guard.deferCommit(session, "hello world ", nowElapsedMs = 1_000L))
+
+        guard.startInput(chatEditor())
+        val rebound = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.commitIfCurrent(rebound, connection, "hello world ").committed)
+
+        verify { connection.deleteSurroundingText(5, 0) }
+        verify { connection.commitText("hello world ", 1) }
+    }
+
+    @Test
+    fun `finalized preview is left alone when the editor text differs`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.setComposingText(any(), 1) } returns true
+        // The user edited after the preview finalized; deleting would destroy their text.
+        every { connection.getTextBeforeCursor(5, 0) } returns "hey!!"
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+        guard.finishInput()
+        assertTrue(guard.deferCommit(session, "hello world ", nowElapsedMs = 1_000L))
+
+        guard.startInput(chatEditor())
+        val rebound = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.commitIfCurrent(rebound, connection, "hello world ").committed)
+
+        verify(exactly = 0) { connection.deleteSurroundingText(any(), any()) }
+    }
+
+    @Test
+    fun `starting a new dictation forgets the finalized preview`() {
+        // Text kept in the editor from an earlier session must never be deleted by a NEW
+        // dictation whose transcript happens to match it.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.setComposingText(any(), 1) } returns true
+        every { connection.getTextBeforeCursor(5, 0) } returns "hello"
+        guard.startInput(chatEditor())
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+        guard.finishInput()
+
+        guard.startInput(chatEditor())
+        guard.onDictationStarting()
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.commitIfCurrent(session, connection, "hello world ").committed)
+
+        verify(exactly = 0) { connection.deleteSurroundingText(any(), any()) }
+    }
+
+    @Test
     fun `composing preview streams with a stable leading-space prefix`() {
         // RELY-4: the prefix is decided once from the pre-preview context; later updates must
         // not re-read context that now contains our own composing text.
