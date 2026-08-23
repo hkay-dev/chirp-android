@@ -43,12 +43,32 @@ class RecordingEnhancementWorker
             // terminal retryable state instead of retrying forever.
             internal const val MAX_RUN_ATTEMPTS = 12
 
+            // WorkManager kills a worker that runs past ten minutes, losing everything this
+            // attempt produced. Three LLM calls run in sequence here and each can burn its
+            // full retry budget (~183s after LlmChatService stopped retrying whole-call
+            // timeouts), so the chain can reach ~9 minutes. Once this budget is spent the
+            // remaining subwork is recorded as failed and the attempt commits what it has,
+            // leaving the raw transcript intact instead of being killed mid-way.
+            internal const val ENHANCEMENT_BUDGET_MS = 8L * 60 * 1_000
+
+            private const val NANOS_PER_MILLISECOND = 1_000_000
+            private const val BUDGET_EXHAUSTED_MESSAGE =
+                "Enhancement ran out of time before this step could start"
+
             internal fun shouldRetry(
                 exception: Throwable,
                 runAttemptCount: Int,
                 maxRunAttempts: Int = MAX_RUN_ATTEMPTS,
             ): Boolean = exception is IOException && runAttemptCount + 1 < maxRunAttempts
         }
+
+        /**
+         * Monotonic clock seam. nanoTime rather than SystemClock.elapsedRealtime so the
+         * budget is exercisable on a plain JVM unit test without Robolectric.
+         */
+        internal var nowMsOverrideForTest: (() -> Long)? = null
+
+        private fun nowMs(): Long = nowMsOverrideForTest?.invoke() ?: (System.nanoTime() / NANOS_PER_MILLISECOND)
 
         override suspend fun doWork(): Result {
             val recordingIdString =
@@ -163,6 +183,9 @@ class RecordingEnhancementWorker
             trySetWorkerForeground(buildEnhancementForegroundInfo(applicationContext), TAG)
             enhancementLog.started("enhancement_started")
 
+            val budgetDeadlineMs = nowMs() + ENHANCEMENT_BUDGET_MS
+            fun budgetExhausted(): Boolean = nowMs() >= budgetDeadlineMs
+
             val baseProcessedText =
                 transcript.processedText
                     ?: wordReplacer.apply(
@@ -210,6 +233,12 @@ class RecordingEnhancementWorker
             }
 
             execution.processingModeId?.takeIf { execution.processingMode.shouldRun() }?.let { modeId ->
+                if (budgetExhausted()) {
+                    processingStatus = EnhancementSubworkStatus.FAILED
+                    processingError = BUDGET_EXHAUSTED_MESSAGE
+                    Log.w(TAG, "Skipping transcript transform: $BUDGET_EXHAUSTED_MESSAGE")
+                    return@let
+                }
                 val transformResult =
                     textEnhancement.processResolved(
                         context = enrichmentContext,
@@ -242,7 +271,11 @@ class RecordingEnhancementWorker
                 }
             }
 
-            if (execution.title.shouldRun()) {
+            if (execution.title.shouldRun() && budgetExhausted()) {
+                titleStatus = EnhancementSubworkStatus.FAILED
+                titleError = BUDGET_EXHAUSTED_MESSAGE
+                Log.w(TAG, "Skipping title generation: $BUDGET_EXHAUSTED_MESSAGE")
+            } else if (execution.title.shouldRun()) {
                 val titleResult =
                     textEnhancement.generateTitle(enrichmentContext)
                 if (titleResult.isSuccess) {
@@ -275,7 +308,11 @@ class RecordingEnhancementWorker
                 }
             }
 
-            if (execution.summary.shouldRun()) {
+            if (execution.summary.shouldRun() && budgetExhausted()) {
+                summaryStatus = EnhancementSubworkStatus.FAILED
+                summaryError = BUDGET_EXHAUSTED_MESSAGE
+                Log.w(TAG, "Skipping summary generation: $BUDGET_EXHAUSTED_MESSAGE")
+            } else if (execution.summary.shouldRun()) {
                 val summaryResult =
                     textEnhancement.generateSummary(enrichmentContext)
                 if (summaryResult.isSuccess) {

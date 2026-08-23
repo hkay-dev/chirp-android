@@ -397,6 +397,41 @@ class RecordingEnhancementWorkerTest {
             coVerify(exactly = 0) { completionExporter.exportIfCompleted(any()) }
         }
 
+    @Test
+    fun `exhausted time budget records subwork errors instead of running past the WorkManager ceiling`() =
+        runTest {
+            val recordingId = UUID.randomUUID()
+            every { workerParams.inputData } returns inputData(recordingId)
+            coEvery { recordingRepository.beginEnhancement(recordingId, EXECUTION_TOKEN) } returns snapshot(recordingId)
+            val committed = slot<RecordingEnhancementResult>()
+            coEvery {
+                recordingRepository.completeEnhancement(
+                    recordingId,
+                    EXECUTION_TOKEN,
+                    "raw transcript||",
+                    any(),
+                    capture(committed),
+                )
+            } returns true
+            textEnhancement.available = true
+
+            val worker = worker()
+            var reads = 0
+            // First read establishes the deadline; every later read is already past it.
+            worker.nowMsOverrideForTest = {
+                if (reads++ == 0) 0L else RecordingEnhancementWorker.ENHANCEMENT_BUDGET_MS
+            }
+
+            val result = worker.doWork()
+
+            assertEquals(ListenableWorker.Result.success(), result)
+            assertEquals(0, textEnhancement.titleCalls)
+            assertEquals(0, textEnhancement.summaryCalls)
+            assertEquals(EnhancementSubworkStatus.FAILED, committed.captured.titleStatus)
+            assertEquals(EnhancementSubworkStatus.FAILED, committed.captured.summaryStatus)
+            assertTrue(committed.captured.titleError!!.contains("ran out of time"))
+        }
+
     private fun worker(): RecordingEnhancementWorker =
         RecordingEnhancementWorker(
             appContext = context,
