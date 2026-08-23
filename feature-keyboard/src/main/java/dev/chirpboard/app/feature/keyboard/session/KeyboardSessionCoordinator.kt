@@ -1036,8 +1036,12 @@ class KeyboardSessionCoordinator(
     ) {
         durableCheckpointJob?.cancel()
         if (suppressHistory || cloudCapture) return
+        // Like the rolling-transcription poller above, this ticker lives on Dispatchers.Default:
+        // it samples the capture on a wall-clock cadence rather than participating in the
+        // ordered teardown writes, so it must not inherit teardownDispatcher's (test-injectable,
+        // virtual-time) clock — a session left recording would keep its timer queue busy forever.
         durableCheckpointJob =
-            scope.launch(teardownDispatcher) {
+            scope.launch(Dispatchers.Default) {
                 var lastCheckpointSampleCount = 0
                 while (isRecording.value) {
                     delay(DURABLE_CHECKPOINT_INTERVAL_MS)
