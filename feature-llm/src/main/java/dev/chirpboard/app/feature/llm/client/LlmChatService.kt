@@ -23,6 +23,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -160,7 +162,7 @@ class LlmChatService
 
         private fun shouldRetry(error: Throwable): Boolean =
             when (error) {
-                is IOException -> true
+                is IOException -> LlmResponseGuards.isRetriableIoFailure(error)
                 is LlmHttpException -> error.code == 429 || error.code >= 500
                 else -> false
             }
@@ -170,15 +172,10 @@ class LlmChatService
             model: String,
             prompt: String,
         ): Result<String> {
-            val requestBody = gson.toJson(GeminiRequest.of(prompt))
+            val requestBody = gson.toJson(GeminiRequest.of(prompt, MAX_OUTPUT_TOKENS))
             val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent"
             return postJson(url, requestBody, geminiHeaders(apiKey)).mapCatching { body ->
-                val response = gson.fromJson(body, GeminiResponse::class.java)
-                if (response.error != null) {
-                    throw Exception(response.error.message ?: "Gemini API error")
-                }
-                response.extractText()?.trim()?.takeIf { it.isNotBlank() }
-                    ?: throw Exception("Empty response")
+                parseGeminiText(body)
             }
         }
 
@@ -199,15 +196,17 @@ class LlmChatService
                 systemPrompt
                     .takeIf { it.isNotBlank() }
                     ?.let { GeminiRequest.Content(parts = listOf(GeminiRequest.Part(text = it))) }
-            val requestBody = gson.toJson(GeminiRequest(contents = contents, systemInstruction = systemInstruction))
+            val requestBody =
+                gson.toJson(
+                    GeminiRequest(
+                        contents = contents,
+                        systemInstruction = systemInstruction,
+                        generationConfig = GeminiRequest.GenerationConfig(maxOutputTokens = MAX_OUTPUT_TOKENS),
+                    ),
+                )
             val url = "$GEMINI_BASE_URL/v1beta/models/$model:generateContent"
             return postJson(url, requestBody, geminiHeaders(apiKey)).mapCatching { body ->
-                val response = gson.fromJson(body, GeminiResponse::class.java)
-                if (response.error != null) {
-                    throw Exception(response.error.message ?: "Gemini API error")
-                }
-                response.extractText()?.trim()?.takeIf { it.isNotBlank() }
-                    ?: throw Exception("Empty response")
+                parseGeminiText(body)
             }
         }
 
@@ -263,7 +262,7 @@ class LlmChatService
             val payload =
                 AnthropicRequest(
                     model = model,
-                    maxTokens = DEFAULT_MAX_TOKENS,
+                    maxTokens = MAX_OUTPUT_TOKENS,
                     system = null,
                     messages = listOf(AnthropicMessage(role = "user", content = prompt)),
                 )
@@ -281,7 +280,7 @@ class LlmChatService
             val payload =
                 AnthropicRequest(
                     model = model,
-                    maxTokens = DEFAULT_MAX_TOKENS,
+                    maxTokens = MAX_OUTPUT_TOKENS,
                     system = systemPrompt,
                     messages =
                         messages.map { message ->
@@ -296,12 +295,33 @@ class LlmChatService
             }
         }
 
+        private fun parseGeminiText(body: String): String {
+            val response = gson.fromJson(body, GeminiResponse::class.java)
+            if (response.error != null) {
+                throw Exception(response.error.message ?: "Gemini API error")
+            }
+            val finishReason = response.candidates?.firstOrNull()?.finishReason
+            if (LlmResponseGuards.isGeminiIncomplete(finishReason)) {
+                throw LlmResponseIncompleteException(
+                    LlmResponseGuards.incompleteMessage("Gemini", finishReason),
+                )
+            }
+            return response.extractText()?.trim()?.takeIf { it.isNotBlank() }
+                ?: throw Exception("Empty response")
+        }
+
         private fun parseOpenAiText(
             body: String,
             model: String,
         ): String {
             val response = gson.fromJson(body, OpenAiChatResponse::class.java)
-            val text = response.choices?.firstOrNull()?.message?.content?.trim()
+            val choice = response.choices?.firstOrNull()
+            if (LlmResponseGuards.isOpenAiTruncated(choice?.finishReason)) {
+                throw LlmResponseIncompleteException(
+                    LlmResponseGuards.truncatedMessage(model),
+                )
+            }
+            val text = choice?.message?.content?.trim()
             if (!text.isNullOrBlank()) {
                 return text
             }
@@ -317,6 +337,11 @@ class LlmChatService
             model: String,
         ): String {
             val response = gson.fromJson(body, AnthropicResponse::class.java)
+            if (LlmResponseGuards.isAnthropicTruncated(response.stopReason)) {
+                throw LlmResponseIncompleteException(
+                    LlmResponseGuards.truncatedMessage(model),
+                )
+            }
             val text = response.content?.firstOrNull()?.text?.trim()
             if (!text.isNullOrBlank()) {
                 return text
@@ -430,6 +455,7 @@ class LlmChatService
         @Keep
         private data class OpenAiChoice(
             @SerializedName("message") val message: OpenAiChatMessage? = null,
+            @SerializedName("finish_reason") val finishReason: String? = null,
         )
 
         @Keep
@@ -454,6 +480,7 @@ class LlmChatService
         @Keep
         private data class AnthropicResponse(
             @SerializedName("content") val content: List<AnthropicContentBlock>? = null,
+            @SerializedName("stop_reason") val stopReason: String? = null,
             @SerializedName("error") val error: AnthropicError? = null,
         )
 
@@ -470,7 +497,15 @@ class LlmChatService
         companion object {
             private const val TAG = "LlmChatService"
             private const val MAX_ATTEMPTS = 3
-            private const val DEFAULT_MAX_TOKENS = 4096
+
+            // A whole-transcript enhancement of a long dictation routinely exceeds the old
+            // 4096 cap, and a capped completion used to be stored as processedText (a
+            // half transcript preferred over rawText everywhere, Obsidian export included).
+            // 16384 is inside the output ceiling of every model in LlmModelCatalog for both
+            // Anthropic and Gemini; the OpenAI-compatible paths send no cap and take the
+            // model default. Truncation is now an error rather than a silent success, so an
+            // even longer response fails loudly instead of being persisted.
+            internal const val MAX_OUTPUT_TOKENS = 16_384
             private const val ANTHROPIC_VERSION = "2023-06-01"
             private const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
             private const val OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
@@ -479,3 +514,45 @@ class LlmChatService
             private const val ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
         }
     }
+
+/**
+ * A provider returned a response that is not a complete answer: the output hit the token
+ * ceiling, or generation stopped for safety/recitation reasons. Not an [IOException], so it
+ * is never retried and the enhancement worker records it as a subwork error and keeps the
+ * raw transcript instead of persisting a half transcript as processedText.
+ */
+class LlmResponseIncompleteException(
+    message: String,
+) : Exception(message)
+
+/** Pure decision helpers for [LlmChatService], split out so they are unit-testable. */
+internal object LlmResponseGuards {
+    // OkHttp surfaces the whole-call budget (callTimeout) as a bare InterruptedIOException
+    // with message "timeout", while a stall on one socket - connect, read or write - arrives
+    // as its SocketTimeoutException subclass. The whole-call budget already spans every
+    // connect/DNS retry OkHttp made internally, so retrying it just multiplies 90s by
+    // MAX_ATTEMPTS (~273s per call); three chained calls in RecordingEnhancementWorker then
+    // blow past WorkManager's 10 minute ceiling and the worker is killed mid-way. A single
+    // socket stall is worth another attempt, so only that subclass is retried.
+    fun isRetriableIoFailure(error: IOException): Boolean =
+        error !is InterruptedIOException || error is SocketTimeoutException
+
+    fun isAnthropicTruncated(stopReason: String?): Boolean = stopReason == "max_tokens"
+
+    fun isOpenAiTruncated(finishReason: String?): Boolean = finishReason == "length"
+
+    // Gemini only reports a fully generated candidate as STOP; MAX_TOKENS, SAFETY,
+    // RECITATION and friends all mean the text is partial. An absent reason is tolerated
+    // because some responses omit the field entirely.
+    fun isGeminiIncomplete(finishReason: String?): Boolean =
+        !finishReason.isNullOrBlank() && !finishReason.equals("STOP", ignoreCase = true)
+
+    fun truncatedMessage(model: String): String =
+        "$model stopped at the ${LlmChatService.MAX_OUTPUT_TOKENS} token output limit, " +
+            "so the response is incomplete. Shorten the transcript or pick a model with a larger output limit."
+
+    fun incompleteMessage(
+        providerName: String,
+        finishReason: String?,
+    ): String = "$providerName returned an incomplete response (finishReason=$finishReason)."
+}

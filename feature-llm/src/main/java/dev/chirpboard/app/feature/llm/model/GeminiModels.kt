@@ -7,7 +7,9 @@ data class GeminiRequest(
     @SerializedName("contents")
     val contents: List<Content>,
     @SerializedName("systemInstruction")
-    val systemInstruction: Content? = null
+    val systemInstruction: Content? = null,
+    @SerializedName("generationConfig")
+    val generationConfig: GenerationConfig? = null
 ) {
     @Keep
     data class Content(
@@ -23,9 +25,16 @@ data class GeminiRequest(
         val text: String
     )
 
+    @Keep
+    data class GenerationConfig(
+        @SerializedName("maxOutputTokens")
+        val maxOutputTokens: Int
+    )
+
     companion object {
-        fun of(text: String) = GeminiRequest(
-            contents = listOf(Content(parts = listOf(Part(text = text))))
+        fun of(text: String, maxOutputTokens: Int? = null) = GeminiRequest(
+            contents = listOf(Content(parts = listOf(Part(text = text)))),
+            generationConfig = maxOutputTokens?.let { GenerationConfig(maxOutputTokens = it) }
         )
     }
 }
@@ -40,7 +49,9 @@ data class GeminiResponse(
     @Keep
     data class Candidate(
         @SerializedName("content")
-        val content: Content?
+        val content: Content?,
+        @SerializedName("finishReason")
+        val finishReason: String? = null
     )
 
     @Keep
