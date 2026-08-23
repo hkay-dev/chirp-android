@@ -10,6 +10,7 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
@@ -75,6 +76,55 @@ class TextProcessorTest {
                 )
             }
         }
+
+    @Test
+    fun `smart detection keeps email true positives`() {
+        listOf(
+            "Dear John, please find the attachment.",
+            "Hi Bob, thanks for the update.",
+            "Hello team, following up on yesterday. Kind regards, Sam.",
+            "Sincerely, Alex",
+        ).forEach { text ->
+            assertEquals(text, ProcessingMode.Email, textProcessor.detectContentType(text))
+        }
+    }
+
+    @Test
+    fun `smart detection keeps code true positives`() {
+        listOf(
+            "public static void main(String[] args) {}",
+            "const total = items.filter(x => x.price != null)",
+            "def parse(payload): return payload",
+        ).forEach { text ->
+            assertEquals(text, ProcessingMode.Code, textProcessor.detectContentType(text))
+        }
+    }
+
+    @Test
+    fun `smart detection ignores email words hidden inside other words`() {
+        listOf(
+            // "hi " used to match inside "sushi ".
+            "We had sushi for lunch and it was excellent.",
+            // A lone polite word is not an email.
+            "Thanks, that machine finally stopped rebooting.",
+            "Hello there.",
+        ).forEach { text ->
+            assertEquals(text, ProcessingMode.Formal, textProcessor.detectContentType(text))
+        }
+    }
+
+    @Test
+    fun `smart detection ignores stray punctuation and single code words`() {
+        listOf(
+            // A single parenthesis used to be enough to pick Code.
+            "The quarterly numbers (finally) came in above plan.",
+            // "class " used to match ordinary prose.
+            "The class was cancelled because the room was double booked.",
+            "Let me know if the return policy changed.",
+        ).forEach { text ->
+            assertEquals(text, ProcessingMode.Formal, textProcessor.detectContentType(text))
+        }
+    }
 
     @Test
     fun `process with Smart mode detects code`() =
