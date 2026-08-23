@@ -507,7 +507,13 @@ private const val VOICE_SUBTYPE_MODE = "voice"
                         // that sent us here — leaving Chirp up would strand the user.
                         returnFromVoiceSubtypeIfNeeded()
                     },
-                    onRestart = coordinator::restartRecording,
+                    onRestart = {
+                        // A restart discards the current dictation like a cancel does; the
+                        // streamed preview must go with it, or a failed re-start strands the
+                        // old partial in the editor with nothing left to replace it.
+                        inputSessionGuard.clearComposingPreview(currentInputConnection)
+                        coordinator.restartRecording()
+                    },
                     onToggleLlm = coordinator::toggleLlm,
                     onModeChange = coordinator::changeMode,
                     onBackspace = { deletePreviousCharacter(currentInputConnection) },

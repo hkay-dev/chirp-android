@@ -55,7 +55,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.RandomAccessFile
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 class KeyboardSessionCoordinator(
@@ -117,7 +120,22 @@ class KeyboardSessionCoordinator(
     private var modelInitJob: Job? = null
     @Volatile private var rollingTranscriptionJob: Job? = null
     @Volatile private var durableCheckpointJob: Job? = null
-    @Volatile private var streamingCheckpointsActive = false
+
+    /**
+     * Fences the rolling-transcription poller to its own session. The poller's native accept()
+     * call has no cancellation point, so a cancelled session-1 job can outlive session-2's
+     * start; every externally visible write (live partial, checkpoints) checks the epoch it was
+     * launched with so a stale job can never leak session-1 text or PCM state into session 2.
+     */
+    private val streamingSessionEpoch = AtomicLong(0)
+
+    /**
+     * When the streaming preview last journaled a checkpoint (monotonic ms; 0 = never). The
+     * durable ticker stands down only while these stay fresh — a preview session whose
+     * recognizer returns nothing writes no checkpoints, and the ticker must then keep the
+     * capture recoverable instead of trusting a preview that never delivered.
+     */
+    @Volatile private var lastStreamingCheckpointAtMs = 0L
     @Volatile private var streamingPreviewPrepareJob: Job? = null
     @Volatile private var streamingPreviewReady = false
     @Volatile private var liveCaptureJournalJob: Job? = null
@@ -445,11 +463,20 @@ class KeyboardSessionCoordinator(
     fun prepareStreamingPreview() {
         if (streamingPreviewReady || streamingPreviewPrepareJob?.isActive == true) return
         val provider = streamingTranscriberProvider ?: return
-        streamingPreviewPrepareJob =
-            scope.launch(Dispatchers.IO) {
+        val prepareJob =
+            scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                 streamingPreviewReady = runCatching { provider.prepare() }.getOrDefault(false)
+            }
+        streamingPreviewPrepareJob = prepareJob
+        // Identity-checked null-out on completion (instead of inside the coroutine body): a
+        // destroy() that joins this job must still find it in the field, and a re-prepare that
+        // won the field must not be clobbered by the old job's tail.
+        prepareJob.invokeOnCompletion {
+            if (streamingPreviewPrepareJob === prepareJob) {
                 streamingPreviewPrepareJob = null
             }
+        }
+        prepareJob.start()
     }
 
     /**
@@ -923,6 +950,7 @@ class KeyboardSessionCoordinator(
                 // event loop does not pump the Looper). All work in the tail (RecordingStateManager,
                 // transcription, persistence, AtomicReference) is thread-safe off Main.
                 withContext(NonCancellable) {
+                    val checkpointSource = activeCheckpointSource()
                     val audioSource =
                         try {
                             awaitLiveCaptureJournal()
@@ -930,6 +958,14 @@ class KeyboardSessionCoordinator(
                         } finally {
                             recorderGate.complete()
                         }
+                    if (audioSource == null) {
+                        // Too short / no samples: the recorder discarded the capture, so any
+                        // checkpoint sidecar journaled for it must go too, or the next recovery
+                        // sweep resurrects a dictation the session already dropped.
+                        checkpointSource?.let { source ->
+                            runCatching { persistence.clearCheckpoint(source) }
+                        }
+                    }
                     capture.latestIntegrityReport()?.let { report -> latencyTrace?.recordIntegrity(report) }
                     latencyTrace?.mark("audio_synced")
                     finishStopAfterTeardown(audioSource, commitText, suppressHistory)
@@ -949,6 +985,7 @@ class KeyboardSessionCoordinator(
     private fun startRollingTranscription(suppressHistory: Boolean) {
         rollingTranscriptionJob?.cancel()
         if (selectedEngine.value != TranscriptionEngine.LOCAL_PARAKEET) return
+        val epoch = streamingSessionEpoch.incrementAndGet()
         rollingTranscriptionJob =
             scope.launch(Dispatchers.Default) {
                 val streamingSession =
@@ -963,11 +1000,8 @@ class KeyboardSessionCoordinator(
                 var previewReported = false
                 var lastCheckpointSampleCount = 0
                 val checkpointPersistence = persistence.takeUnless { suppressHistory }
-                // The preview's ~3s checkpoints supersede the slower durable-audio ticker for
-                // this session; the flag hands the job back on any preview teardown.
-                streamingCheckpointsActive = checkpointPersistence != null
                 try {
-                    while (isRecording.value) {
+                    while (isRecording.value && streamingSessionEpoch.get() == epoch) {
                         val snapshot = capture.activeFileBackedSnapshot()
                         if (snapshot != null && snapshot.sampleCount > consumedSamples) {
                             val samples =
@@ -981,6 +1015,10 @@ class KeyboardSessionCoordinator(
                             if (samples.isNotEmpty()) {
                                 consumedSamples += samples.size
                                 streamingSession.accept(samples).takeIf { it.isNotBlank() }?.let { text ->
+                                    // The blocking accept() above may have straddled a session
+                                    // change; a stale epoch means this text belongs to a dead
+                                    // session and must not surface or journal anywhere.
+                                    if (streamingSessionEpoch.get() != epoch) return@let
                                     livePartialTranscript.value = text
                                     if (!previewReported) {
                                         previewReported = true
@@ -1007,6 +1045,9 @@ class KeyboardSessionCoordinator(
                                                 partialTranscript = text,
                                                 estimatedGapMs = capture.latestIntegrityReport()?.estimatedGapMs,
                                             )
+                                        }.onSuccess {
+                                            lastStreamingCheckpointAtMs =
+                                                System.nanoTime() / NANOS_PER_MILLISECOND
                                         }.onFailure { error ->
                                             Log.w(tag, "Could not checkpoint streaming preview", error)
                                         }
@@ -1017,7 +1058,6 @@ class KeyboardSessionCoordinator(
                         delay(STREAMING_TRANSCRIPTION_POLL_MS)
                     }
                 } finally {
-                    streamingCheckpointsActive = false
                     runCatching { streamingSession.close() }
                 }
             }
@@ -1036,6 +1076,7 @@ class KeyboardSessionCoordinator(
     ) {
         durableCheckpointJob?.cancel()
         if (suppressHistory || cloudCapture) return
+        lastStreamingCheckpointAtMs = 0L
         // Like the rolling-transcription poller above, this ticker lives on Dispatchers.Default:
         // it samples the capture on a wall-clock cadence rather than participating in the
         // ordered teardown writes, so it must not inherit teardownDispatcher's (test-injectable,
@@ -1046,8 +1087,17 @@ class KeyboardSessionCoordinator(
                 while (isRecording.value) {
                     delay(DURABLE_CHECKPOINT_INTERVAL_MS)
                     if (!isRecording.value) break
-                    // The streaming preview's own ~3s checkpoints make this ticker redundant.
-                    if (streamingCheckpointsActive) continue
+                    // The streaming preview's own ~3s checkpoints make this ticker redundant —
+                    // but only while they actually happen. A preview that opened yet produced no
+                    // text (silence, an unready recognizer) journals nothing, so stand down only
+                    // when a streaming checkpoint landed within this ticker's own interval.
+                    val streamingCheckpointAtMs = lastStreamingCheckpointAtMs
+                    if (streamingCheckpointAtMs != 0L &&
+                        System.nanoTime() / NANOS_PER_MILLISECOND - streamingCheckpointAtMs <
+                        DURABLE_CHECKPOINT_INTERVAL_MS
+                    ) {
+                        continue
+                    }
                     val snapshot = capture.activeFileBackedSnapshot() ?: continue
                     if (snapshot.sampleCount <= lastCheckpointSampleCount) continue
                     lastCheckpointSampleCount = snapshot.sampleCount
@@ -1071,6 +1121,10 @@ class KeyboardSessionCoordinator(
     }
 
     private fun stopRollingTranscription() {
+        // Invalidate the session epoch first: cancel() cannot interrupt a poller blocked in
+        // the native accept() call, and its late result must not write anywhere once the
+        // session is over.
+        streamingSessionEpoch.incrementAndGet()
         rollingTranscriptionJob?.cancel()
         rollingTranscriptionJob = null
         durableCheckpointJob?.cancel()
@@ -1287,6 +1341,10 @@ class KeyboardSessionCoordinator(
                 }
 
             is KeyboardDictationHandoffResult.Durable -> {
+                // The queued recording row now owns this capture; the live-session checkpoint
+                // sidecar would otherwise linger and could persist the same dictation twice
+                // through the next recovery sweep.
+                runCatching { persistence.clearCheckpoint(audioSource) }
                 val cancelled = cancelRequestedDuringTeardown.getAndSet(false)
                 if (cancelled) {
                     val discarded =
@@ -1393,9 +1451,16 @@ class KeyboardSessionCoordinator(
                 // runBlocking join never deadlocks waiting on a Main-confined continuation.
                 cancelJob =
                     scope.launch(teardownDispatcher) {
+                        // The first-durable-audio checkpoint may already exist for this capture;
+                        // clear it with the same snapshot-before-teardown ordering as the main
+                        // cancel path below.
+                        val checkpointSource = activeCheckpointSource()
                         awaitLiveCaptureJournal()
                         capture.cancelCapture()
                         abandonActiveLiveCapture()
+                        checkpointSource?.let { source ->
+                            runCatching { persistence.clearCheckpoint(source) }
+                        }
                         recordingStateManager.onRecordingCompleted()
                         transcription.resetPhase()
                         clearPendingStop()
@@ -1447,15 +1512,33 @@ class KeyboardSessionCoordinator(
                 // the recorder mid-teardown. The whole body runs on teardownDispatcher so
                 // awaitInFlightTeardown's main-thread runBlocking join never deadlocks waiting on a
                 // Main-confined continuation.
+                // Snapshot the capture identity before teardown deletes the file: any durable
+                // or streaming checkpoint journaled for this session would otherwise survive as
+                // an orphaned sidecar and could resurrect the cancelled dictation on the next
+                // recovery sweep.
+                val checkpointSource = activeCheckpointSource()
                 awaitLiveCaptureJournal()
                 capture.cancelCapture()
                 abandonActiveLiveCapture()
+                checkpointSource?.let { source ->
+                    runCatching { persistence.clearCheckpoint(source) }
+                }
                 persistence.discardSamples()
                 recordingStateManager.onRecordingCompleted()
                 transcription.resetPhase()
                 clearPendingStop()
             }
     }
+
+    /** The active capture's file identity, for clearing its checkpoint sidecar on discard. */
+    private fun activeCheckpointSource(): InlineAudioSource.PcmFloatFile? =
+        capture.activeFileBackedSnapshot()?.let { snapshot ->
+            InlineAudioSource.PcmFloatFile(
+                path = snapshot.file.absolutePath,
+                sampleCount = snapshot.sampleCount.toLong(),
+                sampleRate = snapshot.sampleRate,
+            )
+        }
 
     fun restartRecording() {
         cancelRecording()
@@ -1495,6 +1578,7 @@ class KeyboardSessionCoordinator(
                         // NonCancellable rescue tail keeps running past scope.cancel(). The whole body
                         // runs on teardownDispatcher so awaitInFlightTeardown's main-thread runBlocking
                         // join never deadlocks waiting on a Main-confined continuation.
+                        val checkpointSource = activeCheckpointSource()
                         val audioSource =
                             try {
                                 awaitLiveCaptureJournal()
@@ -1502,6 +1586,13 @@ class KeyboardSessionCoordinator(
                             } finally {
                                 recorderGate.complete()
                             }
+                        if (audioSource == null) {
+                            // Same orphaned-sidecar cleanup as the stop path: the recorder
+                            // discarded a too-short capture, so its checkpoint must go too.
+                            checkpointSource?.let { source ->
+                                runCatching { persistence.clearCheckpoint(source) }
+                            }
+                        }
                         if (suppressHistory) {
                             // Keep the established no-learning behavior. A focus-close is a
                             // rescue, so its audio still survives even though normal incognito
@@ -1620,10 +1711,15 @@ internal fun readIncrementalPcmSamples(
         RandomAccessFile(path, "r").use { input ->
             val completeSamples = minOf(availableSamples.toLong(), input.length() / Float.SIZE_BYTES).toInt()
             if (completeSamples <= startSample) return@use FloatArray(0)
+            val sampleCount = completeSamples - startSample
+            // One bulk read instead of a readInt() syscall per sample: at 16kHz this poll used
+            // to issue tens of thousands of 4-byte reads per second.
+            val bytes = ByteArray(sampleCount * Float.SIZE_BYTES)
             input.seek(startSample.toLong() * Float.SIZE_BYTES)
-            FloatArray(completeSamples - startSample) {
-                Float.fromBits(Integer.reverseBytes(input.readInt()))
-            }
+            input.readFully(bytes)
+            val samples = FloatArray(sampleCount)
+            ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer().get(samples)
+            samples
         }
     }.getOrDefault(FloatArray(0))
 }
