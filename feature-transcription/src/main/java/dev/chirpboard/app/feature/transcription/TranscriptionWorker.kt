@@ -625,7 +625,10 @@ class TranscriptionWorker
                     mimeType = cloudMimeType(sourceFile),
                 )
             }
-            if (sourceFile.length() % Float.SIZE_BYTES != 0L) {
+            // A crash mid-write can leave a partial trailing float; the samples before it are
+            // intact, so drop the partial one instead of discarding the whole recording.
+            val sampleCount = sourceFile.length() / Float.SIZE_BYTES
+            if (sampleCount <= 0L) {
                 throw NonRetryableTranscriptionException("Raw keyboard audio is truncated")
             }
             val safeToken = executionToken.filter { it.isLetterOrDigit() }.take(64)
@@ -639,7 +642,7 @@ class TranscriptionWorker
                     runCatching { durableWavFile.delete() }
                     audioEncoder.encodePcmFloatFile(
                         inputPath = sourceFile.absolutePath,
-                        sampleCount = sourceFile.length() / Float.SIZE_BYTES,
+                        sampleCount = sampleCount,
                         sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
                         outputPath = durableWavFile.absolutePath,
                         format = RecordingOutputFormat.WAV,

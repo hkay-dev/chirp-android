@@ -827,6 +827,60 @@ class TranscriptionWorkerTest {
         }
 
     @Test
+    fun `cloud keyboard audio truncated mid-sample drops only the partial trailing float`() =
+        runTest {
+            // 66 bytes: 16 whole samples plus a half-written 17th from a crash mid-write.
+            val rawAudio = temporaryFolder.newFile("partial-keyboard-capture.f32pcm").apply {
+                writeBytes(ByteArray(66))
+            }
+            stubOwnedRecording(
+                audioPathOverride = rawAudio.absolutePath,
+                transcriptionEngine = TranscriptionEngine.GOOGLE_CLOUD_CHIRP_3,
+            )
+            val encodedPath = slot<String>()
+            every {
+                audioEncoder.encodePcmFloatFile(
+                    inputPath = rawAudio.absolutePath,
+                    sampleCount = 16L,
+                    sampleRate = AudioDecoder.TARGET_SAMPLE_RATE,
+                    outputPath = capture(encodedPath),
+                    format = RecordingOutputFormat.WAV,
+                    config = any(),
+                )
+            } answers {
+                writeValidWav(encodedPath.captured)
+                true
+            }
+            coEvery {
+                recordingRepository.swapAudioPathForTranscriptionExecution(
+                    recordingId = recordingId,
+                    executionToken = EXECUTION_TOKEN,
+                    expectedAudioPath = rawAudio.absolutePath,
+                    newAudioPath = any(),
+                )
+            } returns true
+            coEvery { cloudTranscriber.transcribeFile(any()) } returns
+                TranscriptionOutcome.Success("cloud transcript")
+            coEvery {
+                recordingRepository.commitTranscriptionResult(
+                    transcript = any(),
+                    timings = any(),
+                    enhancementIntent = any(),
+                    expectedExecutionToken = EXECUTION_TOKEN,
+                    enhancementExecutionToken = any(),
+                )
+            } returns true
+
+            val result = worker().doWork()
+
+            assertTrue(result is ListenableWorker.Result.Success)
+            coVerify(exactly = 1) { cloudTranscriber.transcribeFile(any()) }
+            coVerify(exactly = 0) {
+                recordingRepository.failTranscriptionExecution(any(), any(), any(), any())
+            }
+        }
+
+    @Test
     fun `rejected cloud audio path swap keeps raw audio and deletes the unowned wav`() =
         runTest {
             val rawAudio = temporaryFolder.newFile("stale-keyboard-capture.f32pcm").apply {
