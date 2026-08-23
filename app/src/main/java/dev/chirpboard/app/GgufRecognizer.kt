@@ -515,7 +515,21 @@ internal object GgufNativeSessionReservation {
 }
 
 internal object GgufNativeCapabilities {
-    val supportsVulkan: Boolean by lazy { GgufNativeRecognizer().supportsVulkan() }
+    /**
+     * Resolving this dlopens the native libraries; on a device or ABI where a .so is absent
+     * or unloadable, construction throws UnsatisfiedLinkError (an Error, not an Exception).
+     * The probe is read from Application.onCreate in a scope with no exception handler and
+     * the IME shares this process, so an unguarded throw crash-looped both on every launch.
+     * A failed probe caches as "no Vulkan" and the CPU backend takes over.
+     */
+    val supportsVulkan: Boolean by lazy {
+        try {
+            GgufNativeRecognizer().supportsVulkan()
+        } catch (error: Throwable) {
+            android.util.Log.e("GgufNativeCapabilities", "Vulkan capability probe failed", error)
+            false
+        }
+    }
 }
 
 internal fun effectiveGgufComputeBackend(
