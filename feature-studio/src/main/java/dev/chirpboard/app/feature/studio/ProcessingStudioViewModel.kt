@@ -1425,6 +1425,12 @@ class ProcessingStudioViewModel
 
         override fun onCleared() {
             cancelRecordingObservation()
+            cancelPlaybackReveal()
+            // Opening a Studio prepares the recording, which binds the playback service and
+            // opens a decoder. Leaving without ever pressing play has no other teardown
+            // point, so the bind would survive for the rest of the process. The controller
+            // ignores this once anything has played.
+            currentRecordingId?.let(playbackController::releaseIfNeverPlayed)
             super.onCleared()
         }
 

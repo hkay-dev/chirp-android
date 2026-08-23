@@ -1,7 +1,13 @@
 package dev.chirpboard.app.core.playback
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingStateManager
@@ -10,6 +16,8 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.slot
+import io.mockk.unmockkAll
 import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +42,7 @@ class RecordingPlaybackControllerTest {
 
     private val recordingStateManager = RecordingStateManager()
     private val audioSettingsStore = mockk<AudioSettingsStore>(relaxed = true)
+    private val listenerSlot = slot<Player.Listener>()
 
     @Before
     fun setUp() {
@@ -53,6 +62,7 @@ class RecordingPlaybackControllerTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkStatic(Log::class)
+        unmockkAll()
     }
 
     @Test
@@ -231,6 +241,71 @@ class RecordingPlaybackControllerTest {
     }
 
     @Test
+    fun releaseIfNeverPlayed_clearsAStudioPrepareThatNeverPlayed() {
+        val controller = controller(testContext())
+        val recordingId = UUID.randomUUID()
+
+        controller.onStudioOpened(recordingId, "Clip", "/does/not/exist.m4a")
+        controller.releaseIfNeverPlayed(recordingId)
+
+        assertTrue(controller.state.value.isIdle)
+    }
+
+    @Test
+    fun releaseIfNeverPlayed_keepsPlaybackTheUserStarted() {
+        val context = testContext()
+        every { context.getString(R.string.playback_blocked_while_recording) } returns BLOCKED_MESSAGE
+        val controller = controller(context)
+        val recordingId = UUID.randomUUID()
+        recordingStateManager.tryStartRecording(RecordingOrigin.APP)
+        // Refused, but hasStartedPlayback is set: the user asked for this one.
+        controller.play(recordingId, "Clip", "/does/not/exist.m4a")
+
+        controller.releaseIfNeverPlayed(recordingId)
+
+        assertEquals(recordingId, controller.state.value.recordingId)
+    }
+
+    @Test
+    fun releaseIfNeverPlayed_ignoresADifferentRecording() {
+        val controller = controller(testContext())
+        val prepared = UUID.randomUUID()
+
+        controller.onStudioOpened(prepared, "Clip", "/does/not/exist.m4a")
+        controller.releaseIfNeverPlayed(UUID.randomUUID())
+
+        assertEquals(prepared, controller.state.value.recordingId)
+    }
+
+    @Test
+    fun strayPlayerCallback_doesNotClobberAnErrorRaisedForAnotherRecording() {
+        val context = testContext()
+        every { context.getString(R.string.playback_blocked_while_recording) } returns BLOCKED_MESSAGE
+        val controller = controller(context)
+        val playing = UUID.randomUUID()
+        val refused = UUID.randomUUID()
+        val player = fakePlayer(playing)
+        controller.connectController = { player }
+
+        controller.prepare(playing, "Playing clip", temporaryFolder.newFile("a.m4a").absolutePath)
+        assertEquals(playing, controller.state.value.recordingId)
+
+        // A capture starts, the user taps play on a second recording: the refusal is shown
+        // for `refused` while the player still holds `playing`.
+        recordingStateManager.tryStartRecording(RecordingOrigin.APP)
+        controller.play(refused, "Refused clip", "/does/not/exist.m4a")
+        assertEquals(refused, controller.state.value.recordingId)
+        assertEquals(BLOCKED_MESSAGE, controller.state.value.errorMessage)
+
+        // The position ticker and the callbacks from pausing the old item land ~100ms later.
+        capturedListener().onPlaybackStateChanged(Player.STATE_READY)
+
+        val state = controller.state.value
+        assertEquals(refused, state.recordingId)
+        assertEquals(BLOCKED_MESSAGE, state.errorMessage)
+    }
+
+    @Test
     fun setPlaybackSpeed_persistenceFailure_stillAppliesTheSpeed() {
         coEvery { audioSettingsStore.setPlaybackSpeed(any()) } throws RuntimeException("datastore offline")
         val controller = controller(testContext())
@@ -239,6 +314,36 @@ class RecordingPlaybackControllerTest {
 
         assertEquals(1.5f, controller.state.value.playbackSpeed)
     }
+
+    /**
+     * A connected MediaController that keeps reporting [recordingId] as its loaded item, so a
+     * stray callback fired after an unrelated failure syncs the *old* recording.
+     */
+    private fun fakePlayer(recordingId: UUID): MediaController {
+        val uri = mockk<Uri>(relaxed = true)
+        mockkStatic(Uri::class)
+        every { Uri.parse(any()) } returns uri
+        val mediaItem =
+            MediaItem.Builder()
+                .setMediaId(recordingId.toString())
+                .setUri(uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle("Playing clip").build())
+                .build()
+        return mockk(relaxed = true) {
+            every { isConnected } returns true
+            every { currentMediaItem } returns mediaItem
+            every { mediaItemCount } returns 1
+            every { playerError } returns null
+            every { playbackState } returns Player.STATE_READY
+            every { isPlaying } returns false
+            every { duration } returns 1_000L
+            every { currentPosition } returns 0L
+            every { playbackParameters } returns PlaybackParameters(1f)
+            every { addListener(capture(listenerSlot)) } returns Unit
+        }
+    }
+
+    private fun capturedListener(): Player.Listener = listenerSlot.captured
 
     private fun controller(context: Context): RecordingPlaybackController =
         RecordingPlaybackController(context, recordingStateManager, audioSettingsStore)

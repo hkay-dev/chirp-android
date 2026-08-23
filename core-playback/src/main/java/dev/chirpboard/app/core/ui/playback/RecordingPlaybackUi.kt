@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -52,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.playback.R as PlaybackR
 import dev.chirpboard.app.core.ui.R
 import dev.chirpboard.app.core.util.formatAsDuration
+
+/** Seek labels change at most once per second; the position tick runs at 10 Hz. */
+private const val MILLIS_PER_SECOND = 1_000L
 
 /** Tabular-figure time readout style so advancing playback digits do not jitter (PRM-8). */
 @Composable
@@ -89,14 +94,23 @@ internal fun PlaybackTimelineRow(
             positionMs
         }
 
+    val sliderEnabled = enabled && durationMs > 0
+    // onValueChangeFinished never arrives if the slider is disabled mid-drag (a playback
+    // error), which would freeze the timeline on the drag fraction for good.
+    LaunchedEffect(sliderEnabled) {
+        if (!sliderEnabled) isDragging = false
+    }
+
     // TalkBack reads the raw 0..1 fraction as a bare percentage; describe the position
-    // in time instead ("1:20 of 3:42").
+    // in time instead ("1:20 of 3:42"). Recomputed once per displayed second, not on
+    // every 10 Hz position tick.
+    val positionLabel = remember(displayedPositionMs / MILLIS_PER_SECOND) { displayedPositionMs.formatAsDuration() }
+    val durationLabel = remember(durationMs) { durationMs.formatAsDuration() }
+    val resources = LocalContext.current.resources
     val seekStateDescription =
-        stringResource(
-            PlaybackR.string.playback_seek_position,
-            displayedPositionMs.formatAsDuration(),
-            durationMs.formatAsDuration(),
-        )
+        remember(resources, positionLabel, durationLabel) {
+            resources.getString(PlaybackR.string.playback_seek_position, positionLabel, durationLabel)
+        }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -113,7 +127,7 @@ internal fun PlaybackTimelineRow(
                 onSeek((dragFraction * durationMs).toLong())
                 isDragging = false
             },
-            enabled = enabled && durationMs > 0,
+            enabled = sliderEnabled,
             modifier =
                 Modifier
                     .fillMaxWidth()
@@ -126,12 +140,12 @@ internal fun PlaybackTimelineRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = displayedPositionMs.formatAsDuration(),
+                text = positionLabel,
                 style = timeReadoutStyle(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = durationMs.formatAsDuration(),
+                text = durationLabel,
                 style = timeReadoutStyle(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -303,12 +317,21 @@ internal fun MiniPlayerSeekTrack(
         } else {
             positionMs
         }
+    val sliderEnabled = enabled && durationMs > 0
+    // onValueChangeFinished never arrives if the slider is disabled mid-drag (a playback
+    // error), which would freeze the track on the drag fraction for good.
+    LaunchedEffect(sliderEnabled) {
+        if (!sliderEnabled) isDragging = false
+    }
+
+    // Recomputed once per displayed second rather than on every 10 Hz position tick.
+    val resources = LocalContext.current.resources
+    val positionLabel = remember(displayedPositionMs / MILLIS_PER_SECOND) { displayedPositionMs.formatAsDuration() }
+    val durationLabel = remember(durationMs) { durationMs.formatAsDuration() }
     val miniSeekStateDescription =
-        stringResource(
-            PlaybackR.string.playback_seek_position,
-            displayedPositionMs.formatAsDuration(),
-            durationMs.formatAsDuration(),
-        )
+        remember(resources, positionLabel, durationLabel) {
+            resources.getString(PlaybackR.string.playback_seek_position, positionLabel, durationLabel)
+        }
 
     // 32dp hit area (was 16dp): the visual 2dp track stays centered, but a sliver this
     // thin was nearly impossible to grab by touch or focus with TalkBack/switch access.
@@ -343,7 +366,7 @@ internal fun MiniPlayerSeekTrack(
                 onSeek((dragFraction * durationMs).toLong())
                 isDragging = false
             },
-            enabled = enabled && durationMs > 0,
+            enabled = sliderEnabled,
             modifier =
                 Modifier
                     .fillMaxWidth()

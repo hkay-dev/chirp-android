@@ -2,6 +2,7 @@ package dev.chirpboard.app.core.playback
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
@@ -65,7 +66,17 @@ class RecordingPlaybackService : MediaSessionService() {
                 ),
             )
         }
-        mediaSession = sessionBuilder.build()
+        // A build failure here (a duplicate SESSION_ID while two service instances overlap)
+        // used to strand the fully built player, wakelock included, for the process lifetime:
+        // onDestroy released it only through the session that never existed.
+        mediaSession =
+            runCatching { sessionBuilder.build() }
+                .onFailure { error ->
+                    Log.e(TAG, "Failed to build playback session", error)
+                    exoPlayer.release()
+                    player = null
+                    stopSelf()
+                }.getOrNull()
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
@@ -79,16 +90,16 @@ class RecordingPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        mediaSession?.run {
-            player.release()
-            release()
-        }
+        // Released independently: the player must not depend on the session existing.
+        mediaSession?.release()
         mediaSession = null
+        player?.release()
         player = null
         super.onDestroy()
     }
 
     companion object {
         const val SESSION_ID = "chirp-recording-playback"
+        private const val TAG = "RecordingPlaybackSvc"
     }
 }

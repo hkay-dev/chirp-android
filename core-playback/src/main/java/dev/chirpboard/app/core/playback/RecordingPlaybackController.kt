@@ -84,7 +84,7 @@ class RecordingPlaybackController
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (isPlaying) {
-                        refreshMutedVolumeNotice()
+                        scope.launch { refreshMutedVolumeNotice() }
                     }
                     syncFromPlayer()
                     if (isPlaying) {
@@ -102,6 +102,17 @@ class RecordingPlaybackController
                 }
 
                 override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                    syncFromPlayer()
+                }
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    // A seek from outside the app (lock-screen scrub, Bluetooth) while paused
+                    // produces no other callback: without this the timeline keeps showing the
+                    // pre-seek position until playback resumes.
                     syncFromPlayer()
                 }
 
@@ -216,6 +227,9 @@ class RecordingPlaybackController
             audioPath: String,
         ) {
             pauseIfDifferentRecording(recordingId)
+            // The ticker still points at whatever was loaded; leaving it running would sync
+            // that item over the refusal message.
+            positionJob?.cancel()
             _state.value =
                 RecordingPlaybackState(
                     recordingId = recordingId,
@@ -340,6 +354,20 @@ class RecordingPlaybackController
             }
         }
 
+        /**
+         * Teardown for a Studio that only ever prepared [recordingId]: opening the screen
+         * binds the playback service and opens a decoder, and stop() is otherwise reachable
+         * only from the mini-player close (hidden until playback starts) or a delete. Does
+         * nothing once anything has played, so leaving a Studio never kills audio that is
+         * still audible — including playback another screen started.
+         */
+        fun releaseIfNeverPlayed(recordingId: UUID) {
+            val current = _state.value
+            if (current.recordingId != recordingId) return
+            if (current.hasStartedPlayback || current.isPlaying) return
+            stop()
+        }
+
         // Suspends for the file stats: exists()/canRead() hit disk, and every caller is
         // a tap handler on the main thread. Runs inside the caller's launched coroutine.
         private suspend fun validateAudioFile(
@@ -359,6 +387,9 @@ class RecordingPlaybackController
                 // player, its transport and togglePlayPause all pointed at the failed id —
                 // the pause button then re-ran play() on the missing file instead.
                 pauseIfDifferentRecording(recordingId)
+                // Same reason as the recording refusal: the ticker outlives the failed
+                // command and would sync the previously loaded item over this message.
+                positionJob?.cancel()
                 _state.value =
                     RecordingPlaybackState(
                         recordingId = recordingId,
@@ -414,7 +445,21 @@ class RecordingPlaybackController
             }
         }
 
+        // Seam for tests: the listener wiring and the speed apply are part of every connect,
+        // so they stay here rather than in the swappable connect step.
         private suspend fun createController(): MediaController {
+            val controller = connectController()
+            controller.addListener(playerListener)
+            // Apply the current speed before anything plays (restored at startup, kept
+            // up to date by setPlaybackSpeed).
+            runCatching { controller.setPlaybackSpeed(_state.value.playbackSpeed) }
+            return controller
+        }
+
+        @VisibleForTesting
+        internal var connectController: suspend () -> MediaController = { connectToPlaybackService() }
+
+        private suspend fun connectToPlaybackService(): MediaController {
             // MediaController connects via bindService; do not call startForegroundService here.
             // Prepare-only playback never promotes the session to foreground, which would ANR.
             val sessionToken =
@@ -432,10 +477,6 @@ class RecordingPlaybackController
                     MediaController.releaseFuture(future)
                     throw error
                 }
-            controller.addListener(playerListener)
-            // Apply the current speed before anything plays (restored at startup, kept
-            // up to date by setPlaybackSpeed).
-            runCatching { controller.setPlaybackSpeed(_state.value.playbackSpeed) }
             return controller
         }
 
@@ -474,6 +515,18 @@ class RecordingPlaybackController
             }
 
             val recordingId = activeRecordingId(player)
+            // An error raised before the player ever accepted the item (failed validate,
+            // refused play while recording) leaves the previous recording loaded. The
+            // still-running position ticker and the callbacks from pausing it would then
+            // rewrite the state from that stale item, wiping both the message and the id
+            // it belongs to ~100ms after the user saw it.
+            val pending = _state.value
+            if (pending.errorMessage != null &&
+                pending.recordingId != null &&
+                pending.recordingId != recordingId
+            ) {
+                return
+            }
             val durationMs = player.duration.coerceAtLeast(0L)
             val positionMs = player.currentPosition.coerceAtLeast(0L)
             val playerError = player.playerError
@@ -528,13 +581,19 @@ class RecordingPlaybackController
             return context.getString(resId)
         }
 
-        /** One-shot "media volume is muted" hint when playback starts inaudible (AUD-21). */
-        private fun refreshMutedVolumeNotice() {
+        /**
+         * "Media volume is muted" hint when playback is inaudible (AUD-21). getStreamVolume
+         * is a binder call, so it runs off the main thread; the state write comes back on the
+         * controller's main-immediate scope.
+         */
+        private suspend fun refreshMutedVolumeNotice() {
             val muted =
-                runCatching {
-                    context.getSystemService(AudioManager::class.java)
-                        ?.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
-                }.getOrDefault(false)
+                withContext(ioDispatcher) {
+                    runCatching {
+                        context.getSystemService(AudioManager::class.java)
+                            ?.getStreamVolume(AudioManager.STREAM_MUSIC) == 0
+                    }.getOrDefault(false)
+                }
             _state.value =
                 _state.value.copy(
                     noticeMessage = if (muted) context.getString(R.string.playback_volume_muted) else null,
@@ -552,10 +611,10 @@ class RecordingPlaybackController
                         // rewrite plus a 1 Hz AudioManager query into an empty room. Wait
                         // for a collector instead; the first tick after resume is 100ms out.
                         _state.subscriptionCount.first { it > 0 }
-                        // Re-check the muted hint at 1 Hz so it appears/clears as the user
-                        // moves the volume mid-playback instead of freezing at its value
-                        // from the moment playback started (refresh before sync so sync
-                        // carries the fresh notice forward).
+                        // Re-check the muted hint every few seconds so it appears/clears as
+                        // the user moves the volume mid-playback instead of freezing at its
+                        // value from the moment playback started. Kept well below the 10 Hz
+                        // position tick: each check is a binder round trip.
                         if (tick % MUTED_NOTICE_TICK_INTERVAL == 0) {
                             refreshMutedVolumeNotice()
                         }
@@ -570,7 +629,7 @@ class RecordingPlaybackController
             private const val TAG = "RecordingPlayback"
             private const val SKIP_MS = 10_000L
             private const val POSITION_TICK_MS = 100L
-            private const val MUTED_NOTICE_TICK_INTERVAL = 10
+            private const val MUTED_NOTICE_TICK_INTERVAL = 30
 
             /**
              * Binding the playback service normally takes milliseconds. The bound is here
