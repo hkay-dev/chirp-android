@@ -4,6 +4,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 
@@ -66,6 +67,21 @@ private object ExecutorGgufWatchdogScheduler : GgufWatchdogScheduler {
 }
 
 /**
+ * Captures every failure of [block] except cancellation. The watchdog turns captured failures
+ * into [GgufWatchdogResult.Failed], and the caller-supplied lambdas may suspend, so a captured
+ * CancellationException would report a cancelled decode as an engine failure and trigger
+ * recovery work on a coroutine that is already gone.
+ */
+private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> =
+    try {
+        Result.success(block())
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+/**
  * Keeps blocking JNI work on the caller's dedicated decode dispatcher. Only the cancellation flag
  * runs on a separate watchdog thread, and the caller waits for native unwind before recovery.
  */
@@ -84,7 +100,7 @@ internal class GgufDecodeWatchdog(
     ): GgufWatchdogResult<T> =
         suspendCancellableCoroutine { continuation ->
             val operationId =
-                runCatching(beginDecode).getOrElse { error ->
+                runCatchingCancellable(beginDecode).getOrElse { error ->
                     continuation.resume(GgufWatchdogResult.Failed(error, 0L))
                     return@suspendCancellableCoroutine
                 }
@@ -103,16 +119,29 @@ internal class GgufDecodeWatchdog(
             val timeoutTask =
                 scheduler.schedule(policy.timeoutMs(audioDurationMs)) {
                     if (!timedOut.get()) {
-                        val cancelled = runCatching { cancelDecode(operationId) }.getOrDefault(false)
+                        val cancelled = runCatchingCancellable { cancelDecode(operationId) }.getOrDefault(false)
                         if (cancelled) timedOut.compareAndSet(false, true)
                     }
                 }
 
             continuation.invokeOnCancellation {
+                // A cancellation handler must not throw: the coroutine is already cancelled and a
+                // throw here becomes a CompletionHandlerException on an unrelated thread. Every
+                // failure is captured, cancellation included.
                 if (!timedOut.get()) runCatching { cancelDecode(operationId) }
             }
 
-            val result = runCatching { operation(operationId) }
+            val result =
+                try {
+                    runCatchingCancellable { operation(operationId) }
+                } catch (cancellation: CancellationException) {
+                    // Cancellation leaves the scheduled timer holding a cancelDecode for an
+                    // operation nobody waits on; drop the timer and abort the native run here
+                    // rather than letting it fire against a later operation id.
+                    timeoutTask.cancel()
+                    runCatching { cancelDecode(operationId) }
+                    throw cancellation
+                }
             timeoutTask.cancel()
             val elapsedMs = (nowMs() - startedAtMs).coerceAtLeast(0L)
             // The flag only records that cancellation was REQUESTED. The native abort takes
@@ -136,7 +165,7 @@ internal class GgufDecodeWatchdog(
                         }
                     },
                 )
-            runCatching { onNativeFinished(result, outcome is GgufWatchdogResult.TimedOut, elapsedMs) }
+            runCatchingCancellable { onNativeFinished(result, outcome is GgufWatchdogResult.TimedOut, elapsedMs) }
             continuation.resume(outcome)
         }
 }

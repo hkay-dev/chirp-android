@@ -1,6 +1,7 @@
 package dev.chirpboard.app
 
 import java.util.concurrent.CountDownLatch
+import kotlin.coroutines.cancellation.CancellationException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -145,6 +146,86 @@ class GgufDecodeWatchdogTest {
             )
 
         assertEquals("complete", (result as GgufWatchdogResult.Completed).value)
+    }
+
+    @Test
+    fun `cancellation from the operation propagates instead of reporting a decode failure`() = runTest {
+        val scheduler = ManualWatchdogScheduler()
+        var cancelledOperation = 0L
+        val watchdog =
+            GgufDecodeWatchdog(
+                scheduler = scheduler,
+                nowMs = { 0L },
+            )
+
+        val thrown =
+            runCatching {
+                watchdog.run<String>(
+                    audioDurationMs = 1_000,
+                    beginDecode = { 11L },
+                    cancelDecode = { operationId ->
+                        cancelledOperation = operationId
+                        true
+                    },
+                    operation = { throw CancellationException("caller went away") },
+                )
+            }.exceptionOrNull()
+
+        assertTrue(thrown is CancellationException)
+        assertEquals(11L, cancelledOperation)
+        // The timer must be dropped too, or it fires cancelDecode against a later operation.
+        scheduler.fire()
+        assertEquals(11L, cancelledOperation)
+    }
+
+    @Test
+    fun `cancellation from beginDecode propagates instead of reporting a decode failure`() = runTest {
+        val watchdog = GgufDecodeWatchdog(scheduler = ManualWatchdogScheduler(), nowMs = { 0L })
+
+        val thrown =
+            runCatching {
+                watchdog.run<String>(
+                    audioDurationMs = 1_000,
+                    beginDecode = { throw CancellationException("caller went away") },
+                    cancelDecode = { true },
+                    operation = { "unused" },
+                )
+            }.exceptionOrNull()
+
+        assertTrue(thrown is CancellationException)
+    }
+
+    @Test
+    fun `cancellation from the telemetry callback propagates`() = runTest {
+        val watchdog = GgufDecodeWatchdog(scheduler = ManualWatchdogScheduler(), nowMs = { 0L })
+
+        val thrown =
+            runCatching {
+                watchdog.run(
+                    audioDurationMs = 1_000,
+                    beginDecode = { 3L },
+                    cancelDecode = { true },
+                    operation = { "text" },
+                    onNativeFinished = { _, _, _ -> throw CancellationException("caller went away") },
+                )
+            }.exceptionOrNull()
+
+        assertTrue(thrown is CancellationException)
+    }
+
+    @Test
+    fun `a decode error that is not cancellation is still reported as failed`() = runTest {
+        val watchdog = GgufDecodeWatchdog(scheduler = ManualWatchdogScheduler(), nowMs = { 0L })
+
+        val result =
+            watchdog.run<String>(
+                audioDurationMs = 1_000,
+                beginDecode = { 5L },
+                cancelDecode = { true },
+                operation = { throw IllegalStateException("native blew up") },
+            )
+
+        assertTrue((result as GgufWatchdogResult.Failed).error is IllegalStateException)
     }
 
     private class ManualWatchdogScheduler : GgufWatchdogScheduler {
