@@ -37,6 +37,12 @@ internal class IncognitoCapturePersistence(
                 errorMessage = errorMessage,
                 reason = reason,
             )
+        } else {
+            // Same ownership rule as persistAudioSource: a suppressed history persist still owns
+            // the staged capture, so drop it here. discardSamples() clears the staged reference
+            // and deletes its temp audio, which is what keeps an incognito capture from
+            // outliving its session.
+            delegate.discardSamples()
         }
     }
 

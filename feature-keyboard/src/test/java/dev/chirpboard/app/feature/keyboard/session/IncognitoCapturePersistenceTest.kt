@@ -66,6 +66,25 @@ class IncognitoCapturePersistenceTest {
     }
 
     @Test
+    fun `sample persist is dropped and its staged capture discarded`() = runTest {
+        // The samples overload owns the staged capture exactly like persistAudioSource: returning
+        // without discarding left the temp audio of an incognito session on disk.
+        val delegate = RecordingDelegate()
+        val persistence = IncognitoCapturePersistence(delegate)
+
+        persistence.persist(
+            samples = floatArrayOf(0.2f),
+            rawText = "secret",
+            processedText = null,
+            errorMessage = null,
+            reason = InlineCapturePersistReason.COMPLETED,
+        )
+
+        assertEquals(0, delegate.persistCalls)
+        assertEquals(1, delegate.discardedSamples)
+    }
+
+    @Test
     fun `user cancelled persist is dropped`() = runTest {
         val delegate = RecordingDelegate()
         val persistence = IncognitoCapturePersistence(delegate)
