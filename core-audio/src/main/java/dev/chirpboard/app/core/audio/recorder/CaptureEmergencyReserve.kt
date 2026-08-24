@@ -31,12 +31,20 @@ object CaptureEmergencyReserve {
     private var initializedDirectory: File? = null
     private var store: EmergencyReserveStore? = null
 
+    /** True while a reclaimed reserve is still missing, so the safety net needs rebuilding. */
+    private var reclaimedPendingRearm = false
+
     /** Starts preparation and returns immediately. Safe to call more than once. */
     fun initialize(context: Context) {
         val directory = context.cacheDir
         val nextStore =
             synchronized(lock) {
-                if (initializedDirectory == directory) return
+                if (initializedDirectory == directory) {
+                    // Already prepared for this directory, but a reclaim may have consumed the
+                    // reserve since: a fresh initialize is a safe moment to rebuild it.
+                    rearmLocked()
+                    return
+                }
                 initializedDirectory = directory
                 val storageManager = context.getSystemService(StorageManager::class.java)
                 EmergencyReserveStore(
@@ -48,14 +56,38 @@ object CaptureEmergencyReserve {
                     allocate = { fd, bytes -> checkNotNull(storageManager).allocateBytes(fd, bytes) },
                 ).also { store = it }
             }
-        scope.launch {
-            runCatching { nextStore.prepare() }
-                .onFailure { Log.w(TAG, "Could not prepare emergency capture reserve", it) }
-        }
+        launchPrepare(nextStore)
     }
 
     /** Deletes only a completed reserve. Never waits for an in-flight preparation. */
-    fun reclaim(): Boolean = synchronized(lock) { store?.reclaim() == true }
+    fun reclaim(): Boolean =
+        synchronized(lock) {
+            val reclaimed = store?.reclaim() == true
+            if (reclaimed) reclaimedPendingRearm = true
+            reclaimed
+        }
+
+    /**
+     * Rebuilds a reserve that [reclaim] consumed, so the ENOSPC safety net survives past the
+     * first storage-full recording. Callers must only invoke this once the recording that
+     * needed the reclaimed space has finished — rebuilding earlier takes the space back from
+     * the live capture. No-op when no reclaim is outstanding.
+     */
+    fun rearm() = synchronized(lock) { rearmLocked() }
+
+    private fun rearmLocked() {
+        if (!reclaimedPendingRearm) return
+        val pendingStore = store ?: return
+        reclaimedPendingRearm = false
+        launchPrepare(pendingStore)
+    }
+
+    private fun launchPrepare(target: EmergencyReserveStore) {
+        scope.launch {
+            runCatching { target.prepare() }
+                .onFailure { Log.w(TAG, "Could not prepare emergency capture reserve", it) }
+        }
+    }
 }
 
 internal class EmergencyReserveStore(

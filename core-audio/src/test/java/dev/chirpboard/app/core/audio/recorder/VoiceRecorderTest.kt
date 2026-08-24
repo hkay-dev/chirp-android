@@ -519,6 +519,71 @@ class VoiceRecorderTest {
         }
 
     @Test
+    fun `a reclaimed reserve is re-armed once, only after the recording that used it ends`() =
+        runBlocking {
+            var writes = 0
+            var rearmCalls = 0
+            var rearmCallsWhileRecording = -1
+            val fileRecorder =
+                fileBackedRecorder(
+                    reclaimEmergencyReserve = { true },
+                    rearmEmergencyReserve = { rearmCalls += 1 },
+                    captureOutputFactory = { file ->
+                        object : java.io.FileOutputStream(file) {
+                            override fun write(
+                                bytes: ByteArray,
+                                offset: Int,
+                                length: Int,
+                            ) {
+                                writes += 1
+                                if (writes == 1) throw IOException("No space left on device")
+                                super.write(bytes, offset, length)
+                            }
+                        }
+                    },
+                )
+            var reads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                if (reads++ == 0) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    rearmCallsWhileRecording = rearmCalls
+                    fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
+
+            assertEquals(0, rearmCallsWhileRecording)
+            assertEquals(1, rearmCalls)
+        }
+
+    @Test
+    fun `a recording that never touched the reserve does not re-arm it`() =
+        runBlocking {
+            var rearmCalls = 0
+            val fileRecorder = fileBackedRecorder(rearmEmergencyReserve = { rearmCalls += 1 })
+            var reads = 0
+            every { record.read(any<FloatArray>(), any(), any(), any()) } answers {
+                if (reads++ == 0) {
+                    firstArg<FloatArray>().fill(0.25f)
+                    READ_BUFFER_SIZE
+                } else {
+                    fileRecorder.stopToFileBacked()
+                    AudioRecord.ERROR_INVALID_OPERATION
+                }
+            }
+
+            assertTrue(fileRecorder.start())
+            fileRecorder.collectSamples()
+
+            assertEquals(0, rearmCalls)
+        }
+
+    @Test
     fun `file backed read error keeps captured samples for rescue`() =
         runBlocking {
             val fileRecorder = fileBackedRecorder()
@@ -881,6 +946,7 @@ class VoiceRecorderTest {
         availableBytes: Long = Long.MAX_VALUE,
         availableStorageBytes: ((File) -> Long)? = null,
         reclaimEmergencyReserve: () -> Boolean = { false },
+        rearmEmergencyReserve: () -> Unit = {},
         captureOutputFactory: ((File) -> OutputStream)? = null,
     ): VoiceRecorder {
         every { context.cacheDir } returns cacheDir
@@ -892,6 +958,7 @@ class VoiceRecorderTest {
             captureOutputFactory = captureOutputFactory ?: { file -> java.io.FileOutputStream(file) },
             availableStorageBytes = availableStorageBytes ?: { availableBytes },
             reclaimEmergencyReserve = reclaimEmergencyReserve,
+            rearmEmergencyReserve = rearmEmergencyReserve,
         )
     }
 

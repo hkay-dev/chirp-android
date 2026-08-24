@@ -69,6 +69,27 @@ class CaptureEmergencyReserveTest {
     }
 
     @Test
+    fun `a reclaimed reserve can be rebuilt for the next recording`() {
+        val directory = Files.createTempDirectory("capture-reserve-rearm").toFile()
+        try {
+            val store = store(directory)
+            assertTrue(store.prepare())
+            assertTrue(store.reclaim())
+            assertFalse(store.reserveFileForTest().exists())
+
+            assertTrue(store.prepare())
+
+            assertTrue(store.reserveFileForTest().isFile)
+            assertTrue(store.reserveFileForTest().length() == TEST_RESERVE_BYTES)
+            assertFalse(store.partialFileForTest().exists())
+            // The rebuilt reserve is claimable again, so the safety net is not one-shot.
+            assertTrue(store.reclaim())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `storage exhaustion matching is narrow`() {
         assertTrue(IOException("No space left on device").isStorageExhaustion())
         assertTrue(IOException("write failed", IOException("Quota exceeded")).isStorageExhaustion())

@@ -26,6 +26,7 @@ import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -78,6 +79,7 @@ class VoiceRecorder(
     private val captureOutputFactory: (File) -> OutputStream = { file -> FileOutputStream(file) },
     private val availableStorageBytes: (File) -> Long = { directory -> directory.usableSpace },
     private val reclaimEmergencyReserve: () -> Boolean = CaptureEmergencyReserve::reclaim,
+    private val rearmEmergencyReserve: () -> Unit = CaptureEmergencyReserve::rearm,
 ) : Closeable {
     companion object {
         private const val TAG = "VoiceRecorder"
@@ -109,6 +111,9 @@ class VoiceRecorder(
         private const val READ_STALL_TIMEOUT_MS = 1_500L
         private const val ZERO_READ_LIMIT = 8
         private const val INIT_RETRY_DELAY_MS = 150L
+
+        /** How long a recovery waits for the collector's in-flight read before it frees the old record itself. */
+        private const val STALE_RECORD_RELEASE_TIMEOUT_MS = 500L
 
         /** Keeps enough headroom for ten minutes of float PCM plus filesystem overhead. */
         const val MIN_CAPTURE_FREE_BYTES = 48L * 1024L * 1024L
@@ -177,6 +182,14 @@ class VoiceRecorder(
         @Synchronized
         fun onReadCompleted(result: Int) {
             readStartedAtMs = null
+            if (result > 0) {
+                // A block of real audio proves the stream recovered on its own. Clearing the
+                // latch here keeps the watchdog from rebuilding a healthy mic and eventually
+                // failing the session with CaptureStalled over an issue that no longer exists.
+                consecutiveZeroReads = 0
+                pendingIssue = null
+                return
+            }
             consecutiveZeroReads = if (result == 0) consecutiveZeroReads + 1 else 0
             if (consecutiveZeroReads >= zeroReadLimit) pendingIssue = CaptureHealthIssue.RepeatedZeroReads
         }
@@ -192,6 +205,31 @@ class VoiceRecorder(
             readStartedAtMs = null
             consecutiveZeroReads = 0
             pendingIssue = null
+        }
+    }
+
+    /**
+     * A superseded [AudioRecord] handed between the collector and the recovery path so it is
+     * freed exactly once, and never while a blocking read on it may still be in native code:
+     * stop() unblocks that read safely, release() concurrent with it can fault on some vendor
+     * HALs. The collector releases after its read returns; the recovery path releases as a
+     * bounded-wait backstop so a collector that already exited cannot leak the instance.
+     */
+    internal class StaleCapture(
+        val record: AudioRecord,
+    ) {
+        private val released = AtomicBoolean(false)
+        private val handoff = CompletableDeferred<Unit>()
+
+        /** True if the record was released before [timeoutMs] elapsed. */
+        suspend fun awaitRelease(timeoutMs: Long): Boolean = withTimeoutOrNull(timeoutMs) { handoff.await() } != null
+
+        /** Returns true for the caller that actually performed the release. */
+        fun release(): Boolean {
+            val first = released.compareAndSet(false, true)
+            if (first) runCatching { record.release() }
+            handoff.complete(Unit)
+            return first
         }
     }
 
@@ -262,6 +300,18 @@ class VoiceRecorder(
     private val recoveryMutex = Mutex()
     @Volatile private var healthMonitor = CaptureHealthMonitor()
     private val watchdogRestartCount = AtomicInteger(0)
+
+    /**
+     * Set when a write consumed the emergency storage reserve. The reserve is only rebuilt
+     * after the session ends, so the reclaimed space stays with the in-flight capture.
+     */
+    private val reclaimedEmergencyReserve = AtomicBoolean(false)
+
+    /**
+     * A superseded AudioRecord whose native read may still be in flight on the collector
+     * thread. See [StaleCapture].
+     */
+    private val staleCapture = AtomicReference<StaleCapture?>(null)
 
     /**
      * Active-device publication token for the live capture (from
@@ -673,6 +723,11 @@ class VoiceRecorder(
                 monitor.onReadCompleted(readResult)
 
                 val currentRecord = synchronized(sampleLock) { audioRecord }
+                if (currentRecord !== activeRecord) {
+                    // This thread's read on the superseded instance has returned, so freeing it
+                    // can no longer race native capture code.
+                    releaseStaleCapture(activeRecord)
+                }
                 if (currentRecord !== activeRecord && sessionGeneration.get() == collectGeneration) {
                     record = currentRecord
                     routingChecked = false
@@ -697,7 +752,12 @@ class VoiceRecorder(
                         }
                         val replacement =
                             if (deadObjectRecoveries < MAX_DEAD_OBJECT_RECOVERIES) {
-                                recoverAudioRecord(collectGeneration, activeRecord, "dead object")
+                                recoverAudioRecord(
+                                    generation = collectGeneration,
+                                    deadRecord = activeRecord,
+                                    reason = "dead object",
+                                    deferReleaseToReader = false,
+                                )
                             } else {
                                 null
                             }
@@ -832,7 +892,14 @@ class VoiceRecorder(
                     readResult == 0 -> {
                         val issue = monitor.issueAt(SystemClock.elapsedRealtime())
                         if (issue != null) {
-                            val replacement = recoverForHealthIssue(collectGeneration, activeRecord, issue, monitor)
+                            val replacement =
+                                recoverForHealthIssue(
+                                    generation = collectGeneration,
+                                    record = activeRecord,
+                                    issue = issue,
+                                    monitor = monitor,
+                                    deferReleaseToReader = false,
+                                )
                             if (replacement == null) {
                                 failCollect(collectGeneration, RecordingError.CaptureStalled)
                                 return@withContext
@@ -866,6 +933,8 @@ class VoiceRecorder(
                 record.release()
             }
             audioRecord = null
+            // Cancelling the watchdog below can strand a recovery's deferred release.
+            staleCapture.getAndSet(null)?.release()
             selectorSessionToken?.let { token -> inputDeviceSelector?.clearActiveDevice(token) }
             selectorSessionToken = null
             watchdogJob?.cancel()
@@ -883,18 +952,25 @@ class VoiceRecorder(
         generation: Long,
         deadRecord: AudioRecord,
         reason: String,
+        deferReleaseToReader: Boolean,
     ): AudioRecord? =
         recoveryMutex.withLock {
             val stillCurrent = synchronized(sampleLock) { audioRecord === deadRecord && sessionGeneration.get() == generation }
             if (!stillCurrent) return@withLock null
-            recoverAudioRecordUnlocked(generation, deadRecord, reason)
+            recoverAudioRecordUnlocked(generation, deadRecord, reason, deferReleaseToReader)
         }
 
+    /**
+     * [deferReleaseToReader] must be true whenever the caller is not the collector itself: the
+     * collector may then be parked in a blocking read on [deadRecord], and releasing it under
+     * that read can fault natively on some vendor HALs.
+     */
     @SuppressLint("MissingPermission")
     private suspend fun recoverAudioRecordUnlocked(
         generation: Long,
         deadRecord: AudioRecord,
         reason: String,
+        deferReleaseToReader: Boolean,
     ): AudioRecord? {
         Log.w(TAG, "AudioRecord $reason; attempting in-place capture recovery")
         var replacement: AudioRecord? = null
@@ -941,6 +1017,7 @@ class VoiceRecorder(
         val readyReplacement = checkNotNull(replacement)
 
         var swapped = false
+        var stale: StaleCapture? = null
         synchronized(sampleLock) {
             if (isRecording.get() && sessionGeneration.get() == generation && audioRecord === deadRecord) {
                 val oldToken = selectorSessionToken
@@ -950,13 +1027,29 @@ class VoiceRecorder(
                 // racing immediately after the swap must not release the replacement between the
                 // swap and observeRouting(), which would register a listener on a dead recorder.
                 inputDeviceSelector?.stopObservingRouting(deadRecord)
+                // stop() unblocks a collector read that is parked on this instance; release()
+                // must wait until that read has returned, so it is deferred to [StaleCapture].
                 runCatching { deadRecord.stop() }
-                deadRecord.release()
+                if (deferReleaseToReader) {
+                    stale = StaleCapture(deadRecord).also { staleCapture.set(it) }
+                } else {
+                    deadRecord.release()
+                }
                 oldToken?.let { inputDeviceSelector?.clearActiveDevice(it) }
                 inputDeviceSelector?.observeRouting(readyReplacement)
                 continuityTracker.markRecorderRestart()
                 swapped = true
             }
+        }
+        stale?.let { pending ->
+            // The collector normally frees the old record as soon as it notices the swap. If it
+            // already exited (or is stuck) the record would leak, so release it here after a
+            // bounded wait; by then the stopped record's read has long since returned.
+            if (!pending.awaitRelease(STALE_RECORD_RELEASE_TIMEOUT_MS)) {
+                Log.w(TAG, "Collector did not hand back the superseded AudioRecord; releasing it")
+            }
+            staleCapture.compareAndSet(pending, null)
+            pending.release()
         }
         if (!swapped) {
             runCatching { readyReplacement.stop() }
@@ -966,6 +1059,18 @@ class VoiceRecorder(
         }
         Log.i(TAG, "AudioRecord recovery resumed the existing logical capture")
         return readyReplacement
+    }
+
+    /**
+     * Frees a superseded record once the collector's read on it has returned. Ignores a
+     * pending handoff for any other instance, so a later recovery's record is never freed
+     * while its own read is still parked.
+     */
+    private fun releaseStaleCapture(record: AudioRecord) {
+        val pending = staleCapture.get() ?: return
+        if (pending.record !== record) return
+        staleCapture.compareAndSet(pending, null)
+        pending.release()
     }
 
     private fun startCaptureWatchdog(
@@ -979,7 +1084,15 @@ class VoiceRecorder(
                     delay(WATCHDOG_POLL_MS)
                     val issue = monitor.issueAt(SystemClock.elapsedRealtime()) ?: continue
                     val stalledRecord = synchronized(sampleLock) { audioRecord } ?: return@launch
-                    val replacement = recoverForHealthIssue(generation, stalledRecord, issue, monitor)
+                    val replacement =
+                        recoverForHealthIssue(
+                            generation = generation,
+                            record = stalledRecord,
+                            issue = issue,
+                            monitor = monitor,
+                            // The collector may be parked in a read on this instance right now.
+                            deferReleaseToReader = true,
+                        )
                     if (replacement == null) {
                         val wasReplaced = synchronized(sampleLock) { audioRecord !== stalledRecord }
                         if (!wasReplaced) failCollect(generation, RecordingError.CaptureStalled)
@@ -993,10 +1106,17 @@ class VoiceRecorder(
         record: AudioRecord,
         issue: CaptureHealthIssue,
         monitor: CaptureHealthMonitor,
+        deferReleaseToReader: Boolean,
     ): AudioRecord? {
         DictationReliabilityMetrics.countEvent(DictationReliabilityMetric.CAPTURE_WATCHDOG_TRIPS)
         if (watchdogRestartCount.get() >= MAX_WATCHDOG_RECOVERIES) return null
-        val replacement = recoverAudioRecord(generation, record, "health watchdog detected ${issue.name}")
+        val replacement =
+            recoverAudioRecord(
+                generation = generation,
+                deadRecord = record,
+                reason = "health watchdog detected ${issue.name}",
+                deferReleaseToReader = deferReleaseToReader,
+            )
         if (replacement != null) {
             watchdogRestartCount.incrementAndGet()
             monitor.markRestart()
@@ -1153,7 +1273,18 @@ class VoiceRecorder(
         val endedGeneration: Long,
     )
 
-    private fun stopAudioRecord(): StopResult =
+    private fun stopAudioRecord(): StopResult {
+        val result = stopAudioRecordLocked()
+        // Rebuilding the ENOSPC reserve has to wait until the session that consumed it is over,
+        // otherwise the reclaimed space is taken back from the capture that still needs it.
+        if (reclaimedEmergencyReserve.getAndSet(false)) {
+            runCatching { rearmEmergencyReserve() }
+                .onFailure { error -> Log.w(TAG, "Could not re-arm the emergency capture reserve", error) }
+        }
+        return result
+    }
+
+    private fun stopAudioRecordLocked(): StopResult =
         synchronized(sampleLock) {
             // Invalidate stale collectors and aborts for the ending session. The
             // bumped generation is returned so callers' follow-up lock blocks can
@@ -1201,6 +1332,9 @@ class VoiceRecorder(
                 record.release()
             }
             audioRecord = null
+            // A cancelled recovery can leave a superseded record un-freed. The session is over
+            // and that record was already stopped, so release it here instead of leaking it.
+            staleCapture.getAndSet(null)?.release()
             // Token-aware clear: every VoiceRecorder surface (IME + recognition)
             // clears the selector's published device exactly once, and a newer
             // session's publication always survives a late teardown.
@@ -1314,6 +1448,7 @@ class VoiceRecorder(
             output.write(scratch, 0, byteCount)
         } catch (firstFailure: Exception) {
             if (!firstFailure.isStorageExhaustion() || !reclaimEmergencyReserve()) throw firstFailure
+            reclaimedEmergencyReserve.set(true)
             val trustedBytes = sampleCount.toLong() * java.lang.Float.BYTES
             val fileOutput = output as? FileOutputStream ?: throw firstFailure
             runCatching {
