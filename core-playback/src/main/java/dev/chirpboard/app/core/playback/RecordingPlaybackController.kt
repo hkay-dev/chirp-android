@@ -67,8 +67,13 @@ class RecordingPlaybackController
             // chip back to the old value.
             scope.launch {
                 val stored =
-                    runCatching { audioSettingsStore.currentPlaybackSpeed() }
-                        .getOrDefault(1f)
+                    try {
+                        audioSettingsStore.currentPlaybackSpeed()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        1f
+                    }
                 _state.value =
                     _state.value.copy(
                         playbackSpeed = AudioSettingsStore.nearestPlaybackSpeed(stored),
@@ -303,8 +308,13 @@ class RecordingPlaybackController
                 syncFromPlayer()
             }
             scope.launch {
-                runCatching { audioSettingsStore.setPlaybackSpeed(snapped) }
-                    .onFailure { error -> Log.w(TAG, "Failed to persist playback speed", error) }
+                try {
+                    audioSettingsStore.setPlaybackSpeed(snapped)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (error: Exception) {
+                    Log.w(TAG, "Failed to persist playback speed", error)
+                }
             }
         }
 
