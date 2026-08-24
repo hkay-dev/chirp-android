@@ -16,6 +16,11 @@ package dev.chirpboard.app.feature.keyboard.service
  */
 internal object GraphemeBoundaries {
     private const val ZWJ = 0x200D
+    private const val ZWNJ = 0x200C
+
+    /** Tag characters (UAX #29 Extend) that spell out emoji tag sequences such as regional flags. */
+    private const val TAG_FIRST = 0xE0020
+    private const val TAG_LAST = 0xE007F
     private const val REGIONAL_INDICATOR_FIRST = 0x1F1E6
     private const val REGIONAL_INDICATOR_LAST = 0x1F1FF
     private const val EMOJI_MODIFIER_FIRST = 0x1F3FB
@@ -175,7 +180,11 @@ internal object GraphemeBoundaries {
     }
 
     private fun isControl(cp: Int): Boolean {
-        if (cp == ZWJ) return false
+        // UAX #29 assigns ZWJ, ZWNJ and the tag characters to Extend/ZWJ, not Control, even
+        // though Java types them as FORMAT. Treating them as controls broke GB9 for emoji tag
+        // sequences (the Scotland flag shredded into its tag letters under backspace) and left
+        // ZWNJ as its own cluster, costing an invisible extra press.
+        if (cp == ZWJ || cp == ZWNJ || cp in TAG_FIRST..TAG_LAST) return false
         return when (Character.getType(cp).toByte()) {
             Character.CONTROL,
             Character.FORMAT,
@@ -189,6 +198,9 @@ internal object GraphemeBoundaries {
 
     private fun isExtend(cp: Int): Boolean {
         if (cp in EMOJI_MODIFIER_FIRST..EMOJI_MODIFIER_LAST) return true
+        // Extend by property, Format by Java's character type: the tag characters that spell out
+        // subdivision flags (🏴󠁧󠁢󠁳󠁣󠁴󠁿) and ZWNJ, which joins to the cluster it follows.
+        if (cp == ZWNJ || cp in TAG_FIRST..TAG_LAST) return true
         return when (Character.getType(cp).toByte()) {
             Character.NON_SPACING_MARK,
             Character.ENCLOSING_MARK,

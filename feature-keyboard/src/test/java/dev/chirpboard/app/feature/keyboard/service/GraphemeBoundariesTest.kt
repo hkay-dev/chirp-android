@@ -44,6 +44,23 @@ class GraphemeBoundariesTest {
     }
 
     @Test
+    fun `emoji tag sequence flag is one cluster`() {
+        // 🏴 + the tag letters "gbsct" + the cancel tag: one backspace, not seven.
+        val scotland = "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
+        assertEquals(14, scotland.length)
+        assertEquals(14, GraphemeBoundaries.trailingClusterLength(scotland))
+        assertEquals(14, GraphemeBoundaries.trailingClusterLength("go $scotland"))
+    }
+
+    @Test
+    fun `zero width non joiner stays with the previous cluster`() {
+        // ZWNJ is invisible; splitting it off costs a backspace press that appears to do nothing.
+        val text = "क‌"
+        assertEquals(2, GraphemeBoundaries.trailingClusterLength(text))
+        assertEquals(0, GraphemeBoundaries.previousBoundary(text, text.length))
+    }
+
+    @Test
     fun `variation selector heart is one cluster`() {
         val heart = "❤️"
         assertEquals(2, GraphemeBoundaries.trailingClusterLength(heart))
