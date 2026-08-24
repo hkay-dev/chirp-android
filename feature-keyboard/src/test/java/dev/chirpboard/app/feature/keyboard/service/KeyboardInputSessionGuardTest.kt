@@ -720,6 +720,39 @@ class KeyboardInputSessionGuardTest {
     }
 
     @Test
+    fun `typing key that finishes composing leaves nothing for the commit to duplicate`() {
+        // A typing key (backspace, space, cursor move, IME action) runs a raw InputConnection
+        // action that calls finishComposingText(). Announcing it through the guard first takes
+        // the streamed preview out of the field, so the authoritative commit appends the
+        // transcript once instead of stacking it after a finalized copy.
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        every { connection.setComposingText(any(), 1) } returns true
+        every { connection.getTextBeforeCursor(5, 0) } returns "hello"
+        guard.startInput(chatEditor())
+        val session = requireNotNull(guard.captureCommitSession())
+        assertTrue(guard.updateComposingPreview(connection, "hello"))
+
+        guard.onExternalComposingFinish(connection)
+        verify { connection.setComposingText("", 1) }
+
+        assertTrue(guard.commitIfCurrent(session, connection, "hello world ").committed)
+        verify(exactly = 0) { connection.deleteSurroundingText(any(), any()) }
+        verify(exactly = 1) { connection.commitText("hello world ", 1) }
+    }
+
+    @Test
+    fun `typing key announcement is inert without a live preview`() {
+        val guard = KeyboardInputSessionGuard()
+        val connection = commitConnection()
+        guard.startInput(chatEditor())
+
+        guard.onExternalComposingFinish(connection)
+
+        verify(exactly = 0) { connection.setComposingText(any(), any()) }
+    }
+
+    @Test
     fun `composing preview refuses blocked or inactive input`() {
         val guard = KeyboardInputSessionGuard()
         val connection = commitConnection()

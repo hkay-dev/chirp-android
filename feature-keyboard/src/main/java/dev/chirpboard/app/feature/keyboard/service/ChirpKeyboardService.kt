@@ -60,12 +60,14 @@ import dev.chirpboard.app.core.transcription.TranscriberProvider
 import dev.chirpboard.app.core.transcription.StreamingTranscriberProvider
 import dev.chirpboard.app.core.ui.components.InputDevicePickerUiState
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
+import dev.chirpboard.app.feature.keyboard.BuildConfig
 import dev.chirpboard.app.feature.keyboard.R
 import dev.chirpboard.app.feature.keyboard.quickcapture.QuickCaptureSessionImpl
 import dev.chirpboard.app.feature.keyboard.session.KeyboardSessionCoordinator
 import dev.chirpboard.app.feature.keyboard.session.VoicePanelPhase
 import dev.chirpboard.app.feature.keyboard.ui.KeyboardScreen
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -117,7 +119,16 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         return true
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // A SupervisorJob only isolates sibling collectors from each other; an exception escaping one
+    // of them still reaches the default handler, which kills the IME process mid-typing. Log and
+    // let the surviving collectors carry on instead.
+    private val scope =
+        CoroutineScope(
+            SupervisorJob() + Dispatchers.Main +
+                CoroutineExceptionHandler { _, error ->
+                    Log.e(TAG, "Keyboard service coroutine failed", error)
+                },
+        )
     private val recomposerScope = CoroutineScope(SupervisorJob() + AndroidUiDispatcher.Main)
 
     // PRF-3: unlike the platform windowRecomposer, a hand-rolled Recomposer has no pausable frame
@@ -516,12 +527,17 @@ private const val VOICE_SUBTYPE_MODE = "voice"
                     },
                     onToggleLlm = coordinator::toggleLlm,
                     onModeChange = coordinator::changeMode,
-                    onBackspace = { deletePreviousCharacter(currentInputConnection) },
-                    onBackspaceWord = { deletePreviousWord(currentInputConnection) },
-                    onSpace = { commitSpace(currentInputConnection) },
-                    onMoveCursor = { delta -> moveCursor(currentInputConnection, delta) },
+                    // Every typing key runs a raw InputConnection action that finishes the
+                    // composing region; the guard must drop its streamed preview first or the
+                    // final commit lands a second copy of the dictation after the finalized one.
+                    onBackspace = { runEditorKeyAction { deletePreviousCharacter(currentInputConnection) } },
+                    onBackspaceWord = { runEditorKeyAction { deletePreviousWord(currentInputConnection) } },
+                    onSpace = { runEditorKeyAction { commitSpace(currentInputConnection) } },
+                    onMoveCursor = { delta -> runEditorKeyAction { moveCursor(currentInputConnection, delta) } },
                     imeAction = editorImeAction.value,
-                    onImeAction = { performImeAction(currentInputConnection, editorImeAction.value) },
+                    onImeAction = {
+                        runEditorKeyAction { performImeAction(currentInputConnection, editorImeAction.value) }
+                    },
                     onOpenApp = ::openMainActivity,
                     onDismissError = {
                         coordinator.clearErrorOverlay()
@@ -721,6 +737,16 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         super.onDestroy()
     }
 
+    /**
+     * Runs a typing-key action against the live editor with the dictation preview taken out of
+     * the composing region first. The raw actions all call `finishComposingText()` themselves,
+     * which would otherwise finalize the preview without the guard ever learning about it.
+     */
+    private fun runEditorKeyAction(action: () -> Unit) {
+        inputSessionGuard.onExternalComposingFinish(currentInputConnection)
+        action()
+    }
+
     private fun openMainActivity() {
         startActivity(
             Intent().setClassName(this, MAIN_ACTIVITY_CLASS).apply {
@@ -791,7 +817,11 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         session: KeyboardInputCommitSession,
         text: String,
     ): Boolean {
-        if (dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.consumeCommitRefusal()) {
+        // Debug-only: the soak harness arms a synthetic refusal to exercise the recovery paths.
+        // A release build must never be able to reject a real dictation commit for a test.
+        if (BuildConfig.DEBUG &&
+            dev.chirpboard.app.core.reliability.DictationReliabilityMetrics.consumeCommitRefusal()
+        ) {
             Log.w(TAG, "Reliability soak injected a commit refusal")
             coordinator.setSessionError(getString(R.string.keyboard_input_changed))
             return false

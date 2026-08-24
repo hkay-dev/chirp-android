@@ -26,6 +26,8 @@ android {
 
     buildFeatures {
         compose = true
+        // The IME gates its reliability-soak commit-refusal injection on BuildConfig.DEBUG.
+        buildConfig = true
     }
 }
 

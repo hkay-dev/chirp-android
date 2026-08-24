@@ -310,6 +310,21 @@ internal class KeyboardInputSessionGuard {
         finalizedPreview = null
     }
 
+    /**
+     * A typing key (backspace, space, cursor move, IME action) is about to run a raw
+     * InputConnection action that finishes the composing region behind the guard's back.
+     *
+     * The preview must leave the editor first. Once the framework finalizes it, an action that
+     * also edits the field (backspace shortens it, an editor action can clear the whole field)
+     * leaves the guard unable to prove which characters are still its own, so the authoritative
+     * commit would stack a second copy of the dictation after the finalized one. Removing the
+     * preview costs nothing the user typed: the next partial re-streams it at the cursor the key
+     * leaves behind, and the final commit carries the whole transcript regardless.
+     */
+    fun onExternalComposingFinish(connection: InputConnection?) {
+        clearComposingPreview(connection)
+    }
+
     /** Removes a live composing preview (user cancelled the dictation). Safe no-op otherwise. */
     fun clearComposingPreview(connection: InputConnection?) {
         // The user discarded the dictation, so a remembered finalized copy must never be
