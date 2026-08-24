@@ -5,6 +5,7 @@ import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
 import dev.chirpboard.app.core.modelreadiness.VerificationTrigger
 import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.reliability.ReliabilityEventLogger
+import dev.chirpboard.app.core.reliability.ReliabilityEventScope
 import dev.chirpboard.app.core.reliability.ReliabilityStage
 import dev.chirpboard.app.core.transcription.InlineAudioSource
 import dev.chirpboard.app.core.transcription.PcmFloatFileTranscriberProvider
@@ -212,16 +213,41 @@ class InlineTranscriptionCoordinatorImpl
                     )
                 }.onFailure { error -> Log.w(tag, "Could not checkpoint raw transcript", error) }
 
-                val rawCommitted = withContext(Dispatchers.Main) { commitText("$rawText ") }
-                request.latencyObserver?.onCommitCompleted(rawCommitted)
-                if (!rawCommitted) {
-                    Log.w(tag, "Raw transcript commit refused; persisting it as a rescue entry")
+                // The AI-enabled path commits ONCE, after polishing resolves: the editor must end
+                // up holding the polished text, and this pipeline's only editor access is a
+                // single append-style commit, so an early raw insertion could not be retracted
+                // once the input session moved to another field. Polishing is bounded by the
+                // timeout below, and every outcome still inserts something.
+                val enhancement =
+                    if (request.llmEnabled) {
+                        request.latencyObserver?.onAiStarted()
+                        enhancementLog.started("enhancement_started")
+                        _phase.value = InlineTranscriptionPhase.Polishing
+                        val result =
+                            withTimeoutOrNull(ENHANCEMENT_TIMEOUT_MS) {
+                                textEnhancement.process(rawText, request.processingModeId)
+                            }
+                        request.latencyObserver?.onAiCompleted()
+                        resolveEnhancement(result, rawText, enhancementLog)
+                    } else {
+                        EnhancementOutcome(
+                            processedText = null,
+                            textToInsert = rawText,
+                            terminalPhase = InlineTranscriptionPhase.Idle,
+                        )
+                    }
+
+                val committed = withContext(Dispatchers.Main) { commitText("${enhancement.textToInsert} ") }
+                request.latencyObserver?.onCommitCompleted(committed)
+                if (!committed) {
+                    Log.w(tag, "Transcript commit refused; persisting it as a rescue entry")
                     transcriptionLog.failure("commit_refused")
                     val rescued =
                         rescueCapture(
                             persistence = persistence,
                             audioSource = request.audioSource,
                             rawText = rawText,
+                            processedText = enhancement.processedText,
                             errorMessage = COMMIT_REFUSED_MESSAGE,
                             reason = InlineCapturePersistReason.RESCUE,
                         )
@@ -232,66 +258,20 @@ class InlineTranscriptionCoordinatorImpl
                     return
                 }
 
-                if (request.llmEnabled) {
-                    request.latencyObserver?.onAiStarted()
-                    enhancementLog.started("enhancement_started")
-                    _phase.value = InlineTranscriptionPhase.Polishing
-
-                    val result =
-                        withTimeoutOrNull(10_000L) {
-                            textEnhancement.process(rawText, request.processingModeId)
-                        }
-
-                    request.latencyObserver?.onAiCompleted()
-                    val (processedText, terminalPhase) =
-                        if (result == null) {
-                            enhancementLog.failure("enhancement_timeout")
-                            null to InlineTranscriptionPhase.LlmError(ENHANCEMENT_TIMEOUT_MESSAGE)
-                        } else {
-                            result.fold(
-                                onSuccess = { polishedText ->
-                                    if (aiResultDropsOpening(rawText, polishedText)) {
-                                        enhancementLog.failure("enhancement_opening_content_guard")
-                                        polishedText to InlineTranscriptionPhase.LlmError(AI_CONTENT_GUARD_MESSAGE)
-                                    } else {
-                                        enhancementLog.success("enhancement_completed")
-                                        polishedText to InlineTranscriptionPhase.Idle
-                                    }
-                                },
-                                onFailure = { error ->
-                                    enhancementLog.failure("enhancement_failed", error)
-                                    null to InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}")
-                                },
-                            )
-                        }
-                    // The raw transcript already reached the target. Mark resolution before
-                    // this cancellable persist so cancellation cannot create a duplicate rescue.
-                    // Its checkpoint remains available if the terminal persist is interrupted.
-                    captureResolved.set(true)
-                    persistence?.persistAudioSource(
-                        audioSource = request.audioSource,
-                        rawText = rawText,
-                        processedText = processedText,
-                        errorMessage = null,
-                        reason = InlineCapturePersistReason.COMPLETED,
-                    )
-                    withContext(Dispatchers.Main) {
-                        onRecordingCompleted()
-                        _phase.value = terminalPhase
-                    }
-                } else {
-                    captureResolved.set(true)
-                    persistence?.persistAudioSource(
-                        audioSource = request.audioSource,
-                        rawText = rawText,
-                        processedText = null,
-                        errorMessage = null,
-                        reason = InlineCapturePersistReason.COMPLETED,
-                    )
-                    withContext(Dispatchers.Main) {
-                        onRecordingCompleted()
-                        _phase.value = InlineTranscriptionPhase.Idle
-                    }
+                // The transcript reached the target. Mark resolution before this cancellable
+                // persist so cancellation cannot create a duplicate rescue. Its checkpoint
+                // remains available if the terminal persist is interrupted.
+                captureResolved.set(true)
+                persistence?.persistAudioSource(
+                    audioSource = request.audioSource,
+                    rawText = rawText,
+                    processedText = enhancement.processedText,
+                    errorMessage = null,
+                    reason = InlineCapturePersistReason.COMPLETED,
+                )
+                withContext(Dispatchers.Main) {
+                    onRecordingCompleted()
+                    _phase.value = enhancement.terminalPhase
                 }
             } catch (e: CancellationException) {
                 persistCancelledRequest(
@@ -421,6 +401,63 @@ class InlineTranscriptionCoordinatorImpl
             }
         }
 
+        /**
+         * Maps an enhancement attempt onto what the editor receives, what history stores, and the
+         * phase the panel settles on.
+         *
+         * [EnhancementOutcome.textToInsert] and [EnhancementOutcome.processedText] deliberately
+         * differ on the content-guard path: the polished text is suspected of dropping the opening
+         * words, so the editor keeps the raw transcript while history still records what the model
+         * produced. A timeout or failure has no polished text at all and inserts the raw one.
+         */
+        private fun resolveEnhancement(
+            result: Result<String>?,
+            rawText: String,
+            enhancementLog: ReliabilityEventScope,
+        ): EnhancementOutcome {
+            if (result == null) {
+                enhancementLog.failure("enhancement_timeout")
+                return EnhancementOutcome(
+                    processedText = null,
+                    textToInsert = rawText,
+                    terminalPhase = InlineTranscriptionPhase.LlmError(ENHANCEMENT_TIMEOUT_MESSAGE),
+                )
+            }
+            return result.fold(
+                onSuccess = { polishedText ->
+                    if (aiResultDropsOpening(rawText, polishedText)) {
+                        enhancementLog.failure("enhancement_opening_content_guard")
+                        EnhancementOutcome(
+                            processedText = polishedText,
+                            textToInsert = rawText,
+                            terminalPhase = InlineTranscriptionPhase.LlmError(AI_CONTENT_GUARD_MESSAGE),
+                        )
+                    } else {
+                        enhancementLog.success("enhancement_completed")
+                        EnhancementOutcome(
+                            processedText = polishedText,
+                            textToInsert = polishedText,
+                            terminalPhase = InlineTranscriptionPhase.Idle,
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    enhancementLog.failure("enhancement_failed", error)
+                    EnhancementOutcome(
+                        processedText = null,
+                        textToInsert = rawText,
+                        terminalPhase = InlineTranscriptionPhase.LlmError("LLM failed: ${error.message}"),
+                    )
+                },
+            )
+        }
+
+        private data class EnhancementOutcome(
+            val processedText: String?,
+            val textToInsert: String,
+            val terminalPhase: InlineTranscriptionPhase,
+        )
+
         private suspend fun ensureRecognizerReady(): Boolean {
             if (transcriberProvider.isReady()) {
                 return true
@@ -506,6 +543,12 @@ class InlineTranscriptionCoordinatorImpl
             }
         }
     }
+
+/**
+ * Upper bound on AI polish. The commit waits for this, so it is also the longest the editor can
+ * stay empty after the user stops speaking; the raw transcript is inserted when it expires.
+ */
+private const val ENHANCEMENT_TIMEOUT_MS = 10_000L
 
 /** In-memory captures longer than this are decoded in bounded chunks instead of one utterance. */
 private const val SINGLE_UTTERANCE_MAX_SECONDS = 60

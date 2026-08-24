@@ -33,6 +33,7 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -550,30 +551,32 @@ class InlineTranscriptionCoordinatorImplTest {
     }
 
     @Test
-    fun `llm polish success commits raw immediately and persists both versions`() = runTest {
+    fun `llm polish success commits the polished text exactly once`() = runTest {
         every { transcriberProvider.isReady() } returns true
         coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
         coEvery { textEnhancement.process("raw words", "proofread") } returns Result.success("Polished words.")
         val persistence = CapturingPersistence()
-        var committed = ""
+        val committed = mutableListOf<String>()
 
         coordinator.transcribeWithCommitResult(
             request = inMemoryRequest(llmEnabled = true),
             persistence = persistence,
             commitText = { text ->
-                committed = text
+                committed += text
                 true
             },
         )
 
-        assertEquals("raw words ", committed)
+        // The editor must hold the polished text, and only that: a raw insertion followed by the
+        // polished one would double the dictation in the field.
+        assertEquals(listOf("Polished words. "), committed)
         assertEquals("raw words", persistence.lastRawText)
         assertEquals("Polished words.", persistence.lastProcessedText)
         assertEquals(InlineTranscriptionPhase.Idle, coordinator.phase.value)
     }
 
     @Test
-    fun `raw transcript reaches the target before slow AI cleanup finishes`() = runTest {
+    fun `commit waits for slow AI cleanup instead of inserting raw first`() = runTest {
         every { transcriberProvider.isReady() } returns true
         coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw now")
         val cleanupGate = CompletableDeferred<Unit>()
@@ -581,7 +584,7 @@ class InlineTranscriptionCoordinatorImplTest {
             cleanupGate.await()
             Result.success("Raw later.")
         }
-        val committed = CompletableDeferred<String>()
+        val committed = mutableListOf<String>()
         val persistence = CapturingPersistence()
 
         val job =
@@ -590,17 +593,41 @@ class InlineTranscriptionCoordinatorImplTest {
                     request = inMemoryRequest(llmEnabled = true),
                     persistence = persistence,
                     commitText = { text ->
-                        committed.complete(text)
+                        committed += text
                         true
                     },
                 )
             }
 
-        assertEquals("raw now ", committed.await())
+        runCurrent()
+        assertEquals(InlineTranscriptionPhase.Polishing, coordinator.phase.value)
+        assertEquals(emptyList<String>(), committed)
         assertEquals(0, persistence.persistCalls)
+
         cleanupGate.complete(Unit)
         job.join()
+        assertEquals(listOf("Raw later. "), committed)
         assertEquals("Raw later.", persistence.lastProcessedText)
+    }
+
+    @Test
+    fun `commit refused after polish rescues both the raw and polished text`() = runTest {
+        every { transcriberProvider.isReady() } returns true
+        coEvery { transcriberProvider.transcribe(any(), any()) } returns TranscriptionOutcome.Success("raw words")
+        coEvery { textEnhancement.process("raw words", "proofread") } returns Result.success("Polished words.")
+        val persistence = CapturingPersistence()
+
+        coordinator.transcribeWithCommitResult(
+            request = inMemoryRequest(llmEnabled = true),
+            persistence = persistence,
+            commitText = { false },
+        )
+
+        // A field switch during polishing costs the insertion, never the transcript.
+        assertEquals(InlineCapturePersistReason.RESCUE, persistence.lastReason)
+        assertEquals("raw words", persistence.lastRawText)
+        assertEquals("Polished words.", persistence.lastProcessedText)
+        assertEquals(InlineTranscriptionPhase.Error(COMMIT_REFUSED_MESSAGE), coordinator.phase.value)
     }
 
     @Test
