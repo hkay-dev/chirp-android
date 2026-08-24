@@ -66,6 +66,9 @@
     <!-- ERR-22 follow-up: confirm button on the storage-denied dialog opens the system
          All-Files-Access page for Chirp so the existing model becomes readable. -->
     <string name="record_entry_grant_storage_access">Open Settings</string>
+    <!-- Shown when every All-Files-Access settings intent fails to launch on this build;
+         the user has to navigate there manually. -->
+    <string name="record_entry_storage_settings_unavailable">Couldn’t open system settings automatically. Go to Settings → Apps → Special app access → All files access and allow it for Chirp, then try again.</string>
     <string name="record_entry_model_check_error_title">Model Check Error</string>
     <!-- I18N-05: no raw exception text; actionable guidance only (details stay in logs). -->
     <string name="record_entry_model_check_error_message">Could not verify model readiness. Try again, or re-download the model in Settings.</string>

@@ -44,6 +44,10 @@ object AllFilesAccessRequester {
                 return true
             } catch (e: ActivityNotFoundException) {
                 Log.w(TAG, "No activity for ${intent.action}; trying fallback", e)
+            } catch (e: SecurityException) {
+                // Some OEM settings activities resolve but refuse the launch; treat the same
+                // as not-found so the next fallback still runs instead of crashing the tap.
+                Log.w(TAG, "Launch refused for ${intent.action}; trying fallback", e)
             }
         }
         Log.e(TAG, "No settings surface available for All Files Access")

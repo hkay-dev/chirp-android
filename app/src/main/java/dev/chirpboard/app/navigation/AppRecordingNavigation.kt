@@ -177,8 +177,24 @@ internal fun NavGraphBuilder.appRecordingNavigation(navController: NavHostContro
                                 // The model is in public storage; opening the system
                                 // All-Files-Access page lets the user grant read access. The next
                                 // record tap re-runs the readiness check, so no extra state is kept.
+                                // On builds where no settings surface launches, re-open the dialog
+                                // with manual navigation steps instead of silently doing nothing.
                                 RecordEntryConfirmAction.GRANT_STORAGE ->
-                                    AllFilesAccessRequester.openSettings(context)
+                                    if (!AllFilesAccessRequester.openSettings(context)) {
+                                        dialogContent =
+                                            RecordEntryDialogContent(
+                                                title =
+                                                    context.getString(
+                                                        R.string.record_entry_model_storage_denied_title,
+                                                    ),
+                                                message =
+                                                    context.getString(
+                                                        R.string.record_entry_storage_settings_unavailable,
+                                                    ),
+                                                confirmLabelRes = R.string.dismiss,
+                                                confirmAction = RecordEntryConfirmAction.DISMISS,
+                                            )
+                                    }
                                 RecordEntryConfirmAction.DISMISS -> Unit
                             }
                         },
