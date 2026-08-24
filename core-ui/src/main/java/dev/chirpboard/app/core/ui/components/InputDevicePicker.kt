@@ -120,7 +120,13 @@ fun InputDeviceChip(
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
     contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-    val device = state.chipDevice()
+    // InputDevicePickerUiState holds a plain List, so Compose treats it as unstable and this chip
+    // recomposes with its host; the keys below are compared by equality, so the priority ranking
+    // only re-runs when an input actually changed.
+    val device =
+        remember(state.activeDevice, state.sessionLive, state.devices, state.policy, state.manualKey) {
+            state.chipDevice()
+        }
     val label = device?.productName ?: stringResource(R.string.input_device_sheet_title)
     ChirpPill(
         label = label,

@@ -6,10 +6,11 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import dev.chirpboard.app.core.ui.components.reducedMotionEnabled
@@ -66,22 +67,33 @@ fun RecordingGlowBackground(
             )
         }
 
-    Canvas(modifier = modifier) {
-        // Breathe the alpha (not the hue) of the single recording accent: a near-transparent floor
-        // at rest up to the peak, mirroring the prior errorContainer->error fade without a second hue.
-        val progress = glowProgress?.value ?: STATIC_GLOW_PROGRESS
-        val midAlpha = glowAlpha(progress, GLOW_FLOOR_ALPHA, GLOW_MID_ALPHA)
-        val peakAlpha = glowAlpha(progress, GLOW_FLOOR_ALPHA, GLOW_PEAK_ALPHA)
-        drawRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    color.copy(alpha = midAlpha),
-                    color.copy(alpha = peakAlpha),
-                ),
-                startY = 0f,
-                endY = size.height
-            )
-        )
-    }
+    Spacer(
+        modifier =
+            modifier.drawWithCache {
+                // The ramp is built once per size (and per colour); breathing is applied at draw
+                // time as a layer alpha, so no gradient/shader is allocated per vsync. The stop
+                // alphas are relative to the peak, which keeps the peak of the breath identical to
+                // the per-frame form it replaces.
+                val brush =
+                    Brush.verticalGradient(
+                        colors =
+                            listOf(
+                                Color.Transparent,
+                                color.copy(alpha = GLOW_MID_ALPHA / GLOW_PEAK_ALPHA),
+                                color.copy(alpha = 1f),
+                            ),
+                        startY = 0f,
+                        endY = size.height,
+                    )
+                onDrawBehind {
+                    // Breathe the alpha (not the hue) of the single recording accent: a
+                    // near-transparent floor at rest up to the peak.
+                    val progress = glowProgress?.value ?: STATIC_GLOW_PROGRESS
+                    drawRect(
+                        brush = brush,
+                        alpha = glowAlpha(progress, GLOW_FLOOR_ALPHA, GLOW_PEAK_ALPHA),
+                    )
+                }
+            },
+    )
 }

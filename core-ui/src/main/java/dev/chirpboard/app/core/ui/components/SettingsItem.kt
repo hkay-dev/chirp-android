@@ -32,7 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -70,7 +70,9 @@ fun SettingsListItem(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
+    // Held as State and read in the graphics layer: reading it here would recompose the whole row
+    // (icon, badge, texts) for every frame of the press animation.
+    val scale = animateFloatAsState(
         targetValue = if (isPressed) 0.98f else 1f,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f),
         label = "itemScale",
@@ -126,7 +128,11 @@ fun SettingsListItem(
         },
         modifier =
             modifier
-                .scale(scale)
+                .graphicsLayer {
+                    val current = scale.value
+                    scaleX = current
+                    scaleY = current
+                }
                 .semantics(mergeDescendants = true) {}
                 .clickable(
                     interactionSource = interactionSource,

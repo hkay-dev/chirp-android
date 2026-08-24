@@ -12,6 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import dev.chirpboard.app.core.ui.components.LocalReducedMotion
+import dev.chirpboard.app.core.ui.components.readReducedMotion
 
 private val chirpMaterialShapes =
     Shapes(
@@ -79,7 +81,14 @@ fun ChirpTheme(
             )
         }
 
-    CompositionLocalProvider(LocalChirpAccents provides accents) {
+    // Resolved once per theme root: the reduced-motion read hits a settings provider (a binder
+    // call), and a skeleton screen can host a dozen motion affordances.
+    val reducedMotion = remember(context) { readReducedMotion(context) }
+
+    CompositionLocalProvider(
+        LocalChirpAccents provides accents,
+        LocalReducedMotion provides reducedMotion,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = ChirpTypography,

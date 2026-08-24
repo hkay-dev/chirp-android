@@ -11,8 +11,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * AlertDialog replacement with smooth scale + fade entrance animation.
@@ -39,7 +38,9 @@ fun AnimatedAlertDialog(
         animateIn = true
     }
 
-    val scale by animateFloatAsState(
+    // Held as State (not read here) so the entrance drives only the graphics layer — reading the
+    // values in the body would recompose the whole dialog on every frame of the 250ms enter.
+    val scale = animateFloatAsState(
         targetValue = if (animateIn) 1f else 0.9f,
         animationSpec = tween(
             durationMillis = 250,
@@ -48,7 +49,7 @@ fun AnimatedAlertDialog(
         label = "dialog_scale"
     )
 
-    val alpha by animateFloatAsState(
+    val alpha = animateFloatAsState(
         targetValue = if (animateIn) 1f else 0f,
         animationSpec = tween(
             durationMillis = 250,
@@ -61,8 +62,12 @@ fun AnimatedAlertDialog(
         onDismissRequest = onDismissRequest,
         confirmButton = confirmButton,
         modifier = modifier
-            .scale(scale)
-            .alpha(alpha),
+            .graphicsLayer {
+                val current = scale.value
+                scaleX = current
+                scaleY = current
+                this.alpha = alpha.value
+            },
         dismissButton = dismissButton,
         icon = icon,
         title = title,

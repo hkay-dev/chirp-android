@@ -1,5 +1,6 @@
 package dev.chirpboard.app.core.ui.components
 
+import android.content.Context
 import android.provider.Settings
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -15,11 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
@@ -52,25 +55,43 @@ internal fun shimmerTranslate(
 }
 
 /**
+ * Reduced-motion flag published once by
+ * [ChirpTheme][dev.chirpboard.app.core.ui.theme.ChirpTheme].
+ *
+ * null means "not provided" (previews, tests, composables hosted outside the theme), in which case
+ * [reducedMotionEnabled] falls back to reading the setting itself.
+ */
+internal val LocalReducedMotion = staticCompositionLocalOf<Boolean?> { null }
+
+/**
  * True when the system "remove animations" / reduced-motion setting is active.
  *
  * Reads `Settings.Global.ANIMATOR_DURATION_SCALE`; a scale of 0 means the user has disabled
  * animations system-wide, so motion-heavy affordances should fall back to a static state.
  */
+internal fun readReducedMotion(context: Context): Boolean {
+    val scale =
+        runCatching {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            )
+        }.getOrDefault(1f)
+    return scale == 0f
+}
+
+/**
+ * True when the system "remove animations" / reduced-motion setting is active.
+ *
+ * Prefers the value [ChirpTheme][dev.chirpboard.app.core.ui.theme.ChirpTheme] resolved once, so a
+ * screen full of placeholders does not each perform their own settings-provider read.
+ */
 @Composable
 internal fun reducedMotionEnabled(): Boolean {
+    LocalReducedMotion.current?.let { return it }
     val context = LocalContext.current
-    return remember(context) {
-        val scale =
-            runCatching {
-                Settings.Global.getFloat(
-                    context.contentResolver,
-                    Settings.Global.ANIMATOR_DURATION_SCALE,
-                    1f,
-                )
-            }.getOrDefault(1f)
-        scale == 0f
-    }
+    return remember(context) { readReducedMotion(context) }
 }
 
 /**
@@ -83,57 +104,60 @@ internal fun reducedMotionEnabled(): Boolean {
  *
  * @param highlightColor the moving highlight; defaults to a translucent on-surface tint.
  */
+@Composable
 fun Modifier.shimmer(
     highlightColor: Color? = null,
-): Modifier =
-    composed {
-        val baseHighlight = highlightColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.20f)
-        if (reducedMotionEnabled()) {
-            // Static, low-key highlight so the surface still reads as a placeholder.
-            return@composed this.drawWithCache {
-                val brush =
-                    Brush.horizontalGradient(
-                        colors = listOf(Color.Transparent, baseHighlight.copy(alpha = 0.10f), Color.Transparent),
-                    )
-                onDrawWithContent {
-                    drawContent()
-                    drawRect(brush = brush)
-                }
-            }
-        }
-
-        val transition = rememberInfiniteTransition(label = "shimmer")
-        // Keep progress as State and read it inside drawWithCache so the sweep only invalidates the
-        // draw phase, never recomposing the host (matches the StatsPillRow pulse pattern).
-        val progress =
-            transition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(durationMillis = ShimmerPeriodMs, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart,
-                    ),
-                label = "shimmerProgress",
-            )
-
-        this.drawWithCache {
-            val bandWidth = size.width * 0.45f
-            val colors = listOf(Color.Transparent, baseHighlight, Color.Transparent)
+): Modifier {
+    val baseHighlight = highlightColor ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.20f)
+    if (reducedMotionEnabled()) {
+        // Static, low-key highlight so the surface still reads as a placeholder.
+        return this.drawWithCache {
+            val brush =
+                Brush.horizontalGradient(
+                    colors = listOf(Color.Transparent, baseHighlight.copy(alpha = 0.10f), Color.Transparent),
+                )
             onDrawWithContent {
                 drawContent()
-                val translate = shimmerTranslate(progress.value, size.width, bandWidth)
-                drawRect(
-                    brush =
-                        Brush.horizontalGradient(
-                            colors = colors,
-                            startX = translate,
-                            endX = translate + bandWidth,
-                        ),
-                )
+                drawRect(brush = brush)
             }
         }
     }
+
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    // Keep progress as State and read it inside drawWithCache so the sweep only invalidates the
+    // draw phase, never recomposing the host (matches the StatsPillRow pulse pattern).
+    val progress =
+        transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(durationMillis = ShimmerPeriodMs, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+            label = "shimmerProgress",
+        )
+
+    return this.drawWithCache {
+        val bandWidth = size.width * 0.45f
+        // Band-local gradient, built once per size: the sweep is a draw-phase translate instead of
+        // a fresh Brush (and shader) every vsync. Outside the band the old full-width gradient
+        // clamped to Transparent, so painting only the band is the same pixels.
+        val brush =
+            Brush.horizontalGradient(
+                colors = listOf(Color.Transparent, baseHighlight, Color.Transparent),
+                startX = 0f,
+                endX = bandWidth,
+            )
+        val bandSize = Size(bandWidth, size.height)
+        onDrawWithContent {
+            drawContent()
+            translate(left = shimmerTranslate(progress.value, size.width, bandWidth)) {
+                drawRect(brush = brush, size = bandSize)
+            }
+        }
+    }
+}
 
 /**
  * A shimmering placeholder block, sized for skeleton screens (LOAD-4).
@@ -170,25 +194,25 @@ fun SkeletonPlaceholder(
  * indeterminate progress bar when there is no real progress signal. Respects reduced-motion by
  * holding a steady, slightly-dimmed alpha.
  */
+@Composable
 fun Modifier.brandedPulse(
     minAlpha: Float = 0.55f,
     periodMs: Int = PulsePeriodMs,
-): Modifier =
-    composed {
-        if (reducedMotionEnabled()) {
-            return@composed this.graphicsLayer { alpha = minAlpha }
-        }
-        val transition = rememberInfiniteTransition(label = "brandedPulse")
-        val pulse =
-            transition.animateFloat(
-                initialValue = minAlpha,
-                targetValue = 1f,
-                animationSpec =
-                    infiniteRepeatable(
-                        animation = tween(durationMillis = periodMs, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                label = "brandedPulseAlpha",
-            )
-        this.graphicsLayer { alpha = pulse.value }
+): Modifier {
+    if (reducedMotionEnabled()) {
+        return this.graphicsLayer { alpha = minAlpha }
     }
+    val transition = rememberInfiniteTransition(label = "brandedPulse")
+    val pulse =
+        transition.animateFloat(
+            initialValue = minAlpha,
+            targetValue = 1f,
+            animationSpec =
+                infiniteRepeatable(
+                    animation = tween(durationMillis = periodMs, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+            label = "brandedPulseAlpha",
+        )
+    return this.graphicsLayer { alpha = pulse.value }
+}

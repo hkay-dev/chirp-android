@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.recording.WaveformBuffer
@@ -68,6 +69,13 @@ fun AudioWaveform(
     // Reused draw-phase scratch buffer: one snapshotInto per frame replaces a
     // per-bar synchronized get() that contended with the capture thread.
     val amplitudeSnapshot = remember(waveformBuffer) { FloatArray(waveformBuffer.capacity) }
+    // Dash pattern is density-only: hoisted so the idle/fade frames do not allocate a PathEffect
+    // (and its native peer) per frame.
+    val density = LocalDensity.current
+    val dashEffect =
+        remember(density) {
+            with(density) { PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 8.dp.toPx()), 0f) }
+        }
 
     Spacer(
         modifier =
@@ -92,10 +100,6 @@ fun AudioWaveform(
                     val scrollSampleCount = sampleCount.toFloat()
 
                     if (showIdlePlaceholder && activeAlphaValue < 1f) {
-                        // Allocated only on placeholder frames; this lambda runs on every
-                        // amplitude redraw while recording.
-                        val dashEffect =
-                            PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 8.dp.toPx()), 0f)
                         val dottedAlpha = (1f - activeAlphaValue) * 0.3f
                         drawLine(
                             color = colorValue.copy(alpha = dottedAlpha),
