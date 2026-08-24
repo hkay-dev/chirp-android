@@ -34,8 +34,16 @@ class AudioEncoder
         private const val MIME_TYPE = "audio/mp4a-latm"
         private const val DEFAULT_BIT_RATE = 64_000
         private const val TIMEOUT_US = 10_000L
-        private const val MP3_BUFFER_SIZE = 8192
         private const val STREAM_CHUNK_SAMPLES = 4096
+
+        /** PCM bytes handed to LAME per call: [STREAM_CHUNK_SAMPLES] mono 16-bit samples. */
+        private const val MP3_PCM_BUFFER_SIZE = STREAM_CHUNK_SAMPLES * 2
+
+        /**
+         * LAME's output-buffer contract: an encode of n samples per channel can emit up to
+         * 1.25n + 7200 bytes. A smaller buffer is a native overrun, not a truncated write.
+         */
+        private const val MP3_BUFFER_SIZE = (STREAM_CHUNK_SAMPLES * 5) / 4 + 7200
     }
 
     fun encode(
@@ -245,26 +253,30 @@ class AudioEncoder
                     .setOutSampleRate(sampleRate)
                     .build()
             val mp3Buffer = ByteArray(MP3_BUFFER_SIZE)
-            BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
-                var offset = 0
-                while (offset < pcm.size) {
-                    val chunkBytes = minOf(pcm.size - offset, MP3_BUFFER_SIZE)
-                    val sampleCount = chunkBytes / 2
-                    val shorts = ShortArray(sampleCount)
-                    val byteBuffer = ByteBuffer.wrap(pcm, offset, chunkBytes).order(ByteOrder.LITTLE_ENDIAN)
-                    for (index in 0 until sampleCount) {
-                        shorts[index] = byteBuffer.short
+            try {
+                BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
+                    var offset = 0
+                    while (offset < pcm.size) {
+                        val chunkBytes = minOf(pcm.size - offset, MP3_PCM_BUFFER_SIZE)
+                        val sampleCount = chunkBytes / 2
+                        val shorts = ShortArray(sampleCount)
+                        val byteBuffer = ByteBuffer.wrap(pcm, offset, chunkBytes).order(ByteOrder.LITTLE_ENDIAN)
+                        for (index in 0 until sampleCount) {
+                            shorts[index] = byteBuffer.short
+                        }
+                        val encodedSize = lame.encode(shorts, shorts, sampleCount, mp3Buffer)
+                        if (encodedSize > 0) {
+                            output.write(mp3Buffer, 0, encodedSize)
+                        }
+                        offset += chunkBytes
                     }
-                    val encodedSize = lame.encode(shorts, shorts, sampleCount, mp3Buffer)
-                    if (encodedSize > 0) {
-                        output.write(mp3Buffer, 0, encodedSize)
+                    val flushSize = lame.flush(mp3Buffer)
+                    if (flushSize > 0) {
+                        output.write(mp3Buffer, 0, flushSize)
                     }
-                    offset += chunkBytes
                 }
-                val flushSize = lame.flush(mp3Buffer)
-                if (flushSize > 0) {
-                    output.write(mp3Buffer, 0, flushSize)
-                }
+            } finally {
+                closeLame(lame)
             }
             true
         }.getOrElse { error ->
@@ -292,18 +304,22 @@ class AudioEncoder
                     .setOutSampleRate(sampleRate)
                     .build()
             val mp3Buffer = ByteArray(MP3_BUFFER_SIZE)
-            BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
-                forEachFloatChunk(inputPath, sampleCount) { chunk ->
-                    val shorts = floatToShorts(chunk)
-                    val encodedSize = lame.encode(shorts, shorts, shorts.size, mp3Buffer)
-                    if (encodedSize > 0) {
-                        output.write(mp3Buffer, 0, encodedSize)
+            try {
+                BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
+                    forEachFloatChunk(inputPath, sampleCount) { chunk ->
+                        val shorts = floatToShorts(chunk)
+                        val encodedSize = lame.encode(shorts, shorts, shorts.size, mp3Buffer)
+                        if (encodedSize > 0) {
+                            output.write(mp3Buffer, 0, encodedSize)
+                        }
+                    }
+                    val flushSize = lame.flush(mp3Buffer)
+                    if (flushSize > 0) {
+                        output.write(mp3Buffer, 0, flushSize)
                     }
                 }
-                val flushSize = lame.flush(mp3Buffer)
-                if (flushSize > 0) {
-                    output.write(mp3Buffer, 0, flushSize)
-                }
+            } finally {
+                closeLame(lame)
             }
             true
         }.getOrElse { error ->
@@ -398,12 +414,14 @@ class AudioEncoder
         outputPath: String,
         config: KeyboardRecordingQualityConfig,
     ): Boolean {
-        val sampleRate = readWavSampleRate(File(inputPath))
         var codec: MediaCodec? = null
         var muxer: MediaMuxer? = null
         var muxerSession: MuxerSession? = null
 
         return try {
+            // Reading the header inside the guard keeps a malformed or truncated WAV a
+            // returned failure rather than an exception thrown past the caller.
+            val sampleRate = readWavSampleRate(File(inputPath))
             File(outputPath).parentFile?.mkdirs()
             val mediaFormat = MediaFormat.createAudioFormat(MIME_TYPE, sampleRate, 1).apply {
                 setInteger(MediaFormat.KEY_BIT_RATE, config.bitRate)
@@ -482,8 +500,10 @@ class AudioEncoder
         outputPath: String,
         config: KeyboardRecordingQualityConfig,
     ): Boolean {
-        val sampleRate = readWavSampleRate(File(inputPath))
         return runCatching {
+            // Reading the header inside the guard keeps a malformed or truncated WAV a
+            // returned failure rather than an exception thrown past the caller.
+            val sampleRate = readWavSampleRate(File(inputPath))
             File(outputPath).parentFile?.mkdirs()
             val lame =
                 LameBuilder()
@@ -492,31 +512,35 @@ class AudioEncoder
                     .setOutBitrate(config.bitRate / 1000)
                     .setOutSampleRate(sampleRate)
                     .build()
-            val pcmBuffer = ByteArray(MP3_BUFFER_SIZE)
+            val pcmBuffer = ByteArray(MP3_PCM_BUFFER_SIZE)
             val mp3Buffer = ByteArray(MP3_BUFFER_SIZE)
-            BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
-                FileInputStream(inputPath).use { input ->
-                    input.skip(WavFileWriter.WAV_HEADER_BYTES.toLong())
-                    while (true) {
-                        val read = input.read(pcmBuffer)
-                        if (read <= 0) break
-                        val sampleCount = read / 2
-                        if (sampleCount == 0) continue
-                        val shorts = ShortArray(sampleCount)
-                        val byteBuffer = ByteBuffer.wrap(pcmBuffer, 0, sampleCount * 2).order(ByteOrder.LITTLE_ENDIAN)
-                        for (index in 0 until sampleCount) {
-                            shorts[index] = byteBuffer.short
-                        }
-                        val encodedSize = lame.encode(shorts, shorts, sampleCount, mp3Buffer)
-                        if (encodedSize > 0) {
-                            output.write(mp3Buffer, 0, encodedSize)
+            try {
+                BufferedOutputStream(FileOutputStream(outputPath)).use { output ->
+                    FileInputStream(inputPath).use { input ->
+                        input.skip(WavFileWriter.WAV_HEADER_BYTES.toLong())
+                        while (true) {
+                            val read = input.read(pcmBuffer)
+                            if (read <= 0) break
+                            val sampleCount = read / 2
+                            if (sampleCount == 0) continue
+                            val shorts = ShortArray(sampleCount)
+                            val byteBuffer = ByteBuffer.wrap(pcmBuffer, 0, sampleCount * 2).order(ByteOrder.LITTLE_ENDIAN)
+                            for (index in 0 until sampleCount) {
+                                shorts[index] = byteBuffer.short
+                            }
+                            val encodedSize = lame.encode(shorts, shorts, sampleCount, mp3Buffer)
+                            if (encodedSize > 0) {
+                                output.write(mp3Buffer, 0, encodedSize)
+                            }
                         }
                     }
+                    val flushSize = lame.flush(mp3Buffer)
+                    if (flushSize > 0) {
+                        output.write(mp3Buffer, 0, flushSize)
+                    }
                 }
-                val flushSize = lame.flush(mp3Buffer)
-                if (flushSize > 0) {
-                    output.write(mp3Buffer, 0, flushSize)
-                }
+            } finally {
+                closeLame(lame)
             }
             true
         }.getOrElse { error ->
@@ -598,6 +622,15 @@ class AudioEncoder
         ) {
             muxer.writeSampleData(trackIndex, buffer, info)
         }
+    }
+
+    /**
+     * Frees the native LAME encoder state. Without this every export leaks a native
+     * allocation for the process lifetime, which can get the app killed mid-export.
+     */
+    private fun closeLame(lame: AndroidLame) {
+        runCatching { lame.close() }
+            .onFailure { error -> Log.w(TAG, "Could not close LAME encoder", error) }
     }
 
     private fun readWavSampleRate(file: File): Int {
