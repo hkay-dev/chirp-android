@@ -14,6 +14,7 @@ import com.android.build.api.dsl.ApplicationExtension
 import com.android.build.api.dsl.LibraryExtension
 import org.gradle.api.GradleException
 import org.gradle.api.artifacts.ProjectDependency
+import org.jetbrains.kotlin.compose.compiler.gradle.ComposeCompilerGradlePluginExtension
 
 detekt {
     toolVersion = "1.23.7"
@@ -37,6 +38,17 @@ subprojects {
         val baselineFile = file("detekt-baseline.xml")
         if (baselineFile.exists()) {
             baseline = baselineFile
+        }
+    }
+
+    // One stability whitelist for every Compose module: types that cannot be inferred stable
+    // because they live in modules without the Compose plugin (core-contracts) otherwise stop
+    // their consumers from ever skipping. Wired here so a new Compose module inherits it.
+    pluginManager.withPlugin("org.jetbrains.kotlin.plugin.compose") {
+        extensions.configure<ComposeCompilerGradlePluginExtension>("composeCompiler") {
+            stabilityConfigurationFile.set(
+                rootProject.layout.projectDirectory.file("compose_compiler_config.conf"),
+            )
         }
     }
 

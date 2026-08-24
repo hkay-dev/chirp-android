@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +63,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -111,7 +113,6 @@ fun HomeScreen(
     val displayItems by viewModel.displayItems.collectAsStateWithLifecycle()
     val allDisplayItems by viewModel.allDisplayItems.collectAsStateWithLifecycle()
     val stats by viewModel.stats.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val listFilter by viewModel.listFilter.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
     val stuckCount by viewModel.stuckCount.collectAsStateWithLifecycle()
@@ -133,6 +134,22 @@ fun HomeScreen(
                 onImportAudio(uri)
             }
         }
+
+    // PERF: the typed text lives in a local snapshot state that only the input field reads.
+    // Collecting the ViewModel's query flow in this scope invalidated the whole screen on every
+    // keystroke — the content AnimatedContent, the LazyColumn declaration and every visible row.
+    // The ViewModel stays the source of truth (SavedStateHandle-backed, so it survives process
+    // death and config change): the field seeds from its current value and mirrors external
+    // writes such as clearListFilters(). Only the blank/non-blank derivative is read out here.
+    val searchText = remember(viewModel) { mutableStateOf(viewModel.searchQuery.value) }
+    LaunchedEffect(viewModel) {
+        viewModel.searchQuery.collect { persisted -> searchText.value = persisted }
+    }
+    val searchBlank by remember { derivedStateOf { searchText.value.isBlank() } }
+    fun onSearchTextChange(query: String) {
+        searchText.value = query
+        viewModel.onSearchQueryChange(query)
+    }
 
     var searchActive by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -365,11 +382,11 @@ fun HomeScreen(
         homeContentPhase(
             contentLoaded = libraryLoad.loaded,
             libraryEmpty = libraryLoad.empty,
-            searchBlank = searchQuery.isBlank(),
+            searchBlank = searchBlank,
             filterAll = listFilter == ListFilterMode.ALL,
         )
     val showEmptyState = homeContentPhase == HomeContentPhase.EMPTY
-    val hasActiveListFilter = listFilter != ListFilterMode.ALL || searchQuery.isNotBlank()
+    val hasActiveListFilter = listFilter != ListFilterMode.ALL || !searchBlank
     val appBarScrollBehavior = if (searchActive) null else scrollBehavior
 
     // collapsedFraction is backed by mutableFloatStateOf and changes every frame while the
@@ -427,7 +444,7 @@ fun HomeScreen(
                                     imageVector = Icons.Rounded.Search,
                                     contentDescription = stringResource(R.string.desc_search),
                                     tint =
-                                        if (searchQuery.isNotBlank()) {
+                                        if (!searchBlank) {
                                             MaterialTheme.colorScheme.primary
                                         } else {
                                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -485,46 +502,10 @@ fun HomeScreen(
                         ),
                 )
                 PushDownReveal(visible = searchActive) {
-                    SearchBarDefaults.InputField(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        query = searchQuery,
-                        onQueryChange = viewModel::onSearchQueryChange,
-                        onSearch = { searchActive = false },
-                        expanded = true,
-                        onExpandedChange = { searchActive = it },
-                        placeholder = { Text(stringResource(R.string.search_recordings)) },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Rounded.Search,
-                                contentDescription = stringResource(R.string.desc_search),
-                            )
-                        },
-                        trailingIcon = {
-                            IconButton(
-                                onClick = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        viewModel.onSearchQueryChange("")
-                                    } else {
-                                        searchActive = false
-                                    }
-                                },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription =
-                                        stringResource(
-                                            if (searchQuery.isNotEmpty()) {
-                                                R.string.desc_clear_search
-                                            } else {
-                                                R.string.desc_close
-                                            },
-                                        ),
-                                )
-                            }
-                        },
+                    HomeSearchField(
+                        queryState = searchText,
+                        onQueryChange = { query -> onSearchTextChange(query) },
+                        onClose = { searchActive = false },
                     )
                 }
             }
@@ -600,27 +581,17 @@ fun HomeScreen(
                 )
 
                 HomeContentPhase.LIST -> {
-                // INS-7 / on-device sweep fix: clearance sized to the FULL floating stack — the
-                // Record FAB, the quick-start surface stacked above it, and (when the global
-                // mini-player bar is visible, stealing ~90dp of viewport from this screen) extra
-                // headroom so the last row can always be scrolled well clear of the Record pill.
-                val listBottomClearance by animateDpAsState(
-                    targetValue =
-                        homeListBottomClearance(
-                            quickStartVisible = shouldShowHomeQuickStartSurface(quickStarts),
-                            miniPlayerVisible = playbackRowState.impliesGlobalMiniPlayer(),
-                        ),
-                    label = "homeListBottomClearance",
-                )
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     state = listState,
+                    // Static padding only. The animated floating-stack clearance is a trailing
+                    // spacer item instead: as a contentPadding argument its per-frame Dp read
+                    // rebuilt the whole list declaration for ~30 frames the moment the
+                    // mini-player appeared (i.e. exactly when the user taps play).
                     contentPadding =
                         PaddingValues(
                             top = paddingValues.calculateTopPadding(),
-                            bottom =
-                                paddingValues.calculateBottomPadding() +
-                                    listBottomClearance,
+                            bottom = paddingValues.calculateBottomPadding(),
                         ),
                 ) {
                     item(key = "recovery_banner", contentType = "recovery_banner") {
@@ -676,7 +647,7 @@ fun HomeScreen(
                     }
 
                     item(key = "stats", contentType = "stats") {
-                        PushDownReveal(visible = searchQuery.isBlank() && stats.totalRecordings > 0) {
+                        PushDownReveal(visible = searchBlank && stats.totalRecordings > 0) {
                             Column {
                                 StatsPillRow(
                                     recordingCount = stats.totalRecordings,
@@ -707,7 +678,7 @@ fun HomeScreen(
                     item(key = "processing_filter_chip", contentType = "processing_filter_chip") {
                         PushDownReveal(
                             visible =
-                                searchQuery.isBlank() &&
+                                searchBlank &&
                                     stats.totalRecordings > 0 &&
                                     listFilter == ListFilterMode.PROCESSING,
                         ) {
@@ -741,7 +712,7 @@ fun HomeScreen(
                     item(key = "recover_stuck", contentType = "recover_stuck") {
                         PushDownReveal(
                             visible =
-                                searchQuery.isBlank() &&
+                                searchBlank &&
                                     listFilter == ListFilterMode.PROCESSING &&
                                     stuckCount > 0,
                         ) {
@@ -769,7 +740,7 @@ fun HomeScreen(
                     }
 
                     item(key = "search_results", contentType = "search_results") {
-                        PushDownReveal(visible = searchQuery.isNotBlank()) {
+                        PushDownReveal(visible = !searchBlank) {
                             Text(
                                 text = pluralStringResource(R.plurals.rec_search_results_count, displayItems.size, displayItems.size),
                                 style = MaterialTheme.typography.labelMedium,
@@ -843,7 +814,7 @@ fun HomeScreen(
                         PushDownReveal(
                             visible =
                                 isHomeListCapped &&
-                                    searchQuery.isBlank() &&
+                                    searchBlank &&
                                     listFilter == ListFilterMode.ALL,
                         ) {
                             Text(
@@ -861,6 +832,19 @@ fun HomeScreen(
                                     ),
                             )
                         }
+                    }
+
+                    // INS-7 / on-device sweep fix: clearance sized to the FULL floating stack —
+                    // the Record FAB, the quick-start surface stacked above it, and (when the
+                    // global mini-player bar is visible, stealing ~90dp of viewport from this
+                    // screen) extra headroom so the last row can always be scrolled well clear of
+                    // the Record pill. A leaf item, so the animation's per-frame Dp read cannot
+                    // reach the list declaration.
+                    item(key = "bottom_clearance", contentType = "bottom_clearance") {
+                        HomeListBottomClearance(
+                            quickStartVisible = shouldShowHomeQuickStartSurface(quickStarts),
+                            miniPlayerVisible = playbackRowState.impliesGlobalMiniPlayer(),
+                        )
                     }
                 }
                 }
@@ -962,6 +946,87 @@ fun HomeScreen(
             }
         }
     }
+}
+
+/**
+ * Trailing spacer reserving the home list's bottom clearance for the floating stack.
+ *
+ * A composable of its own so the [animateDpAsState] read stays in a leaf scope; the clearance
+ * animates whenever the quick-start surface or the global mini-player appears, and reading it
+ * where the list is declared re-ran the whole declaration once per animation frame.
+ */
+@Composable
+private fun HomeListBottomClearance(
+    quickStartVisible: Boolean,
+    miniPlayerVisible: Boolean,
+) {
+    val clearance by animateDpAsState(
+        targetValue =
+            homeListBottomClearance(
+                quickStartVisible = quickStartVisible,
+                miniPlayerVisible = miniPlayerVisible,
+            ),
+        label = "homeListBottomClearance",
+    )
+    Spacer(modifier = Modifier.height(clearance))
+}
+
+/**
+ * The home search input field.
+ *
+ * Owns the read of [queryState]: the typed text must not be read by the screen body, where every
+ * keystroke re-executed the content transition, the list declaration and every visible row. The
+ * text is a [MutableState] rather than a String parameter so the read happens inside this scope.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeSearchField(
+    queryState: State<String>,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    val query = queryState.value
+    SearchBarDefaults.InputField(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        query = query,
+        onQueryChange = onQueryChange,
+        onSearch = { onClose() },
+        expanded = true,
+        onExpandedChange = { expanded -> if (!expanded) onClose() },
+        placeholder = { Text(stringResource(R.string.search_recordings)) },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Rounded.Search,
+                contentDescription = stringResource(R.string.desc_search),
+            )
+        },
+        trailingIcon = {
+            IconButton(
+                onClick = {
+                    if (query.isNotEmpty()) {
+                        onQueryChange("")
+                    } else {
+                        onClose()
+                    }
+                },
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription =
+                        stringResource(
+                            if (query.isNotEmpty()) {
+                                R.string.desc_clear_search
+                            } else {
+                                R.string.desc_close
+                            },
+                        ),
+                )
+            }
+        },
+    )
 }
 
 /**

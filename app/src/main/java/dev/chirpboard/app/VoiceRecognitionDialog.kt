@@ -1067,7 +1067,7 @@ private fun VoiceRecognitionErrorStatus(
  */
 @Composable
 private fun VoiceRecognitionTimer(recordingState: RecordingState) {
-    val elapsedMs = rememberRecordingElapsedMs(recordingState)
+    val elapsedMs by rememberRecordingElapsedMs(recordingState)
 
     // A11Y-1: announce that capture is live when the timer appears. The description is a
     // constant "Listening…" (not the ticking digits) so TalkBack hears the state change

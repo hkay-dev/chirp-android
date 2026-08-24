@@ -8,10 +8,10 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -50,14 +50,19 @@ internal fun delayToNextSecondMs(rawElapsedMs: Long): Long =
  * (screen re-entered, row scrolled back) shows the true total across pauses and segment
  * rotations. Every consumer renders whole seconds, so the loop sleeps until the next second
  * boundary instead of polling sub-second.
+ *
+ * Returns [State] rather than a plain Long: the 1 Hz tick must invalidate only the scope that
+ * reads `.value` (the duration text), not the caller that hosts it — a home list row reading a
+ * plain Long re-executed its title, buttons, pills and reveals once a second for the whole
+ * capture.
  */
 @Composable
-fun rememberRecordingElapsedMs(recordingState: RecordingState): Long {
-    var elapsedMs by remember { mutableLongStateOf(0L) }
+fun rememberRecordingElapsedMs(recordingState: RecordingState): State<Long> {
+    val elapsedMs = remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(recordingState) {
         when (val state = recordingState) {
-            is RecordingState.Starting -> elapsedMs = 0L
+            is RecordingState.Starting -> elapsedMs.longValue = 0L
 
             is RecordingState.Recording ->
                 while (true) {
@@ -66,13 +71,13 @@ fun rememberRecordingElapsedMs(recordingState: RecordingState): Long {
                     val rawMs =
                         state.accumulatedBeforeSegmentMs +
                             (System.nanoTime() / NANOS_PER_MILLISECOND - state.startMonotonicMs)
-                    elapsedMs = snapToSecond(rawMs)
+                    elapsedMs.longValue = snapToSecond(rawMs)
                     delay(delayToNextSecondMs(rawMs))
                 }
 
-            is RecordingState.Paused -> elapsedMs = state.accumulatedMs
+            is RecordingState.Paused -> elapsedMs.longValue = state.accumulatedMs
 
-            is RecordingState.Idle -> elapsedMs = 0L
+            is RecordingState.Idle -> elapsedMs.longValue = 0L
 
             else -> Unit
         }
@@ -100,7 +105,7 @@ fun RecordingTimer(
     textStyle: androidx.compose.ui.text.TextStyle = recordingTimerStyle,
     modifier: Modifier = Modifier,
 ) {
-    val elapsedMs = rememberRecordingElapsedMs(recordingState)
+    val elapsedMs by rememberRecordingElapsedMs(recordingState)
 
     val textColor by animateColorAsState(
         targetValue = if (isRecording) MaterialTheme.colorScheme.chirpAccents.recordingLive else MaterialTheme.colorScheme.onSurface,

@@ -53,6 +53,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.components.EmptyState
+import dev.chirpboard.app.data.model.RecordingSource
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.recording.R
 import dev.chirpboard.app.feature.recording.ui.tag.parseTagColor
@@ -103,6 +105,8 @@ internal fun RecordingListItem(
 ) {
     val isCurrentItem = playbackState.recordingId == item.id
     val isPlayingCurrent = isCurrentItem && playbackState.isPlaying
+    // State, never a plain Long: the elapsed value is handed to a leaf pill row so the 1 Hz tick
+    // cannot invalidate this row's title, buttons and reveals for the whole capture.
     val liveCaptureElapsedMs =
         if (item.isLiveCapture) {
             rememberRecordingElapsedMs(recordingState)
@@ -183,12 +187,21 @@ internal fun RecordingListItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
         ) {
-            MetadataPillRow(
-                createdAtMs = item.createdAtMs,
-                durationMs = liveCaptureElapsedMs ?: item.durationMs,
-                source = item.source,
-                modifier = Modifier.weight(1f, fill = false),
-            )
+            if (liveCaptureElapsedMs != null) {
+                LiveCaptureMetadataPillRow(
+                    createdAtMs = item.createdAtMs,
+                    elapsedMs = liveCaptureElapsedMs,
+                    source = item.source,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            } else {
+                MetadataPillRow(
+                    createdAtMs = item.createdAtMs,
+                    durationMs = item.durationMs,
+                    source = item.source,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
             // NOTES: a quiet glyph marks rows that carry a user note, so a described recording
             // is findable at a glance without adding another pill to the metadata row.
             if (!item.recording.notes.isNullOrBlank()) {
@@ -284,6 +297,28 @@ internal fun RecordingListItem(
 
 /** Maximum number of tag chips rendered inline on a recording row before collapsing to a count. */
 private const val MAX_VISIBLE_TAGS = 3
+
+/**
+ * Metadata pills for a live-capture row, with the ticking duration.
+ *
+ * A separate composable purely for invalidation scope: [elapsedMs] is read here, so the per-second
+ * tick recomposes only the pills. Read in the row itself it re-executed the title, action buttons
+ * and every PushDownReveal once a second for the entire capture.
+ */
+@Composable
+private fun LiveCaptureMetadataPillRow(
+    createdAtMs: Long,
+    elapsedMs: State<Long>,
+    source: RecordingSource,
+    modifier: Modifier = Modifier,
+) {
+    MetadataPillRow(
+        createdAtMs = createdAtMs,
+        durationMs = elapsedMs.value,
+        source = source,
+        modifier = modifier,
+    )
+}
 
 @Composable
 private fun LiveCaptureHomeBanner(
