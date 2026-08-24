@@ -1543,10 +1543,16 @@ class KeyboardSessionCoordinator(
     fun restartRecording() {
         cancelRecording()
         val pendingCancel = cancelJob
+        // MIC-017: a cancel that lands inside the stop-teardown window has no job to cancel — it
+        // only records its intent in [cancelRequestedDuringTeardown], which the teardown consumes
+        // and startRecording clears. Joining the teardown too orders that read before the reset,
+        // so the discarded dictation cannot still commit into the field the user is re-dictating.
+        val pendingTeardown = teardownJob
         scope.launch {
             // Wait out the cancelled session's off-main recorder teardown before starting the
             // next one; both share a single recorder instance inside [capture].
             pendingCancel?.join()
+            pendingTeardown?.join()
             startRecording()
         }
     }
