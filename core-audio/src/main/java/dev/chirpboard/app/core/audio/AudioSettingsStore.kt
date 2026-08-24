@@ -1,12 +1,16 @@
 package dev.chirpboard.app.core.audio
 
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import java.io.IOException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -84,7 +88,8 @@ data class AudioSettings(
 interface AudioSettingsMigrationSource {
     suspend fun readLegacyKeyboardMicrophoneGain(): Float?
 
-    fun readLegacyAppMicrophoneGain(): Float?
+    /** Suspending because the only implementation reads SharedPreferences off the main thread. */
+    suspend fun readLegacyAppMicrophoneGain(): Float?
 }
 
 @Singleton
@@ -241,10 +246,25 @@ class AudioSettingsStore
 
         suspend fun currentPlaybackSpeed(): Float = currentSettings().playbackSpeed
 
+        /**
+         * DataStore surfaces read failures (a transient IOException on the preferences file) as
+         * flow errors that would otherwise cancel every collector and leave settings screens
+         * dead until process restart. Falling back to defaults keeps the UI usable.
+         */
+        private val preferences: Flow<Preferences> =
+            dataStore.data.catch { error ->
+                if (error is IOException) {
+                    Log.e(TAG, "Could not read audio settings; falling back to defaults", error)
+                    emit(emptyPreferences())
+                } else {
+                    throw error
+                }
+            }
+
         private fun dataFlow(transform: (Preferences) -> AudioSettings): Flow<AudioSettings> =
             flow {
                 ensureMigrated()
-                emitAll(dataStore.data.map(transform))
+                emitAll(preferences.map(transform))
             }
 
         private suspend fun ensureMigrated() {
@@ -310,6 +330,8 @@ class AudioSettingsStore
             RecordingOutputFormat.fromStorageValue(this[Keys.outputFormat])
 
         companion object {
+            private const val TAG = "AudioSettingsStore"
+
             /** Snaps an arbitrary stored/requested value to the closest supported speed. */
             fun nearestPlaybackSpeed(speed: Float): Float =
                 PLAYBACK_SPEED_OPTIONS.minByOrNull { option -> kotlin.math.abs(option - speed) }

@@ -173,5 +173,5 @@ class RapidSelectionThrashTest {
 private class ThrashMigrationSource : AudioSettingsMigrationSource {
     override suspend fun readLegacyKeyboardMicrophoneGain(): Float? = null
 
-    override fun readLegacyAppMicrophoneGain(): Float? = null
+    override suspend fun readLegacyAppMicrophoneGain(): Float? = null
 }

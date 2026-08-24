@@ -314,5 +314,5 @@ private class FakeAudioSettingsMigrationSource(
 ) : AudioSettingsMigrationSource {
     override suspend fun readLegacyKeyboardMicrophoneGain(): Float? = keyboardMicrophoneGain
 
-    override fun readLegacyAppMicrophoneGain(): Float? = appMicrophoneGain
+    override suspend fun readLegacyAppMicrophoneGain(): Float? = appMicrophoneGain
 }

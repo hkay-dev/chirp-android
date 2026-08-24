@@ -16,7 +16,9 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.chirpboard.app.core.audio.AudioSettingsMigrationSource
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
@@ -39,14 +41,17 @@ class ContextAudioSettingsMigrationSource
         override suspend fun readLegacyKeyboardMicrophoneGain(): Float? =
             keyboardPreferencesDataStore.data.first()[floatPreferencesKey(LEGACY_MICROPHONE_GAIN_KEY)]
 
-        override fun readLegacyAppMicrophoneGain(): Float? {
-            val sharedPreferences = context.getSharedPreferences(LEGACY_APP_PREFERENCES_NAME, Context.MODE_PRIVATE)
-            return if (sharedPreferences.contains(LEGACY_MICROPHONE_GAIN_KEY)) {
-                sharedPreferences.getFloat(LEGACY_MICROPHONE_GAIN_KEY, 1.0f)
-            } else {
-                null
+        // getSharedPreferences does blocking disk I/O on first access, and migration can be
+        // triggered from a main-thread settings read.
+        override suspend fun readLegacyAppMicrophoneGain(): Float? =
+            withContext(Dispatchers.IO) {
+                val sharedPreferences = context.getSharedPreferences(LEGACY_APP_PREFERENCES_NAME, Context.MODE_PRIVATE)
+                if (sharedPreferences.contains(LEGACY_MICROPHONE_GAIN_KEY)) {
+                    sharedPreferences.getFloat(LEGACY_MICROPHONE_GAIN_KEY, 1.0f)
+                } else {
+                    null
+                }
             }
-        }
 
         private companion object {
             const val LEGACY_APP_PREFERENCES_NAME = "chirp"
