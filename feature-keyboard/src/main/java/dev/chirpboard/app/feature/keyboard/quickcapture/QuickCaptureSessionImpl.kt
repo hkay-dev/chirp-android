@@ -150,8 +150,6 @@ class QuickCaptureSessionImpl(
         recorder.collectSamples()
     }
 
-    override fun stop(): FloatArray = recorder.stop()
-
     fun stopAsAudioSource(): InlineAudioSource? =
         recorder.stopToFileBacked()?.let { capture ->
             InlineAudioSource.PcmFloatFile(

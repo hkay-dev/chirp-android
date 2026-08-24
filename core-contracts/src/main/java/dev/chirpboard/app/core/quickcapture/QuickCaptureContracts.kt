@@ -16,7 +16,6 @@ interface QuickCaptureSession {
 
     suspend fun start(): QuickCaptureStartResult
     suspend fun collectSamples()
-    fun stop(): FloatArray
     fun close()
 }
 
