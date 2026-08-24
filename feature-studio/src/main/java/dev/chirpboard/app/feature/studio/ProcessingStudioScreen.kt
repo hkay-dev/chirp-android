@@ -65,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -176,24 +177,71 @@ fun ProcessingStudioScreen(
     // NOTES: collapsed/expanded display state for the note card survives rotation.
     var isNotesExpanded by rememberSaveable { mutableStateOf(false) }
 
+    // Transcript keystrokes live here rather than in the ViewModel while the user types; the
+    // screen only ever flushes or discards the buffer, so it does not recompose per character.
+    val transcriptDraftBuffer = remember(viewModel) { TranscriptDraftBuffer(viewModel::updateTranscriptDraft) }
+
+    // Read through rememberUpdatedState so the callbacks below can be remembered once: an
+    // identity that changed every recomposition kept the app bar actions and the transcript
+    // tab from ever skipping.
+    val hasManualCorrection by rememberUpdatedState(state.hasManualCorrection)
+    val transcriptDraft by rememberUpdatedState(state.transcriptDraft)
+    val effectiveTranscriptText by rememberUpdatedState(state.effectiveTranscriptText)
+    val rawTranscriptText by rememberUpdatedState(state.rawTranscriptText)
+    val enhancedTranscriptText by rememberUpdatedState(state.enhancedTranscriptText)
+
     // Every path into retranscription must confirm first when a manual correction exists:
     // a successful commit clears the correction, so an unconfirmed tap on Retry or Start
     // transcription would silently destroy the user's hand-edited text.
-    fun requestRetranscribe() {
-        if (state.hasManualCorrection) {
-            showRetranscribeConfirmation = true
-        } else {
-            viewModel.retranscribe()
+    val requestRetranscribe =
+        remember(viewModel) {
+            {
+                if (hasManualCorrection) {
+                    showRetranscribeConfirmation = true
+                } else {
+                    viewModel.retranscribe()
+                }
+            }
         }
-    }
 
-    fun requestCloseTranscriptEdit() {
-        if (state.transcriptDraft != state.effectiveTranscriptText) {
-            showDiscardEditDialog = true
-        } else {
-            viewModel.cancelEditingTranscript()
+    val requestCloseTranscriptEdit =
+        remember(viewModel) {
+            {
+                // The buffer, not the ViewModel, holds the newest keystrokes: a stale compare
+                // here would discard unsaved text without asking.
+                if (transcriptDraftBuffer.latestDraft(transcriptDraft) != effectiveTranscriptText) {
+                    showDiscardEditDialog = true
+                } else {
+                    transcriptDraftBuffer.discard()
+                    viewModel.cancelEditingTranscript()
+                }
+            }
         }
-    }
+
+    val saveTranscriptCorrection =
+        remember(viewModel) {
+            {
+                // Flush before saving: the debounced push must never cost the user the last
+                // few characters they typed before hitting the check.
+                transcriptDraftBuffer.flush()
+                viewModel.saveTranscriptCorrection()
+            }
+        }
+
+    val copyText: (String) -> Unit =
+        remember(viewModel, context, transcriptClipLabel) {
+            { text ->
+                val trimmed = text.trim()
+                if (trimmed.isNotEmpty() && copySensitiveTextToClipboard(context, transcriptClipLabel, trimmed)) {
+                    viewModel.onTranscriptCopied()
+                }
+            }
+        }
+    val copyTranscript = remember(copyText) { { copyText(effectiveTranscriptText) } }
+    val copyOriginal = remember(copyText) { { copyText(rawTranscriptText) } }
+    val copyEnhanced = remember(copyText) { { copyText(enhancedTranscriptText) } }
+    val startTranscription =
+        if (state.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) requestRetranscribe else null
 
     val canEditTranscript =
         state.effectiveTranscriptText.isNotBlank() &&
@@ -263,6 +311,9 @@ fun ProcessingStudioScreen(
                 TextButton(
                     onClick = {
                         showDiscardEditDialog = false
+                        // Drop the buffer before leaving edit mode: a later flush would push the
+                        // discarded text back and re-arm the saved-state edit mirror.
+                        transcriptDraftBuffer.discard()
                         viewModel.cancelEditingTranscript()
                     },
                 ) {
@@ -353,10 +404,10 @@ fun ProcessingStudioScreen(
                     },
                     actions = {
                         if (state.isEditingTranscript) {
-                            IconButton(onClick = { requestCloseTranscriptEdit() }) {
+                            IconButton(onClick = requestCloseTranscriptEdit) {
                                 Icon(Icons.Rounded.Close, contentDescription = stringResource(CoreR.string.desc_cancel))
                             }
-                            IconButton(onClick = viewModel::saveTranscriptCorrection) {
+                            IconButton(onClick = saveTranscriptCorrection) {
                                 Icon(Icons.Rounded.Check, contentDescription = stringResource(CoreR.string.desc_save))
                             }
                         } else if (state.isSelectingTranscript) {
@@ -398,7 +449,7 @@ fun ProcessingStudioScreen(
                             }
                         }
                             IconButton(
-                                onClick = { requestRetranscribe() },
+                                onClick = requestRetranscribe,
                                 enabled = canRetranscribe,
                             ) {
                                 Icon(
@@ -778,46 +829,16 @@ fun ProcessingStudioScreen(
                             transcriptSelectionResult = state.transcriptSelectionResult,
                             onTranscriptSelectionChanged = viewModel::onTranscriptSelectionChanged,
                             onRunTranscriptSelectionAction = viewModel::runTranscriptSelectionAction,
-                            onCopySelectionResult = { text ->
-                                if (copySensitiveTextToClipboard(context, transcriptClipLabel, text)) {
-                                    viewModel.onTranscriptCopied()
-                                }
-                            },
-                            onStartTranscription =
-                                if (state.status == RecordingStatus.AWAITING_MANUAL_TRANSCRIPTION) {
-                                    { requestRetranscribe() }
-                                } else {
-                                    null
-                                },
+                            onCopySelectionResult = copyText,
+                            onStartTranscription = startTranscription,
                             // sweep-04: a completed-but-empty (silence-only) transcript offers a
                             // retry instead of a dead end.
-                            onRetryTranscription = { requestRetranscribe() },
+                            onRetryTranscription = requestRetranscribe,
                             onSegmentClicked = if (state.canUseTranscriptInteractions()) viewModel::onWordClicked else null,
-                            onTranscriptDraftChange = viewModel::updateTranscriptDraft,
-                            onCopyTranscript = {
-                                val text = state.effectiveTranscriptText.trim()
-                                if (text.isNotEmpty() &&
-                                    copySensitiveTextToClipboard(context, transcriptClipLabel, text)
-                                ) {
-                                    viewModel.onTranscriptCopied()
-                                }
-                            },
-                            onCopyOriginal = {
-                                val text = state.rawTranscriptText.trim()
-                                if (text.isNotEmpty() &&
-                                    copySensitiveTextToClipboard(context, transcriptClipLabel, text)
-                                ) {
-                                    viewModel.onTranscriptCopied()
-                                }
-                            },
-                            onCopyEnhanced = {
-                                val text = state.enhancedTranscriptText.trim()
-                                if (text.isNotEmpty() &&
-                                    copySensitiveTextToClipboard(context, transcriptClipLabel, text)
-                                ) {
-                                    viewModel.onTranscriptCopied()
-                                }
-                            },
+                            draftBuffer = transcriptDraftBuffer,
+                            onCopyTranscript = copyTranscript,
+                            onCopyOriginal = copyOriginal,
+                            onCopyEnhanced = copyEnhanced,
                         )
                     }
 

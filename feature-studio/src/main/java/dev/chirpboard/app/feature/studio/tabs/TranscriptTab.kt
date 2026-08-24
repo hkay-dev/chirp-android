@@ -35,12 +35,15 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -54,7 +57,11 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import dev.chirpboard.app.feature.llm.client.TranscriptPassageAction
+import dev.chirpboard.app.feature.studio.TRANSCRIPT_DRAFT_PUSH_DEBOUNCE_MS
+import dev.chirpboard.app.feature.studio.TranscriptDraftBuffer
 import dev.chirpboard.app.feature.studio.TranscriptSelectionResult
 import dev.chirpboard.app.data.model.RecordingStatus
 import dev.chirpboard.app.feature.studio.ProcessingStudioTranscript
@@ -66,6 +73,9 @@ import dev.chirpboard.app.core.ui.motion.ChirpMotion
 import dev.chirpboard.app.core.ui.R as CoreR
 import dev.chirpboard.app.core.ui.motion.PushDownReveal
 import dev.chirpboard.app.core.ui.motion.animatePushDownLayout
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val ACTIVE_SEGMENT_BACKGROUND_ALPHA = 0.22f
 
@@ -93,7 +103,7 @@ fun TranscriptTab(
     onStartTranscription: (() -> Unit)?,
     onRetryTranscription: (() -> Unit)?,
     onSegmentClicked: ((Long) -> Unit)?,
-    onTranscriptDraftChange: (String) -> Unit,
+    draftBuffer: TranscriptDraftBuffer,
     onCopyTranscript: () -> Unit,
     onCopyOriginal: () -> Unit,
     onCopyEnhanced: () -> Unit,
@@ -228,23 +238,53 @@ fun TranscriptTab(
                     TranscriptBodyMode.EmptyCompleted ->
                         EmptyCompletedTranscriptContent(onRetryTranscription = onRetryTranscription)
 
-                    TranscriptBodyMode.Editing -> {
-                        // A11Y: name the edit box so TalkBack says what is being edited.
-                        val transcriptFieldDescription = stringResource(R.string.rec_transcript_field_desc)
-                        OutlinedTextField(
-                            value = transcriptDraft,
-                            onValueChange = onTranscriptDraftChange,
-                            modifier =
-                                Modifier
-                                    .fillMaxSize()
-                                    .semantics { contentDescription = transcriptFieldDescription },
-                            minLines = 12,
+                    TranscriptBodyMode.Editing ->
+                        TranscriptEditorField(
+                            transcriptDraft = transcriptDraft,
+                            draftBuffer = draftBuffer,
                         )
-                    }
                 }
             }
         }
     }
+}
+
+/**
+ * Transcript edit box. Keystrokes land in [draftBuffer]'s Compose state and reach the
+ * ViewModel debounced, so a character no longer re-emits the screen state, recomposes the
+ * whole studio and re-lays-out the entire transcript in this field.
+ *
+ * Crash recovery still owns the text: the buffer is flushed when the editor leaves the
+ * composition (tab switch, mode change, navigation) and when the app pauses, which is the last
+ * point before saved-state is written; save and close flush at their call sites in the screen.
+ */
+@Composable
+private fun TranscriptEditorField(
+    transcriptDraft: String,
+    draftBuffer: TranscriptDraftBuffer,
+) {
+    // A11Y: name the edit box so TalkBack says what is being edited.
+    val transcriptFieldDescription = stringResource(R.string.rec_transcript_field_desc)
+    val text = draftBuffer.latestDraft(transcriptDraft)
+
+    LaunchedEffect(text) {
+        delay(TRANSCRIPT_DRAFT_PUSH_DEBOUNCE_MS)
+        draftBuffer.flush()
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) { draftBuffer.flush() }
+    DisposableEffect(draftBuffer) {
+        onDispose { draftBuffer.flush() }
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = draftBuffer::onTextChanged,
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .semantics { contentDescription = transcriptFieldDescription },
+        minLines = 12,
+    )
 }
 
 private enum class TranscriptBodyMode {
@@ -297,6 +337,16 @@ private fun TranscriptSelectionContent(
     onRunAction: (TranscriptPassageAction) -> Unit,
     onCopyResult: (String) -> Unit,
 ) {
+    // Dragging a selection handle reports every word it crosses. Pushing each of those to the
+    // ViewModel re-emitted the screen state mid-drag; the local value drives the buttons and
+    // settles into the ViewModel once the drag stops. Running an action flushes first, so a
+    // tap inside the settle window still acts on what is highlighted.
+    var localSelection by remember(transcriptText) { mutableStateOf(selectedPassage) }
+    LaunchedEffect(localSelection) {
+        delay(SELECTION_PUSH_SETTLE_MS)
+        onSelectionChanged(localSelection)
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -313,8 +363,11 @@ private fun TranscriptSelectionContent(
         ) {
             TranscriptPassageAction.entries.forEach { action ->
                 OutlinedButton(
-                    onClick = { onRunAction(action) },
-                    enabled = selectedPassage.isNotBlank() && actionInFlight == null,
+                    onClick = {
+                        onSelectionChanged(localSelection)
+                        onRunAction(action)
+                    },
+                    enabled = localSelection.isNotBlank() && actionInFlight == null,
                 ) {
                     if (actionInFlight == action) {
                         CircularProgressIndicator(
@@ -383,13 +436,12 @@ private fun TranscriptSelectionContent(
                 onValueChange = { next ->
                     selectionValue = next.copy(text = transcriptText)
                     val selection = next.selection
-                    onSelectionChanged(
+                    localSelection =
                         if (selection.collapsed) {
                             ""
                         } else {
                             transcriptText.substring(selection.min, selection.max)
-                        },
-                    )
+                        }
                 },
                 readOnly = true,
                 textStyle = selectionTextStyle,
@@ -400,35 +452,39 @@ private fun TranscriptSelectionContent(
                         .verticalScroll(rememberScrollState()),
             )
         } else {
-            val chunkValues =
-                remember(chunks) { chunks.map { TextFieldValue(it) }.toMutableStateList() }
+            // One state per chunk, not a shared SnapshotStateList: that list has a single
+            // state record, so writing any entry invalidated every composed chunk.
+            val chunkValues = remember(chunks) { chunks.map { mutableStateOf(TextFieldValue(it)) } }
+            // Index of the chunk holding the live highlight, so clearing the previous one is a
+            // single targeted write instead of a scan over every chunk.
+            var highlightedChunk by remember(chunks) { mutableIntStateOf(-1) }
             LazyColumn(
                 modifier =
                     Modifier
                         .weight(1f)
                         .fillMaxWidth(),
             ) {
-                itemsIndexed(chunks) { index, chunk ->
+                itemsIndexed(chunks, contentType = { _, _ -> SELECTION_CHUNK_CONTENT_TYPE }) { index, chunk ->
+                    val chunkValue = chunkValues[index]
                     BasicTextField(
-                        value = chunkValues[index],
+                        value = chunkValue.value,
                         onValueChange = { next ->
-                            chunkValues[index] = next.copy(text = chunk)
+                            chunkValue.value = next.copy(text = chunk)
+                            val selection = next.selection
                             // One active passage at a time: highlighting in this chunk
                             // drops any highlight left in another.
-                            chunkValues.indices.forEach { other ->
-                                if (other != index && !chunkValues[other].selection.collapsed) {
-                                    chunkValues[other] =
-                                        chunkValues[other].copy(selection = TextRange.Zero)
-                                }
+                            val previous = highlightedChunk
+                            if (previous >= 0 && previous != index) {
+                                val previousValue = chunkValues[previous]
+                                previousValue.value = previousValue.value.copy(selection = TextRange.Zero)
                             }
-                            val selection = next.selection
-                            onSelectionChanged(
+                            highlightedChunk = if (selection.collapsed) -1 else index
+                            localSelection =
                                 if (selection.collapsed) {
                                     ""
                                 } else {
                                     chunk.substring(selection.min, selection.max)
-                                },
-                            )
+                                }
                         },
                         readOnly = true,
                         textStyle = selectionTextStyle,
@@ -439,6 +495,15 @@ private fun TranscriptSelectionContent(
         }
     }
 }
+
+/** Every selection chunk composes the same way, so LazyColumn can reuse their subcompositions. */
+private const val SELECTION_CHUNK_CONTENT_TYPE = "selection_chunk"
+
+/**
+ * Delay before a passage selection reaches the ViewModel. A handle drag reports every word it
+ * crosses; short enough that releasing the handle feels instant, long enough to swallow a drag.
+ */
+private const val SELECTION_PUSH_SETTLE_MS = 200L
 
 /** Above this length, selection mode chunks the transcript instead of one giant text node. */
 private const val SELECTION_CHUNKING_THRESHOLD_CHARS = 12_000
@@ -660,9 +725,18 @@ private fun TimedTranscriptContent(
     val activeChunkIndex = if (activeSegmentIndex < 0) -1 else activeSegmentIndex / TIMED_SEGMENTS_PER_CHUNK
 
     val listState = rememberLazyListState()
-    LaunchedEffect(Unit) {
-        // Entering the tab mid-playback starts at the active chunk, not the top.
-        if (activeChunkIndex > 0) listState.scrollToItem(activeChunkIndex)
+    // Entering the tab mid-playback starts at the active chunk, not the top. The first playback
+    // tick can land after this composition, so wait briefly for a real index instead of reading
+    // -1 once and silently doing nothing; past that window the follow effect below owns
+    // scrolling, and a user who has already scrolled is left alone.
+    val latestActiveChunkIndex by rememberUpdatedState(activeChunkIndex)
+    LaunchedEffect(listState) {
+        val target =
+            withTimeoutOrNull(INITIAL_ACTIVE_CHUNK_WINDOW_MS) {
+                snapshotFlow { latestActiveChunkIndex }.first { it >= 0 }
+            }
+        val atTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+        if (target != null && target > 0 && atTop) listState.scrollToItem(target)
     }
     LaunchedEffect(activeChunkIndex) {
         if (activeChunkIndex < 0 || listState.isScrollInProgress) return@LaunchedEffect
@@ -707,6 +781,12 @@ private fun TimedTranscriptContent(
  * karaoke follow lag by whole screens and rebuilt 100 link spans per word.
  */
 private const val TIMED_SEGMENTS_PER_CHUNK = 20
+
+/**
+ * How long the timed transcript waits for a first playback tick before giving up on the
+ * one-shot scroll to the active chunk. Beyond it, a jump would fight a user who has settled.
+ */
+private const val INITIAL_ACTIVE_CHUNK_WINDOW_MS = 2_000L
 
 @Composable
 private fun rememberTimedTranscriptChunk(

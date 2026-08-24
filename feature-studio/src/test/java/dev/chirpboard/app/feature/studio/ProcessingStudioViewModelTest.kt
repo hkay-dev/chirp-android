@@ -749,6 +749,105 @@ class ProcessingStudioViewModelTest {
         }
 
     @Test
+    fun `flushing the draft buffer before save keeps every buffered keystroke`() =
+        runTest {
+            // The editor buffers keystrokes and pushes them debounced; the save path must flush
+            // first, so the correction that reaches Room is the last thing the user typed and
+            // not the text as of the previous debounce tick.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+
+            val handle = SavedStateHandle(mapOf("recordingId" to recordingId.toString()))
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = handle)
+            advanceUntilIdle()
+
+            viewModel.startEditingTranscript()
+            val buffer = TranscriptDraftBuffer(viewModel::updateTranscriptDraft)
+            buffer.onTextChanged("corrected")
+            buffer.onTextChanged("corrected te")
+            buffer.onTextChanged("corrected text")
+
+            // Nothing pushed yet: the ViewModel still holds the pre-edit draft.
+            assertEquals("original text", viewModel.uiState.value.transcriptDraft)
+            assertEquals("corrected text", buffer.latestDraft(viewModel.uiState.value.transcriptDraft))
+
+            buffer.flush()
+            viewModel.saveTranscriptCorrection()
+            advanceUntilIdle()
+
+            coVerify {
+                repository.saveManualCorrection(
+                    recordingId = recordingId,
+                    correctedText = "corrected text",
+                    sourceText = "original text",
+                )
+            }
+        }
+
+    @Test
+    fun `discarded draft buffer never resurrects the saved-state edit mirror`() =
+        runTest {
+            // The discard path drops the buffer before leaving edit mode; the editor's
+            // disposal flush must then be a no-op instead of re-arming the mirror with text
+            // the user chose to throw away.
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            Dispatchers.setMain(dispatcher)
+            val recordingId = UUID.randomUUID()
+            every { repository.getRecordingFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleRecording(recordingId)))
+            stubSupportingFlows(recordingId)
+            every { repository.getTranscriptFlow(recordingId) } returns
+                flowOf(RepositoryFlowState(sampleTranscript(recordingId, rawText = "original text")))
+
+            val handle = SavedStateHandle(mapOf("recordingId" to recordingId.toString()))
+            val viewModel = createViewModel(recordingId = recordingId.toString(), savedStateHandle = handle)
+            advanceUntilIdle()
+
+            viewModel.startEditingTranscript()
+            val buffer = TranscriptDraftBuffer(viewModel::updateTranscriptDraft)
+            buffer.onTextChanged("abandoned edit")
+
+            buffer.discard()
+            viewModel.cancelEditingTranscript()
+            buffer.flush()
+            advanceUntilIdle()
+
+            assertFalse(viewModel.uiState.value.isEditingTranscript)
+            assertEquals(false, handle.get<Boolean>("studio.isEditingTranscript"))
+            assertEquals(null, handle.get<String>("studio.transcriptDraft"))
+            assertEquals("original text", viewModel.uiState.value.transcriptDraft)
+        }
+
+    @Test
+    fun `draft buffer pushes each settled draft exactly once`() {
+        // A flush with nothing new is free: the debounce, the disposal flush and the save
+        // flush can all fire for the same text without re-mirroring it.
+        val pushed = mutableListOf<String>()
+        val buffer = TranscriptDraftBuffer { pushed += it }
+
+        assertEquals("from view model", buffer.latestDraft("from view model"))
+        buffer.flush()
+        assertEquals(emptyList<String>(), pushed)
+
+        buffer.onTextChanged("first")
+        buffer.flush()
+        buffer.flush()
+        assertEquals(listOf("first"), pushed)
+
+        buffer.onTextChanged("first second")
+        buffer.flush()
+        assertEquals(listOf("first", "first second"), pushed)
+        // Buffered text outranks a stale ViewModel draft for readers that cannot flush.
+        assertEquals("first second", buffer.latestDraft("first"))
+    }
+
+    @Test
     fun `background transcript write keeps a mid-edit draft and edit mode`() =
         runTest {
             // A pipeline write (enhancement finishing) landing while the user types must not

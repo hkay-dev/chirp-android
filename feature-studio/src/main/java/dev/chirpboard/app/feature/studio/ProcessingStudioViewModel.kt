@@ -2,6 +2,7 @@ package dev.chirpboard.app.feature.studio
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.Stable
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -43,6 +44,9 @@ import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
+// Observable state is exposed only through StateFlow, so Compose can treat a reference to this
+// ViewModel as stable and memoize the method references the screen hands to its children.
+@Stable
 @HiltViewModel
 class ProcessingStudioViewModel
     @Inject
