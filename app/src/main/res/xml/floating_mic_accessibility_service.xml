@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/floating_mic_accessibility_service_description"
+    android:accessibilityEventTypes="typeViewFocused|typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:notificationTimeout="50"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="false"
+    android:canRequestFilterKeyEvents="false"
+    android:canRequestTouchExplorationMode="false"
+    android:isAccessibilityTool="false" />

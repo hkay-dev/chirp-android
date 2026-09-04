@@ -80,23 +80,21 @@ contract.
    SwiftKey path.
 3. Keep `ChirpRecognitionService` for apps using `SpeechRecognizer`. It does not solve a caller that
    explicitly launches the activity.
-4. Do not add accessibility injection, clipboard paste, or a draw-over-apps window **for
-   quick-input delivery**. The controlled accessibility trial made result insertion less reliable
-   outside X as well, so Chirp must not manipulate another app's focus or editor state. This
-   prohibition is about crossing into another app's editor. The floating mic bubble (BUB-1) is a
-   draw-over window but stays inside the sanctioned boundary: it exists only while the Chirp IME
-   owns a live, non-sensitive input session, its window is `FLAG_NOT_FOCUSABLE` so the target
-   field keeps focus, and its tap drives the keyboard's own dictation flow, committing through
-   Chirp's own `InputConnection` — never another keyboard's session.
+4. Do not bring back accessibility injection for quick-input delivery. The controlled trial made
+   result insertion less reliable outside X as well, so Chirp must not change another app's focus
+   or editor state. The accessibility service may read field and window metadata only to tell when
+   an editor has focus, is visible, is not a password field, and has an input-method window. It must not
+   read or store field text, call `ACTION_SET_TEXT`, or act on the editor node.
 
-For the proven X and SwiftKey failure, the standard contract is exhausted. Any automatic workaround
-must cross that boundary explicitly. The least risky choices are:
+For the proven X and SwiftKey failure, the standard result contract is exhausted. Chirp keeps the
+sticky copy notification for that path. The global mic bubble is a separate, user-started clipboard
+flow and does not try to repair another keyboard's result handoff.
 
-1. Keep activity-result delivery authoritative and show the latest non-secure result in a sticky
-   copy notification. Tapping the card copies the AI result when available, otherwise the original.
-   The card remains available for the configured 30-second, 1-minute, or 5-minute lifetime.
-2. Use Chirp as the active IME, where it owns the `InputConnection` and can commit directly. This is
-   the cleanest technical path, but it changes the user's keyboard workflow.
+- Keep activity-result delivery authoritative for external `RecognizerIntent` callers. Show the
+  latest non-secure result in a sticky copy notification when the caller loses it.
+- Let the global mic bubble open Chirp's visible recognition sheet. Copy the finished result from
+  that focused sheet, then show it in a compact editor where a confirmed edit replaces the clipboard
+  text. Return to the original app without writing through its editor connection.
 
 ## Live diagnostic procedure
 
@@ -110,6 +108,24 @@ must cross that boundary explicitly. The least risky choices are:
 
 ## Permanent behavior
 
+- Run the opt-in accessibility service as a metadata-only detector. Show the global bubble only
+  when an editor has focus, is visible, is not a password field, and any input-method window is present.
+- Draw the trigger as a `TYPE_ACCESSIBILITY_OVERLAY` with a non-focusable window. The accessibility
+  service does not need the draw-over-other-apps grant for this bubble.
+- Open the visible Chirp recognition sheet from a bubble tap. The sheet owns microphone capture and
+  keeps Chirp visible for the while-in-use lifetime.
+- Copy the preferred finished text from the focused sheet automatically, using the AI result after a
+  clean polish and the raw transcript after an AI failure. Keep the floating path's sticky result
+  notification off because the focused sheet owns both clipboard delivery and review.
+- Keep the editor switch off for each new floating recording. When the switch stays off, copy the
+  preferred text and close the sheet. When the switch is on, show the copied text in an editable
+  review inside the recognition sheet.
+- Let the review run any selectable AI preset against the text now shown. A confirmed edit replaces
+  the clipboard text and closes the review. Close or Back keeps the automatically copied result, and
+  a blank draft cannot replace it.
+- Leave the clipboard unchanged on recording cancel or no-speech.
+- Never change focus, call `ACTION_SET_TEXT`, inject text, or save another app's field contents from
+  the accessibility service.
 - Request unchanged soft-input visibility.
 - Keep the screen awake for the entire quick-input window.
 - Preserve the established Chirp bottom-sheet appearance.
@@ -129,16 +145,18 @@ must cross that boundary explicitly. The least risky choices are:
   surviving audio is usable; keep the audio even when it produces no text.
 - Keep the existing Save Keyboard Recordings choice for successful history entries. Rescue paths
   still save failures regardless of that preference.
-- Complete the caller result as soon as transcription and persistence settle. Notification posting
-  runs from the process owner and does not own or change the caller result.
+- For external `RecognizerIntent` callers, finish the caller result as soon as transcription and
+  persistence settle. Notification posting runs from the process owner and does not own or change
+  the caller result.
 - Replace the previous quick-input notification. Default to 30 seconds with 1-minute and 5-minute
   options in Keyboard Settings.
 - Tapping the notification copies the preferred result without dismissing it. Offer `Copy original`
   and, when it differs, `Copy AI result`; never put secure-session text in a notification.
+- Keep dictation history as the longer-lived copy backup when the user enables it.
 - Perform the copy from a briefly focused translucent activity, never a background receiver.
   Android only guarantees a clipboard write for the focused app or the default IME, so the old
   receiver could show `Copied` while the write was silently dropped. On Android 13+ the system's
   clipboard confirmation is the only feedback; the app toast remains for older versions.
-- Never use accessibility or cross-app focus manipulation for quick-input delivery.
+- Never use accessibility or cross-app focus manipulation to deliver text.
 - Keep explicit cancellation user-owned. App switching and ordinary activity teardown leave a
   non-secure transcription running; secure teardown cancels and deletes its temporary audio.

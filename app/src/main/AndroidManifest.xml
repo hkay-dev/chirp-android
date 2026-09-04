@@ -81,6 +81,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Keeps bubble-started recognition in a temporary task so closing the sheet returns
+             straight to the editor that was open under the accessibility overlay. -->
+        <activity
+            android:name=".quickinput.FloatingVoiceCaptureActivity"
+            android:autoRemoveFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:windowSoftInputMode="stateUnchanged|adjustResize" />
+
         <!-- Input Method Service (from feature-keyboard). No foregroundServiceType: the IME
              never calls startForeground — keyboard capture is in-process and recordings run
              through RecordingService, which owns the microphone FGS type. -->
@@ -110,6 +120,22 @@
             <meta-data
                 android:name="android.speech.recognition"
                 android:resource="@xml/recognition_service" />
+        </service>
+
+        <!-- Opt-in floating mic for any on-screen keyboard. The service checks only whether the
+             focused node is editable, visible, and non-password; it never reads or changes text. -->
+        <service
+            android:name=".quickinput.FloatingMicAccessibilityService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/floating_mic_accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/floating_mic_accessibility_service" />
         </service>
 
         <!-- RecordingService is declared by feature-recording's own manifest (single owner);

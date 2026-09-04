@@ -7,7 +7,6 @@ import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.SystemClock
-import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.Log
 import android.view.View
@@ -43,7 +42,6 @@ import dev.chirpboard.app.core.audio.AudioSettings
 import dev.chirpboard.app.core.audio.AudioSettingsStore
 import dev.chirpboard.app.core.llm.ProcessingModePort
 import dev.chirpboard.app.core.modelreadiness.SpeechModelReadinessGate
-import dev.chirpboard.app.core.preferences.FloatingBubblePosition
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.recording.KeyboardPendingStopStore
 import dev.chirpboard.app.core.recording.KeyboardRecordingStopBridge
@@ -159,13 +157,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
     // RELY-5: true while this bind was entered through the auxiliary voice subtype (another
     // keyboard handed us its mic key); the flag drives the switch back after the dictation ends.
     private var voiceSubtypeSession = false
-
-    // BUB-1: optional floating mic bubble. Owned here because only the active IME's
-    // InputConnection can insert text; the bubble is a second trigger for the same session.
-    private var floatingBubble: FloatingMicBubbleController? = null
-    private var floatingBubbleEnabled = false
-    private var floatingBubblePosition = FloatingBubblePosition()
-    private var inputViewActive = false
 
     // IME-5: the stray-z cleanup may only be considered for the FIRST client bind after service
     // creation (a genuine IME switch recreates this service) and only within a freshness window,
@@ -316,44 +307,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
             }
         drainPendingKeyboardStopIfNeeded()
 
-        floatingBubble =
-            FloatingMicBubbleController(
-                context = this,
-                onTap = ::onMicTapForCurrentInput,
-                onPositionCommitted = { position ->
-                    floatingBubblePosition = position
-                    scope.launch { keyboardPreferences.setFloatingBubblePosition(position) }
-                },
-            )
-        scope.launch {
-            keyboardPreferences.floatingMicBubbleEnabled.collect { enabled ->
-                floatingBubbleEnabled = enabled
-                refreshFloatingBubble()
-            }
-        }
-        scope.launch {
-            keyboardPreferences.floatingBubblePosition.collect { position ->
-                floatingBubblePosition = position
-            }
-        }
-        scope.launch {
-            coordinator.uiState.collect { state ->
-                floatingBubble?.setPhase(floatingBubblePhaseFor(state))
-            }
-        }
-    }
-
-    private fun refreshFloatingBubble() {
-        val bubble = floatingBubble ?: return
-        val show =
-            shouldShowFloatingBubble(
-                enabled = floatingBubbleEnabled,
-                canDrawOverlays = Settings.canDrawOverlays(this),
-                windowShown = windowShownState.value,
-                inputViewActive = inputViewActive,
-                sensitiveInput = inputSessionGuard.isSensitiveInput,
-            )
-        if (show) bubble.show(floatingBubblePosition) else bubble.hide()
     }
 
     private fun drainPendingKeyboardStopIfNeeded() {
@@ -427,7 +380,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         // The window instance can change across show cycles; re-apply the dictation-scoped flag.
         updateImeKeepScreenOn(window?.window, enabled = coordinator.isRecordingActive())
         windowShownState.value = true
-        refreshFloatingBubble()
         if (recomposerFrameClock.isPaused) {
             recomposerFrameClock.resume()
         }
@@ -439,7 +391,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         super.onWindowHidden()
         updateImeKeepScreenOn(window?.window, enabled = false)
         windowShownState.value = false
-        refreshFloatingBubble()
         // PRF-3: with the keyboard window hidden there is nothing to draw — drop the lifecycle to
         // CREATED so lifecycle-aware flow collection suspends, and pause the frame clock so the
         // idle aura's infinite transition stops burning a CPU wakeup per vsync all day. Dictation
@@ -579,8 +530,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
         val cleanupStraySwitchCharacter = pendingImeSwitchCleanup && !restarting && !preserveSession
         pendingImeSwitchCleanup = false
         inputSessionGuard.startInput(info, preserveSession = preserveSession, restarting = restarting)
-        inputViewActive = true
-        refreshFloatingBubble()
         if (inputSessionGuard.isSensitiveInput) {
             if (coordinator.isRecordingActive()) {
                 coordinator.finalizeActiveRecording(
@@ -653,10 +602,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)
-        // The bubble may not outlive the input view even across the config-change grace: the
-        // session it would trigger has no view to re-anchor to until onStartInputView reshows it.
-        inputViewActive = false
-        refreshFloatingBubble()
         if (!finishingInput && isConfigChangeInFlight()) {
             // Rotation tears the input view down and restarts it moments later; keep the
             // dictation session alive so in-progress recording and pending commits survive.
@@ -693,8 +638,6 @@ private const val VOICE_SUBTYPE_MODE = "voice"
     }
 
     override fun onDestroy() {
-        floatingBubble?.hide()
-        floatingBubble = null
         updateImeKeepScreenOn(window?.window, enabled = false)
         stopBridgeRegistration?.let(keyboardStopBridge::clearStopHandler)
         stopBridgeRegistration = null

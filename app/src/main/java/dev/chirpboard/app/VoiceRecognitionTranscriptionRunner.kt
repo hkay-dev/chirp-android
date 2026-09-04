@@ -39,10 +39,17 @@ class VoiceRecognitionTranscriptionRunner
                     try {
                         val outcome = transcribe(request)
                         result.complete(outcome)
-                        if (!request.secure && outcome.committedText.isNotBlank()) {
+                        if (
+                            request.publishNotification &&
+                            !request.secure &&
+                            outcome.committedText.isNotBlank()
+                        ) {
                             notificationPublisher.show(
                                 rawText = outcome.rawText ?: outcome.committedText,
-                                processedText = outcome.processedText,
+                                processedText =
+                                    outcome.processedText?.takeIf {
+                                        outcome.terminalPhase == InlineTranscriptionPhase.Idle
+                                    },
                             )
                         }
                     } catch (error: CancellationException) {
@@ -120,6 +127,7 @@ class VoiceRecognitionTranscriptionRunner
             val llmEnabled: Boolean,
             val processingModeId: String,
             val secure: Boolean,
+            val publishNotification: Boolean = true,
             val captureFailureMessage: String? = null,
         )
 

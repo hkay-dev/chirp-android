@@ -13,7 +13,8 @@
             android:excludeFromRecents="true"
             android:noHistory="true"
             android:taskAffinity=""
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:windowSoftInputMode="stateUnchanged|adjustNothing" />
 
         <!-- RELY-6: notification Retry action for failed transcriptions; needs no focus,
              so a receiver (not the copy activity's focus shim) is the right surface. -->

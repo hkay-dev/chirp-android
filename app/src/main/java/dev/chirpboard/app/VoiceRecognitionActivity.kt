@@ -1,6 +1,8 @@
 package dev.chirpboard.app
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
@@ -13,6 +15,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
@@ -27,6 +33,7 @@ import dev.chirpboard.app.core.audio.recorder.VoiceRecorder
 import dev.chirpboard.app.core.audio.recorder.VoiceRecorder.CaptureStorageMode
 import dev.chirpboard.app.core.llm.ProcessingMode
 import dev.chirpboard.app.core.llm.ProcessingModePort
+import dev.chirpboard.app.core.llm.RecordingTextEnhancementPort
 import dev.chirpboard.app.core.preferences.KeyboardPreferences
 import dev.chirpboard.app.core.recording.RecordingOrigin
 import dev.chirpboard.app.core.recording.RecordingPermissionGuard
@@ -37,9 +44,12 @@ import dev.chirpboard.app.core.transcription.InlineCapturePersistReason
 import dev.chirpboard.app.core.transcription.InlineCapturePersistence
 import dev.chirpboard.app.core.transcription.InlineTranscriptionPhase
 import dev.chirpboard.app.core.transcription.TranscriberProvider
-import dev.chirpboard.app.feature.transcription.inline.RESCUE_SAVED_SUFFIX
 import dev.chirpboard.app.core.ui.theme.ChirpTheme
 import dev.chirpboard.app.core.ui.theme.DynamicColorPreference
+import dev.chirpboard.app.feature.transcription.inline.RESCUE_SAVED_SUFFIX
+import dev.chirpboard.app.quickinput.EXTRA_FLOATING_VOICE_REVIEW
+import dev.chirpboard.app.quickinput.EXTRA_FLOATING_VOICE_REVIEW_HANDLED
+import dev.chirpboard.app.quickinput.FloatingTranscriptReviewDialog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -47,6 +57,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -224,6 +235,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
 
     @Inject lateinit var modePort: ProcessingModePort
 
+    @Inject lateinit var textEnhancement: RecordingTextEnhancementPort
+
     @Inject lateinit var keyboardPreferences: KeyboardPreferences
 
     @Inject lateinit var dynamicColorPreference: DynamicColorPreference
@@ -266,6 +279,18 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private var captureCheckpointJob: Job? = null
     private var stopJob: Job? = null
     private var activeTranscriptionSession: VoiceRecognitionTranscriptionRunner.Session? = null
+    private var floatingReviewField by mutableStateOf<TextFieldValue?>(null)
+    private var floatingReviewCopyStarted by mutableStateOf(false)
+    private var floatingReviewInitialCopySucceeded by mutableStateOf(false)
+    private var floatingEditorEnabled by mutableStateOf(false)
+    private var floatingReviewToggleLocked by mutableStateOf(false)
+    private var floatingReviewSelectedModeId by mutableStateOf(ProcessingMode.Proofread.id)
+    private var floatingReviewAiProcessing by mutableStateOf(false)
+    private var floatingReviewAiFailed by mutableStateOf(false)
+    private var floatingReviewOriginalText = ""
+    private var floatingReviewAutoCopyPending = false
+    private var floatingReviewRequested = false
+    private var floatingReviewAiJob: Job? = null
     private var activityDestroyed = false
 
     /**
@@ -276,8 +301,12 @@ class VoiceRecognitionActivity : ComponentActivity() {
     private val secureSession: Boolean
         get() = intent?.getBooleanExtra(RecognizerIntent.EXTRA_SECURE, false) == true
 
+    private val floatingVoiceReview: Boolean
+        get() = intent?.getBooleanExtra(EXTRA_FLOATING_VOICE_REVIEW, false) == true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val restoredFloatingReview = restoreFloatingReviewState(savedInstanceState)
         val requestHasPendingResult =
             intent?.hasExtra(RecognizerIntent.EXTRA_RESULTS_PENDINGINTENT) == true
         Log.i(
@@ -316,6 +345,9 @@ class VoiceRecognitionActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
         params.dimAmount = DIALOG_DIM_AMOUNT
         window.attributes = params
+        if (restoredFloatingReview && floatingReviewField != null) {
+            prepareFloatingReviewWindow()
+        }
 
         // IME-2/AUD-17: the recorder's 10-minute cap and mid-capture failures must end the
         // session like a user action instead of leaving a frozen "listening" dialog.
@@ -452,6 +484,11 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             modePort.setModeById(modeId)
                         }
                     },
+                    autoStartOnOpen = !restoredFloatingReview,
+                    showFloatingReviewToggle = floatingVoiceReview,
+                    floatingReviewEnabled = floatingEditorEnabled,
+                    floatingReviewToggleEnabled = !floatingReviewToggleLocked,
+                    onFloatingReviewEnabledChange = { floatingEditorEnabled = it },
                     inputDevicePicker =
                         InputDevicePickerUiState(
                             devices = inputDevices,
@@ -484,8 +521,89 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         bluetoothPermissionLauncher.launch(android.Manifest.permission.BLUETOOTH_CONNECT)
                     },
                 )
+                floatingReviewField?.let { reviewField ->
+                    FloatingTranscriptReviewDialog(
+                        value = reviewField,
+                        copyStarted = floatingReviewCopyStarted,
+                        initialCopySucceeded = floatingReviewInitialCopySucceeded,
+                        selectableModes = selectableModes,
+                        selectedModeId = floatingReviewSelectedModeId,
+                        aiProcessing = floatingReviewAiProcessing,
+                        aiFailed = floatingReviewAiFailed,
+                        onValueChange = {
+                            floatingReviewField = it
+                            floatingReviewAiFailed = false
+                        },
+                        onModeSelected = {
+                            floatingReviewSelectedModeId = it
+                            floatingReviewAiFailed = false
+                        },
+                        onApplyPreset = ::applyFloatingReviewPreset,
+                        onCopy = ::copyFloatingReviewAndFinish,
+                        onCancel = ::closeFloatingReview,
+                    )
+                }
             }
         }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) copyFloatingReviewWhenFocused()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (floatingVoiceReview && floatingReviewOriginalText.isNotBlank()) {
+            val field = floatingReviewField
+            val draftText = field?.text ?: floatingReviewOriginalText
+            outState.putBoolean(STATE_FLOATING_REVIEW_OPEN, true)
+            outState.putBoolean(STATE_FLOATING_REVIEW_FIELD_OPEN, field != null)
+            outState.putString(STATE_FLOATING_REVIEW_ORIGINAL, floatingReviewOriginalText)
+            outState.putString(STATE_FLOATING_REVIEW_DRAFT, draftText)
+            outState.putInt(STATE_FLOATING_REVIEW_SELECTION_START, field?.selection?.start ?: draftText.length)
+            outState.putInt(STATE_FLOATING_REVIEW_SELECTION_END, field?.selection?.end ?: draftText.length)
+            outState.putBoolean(STATE_FLOATING_REVIEW_INITIAL_COPY, floatingReviewInitialCopySucceeded)
+            outState.putBoolean(STATE_FLOATING_REVIEW_AUTO_COPY_PENDING, floatingReviewAutoCopyPending)
+            outState.putBoolean(STATE_FLOATING_EDITOR_ENABLED, floatingEditorEnabled)
+            outState.putBoolean(STATE_FLOATING_REVIEW_REQUESTED, floatingReviewRequested)
+            outState.putString(STATE_FLOATING_REVIEW_MODE, floatingReviewSelectedModeId)
+        }
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun restoreFloatingReviewState(savedInstanceState: Bundle?): Boolean {
+        if (!floatingVoiceReview || savedInstanceState?.getBoolean(STATE_FLOATING_REVIEW_OPEN) != true) {
+            return false
+        }
+        val originalText = savedInstanceState.getString(STATE_FLOATING_REVIEW_ORIGINAL).orEmpty()
+        val draftText = savedInstanceState.getString(STATE_FLOATING_REVIEW_DRAFT).orEmpty()
+        val selectionStart =
+            savedInstanceState
+                .getInt(STATE_FLOATING_REVIEW_SELECTION_START, draftText.length)
+                .coerceIn(0, draftText.length)
+        val selectionEnd =
+            savedInstanceState
+                .getInt(STATE_FLOATING_REVIEW_SELECTION_END, selectionStart)
+                .coerceIn(0, draftText.length)
+        floatingReviewOriginalText = originalText
+        if (savedInstanceState.getBoolean(STATE_FLOATING_REVIEW_FIELD_OPEN)) {
+            floatingReviewField =
+                TextFieldValue(
+                    text = draftText,
+                    selection = TextRange(selectionStart, selectionEnd),
+                )
+        }
+        floatingReviewInitialCopySucceeded =
+            savedInstanceState.getBoolean(STATE_FLOATING_REVIEW_INITIAL_COPY)
+        floatingReviewAutoCopyPending =
+            savedInstanceState.getBoolean(STATE_FLOATING_REVIEW_AUTO_COPY_PENDING)
+        floatingEditorEnabled = savedInstanceState.getBoolean(STATE_FLOATING_EDITOR_ENABLED, true)
+        floatingReviewRequested = savedInstanceState.getBoolean(STATE_FLOATING_REVIEW_REQUESTED)
+        floatingReviewToggleLocked = true
+        floatingReviewSelectedModeId =
+            savedInstanceState.getString(STATE_FLOATING_REVIEW_MODE)
+                ?: ProcessingMode.Proofread.id
+        return true
     }
 
     private fun startRecording() {
@@ -506,6 +624,8 @@ class VoiceRecognitionActivity : ComponentActivity() {
             _uiError.value = VoiceRecognitionUiError.PermissionMissing
             return
         }
+        floatingReviewToggleLocked = false
+        floatingReviewRequested = false
         // Reflect Starting in the dialog immediately; the coordinator's generation+mutex
         // (not this flag) is what serializes a rapid second tap against the in-flight start.
         _recordingState.value = RecordingState.Starting(RecordingOrigin.RECOGNITION)
@@ -663,6 +783,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
         processingMode: ProcessingMode,
         captureFailureMessage: String? = null,
     ) {
+        freezeFloatingReviewRequest()
         if (!canFinalizeRecognitionCapture(_recordingState.value, captureFailureMessage != null)) {
             Log.w(TAG, "Not actively recording, ignoring stop request")
             return
@@ -735,6 +856,7 @@ class VoiceRecognitionActivity : ComponentActivity() {
                             llmEnabled = llmEnabled,
                             processingModeId = processingMode.id,
                             secure = secure,
+                            publishNotification = !floatingVoiceReview,
                             captureFailureMessage = captureFailureMessage,
                         ),
                     )
@@ -762,14 +884,18 @@ class VoiceRecognitionActivity : ComponentActivity() {
                         if (outcome.terminalPhase is InlineTranscriptionPhase.LlmError) {
                             Log.w(TAG, "LLM polish failed; returning raw transcript to caller")
                         }
-                        // Never log transcript content: this dialog handles dictation for
-                        // arbitrary apps. Log only its length (SLOP-7).
-                        Log.d(TAG, "Returning result to caller (${delivery.text.length} chars)")
-                        dismissWithResult(
-                            resultCode = Activity.RESULT_OK,
-                            data = buildRecognitionActivityResult(delivery.text),
-                            finishImmediately = true,
-                        )
+                        if (floatingVoiceReview) {
+                            deliverFloatingVoiceResult(delivery.text, processingMode.id)
+                        } else {
+                            // Never log transcript content: this dialog handles dictation for
+                            // arbitrary apps. Log only its length (SLOP-7).
+                            Log.d(TAG, "Returning result to caller (${delivery.text.length} chars)")
+                            dismissWithResult(
+                                resultCode = Activity.RESULT_OK,
+                                data = buildRecognitionActivityResult(delivery.text),
+                                finishImmediately = true,
+                            )
+                        }
                     }
 
                     is RecognitionDelivery.Failure -> {
@@ -833,6 +959,136 @@ class VoiceRecognitionActivity : ComponentActivity() {
             }
     }
 
+    private fun deliverFloatingVoiceResult(
+        text: String,
+        processingModeId: String,
+    ) {
+        floatingReviewOriginalText = text
+        floatingReviewSelectedModeId = processingModeId
+        floatingReviewInitialCopySucceeded = false
+        floatingReviewAutoCopyPending = true
+        if (floatingReviewRequested) {
+            showFloatingReviewEditor()
+        }
+        copyFloatingReviewWhenFocused()
+    }
+
+    private fun showFloatingReviewEditor() {
+        val text = floatingReviewOriginalText
+        floatingReviewField = TextFieldValue(text = text, selection = TextRange(text.length))
+        prepareFloatingReviewWindow()
+    }
+
+    private fun prepareFloatingReviewWindow() {
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
+        window.setSoftInputMode(
+            android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE,
+        )
+    }
+
+    private fun copyFloatingReviewWhenFocused() {
+        if (!floatingReviewAutoCopyPending || !window.decorView.hasWindowFocus()) return
+        floatingReviewAutoCopyPending = false
+        floatingReviewInitialCopySucceeded = copyFloatingReviewText(floatingReviewOriginalText)
+        if (shouldShowFloatingReviewEditor(floatingReviewRequested, floatingReviewInitialCopySucceeded)) {
+            if (floatingReviewField == null) {
+                showFloatingReviewEditor()
+            }
+        } else {
+            finishFloatingReview(floatingReviewOriginalText)
+        }
+        if (!floatingReviewInitialCopySucceeded) {
+            android.widget.Toast
+                .makeText(this, R.string.floating_mic_review_copy_failed, android.widget.Toast.LENGTH_SHORT)
+                .show()
+        }
+    }
+
+    private fun applyFloatingReviewPreset(modeId: String) {
+        val sourceText =
+            floatingReviewField
+                ?.text
+                ?.takeIf { it.isNotBlank() && !floatingReviewAiProcessing && !floatingReviewCopyStarted }
+                ?: return
+        floatingReviewSelectedModeId = modeId
+        floatingReviewAiProcessing = true
+        floatingReviewAiFailed = false
+        floatingReviewAiJob = lifecycleScope.launch {
+            try {
+                val processedText = textEnhancement.process(sourceText, modeId).getOrThrow()
+                kotlin.coroutines.coroutineContext.ensureActive()
+                if (_shouldDismiss.value) return@launch
+                if (processedText.isBlank()) {
+                    throw IllegalStateException("AI processing returned blank text")
+                }
+                floatingReviewField =
+                    TextFieldValue(
+                        text = processedText,
+                        selection = TextRange(processedText.length),
+                    )
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not apply floating review preset $modeId", error)
+                floatingReviewAiFailed = true
+            } finally {
+                floatingReviewAiProcessing = false
+                floatingReviewAiJob = null
+            }
+        }
+    }
+
+    private fun copyFloatingReviewAndFinish() {
+        val text =
+            floatingReviewField
+                ?.text
+                ?.takeIf { !floatingReviewCopyStarted && it.isNotBlank() }
+                ?: return
+        floatingReviewAutoCopyPending = false
+        floatingReviewCopyStarted = true
+        if (!copyFloatingReviewText(text)) {
+            floatingReviewCopyStarted = false
+            android.widget.Toast
+                .makeText(this, R.string.floating_mic_review_copy_failed, android.widget.Toast.LENGTH_SHORT)
+                .show()
+            return
+        }
+        finishFloatingReview(text)
+    }
+
+    private fun closeFloatingReview() {
+        floatingReviewAutoCopyPending = false
+        floatingReviewAiJob?.cancel()
+        finishFloatingReview(floatingReviewOriginalText)
+    }
+
+    private fun finishFloatingReview(resultText: String) {
+        floatingReviewAutoCopyPending = false
+        floatingReviewAiJob?.cancel()
+        dismissWithResult(
+            resultCode = Activity.RESULT_OK,
+            data =
+                buildRecognitionActivityResult(resultText).apply {
+                    putExtra(EXTRA_FLOATING_VOICE_REVIEW_HANDLED, true)
+                },
+            finishImmediately = true,
+        )
+    }
+
+    private fun copyFloatingReviewText(text: String): Boolean {
+        if (text.isBlank()) return false
+        val clipboard = getSystemService(ClipboardManager::class.java) ?: return false
+        return try {
+            clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.app_name), text))
+            true
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "Could not copy floating voice result", error)
+            false
+        }
+    }
+
     /**
      * Commits the capture using the settled AI settings, shared by the user's stop and
      * system-initiated session ends (recorder cap, permanent audio-focus loss). Reads the
@@ -841,10 +1097,18 @@ class VoiceRecognitionActivity : ComponentActivity() {
      * LLM toggle or processing mode.
      */
     private fun stopWithSettledSettings() {
+        freezeFloatingReviewRequest()
         lifecycleScope.launch {
             val llmEnabled = !secureSession && keyboardPreferences.llmEnabled.first()
             val mode = modePort.currentMode.first()
             stopRecording(llmEnabled, mode)
+        }
+    }
+
+    private fun freezeFloatingReviewRequest() {
+        if (floatingVoiceReview && !floatingReviewToggleLocked) {
+            floatingReviewRequested = floatingEditorEnabled
+            floatingReviewToggleLocked = true
         }
     }
 
@@ -1077,6 +1341,17 @@ class VoiceRecognitionActivity : ComponentActivity() {
         private const val TAG = "VoiceRecognitionActivity"
         private const val ACTIVITY_AUDIO_PATH_LABEL = "voice_recognition_activity_temp_recording"
         private const val MAIN_ACTIVITY_CLASS = "dev.chirpboard.app.MainActivity"
+        private const val STATE_FLOATING_REVIEW_OPEN = "floating_review_open"
+        private const val STATE_FLOATING_REVIEW_FIELD_OPEN = "floating_review_field_open"
+        private const val STATE_FLOATING_REVIEW_ORIGINAL = "floating_review_original"
+        private const val STATE_FLOATING_REVIEW_DRAFT = "floating_review_draft"
+        private const val STATE_FLOATING_REVIEW_SELECTION_START = "floating_review_selection_start"
+        private const val STATE_FLOATING_REVIEW_SELECTION_END = "floating_review_selection_end"
+        private const val STATE_FLOATING_REVIEW_INITIAL_COPY = "floating_review_initial_copy"
+        private const val STATE_FLOATING_REVIEW_AUTO_COPY_PENDING = "floating_review_auto_copy_pending"
+        private const val STATE_FLOATING_EDITOR_ENABLED = "floating_editor_enabled"
+        private const val STATE_FLOATING_REVIEW_REQUESTED = "floating_review_requested"
+        private const val STATE_FLOATING_REVIEW_MODE = "floating_review_mode"
 
         /** Material modal-scrim dim level for the host app behind the sheet (DLG-5/INS-2). */
         private const val DIALOG_DIM_AMOUNT = 0.32f
@@ -1249,6 +1524,11 @@ internal fun recognitionSessionLive(state: RecordingState): Boolean =
     state is RecordingState.Starting ||
         state is RecordingState.Recording ||
         state is RecordingState.Stopping
+
+internal fun shouldShowFloatingReviewEditor(
+    reviewEnabled: Boolean,
+    copySucceeded: Boolean,
+): Boolean = reviewEnabled || !copySucceeded
 
 /**
  * MIC-014: overlays a mid-session device-loss advisory onto the live capture's published

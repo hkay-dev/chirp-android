@@ -41,11 +41,11 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -54,9 +54,9 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -75,6 +75,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -135,6 +136,11 @@ internal fun VoiceRecognitionDialog(
     onDismissComplete: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
+    autoStartOnOpen: Boolean = true,
+    showFloatingReviewToggle: Boolean = false,
+    floatingReviewEnabled: Boolean = false,
+    floatingReviewToggleEnabled: Boolean = true,
+    onFloatingReviewEnabledChange: (Boolean) -> Unit = {},
     // AUDIODEV: compact input-device picker in the top bar. Selection applies to the
     // NEXT capture start; the host activity wires preference + live device list.
     inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
@@ -186,8 +192,10 @@ internal fun VoiceRecognitionDialog(
     // intent to dictate is already explicit). Capture starts with the first composition. The
     // brief visual ready beat and recognizer initialization run alongside it, never ahead of the mic.
     var preRollComplete by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        onStart()
+    LaunchedEffect(autoStartOnOpen) {
+        if (autoStartOnOpen) {
+            onStart()
+        }
         delay(READY_VISUAL_BEAT_MS)
         preRollComplete = true
     }
@@ -269,6 +277,10 @@ internal fun VoiceRecognitionDialog(
                 onRequestMicPermission = onRequestMicPermission,
                 onToggleLlm = onToggleLlm,
                 onModeChange = onModeChange,
+                showFloatingReviewToggle = showFloatingReviewToggle,
+                floatingReviewEnabled = floatingReviewEnabled,
+                floatingReviewToggleEnabled = floatingReviewToggleEnabled,
+                onFloatingReviewEnabledChange = onFloatingReviewEnabledChange,
                 inputDevicePicker = inputDevicePicker,
                 onSelectInputDeviceAutomatic = onSelectInputDeviceAutomatic,
                 onSelectInputDevice = onSelectInputDevice,
@@ -324,6 +336,10 @@ private fun VoiceRecognitionDialogContent(
     onRequestMicPermission: () -> Unit,
     onToggleLlm: (Boolean) -> Unit,
     onModeChange: (String) -> Unit,
+    showFloatingReviewToggle: Boolean,
+    floatingReviewEnabled: Boolean,
+    floatingReviewToggleEnabled: Boolean,
+    onFloatingReviewEnabledChange: (Boolean) -> Unit,
     inputDevicePicker: InputDevicePickerUiState = InputDevicePickerUiState(),
     onSelectInputDeviceAutomatic: () -> Unit = {},
     onSelectInputDevice: (AudioInputDeviceSummary) -> Unit = {},
@@ -417,7 +433,7 @@ private fun VoiceRecognitionDialogContent(
                         ),
             ) {
                 // Top bar: AI control top-start (always visible regardless of phase, mirroring the
-                // keyboard's KeyboardTopBar), close X top-end (DLG-1/DLG-2/parity).
+                // keyboard's KeyboardTopBar), labeled cancel action at the end (DLG-1/DLG-2/parity).
                 VoiceRecognitionTopBar(
                     llmEnabled = llmEnabled,
                     currentMode = currentMode,
@@ -431,6 +447,14 @@ private fun VoiceRecognitionDialogContent(
                     onSelectInputDevice = onSelectInputDevice,
                     onRequestBluetoothNames = onRequestBluetoothNames,
                 )
+
+                if (showFloatingReviewToggle) {
+                    FloatingReviewToggle(
+                        checked = floatingReviewEnabled,
+                        enabled = floatingReviewToggleEnabled && !isProcessing,
+                        onCheckedChange = onFloatingReviewEnabledChange,
+                    )
+                }
 
                 // AUDIODEV: transient "Using X — Y isn't connected" notice when the
                 // preferred mic was absent at capture start (fallback was used).
@@ -520,7 +544,7 @@ private fun VoiceRecognitionDialogContent(
 
 /**
  * Top bar mirroring the keyboard's [KeyboardTopBar]: the shared [ChirpLlmToggle] sparkle (which
- * opens a mode-selector dropdown) at the start, the close X at the end. Living in a fixed top bar
+ * opens a mode-selector dropdown) at the start, the labeled cancel action at the end. Living in a fixed top bar
  * keeps the AI control visible in every phase — it can never be pushed below the sheet and clipped
  * the way the old bottom chip was while recording (DLG-1/DLG-2).
  */
@@ -546,6 +570,7 @@ private fun VoiceRecognitionTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(
+            modifier = Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.ExtraSmall),
         ) {
@@ -567,15 +592,10 @@ private fun VoiceRecognitionTopBar(
             )
         }
 
-        IconButton(
+        TextButton(
             onClick = onCancel,
-            modifier = Modifier.size(48.dp),
         ) {
-            Icon(
-                Icons.Rounded.Close,
-                contentDescription = stringResource(CoreUiR.string.desc_cancel),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(stringResource(R.string.cancel))
         }
     }
 
@@ -586,6 +606,46 @@ private fun VoiceRecognitionTopBar(
             onSelectDevice = onSelectInputDevice,
             onRequestBluetoothNames = onRequestBluetoothNames,
             onDismiss = { deviceSheetOpen = false },
+        )
+    }
+}
+
+@Composable
+private fun FloatingReviewToggle(
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(ChirpShapes.KeyboardPanel)
+                .toggleable(
+                    value = checked,
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onValueChange = onCheckedChange,
+                )
+                .padding(horizontal = ChirpSpacing.Small, vertical = ChirpSpacing.ExtraSmall),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(ChirpSpacing.Small),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.floating_mic_editor_toggle_title),
+                style = MaterialTheme.typography.labelLarge,
+            )
+            Text(
+                text = stringResource(R.string.floating_mic_editor_toggle_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+            enabled = enabled,
         )
     }
 }
@@ -791,7 +851,7 @@ private val MicSize = 64.dp
 /** Footprint reserved for the mic affordance so error states keep the sheet's layout stable. */
 private val MicControlAreaSize = 96.dp
 
-/** Max width of the top-bar device chip so long Bluetooth names ellipsize, not push the close X. */
+/** Max width of the top-bar device chip so long Bluetooth names ellipsize before the cancel action. */
 private val DialogDeviceChipMaxWidth = 168.dp
 
 /** Minimum sheet bottom inset so content never sits flush against the edge when Good Lock zeroes it. */

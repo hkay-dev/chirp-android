@@ -33,10 +33,29 @@
     <string name="keyboard_settings_dictation_history_description">Save the text of recent dictations so you can copy them again if an app loses them. Last 50 kept; audio is never stored.</string>
     <string name="keyboard_settings_view_dictation_history_title">Dictation History</string>
     <string name="keyboard_settings_view_dictation_history_description">Browse and copy your recent dictations.</string>
-    <!-- BUB-1: floating one-tap dictation bubble shown while the Chirp keyboard is open. -->
+    <!-- Floating dictation bubble shown with any on-screen keyboard. -->
     <string name="keyboard_settings_floating_bubble_title">Floating Mic Bubble</string>
-    <string name="keyboard_settings_floating_bubble_description">Show a draggable bubble above the keyboard that starts and stops dictation with one tap.</string>
-    <string name="keyboard_settings_floating_bubble_permission">Needs the “Display over other apps” permission — allow it for Chirp to show the bubble.</string>
+    <string name="keyboard_settings_floating_bubble_description">Show a draggable mic when a text field and any on-screen keyboard are open.</string>
+    <string name="keyboard_settings_floating_bubble_permission">Needs accessibility access. Turn on Chirp Floating Mic in Android settings.</string>
+    <string name="keyboard_settings_accessibility_open_failed">Could not open accessibility settings.</string>
+    <string name="floating_mic_accessibility_service_label">Chirp Floating Mic</string>
+    <string name="floating_mic_accessibility_service_description">Shows a floating mic when an editable field and on-screen keyboard are open. Chirp checks field type and password status, and doesn’t read or change text.</string>
+    <string name="floating_mic_bubble_start_recording">Start voice input</string>
+    <string name="floating_mic_bubble_launch_failed">Could not open Chirp voice input.</string>
+    <string name="floating_mic_editor_toggle_title">Open editor after recording</string>
+    <string name="floating_mic_editor_toggle_description">The transcript is copied either way.</string>
+    <string name="floating_mic_review_title">Review dictation</string>
+    <string name="floating_mic_review_description">Already copied. Fix anything here, then copy the update.</string>
+    <string name="floating_mic_review_copy_needed_description">Fix anything here, then copy the transcript.</string>
+    <string name="floating_mic_review_field_label">Transcript</string>
+    <string name="floating_mic_review_blank">Enter some text to copy.</string>
+    <string name="floating_mic_review_copy">Copy and close</string>
+    <string name="floating_mic_review_cancel">Close</string>
+    <string name="floating_mic_review_copy_failed">Could not copy the transcript.</string>
+    <string name="floating_mic_review_ai_title">AI post-processing</string>
+    <string name="floating_mic_review_ai_apply">Apply</string>
+    <string name="floating_mic_review_ai_running">Working</string>
+    <string name="floating_mic_review_ai_failed">Couldn’t run that preset. Check your AI settings and try again.</string>
     <string name="keyboard_settings_system_title">System Settings</string>
     <string name="keyboard_settings_system_description">Enable or switch to the Chirp keyboard.</string>
     <!-- PROP-5: shown once Chirp is the enabled IME, so the "Enable Keyboard" action de-emphasizes.

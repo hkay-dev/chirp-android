@@ -2,13 +2,13 @@ package dev.chirpboard.app.feature.transcription
 
 import android.app.Activity
 import android.content.ClipData
-import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.os.PersistableBundle
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.annotation.StringRes
 import dagger.hilt.EntryPoint
@@ -60,6 +60,7 @@ class QuickInputCopyActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)
         pendingPlan = scope.async { resolvePlan(intent) }
         // If window focus never arrives (another window steals it immediately), this
         // invisible activity must not linger: attempt the copy anyway and leave.
@@ -132,10 +133,6 @@ class QuickInputCopyActivity : Activity() {
         }
 
         val clip = ClipData.newPlainText(getString(R.string.transcription_title), plan.text)
-        clip.description.extras =
-            PersistableBundle().apply {
-                putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
-            }
         try {
             clipboard.setPrimaryClip(clip)
         } catch (error: RuntimeException) {
@@ -164,6 +161,17 @@ class QuickInputCopyActivity : Activity() {
     )
 
     companion object {
+        /** Builds the explicit handoff used after a bubble-started recognition session. */
+        fun createRawQuickInputCopyIntent(
+            context: Context,
+            text: String,
+        ): Intent {
+            require(text.isNotBlank()) { "Quick-input text must not be blank" }
+            return Intent(context, QuickInputCopyActivity::class.java)
+                .setAction(ACTION_COPY_RAW)
+                .putExtra(EXTRA_TEXT, text)
+        }
+
         internal const val ACTION_COPY_RAW = "dev.chirpboard.app.action.COPY_QUICK_INPUT_RAW"
         internal const val ACTION_COPY_AI = "dev.chirpboard.app.action.COPY_QUICK_INPUT_AI"
         internal const val ACTION_COPY_TRANSCRIPT_RAW = "dev.chirpboard.app.action.COPY_TRANSCRIPTION_RAW"

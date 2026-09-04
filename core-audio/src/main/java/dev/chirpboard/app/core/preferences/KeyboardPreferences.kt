@@ -19,7 +19,7 @@ import javax.inject.Singleton
 const val DEFAULT_QUICK_INPUT_NOTIFICATION_TIMEOUT_MS = 30_000L
 val QUICK_INPUT_NOTIFICATION_TIMEOUT_OPTIONS_MS = listOf(30_000L, 60_000L, 300_000L)
 
-const val DEFAULT_FLOATING_BUBBLE_Y_FRACTION = 0.55f
+const val DEFAULT_FLOATING_BUBBLE_Y_FRACTION = 0.35f
 
 /** Keeps a persisted bubble anchor away from the status bar and the keyboard area. */
 val FLOATING_BUBBLE_Y_FRACTION_RANGE = 0.05f..0.85f
@@ -30,7 +30,7 @@ val FLOATING_BUBBLE_Y_FRACTION_RANGE = 0.05f..0.85f
  * survives rotation and display-size changes.
  */
 data class FloatingBubblePosition(
-    val onRight: Boolean = true,
+    val onRight: Boolean = false,
     val yFraction: Float = DEFAULT_FLOATING_BUBBLE_Y_FRACTION,
 )
 
@@ -91,11 +91,7 @@ class KeyboardPreferences @Inject constructor(
         preferences[Keys.dictationHistoryEnabled] ?: true
     }
 
-    /**
-     * BUB-1: whether the draggable floating mic bubble shows while the Chirp keyboard is
-     * open. Off by default — it draws over the host app and needs the separate
-     * "display over other apps" grant, so it is strictly opt-in.
-     */
+    /** Whether the opt-in accessibility mic bubble shows with any on-screen keyboard. */
     val floatingMicBubbleEnabled: Flow<Boolean> = dataStore.data.map { preferences ->
         preferences[Keys.floatingMicBubbleEnabled] ?: false
     }
@@ -103,7 +99,7 @@ class KeyboardPreferences @Inject constructor(
     /** Persisted bubble anchor; the fraction is re-coerced on read in case an old value drifted. */
     val floatingBubblePosition: Flow<FloatingBubblePosition> = dataStore.data.map { preferences ->
         FloatingBubblePosition(
-            onRight = preferences[Keys.floatingBubbleOnRight] ?: true,
+            onRight = preferences[Keys.floatingBubbleOnRight] ?: false,
             yFraction =
                 (preferences[Keys.floatingBubbleYFraction] ?: DEFAULT_FLOATING_BUBBLE_Y_FRACTION)
                     .coerceIn(FLOATING_BUBBLE_Y_FRACTION_RANGE),

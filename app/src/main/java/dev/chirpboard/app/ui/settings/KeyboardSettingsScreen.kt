@@ -1,9 +1,11 @@
 package dev.chirpboard.app.ui.settings
 
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -54,6 +56,7 @@ import dev.chirpboard.app.core.ui.components.SettingsSwitchItem
 import dev.chirpboard.app.core.ui.components.StatusBadge
 import dev.chirpboard.app.core.ui.theme.ChirpSpacing
 import dev.chirpboard.app.feature.transcription.DictationHistoryActivity
+import dev.chirpboard.app.quickinput.FloatingMicAccessibilityService
 import kotlinx.coroutines.launch
 
 private val KeyboardProcessingModeIds = listOf(null, "proofread", "formal", "casual", "email", "code", "smart")
@@ -108,16 +111,17 @@ fun KeyboardSettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     val systemSettingsOpenFailedMessage = stringResource(R.string.keyboard_settings_system_open_failed)
+    val accessibilitySettingsOpenFailedMessage =
+        stringResource(R.string.keyboard_settings_accessibility_open_failed)
 
     // PROP-5: reflect whether Chirp is already an enabled IME so the "Enable Keyboard" action can
     // de-emphasize once it's done. Re-checked on every resume — the user enables it on the system
     // settings page and returns here, so a one-shot read at first composition would go stale.
     var isKeyboardEnabled by remember { mutableStateOf(false) }
-    // BUB-1: same resume-time re-check for the bubble's "display over other apps" grant.
-    var canDrawOverlays by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var floatingMicAccessEnabled by remember { mutableStateOf(false) }
     LifecycleResumeEffect(Unit) {
         isKeyboardEnabled = isChirpKeyboardEnabled(context)
-        canDrawOverlays = Settings.canDrawOverlays(context)
+        floatingMicAccessEnabled = isFloatingMicAccessibilityEnabled(context)
         onPauseOrDispose { }
     }
 
@@ -179,14 +183,11 @@ fun KeyboardSettingsScreen(
             }
 
             item {
-                // BUB-1: the floating one-tap dictation bubble. Enabling persists immediately,
-                // and when the draw-over grant is missing the tap also routes to the system
-                // permission page; the subtitle flags the still-missing grant until it lands.
                 SettingsSwitchItem(
                     icon = Icons.Rounded.Adjust,
                     title = stringResource(R.string.keyboard_settings_floating_bubble_title),
                     subtitle =
-                        if (uiState.floatingMicBubbleEnabled && !canDrawOverlays) {
+                        if (uiState.floatingMicBubbleEnabled && !floatingMicAccessEnabled) {
                             stringResource(R.string.keyboard_settings_floating_bubble_permission)
                         } else {
                             stringResource(R.string.keyboard_settings_floating_bubble_description)
@@ -194,17 +195,12 @@ fun KeyboardSettingsScreen(
                     checked = uiState.floatingMicBubbleEnabled,
                     onCheckedChange = { checked ->
                         viewModel.setFloatingMicBubbleEnabled(checked)
-                        if (checked && !canDrawOverlays) {
+                        if (checked && !floatingMicAccessEnabled) {
                             try {
-                                context.startActivity(
-                                    Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:${context.packageName}"),
-                                    ),
-                                )
+                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                             } catch (_: android.content.ActivityNotFoundException) {
                                 coroutineScope.launch {
-                                    snackbarHostState.showSnackbar(systemSettingsOpenFailedMessage)
+                                    snackbarHostState.showSnackbar(accessibilitySettingsOpenFailedMessage)
                                 }
                             }
                         }
@@ -358,6 +354,21 @@ private fun isChirpKeyboardEnabled(context: Context): Boolean =
     try {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
         imm?.enabledInputMethodList.orEmpty().any { it.packageName == context.packageName }
+    } catch (_: RuntimeException) {
+        false
+    }
+
+/** Returns whether Android has the exact Chirp floating-mic accessibility service enabled. */
+internal fun isFloatingMicAccessibilityEnabled(context: Context): Boolean =
+    try {
+        val manager = context.getSystemService(AccessibilityManager::class.java) ?: return false
+        val expected = ComponentName(context, FloatingMicAccessibilityService::class.java)
+        manager
+            .getEnabledAccessibilityServiceList(AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { info ->
+                val serviceInfo = info.resolveInfo?.serviceInfo ?: return@any false
+                ComponentName(serviceInfo.packageName, serviceInfo.name) == expected
+            }
     } catch (_: RuntimeException) {
         false
     }
